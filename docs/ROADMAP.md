@@ -85,19 +85,29 @@ Config is persisted in `config/worlddownloader.json`.
 
 ---
 
-## 6. In-Game Status UI 🔲
+## 6. In-Game Status UI ✅
 
 **Goal:** Provide a LibGUI-based screen showing sync state and allowing the user to take actions.
 
-Screen contents:
+Screen contents (implemented in `ui/StatusScreen.java`):
 
-- **Source info**: world/server name and type.
-- **Metadata summary**: last sync time, total chunks tracked.
-- **Download status**: active / inactive toggle button.
-- **Conflict queue**: list of chunks awaiting manual resolution, with action buttons (overwrite / ignore / defer).
-- **Per-world settings**: override save location and conflict strategy.
+- **Source info**: world/server name and type, local mirror folder name.
+- **Metadata summary**: last sync time, total chunks cached across all dimensions.
+- **Download status**: active / inactive label; export running / idle label.
+- **Action buttons**:
+  - *Start / Stop Download* — toggles download mode (same as **P** key).
+  - *Export Now* — triggers immediate background export (same as **O** key).
+  - *Clear Data* — clears all cached chunks, entities, and containers.
+- **Conflict queue**: pending-conflict count with *Overwrite All* / *Ignore All* buttons
+  (only visible when the `MANUAL` conflict strategy has queued conflicts).
+- **Per-world settings**: cycle buttons to override save location and conflict strategy
+  for the current world/server, stored in `mirrors.json` via `MirrorMapping`.
+- **Global Settings** button → opens the existing `ConfigScreen`.
+- **Done** button → closes the screen.
 
-The screen opens via a dedicated keybinding and is also accessible from the Mod Menu settings screen.
+The screen opens via the **I** keybinding (`key.worlddownloader.status`) and is also
+accessible via the "Open Status Screen" button in the Mod Menu settings screen.
+Reopening recreates the description object so all labels always show current state.
 
 ---
 
@@ -146,7 +156,7 @@ This largely overlaps with the existing `ContainerTracker` work; the goal is to 
 
 ## Implementation Notes
 
-- Items §1–§5 and §7–§8 are **complete**.
+- Items §1–§8 are **complete**.
 - Items relating to multi-dimension support (§9, §10) can build on the dimension-aware
   `ChunkListener` and `Exporter` that are already in place.
 - §6 (in-game UI) is the main remaining priority; it depends on the mapping table (§5, done).

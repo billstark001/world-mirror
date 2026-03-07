@@ -1,5 +1,6 @@
 package net.billstark001.worlddownloader.config;
 
+import net.billstark001.worlddownloader.ui.StatusScreen;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -84,6 +85,14 @@ public class ConfigScreen extends Screen {
         ).dimensions(cx - 155, y, 310, 20).build());
 
         y += 36;
+
+        // ── Open Status Screen ────────────────────────────────────────────────
+        addDrawableChild(ButtonWidget.builder(
+                Text.translatable("screen.worlddownloader.status.openFromSettings"),
+                btn -> StatusScreen.open()
+        ).dimensions(cx - 155, y, 310, 20).build());
+
+        y += 24;
 
         // ── Done ─────────────────────────────────────────────────────────────
         addDrawableChild(ButtonWidget.builder(

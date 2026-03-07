@@ -135,14 +135,26 @@ public final class DownloadManager {
 
     /**
      * Returns the root folder for the mirror world.
-     * The folder name is derived from the current server/world name and persisted
-     * in {@code config/worlddownloader/mirrors.json}.
+     * Per-world save-location (from {@link MirrorMapping}) takes precedence over the global config.
      */
     public static Path getOutputPath(MinecraftClient client) {
-        ModConfig config = ModConfig.get();
-        String sourceId    = WorldMetadata.detectSourceId(client);
-        String folderName  = MirrorMapping.getInstance().getMirrorFolderName(sourceId);
-        if (config.defaultSaveLocation == ModConfig.SaveLocation.SAVES) {
+        String sourceId   = WorldMetadata.detectSourceId(client);
+        String folderName = MirrorMapping.getInstance().getMirrorFolderName(sourceId);
+
+        // Per-world override wins over global config
+        String perWorldLoc = MirrorMapping.getInstance().getPerWorldSaveLocation(sourceId);
+        ModConfig.SaveLocation saveLocation;
+        if (perWorldLoc != null) {
+            try {
+                saveLocation = ModConfig.SaveLocation.valueOf(perWorldLoc);
+            } catch (IllegalArgumentException e) {
+                saveLocation = ModConfig.get().defaultSaveLocation;
+            }
+        } else {
+            saveLocation = ModConfig.get().defaultSaveLocation;
+        }
+
+        if (saveLocation == ModConfig.SaveLocation.SAVES) {
             return FabricLoader.getInstance().getGameDir().resolve("saves").resolve(folderName);
         }
         return FabricLoader.getInstance().getGameDir()
@@ -233,7 +245,7 @@ public final class DownloadManager {
             try {
                 WorldMetadata meta = WorldMetadata.loadOrCreate(
                         finalWorldFolder, sourceId, sourceType);
-                ConflictResolver resolver = buildResolver();
+                ConflictResolver resolver = buildResolverForSource(sourceId);
 
                 Map<RegistryKey<World>, Set<ChunkPos>> written =
                         Exporter.exportChunks(finalWorldFolder, snapshot, entitySnapshot,
@@ -266,8 +278,21 @@ public final class DownloadManager {
         worker.start();
     }
 
-    private static ConflictResolver buildResolver() {
-        return switch (ModConfig.get().defaultConflictStrategy) {
+    /**
+     * Builds a conflict resolver for the given source, checking per-world overrides first.
+     * If {@code sourceId} is {@code null}, the global config is used directly.
+     */
+    public static ConflictResolver buildResolverForSource(String sourceId) {
+        ModConfig.ConflictStrategy strategy = ModConfig.get().defaultConflictStrategy;
+        if (sourceId != null) {
+            String perWorld = MirrorMapping.getInstance().getPerWorldConflictStrategy(sourceId);
+            if (perWorld != null) {
+                try {
+                    strategy = ModConfig.ConflictStrategy.valueOf(perWorld);
+                } catch (IllegalArgumentException ignored) {}
+            }
+        }
+        return switch (strategy) {
             case IGNORE -> new IgnoreResolver();
             case MANUAL -> new ManualResolver();
             default     -> new OverwriteResolver();

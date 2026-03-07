@@ -4,6 +4,7 @@
   "key.worlddownloader.export": "导出世界",
   "key.worlddownloader.clear":  "清除缓存数据",
   "key.worlddownloader.toggle": "切换下载",
+  "key.worlddownloader.status": "打开状态界面",
 
   "config.worlddownloader.title": "世界下载器设置",
 
@@ -23,9 +24,35 @@
   "config.worlddownloader.conflictStrategy.ignore":    "忽略",
   "config.worlddownloader.conflictStrategy.manual":    "手动",
 
-  "msg.worlddownloader.downloadStart": "§a世界下载器：已激活",
-  "msg.worlddownloader.downloadStop":  "§c世界下载器：已停用",
-  "msg.worlddownloader.exportDone":    "世界导出成功。",
-  "msg.worlddownloader.noChunks":      "没有缓存的区块，请先四处走动以加载区块。",
-  "msg.worlddownloader.cleared":       "已清除所有缓存数据。"
+  "msg.worlddownloader.downloadStart":  "§a世界下载器：已激活",
+  "msg.worlddownloader.downloadStop":   "§c世界下载器：已停用",
+  "msg.worlddownloader.exportDone":     "世界导出成功。",
+  "msg.worlddownloader.exportBusy":     "导出正在进行中，请稍候。",
+  "msg.worlddownloader.noChunks":       "没有缓存的区块，请先四处走动以加载区块。",
+  "msg.worlddownloader.cleared":        "已清除所有缓存数据。",
+
+  "screen.worlddownloader.status.title":            "世界下载器状态",
+  "screen.worlddownloader.status.sourceType":       "类型",
+  "screen.worlddownloader.status.sourceId":         "来源",
+  "screen.worlddownloader.status.mirrorPath":       "镜像",
+  "screen.worlddownloader.status.chunks":           "已缓存区块",
+  "screen.worlddownloader.status.lastSync":         "上次同步",
+  "screen.worlddownloader.status.lastSyncNever":    "从未",
+  "screen.worlddownloader.status.downloadActive":   "§a正在下载：激活",
+  "screen.worlddownloader.status.downloadInactive": "§c下载：已停用",
+  "screen.worlddownloader.status.exportRunning":    "§e导出：进行中…",
+  "screen.worlddownloader.status.exportIdle":       "导出：空闲",
+  "screen.worlddownloader.status.startDownload":    "开始下载",
+  "screen.worlddownloader.status.stopDownload":     "停止下载",
+  "screen.worlddownloader.status.exportNow":        "立即导出",
+  "screen.worlddownloader.status.clearData":        "清除数据",
+  "screen.worlddownloader.status.noConflicts":      "无待解决冲突",
+  "screen.worlddownloader.status.conflicts":        "待解决冲突",
+  "screen.worlddownloader.status.overwriteAll":     "全部覆盖",
+  "screen.worlddownloader.status.ignoreAll":        "全部忽略",
+  "screen.worlddownloader.status.saveLoc":          "保存位置",
+  "screen.worlddownloader.status.conflictStrategy": "冲突策略",
+  "screen.worlddownloader.status.openSettings":     "全局设置",
+  "screen.worlddownloader.status.openFromSettings": "打开状态界面"
 }
+

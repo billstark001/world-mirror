@@ -16,18 +16,35 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
- * Persistent mapping from source-ID → local mirror folder name.
+ * Persistent mapping from source-ID → local mirror folder name and per-world settings.
  * <p>
  * Stored in {@code config/worlddownloader/mirrors.json}.
  * Keys are the {@code sourceId} strings produced by
  * {@link WorldMetadata#detectSourceId(net.minecraft.client.MinecraftClient)},
  * e.g. {@code "server:play.example.com"} or {@code "local:MyWorld"}.
  * Values are sanitised folder names placed inside {@code downloaded_worlds/}.
+ * <p>
+ * Per-world save location and conflict strategy are stored as string maps (enum names).
+ * A {@code null} value means "use the global config default".
  */
 public class MirrorMapping {
 
     /** Maps {@code sourceId} → mirror folder name. */
     public Map<String, String> entries = new HashMap<>();
+
+    /**
+     * Per-world save location override.
+     * Key: {@code sourceId}; value: {@link net.billstark001.worlddownloader.config.ModConfig.SaveLocation} name.
+     * Absent or {@code null} → use global config.
+     */
+    public Map<String, String> perWorldSaveLocation = new HashMap<>();
+
+    /**
+     * Per-world conflict strategy override.
+     * Key: {@code sourceId}; value: {@link net.billstark001.worlddownloader.config.ModConfig.ConflictStrategy} name.
+     * Absent or {@code null} → use global config.
+     */
+    public Map<String, String> perWorldConflictStrategy = new HashMap<>();
 
     // ── Persistence ───────────────────────────────────────────────────────────
 
@@ -57,6 +74,8 @@ public class MirrorMapping {
                 MirrorMapping m = GSON.fromJson(r, MirrorMapping.class);
                 if (m != null) {
                     if (m.entries == null) m.entries = new HashMap<>();
+                    if (m.perWorldSaveLocation == null) m.perWorldSaveLocation = new HashMap<>();
+                    if (m.perWorldConflictStrategy == null) m.perWorldConflictStrategy = new HashMap<>();
                     return m;
                 }
             } catch (Exception e) {
@@ -101,6 +120,54 @@ public class MirrorMapping {
      */
     public void setMirrorFolderName(String sourceId, String folderName) {
         entries.put(sourceId, folderName);
+        save();
+    }
+
+    // ── Per-world save location ───────────────────────────────────────────────
+
+    /**
+     * Returns the per-world save-location override for {@code sourceId},
+     * or {@code null} if none has been set (meaning: use the global config).
+     */
+    public String getPerWorldSaveLocation(String sourceId) {
+        String v = perWorldSaveLocation.get(sourceId);
+        return (v != null && !v.isBlank()) ? v : null;
+    }
+
+    /**
+     * Sets a per-world save-location override.
+     * Pass {@code null} or an empty string to remove the override.
+     */
+    public void setPerWorldSaveLocation(String sourceId, String locationName) {
+        if (locationName == null || locationName.isBlank()) {
+            perWorldSaveLocation.remove(sourceId);
+        } else {
+            perWorldSaveLocation.put(sourceId, locationName);
+        }
+        save();
+    }
+
+    // ── Per-world conflict strategy ───────────────────────────────────────────
+
+    /**
+     * Returns the per-world conflict-strategy override for {@code sourceId},
+     * or {@code null} if none has been set (meaning: use the global config).
+     */
+    public String getPerWorldConflictStrategy(String sourceId) {
+        String v = perWorldConflictStrategy.get(sourceId);
+        return (v != null && !v.isBlank()) ? v : null;
+    }
+
+    /**
+     * Sets a per-world conflict-strategy override.
+     * Pass {@code null} or an empty string to remove the override.
+     */
+    public void setPerWorldConflictStrategy(String sourceId, String strategyName) {
+        if (strategyName == null || strategyName.isBlank()) {
+            perWorldConflictStrategy.remove(sourceId);
+        } else {
+            perWorldConflictStrategy.put(sourceId, strategyName);
+        }
         save();
     }
 

@@ -4,6 +4,7 @@
   "key.worlddownloader.export": "Export World",
   "key.worlddownloader.clear":  "Clear Cached Data",
   "key.worlddownloader.toggle": "Toggle Download",
+  "key.worlddownloader.status": "Open Status Screen",
 
   "config.worlddownloader.title": "World Downloader Settings",
 
@@ -28,5 +29,29 @@
   "msg.worlddownloader.exportDone":     "World exported successfully.",
   "msg.worlddownloader.exportBusy":     "Export already in progress — please wait.",
   "msg.worlddownloader.noChunks":       "No chunks cached — walk around to load chunks first.",
-  "msg.worlddownloader.cleared":        "Cleared all cached data."
+  "msg.worlddownloader.cleared":        "Cleared all cached data.",
+
+  "screen.worlddownloader.status.title":            "World Downloader Status",
+  "screen.worlddownloader.status.sourceType":       "Type",
+  "screen.worlddownloader.status.sourceId":         "Source",
+  "screen.worlddownloader.status.mirrorPath":       "Mirror",
+  "screen.worlddownloader.status.chunks":           "Chunks cached",
+  "screen.worlddownloader.status.lastSync":         "Last sync",
+  "screen.worlddownloader.status.lastSyncNever":    "Never",
+  "screen.worlddownloader.status.downloadActive":   "§aDownloading: Active",
+  "screen.worlddownloader.status.downloadInactive": "§cDownloading: Off",
+  "screen.worlddownloader.status.exportRunning":    "§eExport: Running…",
+  "screen.worlddownloader.status.exportIdle":       "Export: Idle",
+  "screen.worlddownloader.status.startDownload":    "Start Download",
+  "screen.worlddownloader.status.stopDownload":     "Stop Download",
+  "screen.worlddownloader.status.exportNow":        "Export Now",
+  "screen.worlddownloader.status.clearData":        "Clear Data",
+  "screen.worlddownloader.status.noConflicts":      "No pending conflicts",
+  "screen.worlddownloader.status.conflicts":        "Pending conflicts",
+  "screen.worlddownloader.status.overwriteAll":     "Overwrite All",
+  "screen.worlddownloader.status.ignoreAll":        "Ignore All",
+  "screen.worlddownloader.status.saveLoc":          "Save Location",
+  "screen.worlddownloader.status.conflictStrategy": "Conflict Strategy",
+  "screen.worlddownloader.status.openSettings":     "Global Settings",
+  "screen.worlddownloader.status.openFromSettings": "Open Status Screen"
 }
