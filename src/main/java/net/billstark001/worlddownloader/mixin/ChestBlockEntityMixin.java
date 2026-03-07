@@ -17,18 +17,18 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Environment(EnvType.CLIENT)
 @Mixin({ChestBlockEntity.class})
-public class ChestBlockEntityMixin
-{
-  @Inject(method = {"writeData"}, at = {@At("RETURN")})
-  private void onWriteNbt(WriteView view, CallbackInfo ci) {
-    ChestBlockEntity chest = (ChestBlockEntity)this;
-    BlockPos pos = chest.getPos();
-    CallbackInfoReturnable<NbtCompound> cir = new CallbackInfoReturnable(ci.getId(), false);
+public class ChestBlockEntityMixin {
 
-    
-    if (ContainerTracker.hasContainerData(pos)) {
-      NbtCompound enhancedNbt = ContainerTracker.enhanceBlockEntityWithContainerData((BlockEntity)chest, (NbtCompound)cir.getReturnValue());
-      cir.setReturnValue(enhancedNbt);
-    } 
-  }
+    @Inject(method = {"writeData"}, at = {@At("RETURN")})
+    private void onWriteNbt(WriteView view, CallbackInfo ci) {
+        ChestBlockEntity chest = (ChestBlockEntity) (Object) this;
+        BlockPos pos = chest.getPos();
+        CallbackInfoReturnable<NbtCompound> cir = new CallbackInfoReturnable(ci.getId(), false);
+
+
+        if (ContainerTracker.hasContainerData(pos)) {
+            NbtCompound enhancedNbt = ContainerTracker.enhanceBlockEntityWithContainerData(chest, cir.getReturnValue());
+            cir.setReturnValue(enhancedNbt);
+        }
+    }
 }

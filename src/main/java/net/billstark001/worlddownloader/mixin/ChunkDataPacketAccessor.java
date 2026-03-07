@@ -9,9 +9,9 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 @Environment(EnvType.CLIENT)
 @Mixin({ChunkDataS2CPacket.class})
 public interface ChunkDataPacketAccessor {
-  @Accessor("chunkX")
-  int getChunkX();
-  
-  @Accessor("chunkZ")
-  int getChunkZ();
+    @Accessor("chunkX")
+    int getChunkX();
+
+    @Accessor("chunkZ")
+    int getChunkZ();
 }

@@ -1,4 +1,5 @@
 package net.billstark001.worlddownloader.mixin;
+
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.billstark001.worlddownloader.util.ContainerTracker;
@@ -15,26 +16,26 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Environment(EnvType.CLIENT)
 @Mixin({ClientPlayNetworkHandler.class})
 public class ContainerMixin {
-  @Inject(method = {"onOpenScreen"}, at = {@At("TAIL")})
-  private void onOpenScreen(OpenScreenS2CPacket packet, CallbackInfo ci) {
-    ContainerTracker.onContainerOpened(packet.getSyncId(), packet.getName());
-  }
+    @Inject(method = {"onOpenScreen"}, at = {@At("TAIL")})
+    private void onOpenScreen(OpenScreenS2CPacket packet, CallbackInfo ci) {
+        ContainerTracker.onContainerOpened(packet.getSyncId(), packet.getName());
+    }
 
-  
-  @Inject(method = {"onScreenHandlerSlotUpdate"}, at = {@At("TAIL")})
-  private void onSlotUpdate(ScreenHandlerSlotUpdateS2CPacket packet, CallbackInfo ci) {
-    ContainerTracker.onSlotUpdate(packet.getSyncId(), packet.getSlot(), packet.getStack());
-  }
 
-  
-  @Inject(method = {"onInventory"}, at = {@At("TAIL")})
-  private void onInventory(InventoryS2CPacket packet, CallbackInfo ci) {
-    ContainerTracker.onInventoryUpdate(packet.comp_3837(), packet.comp_3839());
-  }
+    @Inject(method = {"onScreenHandlerSlotUpdate"}, at = {@At("TAIL")})
+    private void onSlotUpdate(ScreenHandlerSlotUpdateS2CPacket packet, CallbackInfo ci) {
+        ContainerTracker.onSlotUpdate(packet.getSyncId(), packet.getSlot(), packet.getStack());
+    }
 
-  
-  @Inject(method = {"onCloseScreen"}, at = {@At("TAIL")})
-  private void onCloseScreen(CloseScreenS2CPacket packet, CallbackInfo ci) {
-    ContainerTracker.onContainerClosed(packet.getSyncId());
-  }
+
+    @Inject(method = {"onInventory"}, at = {@At("TAIL")})
+    private void onInventory(InventoryS2CPacket packet, CallbackInfo ci) {
+        ContainerTracker.onInventoryUpdate(packet.syncId(), packet.contents());
+    }
+
+
+    @Inject(method = {"onCloseScreen"}, at = {@At("TAIL")})
+    private void onCloseScreen(CloseScreenS2CPacket packet, CallbackInfo ci) {
+        ContainerTracker.onContainerClosed(packet.getSyncId());
+    }
 }
