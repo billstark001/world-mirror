@@ -1,5 +1,5 @@
 {
-  "category.worlddownloader": "世界下载器",
+  "key.categories.worlddownloader": "世界下载器",
 
   "key.worlddownloader.export": "导出世界",
   "key.worlddownloader.clear":  "清除缓存数据",

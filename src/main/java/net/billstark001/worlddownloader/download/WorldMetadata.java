@@ -5,7 +5,9 @@ import com.google.gson.GsonBuilder;
 import net.billstark001.worlddownloader.util.WDLogger;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.registry.RegistryKey;
 import net.minecraft.util.math.ChunkPos;
+import net.minecraft.world.World;
 
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -21,6 +23,9 @@ import java.util.Set;
  * <p>
  * Survives being copied into {@code saves/} so that future sync sessions can
  * resume from where they left off.
+ * <p>
+ * This class is designed to be read/written from a background thread —
+ * it does not access any Minecraft game-thread objects after construction.
  */
 public class WorldMetadata {
 
@@ -39,8 +44,9 @@ public class WorldMetadata {
     public long lastSyncTime = 0;
 
     /**
-     * Per-chunk last-write timestamp.  Key is {@code "chunkX,chunkZ"};
-     * value is System.currentTimeMillis() at the time of writing.
+     * Per-chunk last-write timestamp.
+     * Key format: {@code "<dim_namespace>:<dim_path>|<chunkX>,<chunkZ>"},
+     * e.g. {@code "minecraft:overworld|0,0"}.
      */
     public Map<String, Long> chunkUpdateTimes = new HashMap<>();
 
@@ -50,33 +56,32 @@ public class WorldMetadata {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     /**
-     * Loads metadata from {@code worldFolder/wdl_meta.json}, or creates a
-     * fresh instance populated from the current Minecraft client state.
+     * Loads existing metadata from {@code worldFolder/wdl_meta.json}, or
+     * creates a fresh instance with the supplied source information.
+     * Safe to call from any thread.
      */
-    public static WorldMetadata loadOrCreate(Path worldFolder, MinecraftClient client) {
+    public static WorldMetadata loadOrCreate(Path worldFolder,
+                                             String sourceId,
+                                             String sourceType) {
         Path metaFile = worldFolder.resolve(FILE_NAME);
         if (metaFile.toFile().exists()) {
             try (Reader r = new FileReader(metaFile.toFile())) {
                 WorldMetadata loaded = GSON.fromJson(r, WorldMetadata.class);
                 if (loaded != null) {
-                    if (loaded.chunkUpdateTimes == null) {
-                        loaded.chunkUpdateTimes = new HashMap<>();
-                    }
+                    if (loaded.chunkUpdateTimes == null) loaded.chunkUpdateTimes = new HashMap<>();
                     return loaded;
                 }
             } catch (Exception e) {
                 WDLogger.warn("Could not read wdl_meta.json, creating fresh: " + e.getMessage());
             }
         }
-
-        // Build a fresh metadata object from the running client
         WorldMetadata meta = new WorldMetadata();
         meta.modVersion = FabricLoader.getInstance()
                 .getModContainer("worlddownloader")
                 .map(c -> c.getMetadata().getVersion().getFriendlyString())
                 .orElse("unknown");
-        meta.sourceType = detectSourceType(client);
-        meta.sourceId   = detectSourceId(client);
+        meta.sourceType = sourceType;
+        meta.sourceId   = sourceId;
         return meta;
     }
 
@@ -89,36 +94,59 @@ public class WorldMetadata {
         }
     }
 
+    // ── Per-chunk time tracking ───────────────────────────────────────────────
+
     /**
-     * Convenience method: load/create, stamp the given chunks as written right
-     * now, update {@code lastSyncTime}, then save.
+     * Returns the last time the given chunk was written to disk (0 if never).
      */
-    public static void update(Path worldFolder, MinecraftClient client,
-                              Set<ChunkPos> writtenChunks) {
-        WorldMetadata meta = loadOrCreate(worldFolder, client);
+    public long getChunkWriteTime(RegistryKey<World> dimension, ChunkPos pos) {
+        return chunkUpdateTimes.getOrDefault(chunkKey(dimension, pos), 0L);
+    }
+
+    /** Records that the given chunk was written at {@code timeMs}. */
+    public void setChunkWriteTime(RegistryKey<World> dimension, ChunkPos pos, long timeMs) {
+        chunkUpdateTimes.put(chunkKey(dimension, pos), timeMs);
+    }
+
+    private static String chunkKey(RegistryKey<World> dim, ChunkPos pos) {
+        return dim.getValue().toString() + "|" + pos.x + "," + pos.z;
+    }
+
+    // ── Convenience update ────────────────────────────────────────────────────
+
+    /**
+     * Load-or-create, stamp all written chunks with the current time,
+     * update {@code lastSyncTime}, then save.
+     */
+    public static void update(Path worldFolder,
+                              String sourceId,
+                              String sourceType,
+                              Map<RegistryKey<World>, Set<ChunkPos>> writtenByDim) {
+        WorldMetadata meta = loadOrCreate(worldFolder, sourceId, sourceType);
         long now = System.currentTimeMillis();
         meta.lastSyncTime = now;
-        for (ChunkPos pos : writtenChunks) {
-            meta.chunkUpdateTimes.put(pos.x + "," + pos.z, now);
-        }
-        // Keep mod version up-to-date
         meta.modVersion = FabricLoader.getInstance()
                 .getModContainer("worlddownloader")
                 .map(c -> c.getMetadata().getVersion().getFriendlyString())
                 .orElse("unknown");
+        for (Map.Entry<RegistryKey<World>, Set<ChunkPos>> dimEntry : writtenByDim.entrySet()) {
+            for (ChunkPos pos : dimEntry.getValue()) {
+                meta.setChunkWriteTime(dimEntry.getKey(), pos, now);
+            }
+        }
         meta.save(worldFolder);
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // ── Source detection (call on game thread) ────────────────────────────────
 
-    private static String detectSourceType(MinecraftClient client) {
+    public static String detectSourceType(MinecraftClient client) {
         try {
             if (client.getServer() != null) return "singleplayer";
         } catch (Exception ignored) {}
         return "server";
     }
 
-    private static String detectSourceId(MinecraftClient client) {
+    public static String detectSourceId(MinecraftClient client) {
         try {
             if (client.getCurrentServerEntry() != null) {
                 return "server:" + client.getCurrentServerEntry().address;

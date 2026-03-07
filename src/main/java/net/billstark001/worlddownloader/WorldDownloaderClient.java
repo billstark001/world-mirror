@@ -9,13 +9,18 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
-import net.minecraft.util.Identifier;
 
 @Environment(EnvType.CLIENT)
 public class WorldDownloaderClient implements ClientModInitializer {
 
-    private static final KeyBinding.Category CATEGORY =
-            KeyBinding.Category.create(Identifier.of("category.worlddownloader"));
+    /**
+     * Translation key for the keybinding category.
+     * The lang file supplies the human-readable name for this key.
+     * Using a plain string (not {@code KeyBinding.Category.create(Identifier)}) avoids
+     * the double-namespace expansion that produced
+     * {@code key.category.minecraft.category.worlddownloader}.
+     */
+    private static final String CATEGORY = "key.categories.worlddownloader";
 
     private static KeyBinding toggleKey;
     private static KeyBinding exportKey;

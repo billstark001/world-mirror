@@ -70,14 +70,18 @@ Config is persisted in `config/worlddownloader.json`.
 
 ---
 
-## 5. World–Mirror Mapping Table 🔲
+## 5. World–Mirror Mapping Table ✅
 
 **Goal:** Maintain a persistent mapping between source worlds / servers and their local mirror folders.
 
-- Stored in the Minecraft run directory (e.g. `config/worlddownloader/mirrors.json`).
-- Each entry records: `sourceId`, `mirrorPath`, `conflictStrategy`, `saveLocation`.
-- On first use of a world or server, the user is prompted to confirm / customise the mirror path.
-- The mapping is read on login and written on change.
+- Stored in `config/worlddownloader/mirrors.json` (`MirrorMapping` class).
+- Each entry maps `sourceId` → local folder name inside `downloaded_worlds/`.
+- On first use of a world or server, a folder name is auto-generated from the sanitised server
+  address or world name; the mapping is persisted immediately.
+- The output base directory changed from the single `downloaded_world/` folder to
+  `downloaded_worlds/<name>/` where `<name>` comes from the mapping table.
+- For `SaveLocation.SAVES`, the world is placed in `saves/<name>/` so it is immediately playable.
+- Future UI (§6) will allow the player to rename / reassign the mirror path.
 
 ---
 
@@ -142,8 +146,17 @@ This largely overlaps with the existing `ContainerTracker` work; the goal is to 
 
 ## Implementation Notes
 
-- Items §1–§4 and §7–§8 are **complete**.
-- Items §5 and §6 depend on each other and should be tackled together next.
+- Items §1–§5 and §7–§8 are **complete**.
+- Items relating to multi-dimension support (§9, §10) can build on the dimension-aware
+  `ChunkListener` and `Exporter` that are already in place.
+- §6 (in-game UI) is the main remaining priority; it depends on the mapping table (§5, done).
 - LibGUI is already a required dependency; use it for all new screens (§6).
-- The existing one-shot export keybinding (`O`) remains as a manual trigger alongside the toggle (`P`).
+- Export runs on a background daemon thread (`WDL-Export`) to avoid freezing the game.
+  Progress is reported via `WDLogger` (and therefore in-game chat at INFO level).
+- The dirty-check mechanism (`CapturedChunk.capturedAtMs` vs `WorldMetadata.chunkUpdateTimes`)
+  ensures that unchanged chunks are not re-written on every periodic sync.
+- The dimension-to-directory mapping follows Minecraft conventions:
+  overworld → `region/`, nether → `DIM-1/region/`, end → `DIM1/region/`,
+  other dimensions → `dimensions/<namespace>/<path>/region/`.
+
 

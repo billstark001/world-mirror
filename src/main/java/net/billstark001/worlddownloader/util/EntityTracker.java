@@ -1,6 +1,7 @@
 package net.billstark001.worlddownloader.util;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -15,294 +16,231 @@ import net.minecraft.entity.passive.AnimalEntity;
 import net.minecraft.entity.ItemEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.*;
+import net.minecraft.registry.RegistryKey;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.text.Text;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.registry.Registries;
+import net.minecraft.world.World;
 
 @Environment(EnvType.CLIENT)
 public class EntityTracker {
-    private static final Map<ChunkPos, List<NbtCompound>> chunkEntities = new ConcurrentHashMap<>();
 
-    public static void captureAllEntities() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        ClientWorld world = client.world;
+    // dimension → (chunkPos → entity list)
+    private static final ConcurrentHashMap<RegistryKey<World>, Map<ChunkPos, List<NbtCompound>>>
+            dimChunkEntities = new ConcurrentHashMap<>();
 
+    /**
+     * Captures all non-player entities in the given world and stores them under
+     * that world's dimension key.  Must be called on the game thread.
+     */
+    public static void captureEntitiesForWorld(ClientWorld world) {
         if (world == null) {
-            WDLogger.warn("ClientWorld is null, cannot capture entities");;
-
+            WDLogger.warn("ClientWorld is null, cannot capture entities.");
             return;
         }
-        chunkEntities.clear();
-        int totalEntities = 0;
 
-        WDLogger.info("Starting entity capture...");
+        RegistryKey<World> dimension = world.getRegistryKey();
+        Map<ChunkPos, ChunkListener.CapturedChunk> capturedChunks =
+                ChunkListener.getDimension(dimension);
+
+        Map<ChunkPos, List<NbtCompound>> dimEntities = new ConcurrentHashMap<>();
+        int total = 0;
 
         for (Entity entity : world.getEntities()) {
-            if (entity == null) {
-                continue;
-            }
-
-
-            if (entity instanceof net.minecraft.entity.player.PlayerEntity) {
-                continue;
-            }
+            if (entity == null || entity instanceof net.minecraft.entity.player.PlayerEntity) continue;
 
             Vec3d pos = entity.getEntityPos();
-            int chunkX = (int) Math.floor(pos.x) >> 4;
-            int chunkZ = (int) Math.floor(pos.z) >> 4;
-            ChunkPos chunkPos = new ChunkPos(chunkX, chunkZ);
+            int cx = (int) Math.floor(pos.x) >> 4;
+            int cz = (int) Math.floor(pos.z) >> 4;
+            ChunkPos chunkPos = new ChunkPos(cx, cz);
 
-
-            if (ChunkListener.getAll().containsKey(chunkPos)) {
+            if (capturedChunks.containsKey(chunkPos)) {
                 try {
-                    NbtCompound entityNbt = serializeEntity(entity);
-                    if (entityNbt != null) {
-                        chunkEntities.computeIfAbsent(chunkPos, k -> new ArrayList()).add(entityNbt);
-                        totalEntities++;
-
-                        String entityType = Registries.ENTITY_TYPE.getId(entity.getType()).toString();
-                        WDLogger.debug("Captured " + entityType + " at " + pos + " in chunk " + chunkPos);
+                    NbtCompound nbt = serializeEntity(entity);
+                    if (nbt != null) {
+                        dimEntities.computeIfAbsent(chunkPos, k -> new ArrayList<>()).add(nbt);
+                        total++;
+                        WDLogger.debug("Captured " + Registries.ENTITY_TYPE.getId(entity.getType())
+                                + " at " + pos + " in chunk " + chunkPos);
                     }
                 } catch (Exception e) {
                     WDLogger.warn("Failed to serialize entity at " + pos + ": " + e.getMessage());
-                    e.printStackTrace();
                 }
             }
         }
 
-        WDLogger.info("Captured " + totalEntities + " entities across " + chunkEntities.size() + " chunks");
-
-
-        for (Map.Entry<ChunkPos, List<NbtCompound>> entry : chunkEntities.entrySet()) {
-            WDLogger.debug("Chunk " + entry.getKey() + ": " + entry.getValue().size() + " entities");
-        }
+        dimChunkEntities.put(dimension, dimEntities);
+        WDLogger.info("Captured " + total + " entities for [" + dimension.getValue() + "]");
     }
 
-    private static NbtCompound serializeEntity(Entity entity) {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client.world == null) {
-            return null;
+    /**
+     * Returns an immutable snapshot of all entity data, safe to read from any thread.
+     */
+    public static Map<RegistryKey<World>, Map<ChunkPos, List<NbtCompound>>> snapshot() {
+        Map<RegistryKey<World>, Map<ChunkPos, List<NbtCompound>>> result = new HashMap<>();
+        for (Map.Entry<RegistryKey<World>, Map<ChunkPos, List<NbtCompound>>> dimEntry
+                : dimChunkEntities.entrySet()) {
+            Map<ChunkPos, List<NbtCompound>> dimCopy = new HashMap<>();
+            for (Map.Entry<ChunkPos, List<NbtCompound>> chunkEntry : dimEntry.getValue().entrySet()) {
+                dimCopy.put(chunkEntry.getKey(), new ArrayList<>(chunkEntry.getValue()));
+            }
+            result.put(dimEntry.getKey(), dimCopy);
         }
+        return result;
+    }
 
+    /** Looks up entities in a pre-fetched per-dimension entity map (for use inside Exporter). */
+    public static List<NbtCompound> getEntitiesForChunk(
+            Map<ChunkPos, List<NbtCompound>> dimEntities, ChunkPos pos) {
+        if (dimEntities == null) return List.of();
+        List<NbtCompound> list = dimEntities.get(pos);
+        return (list != null) ? list : List.of();
+    }
+
+    public static void clear() {
+        int total = getTotalTrackedEntities();
+        dimChunkEntities.clear();
+        WDLogger.info("Cleared " + total + " tracked entities");
+    }
+
+    public static int getTotalTrackedEntities() {
+        return dimChunkEntities.values().stream()
+                .mapToInt(m -> m.values().stream().mapToInt(List::size).sum())
+                .sum();
+    }
+
+    // ── Entity serialisation ──────────────────────────────────────────────────
+
+    private static NbtCompound serializeEntity(Entity entity) {
         try {
-            NbtCompound entityNbt = new NbtCompound();
-
-
-            String entityTypeId = Registries.ENTITY_TYPE.getId(entity.getType()).toString();
-            entityNbt.putString("id", entityTypeId);
-
+            NbtCompound nbt = new NbtCompound();
+            nbt.putString("id", Registries.ENTITY_TYPE.getId(entity.getType()).toString());
 
             Vec3d pos = entity.getEntityPos();
             NbtList posNbt = new NbtList();
             posNbt.add(NbtDouble.of(pos.x));
             posNbt.add(NbtDouble.of(pos.y));
             posNbt.add(NbtDouble.of(pos.z));
-            entityNbt.put("Pos", posNbt);
+            nbt.put("Pos", posNbt);
 
-
-            Vec3d velocity = entity.getVelocity();
+            Vec3d vel = entity.getVelocity();
             NbtList motionNbt = new NbtList();
-            motionNbt.add(NbtDouble.of(velocity.x));
-            motionNbt.add(NbtDouble.of(velocity.y));
-            motionNbt.add(NbtDouble.of(velocity.z));
-            entityNbt.put("Motion", motionNbt);
+            motionNbt.add(NbtDouble.of(vel.x));
+            motionNbt.add(NbtDouble.of(vel.y));
+            motionNbt.add(NbtDouble.of(vel.z));
+            nbt.put("Motion", motionNbt);
 
-
-            NbtList rotationNbt = new NbtList();
-            rotationNbt.add(NbtFloat.of(entity.getYaw()));
-            rotationNbt.add(NbtFloat.of(entity.getPitch()));
-            entityNbt.put("Rotation", rotationNbt);
-
+            NbtList rotNbt = new NbtList();
+            rotNbt.add(NbtFloat.of(entity.getYaw()));
+            rotNbt.add(NbtFloat.of(entity.getPitch()));
+            nbt.put("Rotation", rotNbt);
 
             UUID uuid = entity.getUuid();
             long most = uuid.getMostSignificantBits();
             long least = uuid.getLeastSignificantBits();
-            int[] uuidArray = {(int) (most >>> 32L), (int) most, (int) (least >>> 32L), (int) least};
+            nbt.putIntArray("UUID", new int[]{
+                    (int)(most >>> 32), (int)most, (int)(least >>> 32), (int)least});
 
-
-            entityNbt.putIntArray("UUID", uuidArray);
-
-
-            entityNbt.putShort("Air", (short) entity.getAir());
-            entityNbt.putShort("Fire", (short) entity.getFireTicks());
-            entityNbt.putBoolean("OnGround", entity.isOnGround());
-            entityNbt.putBoolean("Invulnerable", entity.isInvulnerable());
-            entityNbt.putInt("PortalCooldown", entity.getPortalCooldown());
-
-
-            entityNbt.putBoolean("Silent", entity.isSilent());
-            entityNbt.putBoolean("NoGravity", entity.hasNoGravity());
-            entityNbt.putBoolean("Glowing", entity.isGlowing());
-
+            nbt.putShort("Air",          (short) entity.getAir());
+            nbt.putShort("Fire",         (short) entity.getFireTicks());
+            nbt.putBoolean("OnGround",   entity.isOnGround());
+            nbt.putBoolean("Invulnerable", entity.isInvulnerable());
+            nbt.putInt("PortalCooldown", entity.getPortalCooldown());
+            nbt.putBoolean("Silent",     entity.isSilent());
+            nbt.putBoolean("NoGravity",  entity.hasNoGravity());
+            nbt.putBoolean("Glowing",    entity.isGlowing());
 
             if (entity.hasCustomName()) {
-                Text customName = entity.getCustomName();
-                if (customName != null) {
-
-                    try {
-                        String jsonName = customName.getString();
-                        entityNbt.putString("CustomName", jsonName);
-                        entityNbt.putBoolean("CustomNameVisible", entity.isCustomNameVisible());
-                    } catch (Exception e) {
-
-                        entityNbt.putString("CustomName", "\"" + customName.getString() + "\"");
-                        entityNbt.putBoolean("CustomNameVisible", entity.isCustomNameVisible());
-                    }
+                Text name = entity.getCustomName();
+                if (name != null) {
+                    nbt.putString("CustomName", name.getString());
+                    nbt.putBoolean("CustomNameVisible", entity.isCustomNameVisible());
                 }
             }
-
 
             if (!entity.getCommandTags().isEmpty()) {
                 NbtList tags = new NbtList();
-                for (String tag : entity.getCommandTags()) {
-                    tags.add(NbtString.of(tag));
-                }
-                entityNbt.put("Tags", tags);
+                entity.getCommandTags().forEach(t -> tags.add(NbtString.of(t)));
+                nbt.put("Tags", tags);
             }
 
+            if (entity instanceof LivingEntity living) addLivingEntityData(nbt, living);
+            if (entity instanceof ItemEntity ie)      addItemEntityData(nbt, ie);
 
-            if (entity instanceof LivingEntity) {
-                LivingEntity living = (LivingEntity) entity;
-                addLivingEntityData(entityNbt, living);
-            }
-
-
-            if (entity instanceof ItemEntity) {
-                ItemEntity itemEntity = (ItemEntity) entity;
-                addItemEntityData(entityNbt, itemEntity, client);
-            }
-
-
-            return entityNbt;
+            return nbt;
         } catch (Exception e) {
             WDLogger.warn("Failed to serialize entity " + entity.getType() + ": " + e.getMessage());
             return null;
         }
     }
 
-    private static void addLivingEntityData(NbtCompound entityNbt, LivingEntity living) {
-        entityNbt.putFloat("Health", living.getHealth());
-        entityNbt.putFloat("AbsorptionAmount", living.getAbsorptionAmount());
-        entityNbt.putShort("HurtTime", (short) living.hurtTime);
-        entityNbt.putInt("HurtByTimestamp", living.getLastAttackedTime());
-        entityNbt.putShort("DeathTime", (short) living.deathTime);
-
+    private static void addLivingEntityData(NbtCompound nbt, LivingEntity living) {
+        nbt.putFloat("Health", living.getHealth());
+        nbt.putFloat("AbsorptionAmount", living.getAbsorptionAmount());
+        nbt.putShort("HurtTime", (short) living.hurtTime);
+        nbt.putInt("HurtByTimestamp", living.getLastAttackedTime());
+        nbt.putShort("DeathTime", (short) living.deathTime);
 
         NbtList attributes = new NbtList();
-        NbtCompound maxHealthAttr = new NbtCompound();
-        maxHealthAttr.putString("Name", "minecraft:generic.max_health");
-        maxHealthAttr.putDouble("Base", living.getMaxHealth());
-        attributes.add(maxHealthAttr);
-        entityNbt.put("Attributes", attributes);
-
+        NbtCompound maxHealth = new NbtCompound();
+        maxHealth.putString("Name", "minecraft:generic.max_health");
+        maxHealth.putDouble("Base", living.getMaxHealth());
+        attributes.add(maxHealth);
+        nbt.put("Attributes", attributes);
 
         NbtList armorItems = new NbtList();
-        NbtList handItems = new NbtList();
-        int i;
-        for (i = 0; i < 4; i++) {
-            armorItems.add(new NbtCompound());
+        NbtList handItems  = new NbtList();
+        for (int i = 0; i < 4; i++) armorItems.add(new NbtCompound());
+        for (int i = 0; i < 2; i++) handItems.add(new NbtCompound());
+        nbt.put("ArmorItems", armorItems);
+        nbt.put("HandItems",  handItems);
+
+        NbtList armorChances = new NbtList();
+        NbtList handChances  = new NbtList();
+        for (int i = 0; i < 4; i++) armorChances.add(NbtFloat.of(0.085F));
+        for (int i = 0; i < 2; i++) handChances.add(NbtFloat.of(0.085F));
+        nbt.put("ArmorDropChances", armorChances);
+        nbt.put("HandDropChances",  handChances);
+
+        if (living instanceof MobEntity mob) {
+            nbt.putBoolean("CanPickUpLoot",       mob.canPickUpLoot());
+            nbt.putBoolean("PersistenceRequired", mob.isPersistent());
+            nbt.putBoolean("LeftHanded",          mob.isLeftHanded());
+            nbt.putBoolean("NoAI",                mob.isAiDisabled());
         }
-        for (i = 0; i < 2; i++) {
-            handItems.add(new NbtCompound());
+        if (living instanceof AnimalEntity animal) {
+            nbt.putInt("Age",       animal.getBreedingAge());
+            nbt.putInt("ForcedAge", animal.getForcedAge());
+            nbt.putInt("InLove",    animal.getLoveTicks());
         }
-        entityNbt.put("ArmorItems", armorItems);
-        entityNbt.put("HandItems", handItems);
-
-
-        NbtList armorDropChances = new NbtList();
-        NbtList handDropChances = new NbtList();
-        int j;
-        for (j = 0; j < 4; j++) {
-            armorDropChances.add(NbtFloat.of(0.085F));
-        }
-        for (j = 0; j < 2; j++) {
-            handDropChances.add(NbtFloat.of(0.085F));
-        }
-        entityNbt.put("ArmorDropChances", armorDropChances);
-        entityNbt.put("HandDropChances", handDropChances);
-
-
-        if (living instanceof MobEntity) {
-            MobEntity mob = (MobEntity) living;
-            entityNbt.putBoolean("CanPickUpLoot", mob.canPickUpLoot());
-            entityNbt.putBoolean("PersistenceRequired", mob.isPersistent());
-            entityNbt.putBoolean("LeftHanded", mob.isLeftHanded());
-            entityNbt.putBoolean("NoAI", mob.isAiDisabled());
-        }
-
-
-        if (living instanceof AnimalEntity) {
-            AnimalEntity animal = (AnimalEntity) living;
-            entityNbt.putInt("Age", animal.getBreedingAge());
-            entityNbt.putInt("ForcedAge", animal.getForcedAge());
-            entityNbt.putInt("InLove", animal.getLoveTicks());
-
-            if (animal.getLovingPlayer() != null) {
-                UUID lovingPlayerUuid = animal.getLovingPlayer().getUuid();
-                long most = lovingPlayerUuid.getMostSignificantBits();
-                long least = lovingPlayerUuid.getLeastSignificantBits();
-                int[] lovingPlayerUuidArray = {(int) (most >>> 32L), (int) most, (int) (least >>> 32L), (int) least};
-
-
-                entityNbt.putIntArray("LoveCause", lovingPlayerUuidArray);
-            }
-        }
-
     }
 
-    private static void addItemEntityData(NbtCompound entityNbt, ItemEntity itemEntity, MinecraftClient client) {
-        entityNbt.putShort("Age", (short) itemEntity.getItemAge());
-        entityNbt.putShort("PickupDelay", (short) 10);
+    private static void addItemEntityData(NbtCompound nbt, ItemEntity ie) {
+        nbt.putShort("Age", (short) ie.getItemAge());
+        nbt.putShort("PickupDelay", (short) 10);
 
-
-        ItemStack itemStack = itemEntity.getStack();
-        if (!itemStack.isEmpty()) {
+        ItemStack stack = ie.getStack();
+        if (!stack.isEmpty()) {
             try {
                 NbtCompound itemNbt = new NbtCompound();
-
-
-                itemNbt.putString("id", Registries.ITEM.getId(itemStack.getItem()).toString());
-                itemNbt.putInt("count", itemStack.getCount());
-
-
+                itemNbt.putString("id", Registries.ITEM.getId(stack.getItem()).toString());
+                itemNbt.putInt("count", stack.getCount());
                 try {
-                    ContainerData.test1(client, itemNbt, itemStack);
+                    ContainerData.test1(MinecraftClient.getInstance(), itemNbt, stack);
                 } catch (Exception e) {
                     WDLogger.warn("Failed to encode item components: " + e.getMessage());
                 }
-
-                entityNbt.put("Item", itemNbt);
-                WDLogger.debug("Item: " + Registries.ITEM.getId(itemStack.getItem()) + " x" + itemStack.getCount());
+                nbt.put("Item", itemNbt);
             } catch (Exception e) {
-                WDLogger.warn("Failed to serialize item stack for ItemEntity: " + e.getMessage());
-
-
-                NbtCompound basicItem = new NbtCompound();
-                basicItem.putString("id", Registries.ITEM.getId(itemStack.getItem()).toString());
-                basicItem.putInt("count", itemStack.getCount());
-                entityNbt.put("Item", basicItem);
+                WDLogger.warn("Failed to serialize ItemEntity stack: " + e.getMessage());
+                NbtCompound basic = new NbtCompound();
+                basic.putString("id", Registries.ITEM.getId(stack.getItem()).toString());
+                basic.putInt("count", stack.getCount());
+                nbt.put("Item", basic);
             }
         }
-    }
-
-    public static List<NbtCompound> getEntitiesForChunk(ChunkPos chunkPos) {
-        List<NbtCompound> entities = chunkEntities.getOrDefault(chunkPos, new ArrayList<>());
-        if (!entities.isEmpty()) {
-            WDLogger.debug("Retrieved " + entities.size() + " entities for chunk " + chunkPos);
-        }
-        return entities;
-    }
-
-    public static void clear() {
-        int totalEntities = getTotalTrackedEntities();
-        chunkEntities.clear();
-        WDLogger.info("Cleared " + totalEntities + " tracked entities");
-    }
-
-    public static int getTotalTrackedEntities() {
-        return chunkEntities.values().stream().mapToInt(List::size).sum();
     }
 }

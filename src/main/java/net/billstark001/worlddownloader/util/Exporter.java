@@ -1,6 +1,7 @@
 package net.billstark001.worlddownloader.util;
 
 import java.io.*;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -17,132 +18,179 @@ import io.github.ensgijs.nbt.mca.io.McaFileHelpers;
 import io.github.ensgijs.nbt.tag.CompoundTag;
 import net.billstark001.worlddownloader.conflict.ConflictContext;
 import net.billstark001.worlddownloader.conflict.ConflictResolver;
-import net.billstark001.worlddownloader.conflict.OverwriteResolver;
+import net.billstark001.worlddownloader.download.WorldMetadata;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtList;
+import net.minecraft.registry.RegistryKey;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.math.ChunkPos;
+import net.minecraft.world.World;
 
 
 @Environment(EnvType.CLIENT)
 public class Exporter {
 
     /**
-     * Exports all cached chunks to the given world folder, respecting the
-     * supplied conflict strategy.
+     * Exports all chunks in the snapshot to the given world folder.
+     * <p>
+     * Each dimension is exported to the appropriate subdirectory:
+     * <ul>
+     *   <li>{@code minecraft:overworld}  → {@code <worldFolder>/region/}</li>
+     *   <li>{@code minecraft:the_nether} → {@code <worldFolder>/DIM-1/region/}</li>
+     *   <li>{@code minecraft:the_end}    → {@code <worldFolder>/DIM1/region/}</li>
+     *   <li>any other                    → {@code <worldFolder>/dimensions/<ns>/<path>/region/}</li>
+     * </ul>
+     * <p>
+     * Only "dirty" chunks are written — i.e. chunks whose {@link ChunkListener.CapturedChunk#capturedAtMs}
+     * is newer than their last recorded write time in {@code meta}.
+     * <p>
+     * This method is safe to call from a background thread.  All Minecraft
+     * state has already been serialised before the snapshot was taken.
      *
-     * @param worldFolder Root directory of the mirror world (must already exist).
-     * @param resolver    Conflict resolver to consult for chunks that already
-     *                    exist on disk.
-     * @return The set of chunk positions that were actually written to disk.
+     * @param worldFolder  Root directory of the mirror world.
+     * @param snapshot     Immutable snapshot produced by {@link ChunkListener#snapshot()}.
+     * @param entitySnapshot Immutable snapshot produced by {@link EntityTracker#snapshot()}.
+     * @param resolver     Conflict resolver for chunks that already exist on disk.
+     * @param meta         Metadata for dirty-check and time-stamping.
+     * @return Map from dimension → set of chunk positions actually written.
      */
-    public static Set<ChunkPos> exportChunks(Path worldFolder,
-                                             ConflictResolver resolver) throws Exception {
-        Path regionDir = worldFolder.resolve("region");
+    public static Map<RegistryKey<World>, Set<ChunkPos>> exportChunks(
+            Path worldFolder,
+            Map<RegistryKey<World>, Map<ChunkPos, ChunkListener.CapturedChunk>> snapshot,
+            Map<RegistryKey<World>, Map<ChunkPos, List<NbtCompound>>> entitySnapshot,
+            ConflictResolver resolver,
+            WorldMetadata meta) throws Exception {
 
-        if (!regionDir.toFile().exists() && !regionDir.toFile().mkdirs()) {
-            throw new IOException("Failed to create region directory: " + regionDir);
+        Map<RegistryKey<World>, Set<ChunkPos>> allWritten = new HashMap<>();
+        int dimCount = 0;
+
+        for (Map.Entry<RegistryKey<World>, Map<ChunkPos, ChunkListener.CapturedChunk>> dimEntry
+                : snapshot.entrySet()) {
+            RegistryKey<World> dimension = dimEntry.getKey();
+            Map<ChunkPos, ChunkListener.CapturedChunk> dimChunks = dimEntry.getValue();
+            Map<ChunkPos, List<NbtCompound>> dimEntities =
+                    entitySnapshot.getOrDefault(dimension, Map.of());
+
+            Path regionDir = regionDirForDimension(worldFolder, dimension);
+            Files.createDirectories(regionDir);
+
+            Set<ChunkPos> written = exportDimensionChunks(
+                    regionDir, dimChunks, dimEntities, resolver, meta, dimension);
+            allWritten.put(dimension, written);
+            dimCount++;
+
+            WDLogger.info("[" + dimension.getValue() + "] "
+                    + written.size() + "/" + dimChunks.size() + " chunks exported.");
         }
 
-        Map<ChunkPos, NbtCompound> allChunks = ChunkListener.getAll();
-        if (allChunks.isEmpty()) {
-            WDLogger.warn("No chunks to export.");
-            return Set.of();
-        }
+        WDLogger.info("Export pass complete across " + dimCount + " dimension(s).");
+        return allWritten;
+    }
 
-        // ── Load / create McaRegionFile handles ──────────────────────────────
+    // ── Per-dimension export ──────────────────────────────────────────────────
+
+    private static Set<ChunkPos> exportDimensionChunks(
+            Path regionDir,
+            Map<ChunkPos, ChunkListener.CapturedChunk> dimChunks,
+            Map<ChunkPos, List<NbtCompound>> dimEntities,
+            ConflictResolver resolver,
+            WorldMetadata meta,
+            RegistryKey<World> dimension) {
+
+        // ── Load / create region file handles ─────────────────────────────────
         Map<String, McaRegionFile> regionFiles = new HashMap<>();
-        // Track which region files already existed before this export pass
         Set<String> preExistingRegionKeys = new HashSet<>();
 
-        for (ChunkPos chunkPos : allChunks.keySet()) {
-            int regionX = chunkPos.x >> 5;
-            int regionZ = chunkPos.z >> 5;
+        for (ChunkPos pos : dimChunks.keySet()) {
+            int regionX = pos.x >> 5;
+            int regionZ = pos.z >> 5;
             String key  = regionX + "," + regionZ;
-            if (!regionFiles.containsKey(key)) {
-                Path regionFile = regionDir.resolve(
-                        String.format("r.%d.%d.mca", regionX, regionZ));
-                McaRegionFile mcaFile;
-                if (regionFile.toFile().exists()) {
-                    try {
-                        mcaFile = McaFileHelpers.readAuto(regionFile.toFile());
-                        preExistingRegionKeys.add(key);
-                    } catch (Exception e) {
-                        WDLogger.warn("Could not read " + regionFile.getFileName()
-                                + ", creating new: " + e.getMessage());
-                        mcaFile = new McaRegionFile(regionX, regionZ);
-                    }
-                } else {
+            if (regionFiles.containsKey(key)) continue;
+
+            Path regionFile = regionDir.resolve(String.format("r.%d.%d.mca", regionX, regionZ));
+            McaRegionFile mcaFile;
+            if (regionFile.toFile().exists()) {
+                try {
+                    mcaFile = McaFileHelpers.readAuto(regionFile.toFile());
+                    preExistingRegionKeys.add(key);
+                } catch (Exception e) {
+                    WDLogger.warn("Could not read " + regionFile.getFileName()
+                            + ", creating new: " + e.getMessage());
                     mcaFile = new McaRegionFile(regionX, regionZ);
                 }
-                regionFiles.put(key, mcaFile);
+            } else {
+                mcaFile = new McaRegionFile(regionX, regionZ);
             }
+            regionFiles.put(key, mcaFile);
         }
 
-        // ── Process chunks ────────────────────────────────────────────────────
+        // ── Process each chunk ────────────────────────────────────────────────
         Set<ChunkPos> written = new HashSet<>();
 
-        for (Map.Entry<ChunkPos, NbtCompound> entry : allChunks.entrySet()) {
+        for (Map.Entry<ChunkPos, ChunkListener.CapturedChunk> entry : dimChunks.entrySet()) {
             ChunkPos chunkPos  = entry.getKey();
-            NbtCompound chunkNbt = entry.getValue();
+            ChunkListener.CapturedChunk captured = entry.getValue();
+
+            // ── Dirty check: skip if not changed since last export ────────────
+            long lastWriteMs = meta.getChunkWriteTime(dimension, chunkPos);
+            if (captured.capturedAtMs <= lastWriteMs) {
+                WDLogger.debug("Skipping unchanged chunk [" + dimension.getValue()
+                        + "] " + chunkPos);
+                continue;
+            }
 
             int chunkX      = chunkPos.x;
             int chunkZ      = chunkPos.z;
             int regionX     = chunkX >> 5;
             int regionZ     = chunkZ >> 5;
-            int localChunkX = chunkX & 0x1F;
-            int localChunkZ = chunkZ & 0x1F;
-
-            String key = regionX + "," + regionZ;
+            int localX      = chunkX & 0x1F;
+            int localZ      = chunkZ & 0x1F;
+            String key      = regionX + "," + regionZ;
             McaRegionFile mcaFile = regionFiles.get(key);
 
             try {
                 // ── Conflict check ────────────────────────────────────────────
                 boolean existsLocally = preExistingRegionKeys.contains(key)
-                        && mcaFile.getChunk(localChunkX, localChunkZ) != null;
-
-                ConflictContext ctx = new ConflictContext(chunkPos, existsLocally);
-                if (!resolver.shouldWriteChunk(ctx)) {
-                    WDLogger.debug("Skipping chunk " + chunkPos
-                            + " (conflict resolver kept local copy).");
+                        && mcaFile.getChunk(localX, localZ) != null;
+                if (!resolver.shouldWriteChunk(new ConflictContext(chunkPos, existsLocally))) {
+                    WDLogger.debug("Conflict resolver kept local chunk "
+                            + chunkPos + " [" + dimension.getValue() + "]");
                     continue;
                 }
 
+                // ── Work on a copy so we don't mutate the live cache ──────────
+                NbtCompound chunkNbt = captured.nbt.copy();
+
                 // ── Merge entities ────────────────────────────────────────────
-                List<NbtCompound> entities = EntityTracker.getEntitiesForChunk(chunkPos);
+                List<NbtCompound> entities = EntityTracker.getEntitiesForChunk(dimEntities, chunkPos);
                 if (!entities.isEmpty()) {
                     NbtList entitiesList = new NbtList();
                     entitiesList.addAll(entities);
                     chunkNbt.put("entities", entitiesList);
-                    WDLogger.debug("Added " + entities.size()
-                            + " entities to chunk " + chunkPos);
+                    WDLogger.debug("Added " + entities.size() + " entities to " + chunkPos);
                 }
 
                 // ── Write ─────────────────────────────────────────────────────
                 CompoundTag querzChunk = convertToQuerz(chunkNbt);
                 TerrainChunk chunk = new TerrainChunk(querzChunk);
-                mcaFile.setChunk(localChunkX, localChunkZ, chunk);
+                mcaFile.setChunk(localX, localZ, chunk);
                 written.add(chunkPos);
 
-                WDLogger.debug("Prepared chunk " + chunkPos
-                        + " (" + entities.size() + " entities)");
-
             } catch (Exception e) {
-                WDLogger.warn("Failed to process chunk " + chunkPos + ": "
-                        + e.getMessage());
+                WDLogger.warn("Failed to process chunk " + chunkPos + ": " + e.getMessage());
             }
         }
 
         // ── Flush region files ────────────────────────────────────────────────
-        for (Map.Entry<String, McaRegionFile> entry : regionFiles.entrySet()) {
-            String regionKey = entry.getKey();
-            McaRegionFile mcaFile = entry.getValue();
+        for (Map.Entry<String, McaRegionFile> regionEntry : regionFiles.entrySet()) {
+            String regionKey = regionEntry.getKey();
+            McaRegionFile mcaFile = regionEntry.getValue();
             String[] coords = regionKey.split(",");
             int regionX = Integer.parseInt(coords[0]);
             int regionZ = Integer.parseInt(coords[1]);
-            Path regionFile = regionDir.resolve(
-                    String.format("r.%d.%d.mca", regionX, regionZ));
+            Path regionFile = regionDir.resolve(String.format("r.%d.%d.mca", regionX, regionZ));
             try {
                 McaFileHelpers.write(mcaFile, regionFile.toFile());
                 WDLogger.debug("Wrote region file " + regionFile.getFileName());
@@ -152,16 +200,35 @@ public class Exporter {
             }
         }
 
-        WDLogger.info("Exported " + written.size() + "/" + allChunks.size()
-                + " chunks to " + regionFiles.size() + " region files.");
         return written;
+    }
+
+    // ── Dimension → directory mapping ────────────────────────────────────────
+
+    private static final Identifier OVERWORLD_ID = Identifier.of("minecraft", "overworld");
+    private static final Identifier NETHER_ID    = Identifier.of("minecraft", "the_nether");
+    private static final Identifier END_ID       = Identifier.of("minecraft", "the_end");
+
+    public static Path regionDirForDimension(Path worldFolder, RegistryKey<World> dimension) {
+        Identifier id = dimension.getValue();
+        if (id.equals(OVERWORLD_ID)) {
+            return worldFolder.resolve("region");
+        } else if (id.equals(NETHER_ID)) {
+            return worldFolder.resolve("DIM-1").resolve("region");
+        } else if (id.equals(END_ID)) {
+            return worldFolder.resolve("DIM1").resolve("region");
+        } else {
+            return worldFolder.resolve("dimensions")
+                    .resolve(id.getNamespace())
+                    .resolve(id.getPath())
+                    .resolve("region");
+        }
     }
 
     // ── NBT conversion ────────────────────────────────────────────────────────
 
     public static CompoundTag convertToQuerz(NbtCompound mcNbt) {
         try {
-            // Serialize via Minecraft's NbtIo, then deserialize with ensgijs
             ByteArrayOutputStream mcNbtStream = new ByteArrayOutputStream();
             DataOutputStream dos = new DataOutputStream(mcNbtStream);
             net.minecraft.nbt.NbtIo.write(mcNbt, dos);

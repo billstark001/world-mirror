@@ -43,7 +43,8 @@ public abstract class ChunkDataMixin {
         if (worldChunk != null) {
             try {
                 NbtCompound chunkNbt = ClientChunkSerializer.serialize(world, worldChunk);
-                ChunkListener.addChunkNbt(pos, chunkNbt);
+                // Pass the dimension key so ChunkListener can store chunks per dimension
+                ChunkListener.addChunkNbt(world.getRegistryKey(), pos, chunkNbt);
             } catch (Exception e) {
                 WDLogger.warn("Failed to capture chunk NBT for " + pos + ": " + e.getMessage());
             }
