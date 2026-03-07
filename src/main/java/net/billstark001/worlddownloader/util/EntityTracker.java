@@ -4,25 +4,17 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.entity.Entity;
-import net.minecraft.entity.mob.MobEntity;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.entity.passive.AnimalEntity;
-import net.minecraft.entity.ItemEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.nbt.*;
+import net.minecraft.nbt.NbtCompound;
 import net.minecraft.registry.RegistryKey;
+import net.minecraft.registry.Registries;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.util.math.Vec3d;
-import net.minecraft.text.Text;
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.world.ClientWorld;
-import net.minecraft.registry.Registries;
 import net.minecraft.world.World;
 
 @Environment(EnvType.CLIENT)
@@ -35,6 +27,13 @@ public class EntityTracker {
     /**
      * Captures all non-player entities in the given world and stores them under
      * that world's dimension key.  Must be called on the game thread.
+     * <p>
+     * Each entity is serialized via {@link Entity#writeNbt(NbtCompound)}, which
+     * covers every entity type — including paintings (motive / facing / attachment
+     * position), item frames (held item, rotation), armour stands (pose, equipment,
+     * flags), dropped items, mobs, animals, and more.  The entity type identifier
+     * is prepended as the {@code id} key before calling {@code writeNbt} so the
+     * resulting NBT is compatible with Minecraft's region-file format.
      */
     public static void captureEntitiesForWorld(ClientWorld world) {
         if (world == null) {
@@ -114,133 +113,33 @@ public class EntityTracker {
 
     // ── Entity serialisation ──────────────────────────────────────────────────
 
+    /**
+     * Serializes {@code entity} to NBT using Minecraft's own {@link Entity#writeNbt}
+     * implementation.
+     * <p>
+     * {@code writeNbt} is NOT overridden by client-only code; it writes exactly the
+     * same fields that the server would write when saving the entity to a region
+     * file.  On the client, the entity's tracked data (DataTracker) is populated via
+     * tracking packets, so fields such as painting motive, item-frame contents, armour
+     * stand pose, equipment, tamed-owner UUID, and so on are all available and will be
+     * serialized correctly.
+     * <p>
+     * The only addition we make is the {@code id} key (entity type identifier), which
+     * {@code writeNbt} does not write itself but which Minecraft's region-file chunk
+     * serializer always includes.
+     */
     private static NbtCompound serializeEntity(Entity entity) {
         try {
             NbtCompound nbt = new NbtCompound();
+            // entity.writeNbt() does not include the entity type id; prepend it
             nbt.putString("id", Registries.ENTITY_TYPE.getId(entity.getType()).toString());
-
-            Vec3d pos = entity.getEntityPos();
-            NbtList posNbt = new NbtList();
-            posNbt.add(NbtDouble.of(pos.x));
-            posNbt.add(NbtDouble.of(pos.y));
-            posNbt.add(NbtDouble.of(pos.z));
-            nbt.put("Pos", posNbt);
-
-            Vec3d vel = entity.getVelocity();
-            NbtList motionNbt = new NbtList();
-            motionNbt.add(NbtDouble.of(vel.x));
-            motionNbt.add(NbtDouble.of(vel.y));
-            motionNbt.add(NbtDouble.of(vel.z));
-            nbt.put("Motion", motionNbt);
-
-            NbtList rotNbt = new NbtList();
-            rotNbt.add(NbtFloat.of(entity.getYaw()));
-            rotNbt.add(NbtFloat.of(entity.getPitch()));
-            nbt.put("Rotation", rotNbt);
-
-            UUID uuid = entity.getUuid();
-            long most = uuid.getMostSignificantBits();
-            long least = uuid.getLeastSignificantBits();
-            nbt.putIntArray("UUID", new int[]{
-                    (int)(most >>> 32), (int)most, (int)(least >>> 32), (int)least});
-
-            nbt.putShort("Air",          (short) entity.getAir());
-            nbt.putShort("Fire",         (short) entity.getFireTicks());
-            nbt.putBoolean("OnGround",   entity.isOnGround());
-            nbt.putBoolean("Invulnerable", entity.isInvulnerable());
-            nbt.putInt("PortalCooldown", entity.getPortalCooldown());
-            nbt.putBoolean("Silent",     entity.isSilent());
-            nbt.putBoolean("NoGravity",  entity.hasNoGravity());
-            nbt.putBoolean("Glowing",    entity.isGlowing());
-
-            if (entity.hasCustomName()) {
-                Text name = entity.getCustomName();
-                if (name != null) {
-                    nbt.putString("CustomName", name.getString());
-                    nbt.putBoolean("CustomNameVisible", entity.isCustomNameVisible());
-                }
-            }
-
-            if (!entity.getCommandTags().isEmpty()) {
-                NbtList tags = new NbtList();
-                entity.getCommandTags().forEach(t -> tags.add(NbtString.of(t)));
-                nbt.put("Tags", tags);
-            }
-
-            if (entity instanceof LivingEntity living) addLivingEntityData(nbt, living);
-            if (entity instanceof ItemEntity ie)      addItemEntityData(nbt, ie);
-
+            // Delegate to Minecraft's own serialization — covers all entity types
+            entity.writeNbt(nbt);
             return nbt;
         } catch (Exception e) {
             WDLogger.warn("Failed to serialize entity " + entity.getType() + ": " + e.getMessage());
             return null;
         }
     }
-
-    private static void addLivingEntityData(NbtCompound nbt, LivingEntity living) {
-        nbt.putFloat("Health", living.getHealth());
-        nbt.putFloat("AbsorptionAmount", living.getAbsorptionAmount());
-        nbt.putShort("HurtTime", (short) living.hurtTime);
-        nbt.putInt("HurtByTimestamp", living.getLastAttackedTime());
-        nbt.putShort("DeathTime", (short) living.deathTime);
-
-        NbtList attributes = new NbtList();
-        NbtCompound maxHealth = new NbtCompound();
-        maxHealth.putString("Name", "minecraft:generic.max_health");
-        maxHealth.putDouble("Base", living.getMaxHealth());
-        attributes.add(maxHealth);
-        nbt.put("Attributes", attributes);
-
-        NbtList armorItems = new NbtList();
-        NbtList handItems  = new NbtList();
-        for (int i = 0; i < 4; i++) armorItems.add(new NbtCompound());
-        for (int i = 0; i < 2; i++) handItems.add(new NbtCompound());
-        nbt.put("ArmorItems", armorItems);
-        nbt.put("HandItems",  handItems);
-
-        NbtList armorChances = new NbtList();
-        NbtList handChances  = new NbtList();
-        for (int i = 0; i < 4; i++) armorChances.add(NbtFloat.of(0.085F));
-        for (int i = 0; i < 2; i++) handChances.add(NbtFloat.of(0.085F));
-        nbt.put("ArmorDropChances", armorChances);
-        nbt.put("HandDropChances",  handChances);
-
-        if (living instanceof MobEntity mob) {
-            nbt.putBoolean("CanPickUpLoot",       mob.canPickUpLoot());
-            nbt.putBoolean("PersistenceRequired", mob.isPersistent());
-            nbt.putBoolean("LeftHanded",          mob.isLeftHanded());
-            nbt.putBoolean("NoAI",                mob.isAiDisabled());
-        }
-        if (living instanceof AnimalEntity animal) {
-            nbt.putInt("Age",       animal.getBreedingAge());
-            nbt.putInt("ForcedAge", animal.getForcedAge());
-            nbt.putInt("InLove",    animal.getLoveTicks());
-        }
-    }
-
-    private static void addItemEntityData(NbtCompound nbt, ItemEntity ie) {
-        nbt.putShort("Age", (short) ie.getItemAge());
-        nbt.putShort("PickupDelay", (short) 10);
-
-        ItemStack stack = ie.getStack();
-        if (!stack.isEmpty()) {
-            try {
-                NbtCompound itemNbt = new NbtCompound();
-                itemNbt.putString("id", Registries.ITEM.getId(stack.getItem()).toString());
-                itemNbt.putInt("count", stack.getCount());
-                try {
-                    ContainerData.test1(MinecraftClient.getInstance(), itemNbt, stack);
-                } catch (Exception e) {
-                    WDLogger.warn("Failed to encode item components: " + e.getMessage());
-                }
-                nbt.put("Item", itemNbt);
-            } catch (Exception e) {
-                WDLogger.warn("Failed to serialize ItemEntity stack: " + e.getMessage());
-                NbtCompound basic = new NbtCompound();
-                basic.putString("id", Registries.ITEM.getId(stack.getItem()).toString());
-                basic.putInt("count", stack.getCount());
-                nbt.put("Item", basic);
-            }
-        }
-    }
 }
+

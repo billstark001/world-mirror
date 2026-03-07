@@ -137,30 +137,68 @@ All user-visible strings (UI labels, chat messages, keybinding names) use transl
 
 ---
 
-## 9. Entity Download *(low priority)* 🔲
+## 9. Entity Download ✅
 
 ### 9a. Decorative Entities
-Download and save paintings, item frames, and armour stands that are present in received chunks.
+Paintings, item frames (regular and glow), and armour stands are captured as part of
+the general entity snapshot.  Each entity is serialized via `entity.writeNbt()` —
+Minecraft's own serialization — which captures the full entity state that the client
+has received via tracking packets:
+
+- **Paintings**: `variant` (motive), `facing`, attachment block position (`TileX/Y/Z`)
+- **Item frames / Glow item frames**: `Item` (held item stack with full component data),
+  `ItemRotation`, `Fixed`
+- **Armour stands**: `Pose` (all six limb rotations), equipped items in `ArmorItems` and
+  `HandItems`, display flags (`ShowArms`, `NoBasePlate`, `Small`, `Invisible`, `Marker`)
 
 ### 9b. All Entities
-Download any entity (mobs, animals, etc.) visible in received chunks and write them to the region's entity data.
+All non-player entities visible in captured chunks are serialized.  `entity.writeNbt()`
+automatically covers every entity type supported by the running Minecraft version:
+- **Mobs and animals**: health, equipment (actual item stacks), mob-specific state such
+  as breeding age, tame-owner UUID, collar colour, saddle, wool colour, etc.
+- **Dropped items**: full item stack with NBT components
+- **Projectiles, vehicles, and all other entity types**: all tracked data
+
+Server-side-only fields (e.g. AI path, spawn reinforcements count) are not available on
+the client and will be absent or default; this is an inherent limitation of client-side
+capture.
 
 ---
 
-## 10. Block Entity (Tile Entity) Data *(low priority)* 🔲
+## 10. Block Entity (Tile Entity) Data ✅
 
-Download and persist block entity data (chest inventories, furnace state, etc.) embedded in chunk data.
-This largely overlaps with the existing `ContainerTracker` work; the goal is to make it robust and complete.
+Block entities are serialized via `BlockEntity.createNbtWithIdentifyingData()`, which
+writes the entity type identifier, position, and all data the client has received.
+For most block entities this includes the full state that the server sends:
+
+- **Signs / Hanging signs**: front and back text, waxed flag, glow-ink flag
+- **Beacons**: primary and secondary effect IDs
+- **Banners**: all pattern layers
+- **Skulls / Heads**: owner profile (for player heads)
+- **Lecterns**: stored book item
+- **Brushable blocks**: loot table / stored item (if loaded)
+- **Beds, candles, cauldrons, and other state-only blocks**: captured as block-state in
+  the chunk palette, not as a block entity, so no separate capture is needed
+
+**Container inventories** (chests, barrels, hoppers, furnaces, etc.) are NOT present
+in the client-side block entity NBT because Minecraft only sends slot data to the
+player when they open the container.  The `ContainerTracker` mixin intercepts these
+inventory packets so that items are merged into the block entity NBT on export for
+every container the player has opened during the session.
 
 ---
 
 ## Implementation Notes
 
-- Items §1–§8 are **complete**.
-- Items relating to multi-dimension support (§9, §10) can build on the dimension-aware
-  `ChunkListener` and `Exporter` that are already in place.
-- §6 (in-game UI) is the main remaining priority; it depends on the mapping table (§5, done).
-- LibGUI is already a required dependency; use it for all new screens (§6).
+- Items §1–§10 are **complete**.
+- Multi-dimension support (Overworld, Nether, End, custom dimensions) is implemented in
+  the dimension-aware `ChunkListener`, `EntityTracker`, and `Exporter` classes.
+- Entity serialization (§9) uses `Entity.writeNbt()` so that all entity types —
+  paintings, item frames, armour stands, mobs, animals, dropped items, etc. — are
+  covered automatically using the same code path as the Minecraft server.
+- Block entity serialization (§10) uses `BlockEntity.createNbtWithIdentifyingData()`,
+  which captures all client-available state; container inventories are supplemented by
+  `ContainerTracker` which intercepts inventory packets.
 - Export runs on a background daemon thread (`WDL-Export`) to avoid freezing the game.
   Progress is reported via `WDLogger` (and therefore in-game chat at INFO level).
 - The dirty-check mechanism (`CapturedChunk.capturedAtMs` vs `WorldMetadata.chunkUpdateTimes`)
