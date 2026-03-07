@@ -1,4 +1,4 @@
-package net.billstark001.worlddownloader.util;
+package net.billstark001.worlddownloader.io;
 
 import java.io.*;
 import java.nio.file.Files;
@@ -19,6 +19,9 @@ import io.github.ensgijs.nbt.tag.CompoundTag;
 import net.billstark001.worlddownloader.conflict.ConflictContext;
 import net.billstark001.worlddownloader.conflict.ConflictResolver;
 import net.billstark001.worlddownloader.download.WorldMetadata;
+import net.billstark001.worlddownloader.core.ChunkListener;
+import net.billstark001.worlddownloader.core.EntityTracker;
+import net.billstark001.worlddownloader.util.WDLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.nbt.NbtCompound;
@@ -43,7 +46,7 @@ public class Exporter {
      *   <li>any other                    → {@code <worldFolder>/dimensions/<ns>/<path>/region/}</li>
      * </ul>
      * <p>
-     * Only "dirty" chunks are written — i.e. chunks whose {@link ChunkListener.CapturedChunk#capturedAtMs}
+     * Only "dirty" chunks are written — i.e. chunks whose {@link ChunkListener.CapturedChunk#capturedAtMs()}
      * is newer than their last recorded write time in {@code meta}.
      * <p>
      * This method is safe to call from a background thread.  All Minecraft
@@ -135,7 +138,7 @@ public class Exporter {
 
             // ── Dirty check: skip if not changed since last export ────────────
             long lastWriteMs = meta.getChunkWriteTime(dimension, chunkPos);
-            if (captured.capturedAtMs <= lastWriteMs) {
+            if (captured.capturedAtMs() <= lastWriteMs) {
                 WDLogger.debug("Skipping unchanged chunk [" + dimension.getValue()
                         + "] " + chunkPos);
                 continue;
@@ -161,7 +164,7 @@ public class Exporter {
                 }
 
                 // ── Work on a copy so we don't mutate the live cache ──────────
-                NbtCompound chunkNbt = captured.nbt.copy();
+                NbtCompound chunkNbt = captured.nbt().copy();
 
                 // ── Merge entities ────────────────────────────────────────────
                 List<NbtCompound> entities = EntityTracker.getEntitiesForChunk(dimEntities, chunkPos);

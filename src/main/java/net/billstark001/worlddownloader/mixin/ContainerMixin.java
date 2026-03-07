@@ -2,7 +2,7 @@ package net.billstark001.worlddownloader.mixin;
 
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.billstark001.worlddownloader.util.ContainerTracker;
+import net.billstark001.worlddownloader.core.ContainerTracker;
 import net.minecraft.network.packet.s2c.play.CloseScreenS2CPacket;
 import net.minecraft.network.packet.s2c.play.InventoryS2CPacket;
 import net.minecraft.network.packet.s2c.play.ScreenHandlerSlotUpdateS2CPacket;

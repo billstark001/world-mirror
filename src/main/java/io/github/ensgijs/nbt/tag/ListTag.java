@@ -633,56 +633,51 @@ public class ListTag<E extends Tag<?>> extends Tag<List<E>> implements List<E>, 
         return clazz;
     }
 
-    private static class NullRejectingListIterator<E extends Tag<?>> implements ListIterator<E> {
-        private final ListIterator<E> iter;
-
-        public NullRejectingListIterator(ListIterator<E> iter) {
-            this.iter = iter;
-        }
+    private record NullRejectingListIterator<E extends Tag<?>>(ListIterator<E> iter) implements ListIterator<E> {
 
         @Override
-        public boolean hasNext() {
-            return iter.hasNext();
-        }
+            public boolean hasNext() {
+                return iter.hasNext();
+            }
 
-        @Override
-        public E next() {
-            return iter.next();
-        }
+            @Override
+            public E next() {
+                return iter.next();
+            }
 
-        @Override
-        public boolean hasPrevious() {
-            return iter.hasPrevious();
-        }
+            @Override
+            public boolean hasPrevious() {
+                return iter.hasPrevious();
+            }
 
-        @Override
-        public E previous() {
-            return iter.previous();
-        }
+            @Override
+            public E previous() {
+                return iter.previous();
+            }
 
-        @Override
-        public int nextIndex() {
-            return iter.nextIndex();
-        }
+            @Override
+            public int nextIndex() {
+                return iter.nextIndex();
+            }
 
-        @Override
-        public int previousIndex() {
-            return iter.previousIndex();
-        }
+            @Override
+            public int previousIndex() {
+                return iter.previousIndex();
+            }
 
-        @Override
-        public void remove() {
-            iter.remove();
-        }
+            @Override
+            public void remove() {
+                iter.remove();
+            }
 
-        @Override
-        public void set(E e) {
-            iter.set(Objects.requireNonNull(e));
-        }
+            @Override
+            public void set(E e) {
+                iter.set(Objects.requireNonNull(e));
+            }
 
-        @Override
-        public void add(E e) {
-            iter.add(Objects.requireNonNull(e));
+            @Override
+            public void add(E e) {
+                iter.add(Objects.requireNonNull(e));
+            }
         }
-    }
 }

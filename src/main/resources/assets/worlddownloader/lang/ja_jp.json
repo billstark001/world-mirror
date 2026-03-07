@@ -1,5 +1,5 @@
 {
-  "key.categories.worlddownloader": "ワールドダウンローダー",
+  "key.category.worlddownloader.default": "ワールドダウンローダー",
 
   "key.worlddownloader.export": "ワールドをエクスポート",
   "key.worlddownloader.clear":  "キャッシュデータをクリア",

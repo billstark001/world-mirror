@@ -1,7 +1,8 @@
-package net.billstark001.worlddownloader.util;
+package net.billstark001.worlddownloader.core;
 
 import com.mojang.serialization.DataResult;
 import com.mojang.serialization.DynamicOps;
+import net.billstark001.worlddownloader.util.WDLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.block.enums.ChestType;

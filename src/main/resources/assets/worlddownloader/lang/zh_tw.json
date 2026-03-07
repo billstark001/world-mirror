@@ -1,5 +1,5 @@
 {
-  "key.categories.worlddownloader": "世界下載器",
+  "key.category.worlddownloader.default": "世界下載器",
 
   "key.worlddownloader.export": "匯出世界",
   "key.worlddownloader.clear":  "清除快取資料",

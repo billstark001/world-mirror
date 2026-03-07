@@ -1,10 +1,9 @@
 package net.billstark001.worlddownloader.mixin;
 
-import net.billstark001.worlddownloader.util.ContainerTracker;
+import net.billstark001.worlddownloader.core.ContainerTracker;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.network.ClientPlayNetworkHandler;
-import net.minecraft.item.ItemStack;
 import net.minecraft.network.packet.s2c.play.CloseScreenS2CPacket;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.network.packet.s2c.play.InventoryS2CPacket;

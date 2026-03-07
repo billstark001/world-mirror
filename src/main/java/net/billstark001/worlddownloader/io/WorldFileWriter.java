@@ -1,4 +1,4 @@
-package net.billstark001.worlddownloader.util;
+package net.billstark001.worlddownloader.io;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -6,13 +6,13 @@ import java.io.OutputStream;
 import java.nio.file.Path;
 import java.util.Random;
 
+import net.billstark001.worlddownloader.util.WDLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtDouble;
 import net.minecraft.nbt.NbtList;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.NbtElement;
 
 @Environment(EnvType.CLIENT)
 public class WorldFileWriter {

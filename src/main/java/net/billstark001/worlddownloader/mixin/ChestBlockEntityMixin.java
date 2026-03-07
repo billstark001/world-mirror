@@ -2,11 +2,10 @@ package net.billstark001.worlddownloader.mixin;
 
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.billstark001.worlddownloader.util.ContainerTracker;
+import net.billstark001.worlddownloader.core.ContainerTracker;
 import net.minecraft.storage.WriteView;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.nbt.NbtCompound;
-import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.entity.ChestBlockEntity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -23,7 +22,7 @@ public class ChestBlockEntityMixin {
     private void onWriteNbt(WriteView view, CallbackInfo ci) {
         ChestBlockEntity chest = (ChestBlockEntity) (Object) this;
         BlockPos pos = chest.getPos();
-        CallbackInfoReturnable<NbtCompound> cir = new CallbackInfoReturnable(ci.getId(), false);
+        CallbackInfoReturnable<NbtCompound> cir = new CallbackInfoReturnable<>(ci.getId(), false);
 
 
         if (ContainerTracker.hasContainerData(pos)) {

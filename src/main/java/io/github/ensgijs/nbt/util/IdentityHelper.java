@@ -20,16 +20,7 @@ package io.github.ensgijs.nbt.util;
  *         Assert.assertEquals(2, set.size());
  * }</pre>
  */
-public class IdentityHelper<T> {
-    private final T value;
-
-    public T getValue() {
-        return value;
-    }
-
-    public IdentityHelper(T value) {
-        this.value = value;
-    }
+public record IdentityHelper<T>(T value) {
 
     @Override
     public int hashCode() {

@@ -1,10 +1,11 @@
-package net.billstark001.worlddownloader.util;
+package net.billstark001.worlddownloader.core;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import net.billstark001.worlddownloader.util.WDLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.registry.RegistryKey;
@@ -16,16 +17,13 @@ import net.minecraft.world.World;
 @Environment(EnvType.CLIENT)
 public class ChunkListener {
 
-    /** A single captured chunk: the serialised NBT and the time it was received. */
-    public static final class CapturedChunk {
-        public final NbtCompound nbt;
-        public final long capturedAtMs;
-
-        public CapturedChunk(NbtCompound nbt, long capturedAtMs) {
-            this.nbt = nbt;
-            this.capturedAtMs = capturedAtMs;
-        }
-    }
+    /**
+     * A single captured chunk: the serialised NBT and the time it was received.
+     */
+    public record CapturedChunk(
+            NbtCompound nbt,
+            long capturedAtMs
+    ) { }
 
     // dimension → (chunkPos → capturedChunk)
     private static final ConcurrentHashMap<RegistryKey<World>, ConcurrentHashMap<ChunkPos, CapturedChunk>>

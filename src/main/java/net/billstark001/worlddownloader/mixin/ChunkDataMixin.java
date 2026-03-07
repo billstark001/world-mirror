@@ -1,8 +1,8 @@
 package net.billstark001.worlddownloader.mixin;
 
 import net.billstark001.worlddownloader.download.DownloadManager;
-import net.billstark001.worlddownloader.util.ChunkListener;
-import net.billstark001.worlddownloader.util.ClientChunkSerializer;
+import net.billstark001.worlddownloader.core.ChunkListener;
+import net.billstark001.worlddownloader.io.ClientChunkSerializer;
 import net.billstark001.worlddownloader.util.WDLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;

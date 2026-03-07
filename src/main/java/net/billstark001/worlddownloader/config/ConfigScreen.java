@@ -1,7 +1,6 @@
 package net.billstark001.worlddownloader.config;
 
 import net.billstark001.worlddownloader.ui.StatusScreen;
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;

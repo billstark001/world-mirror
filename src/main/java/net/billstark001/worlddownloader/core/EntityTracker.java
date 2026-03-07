@@ -1,4 +1,4 @@
-package net.billstark001.worlddownloader.util;
+package net.billstark001.worlddownloader.core;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import net.billstark001.worlddownloader.util.WDLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.entity.Entity;
@@ -133,8 +134,10 @@ public class EntityTracker {
             NbtCompound nbt = new NbtCompound();
             // entity.writeNbt() does not include the entity type id; prepend it
             nbt.putString("id", Registries.ENTITY_TYPE.getId(entity.getType()).toString());
-            // Delegate to Minecraft's own serialization — covers all entity types
-            entity.writeNbt(nbt);
+            // TODO, FIXME: Delegate to Minecraft's own serialization — covers all entity types
+            // the `writeNbt` method does not exist.
+            // it only has `writeData(net.minecraft.storage.WriteView view)`.
+            // entity.writeNbt(nbt);
             return nbt;
         } catch (Exception e) {
             WDLogger.warn("Failed to serialize entity " + entity.getType() + ": " + e.getMessage());

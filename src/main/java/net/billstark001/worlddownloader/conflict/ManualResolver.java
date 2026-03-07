@@ -24,9 +24,9 @@ public class ManualResolver implements ConflictResolver {
 
     @Override
     public boolean shouldWriteChunk(ConflictContext context) {
-        if (context.existsLocally) {
-            pendingConflicts.add(context.pos);
-            WDLogger.warn("Conflict queued for chunk " + context.pos
+        if (context.existsLocally()) {
+            pendingConflicts.add(context.pos());
+            WDLogger.warn("Conflict queued for chunk " + context.pos()
                     + " — keeping local copy until resolved.");
             return false;
         }

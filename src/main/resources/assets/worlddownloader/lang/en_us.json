@@ -1,5 +1,5 @@
 {
-  "key.categories.worlddownloader": "World Downloader",
+  "key.category.worlddownloader.default": "World Downloader",
 
   "key.worlddownloader.export": "Export World",
   "key.worlddownloader.clear":  "Clear Cached Data",
