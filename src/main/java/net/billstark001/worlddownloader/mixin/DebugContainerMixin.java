@@ -48,10 +48,11 @@ public class DebugContainerMixin {
 
     @Inject(method = {"onScreenHandlerSlotUpdate"}, at = {@At("HEAD")})
     private void debugOnSlotUpdate(ScreenHandlerSlotUpdateS2CPacket packet, CallbackInfo ci) {
-        String itemInfo = packet.getStack().isEmpty() ? "empty" : (packet.getStack().getItem().toString() + " x" + packet.getStack().getItem().toString());
+        String itemInfo = packet.getStack().isEmpty() ? "empty"
+                : (packet.getStack().getItem() + " x" + packet.getStack().getCount());
 
-        WDLogger.debug("DEBUG: SlotUpdate - syncId: " + packet.getSyncId() + ", slot: " + packet.getSlot());
-                .getSlot() + ", item: " + itemInfo);
+        WDLogger.debug("DEBUG: SlotUpdate - syncId: " + packet.getSyncId()
+                + ", slot: " + packet.getSlot() + ", item: " + itemInfo);
 
         ContainerTracker.onSlotUpdate(packet.getSyncId(), packet.getSlot(), packet.getStack());
     }

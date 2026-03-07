@@ -3,69 +3,74 @@
 This document outlines planned features and improvements for the World Downloader mod.
 Items are grouped by theme and ordered roughly by priority.
 
+> **Status legend:** ✅ implemented · 🔲 pending
+
 ---
 
-## 1. Download Toggle
+## 1. Download Toggle ✅
 
 **Goal:** Replace the single-shot export with a persistent, user-controlled download session.
 
-- Add a keybinding (and a button in the in-game UI — see §6) to **start / stop** downloading.
-- While active, periodically compare received chunk data against the saved copy (configurable interval, default every *n* seconds) and write only changed chunks.
-- Display the current state (active / inactive) in the HUD or chat when it changes.
+- Keybinding **P** (and a button in the in-game UI — see §6) to **start / stop** downloading.
+- While active, periodically compare received chunk data against the saved copy (configurable
+  interval — see §4) and write only changed / new chunks.
+- Current download state (active / inactive) is shown in the action bar when it changes.
 
 ---
 
-## 2. World Metadata
+## 2. World Metadata ✅
 
 **Goal:** Each mirrored world carries enough metadata to resume and manage downloads.
 
-Every downloaded world must store:
+Every downloaded world stores a `wdl_meta.json` file containing:
 
 | Field | Description |
 |---|---|
 | `modVersion` | Mod version that created / last updated the world |
 | `sourceType` | `singleplayer` or `server` |
 | `sourceId` | World folder name or server address |
-| `lastSyncTime` | Timestamp of the most recent sync session |
-| `chunkUpdateTime` | Per-chunk last-modified timestamp |
-
-Metadata is written to a dedicated file (e.g. `wdl_meta.json`) inside the mirror world folder so it survives being copied into `saves/`.
+| `lastSyncTime` | Unix-millis timestamp of the most recent sync session |
+| `chunkUpdateTimes` | Map `"chunkX,chunkZ" → millis` of per-chunk last-write time |
 
 ---
 
-## 3. Chunk Conflict Resolution
+## 3. Chunk Conflict Resolution ✅
 
-**Goal:** Handle chunks that have been modified locally (e.g. the user opened the mirror world in singleplayer and made changes) before the next sync.
+**Goal:** Handle chunks that have been modified locally before the next sync.
 
-Strategies to implement:
+Implemented strategies (`net.billstark001.worlddownloader.conflict`):
 
-| Strategy | Behaviour |
-|---|---|
-| `overwrite` | Always replace local chunk with server version |
-| `ignore` | Keep local version, discard incoming server data |
-| `manual` | Prompt the user; sub-options on decision: **overwrite now**, **ignore and delete flag**, **ignore and decide later** (allows copying data out first) |
+| Strategy | Class | Behaviour |
+|---|---|---|
+| `overwrite` | `OverwriteResolver` | Always replace local chunk with server version |
+| `ignore` | `IgnoreResolver` | Keep local version; write only new chunks |
+| `manual` | `ManualResolver` | Queue conflict for later; keep local until resolved |
 
-- A well-defined interface (`ConflictResolver`) must be provided so advanced strategies can be added later without changing core sync logic.
-- The active strategy is configurable per-world (see §5) with a global default in mod settings (see §4).
+- `ConflictResolver` interface leaves the door open for advanced strategies.
+- `ManualResolver.getPendingConflicts()` exposes the queue for the future UI (§6).
+- The active strategy is set in mod settings (§4).
 
 ---
 
-## 4. Mod Menu Settings
+## 4. Mod Menu Settings ✅
 
 **Goal:** Add a proper settings screen accessible from Mod Menu.
 
-Settings to expose:
+Settings exposed via `ConfigScreen`:
 
-- **Default save location**: `downloaded` folder (current behaviour) or `saves/` (playable immediately).
-- **Sync interval**: How often the mod checks for updated chunks while downloading is active.
-- **In-game log level**: `DEBUG`, `INFO`, or `WARNING` (see §7).
-- **Default conflict strategy**: global fallback when no per-world override is set.
+| Setting | Values | Default |
+|---|---|---|
+| Save location | `Downloaded Folder` / `Saves Folder` | Downloaded Folder |
+| Sync interval | 5 / 10 / 30 / 60 / 120 s | 10 s |
+| In-game log level | `Debug` / `Info` / `Warning` | Info |
+| Conflict strategy | `Overwrite` / `Ignore` / `Manual` | Overwrite |
 
-A `ModMenuApiImpl` entry point must be registered so the screen appears in Mod Menu's mod list.
+Config is persisted in `config/worlddownloader.json`.
+`ModMenuApiImpl` is registered as a `modmenu` entrypoint in `fabric.mod.json`.
 
 ---
 
-## 5. World–Mirror Mapping Table
+## 5. World–Mirror Mapping Table 🔲
 
 **Goal:** Maintain a persistent mapping between source worlds / servers and their local mirror folders.
 
@@ -76,7 +81,7 @@ A `ModMenuApiImpl` entry point must be registered so the screen appears in Mod M
 
 ---
 
-## 6. In-Game Status UI
+## 6. In-Game Status UI 🔲
 
 **Goal:** Provide a LibGUI-based screen showing sync state and allowing the user to take actions.
 
@@ -92,34 +97,33 @@ The screen opens via a dedicated keybinding and is also accessible from the Mod 
 
 ---
 
-## 7. In-Game Logging Utility
+## 7. In-Game Logging Utility ✅
 
 **Goal:** Surface important log messages inside the game, not only in the console.
 
-- Add a `WDLogger` helper in `util/` wrapping SLF4J and optionally echoing to the in-game chat or HUD overlay.
-- Log level is controlled by the Mod Menu setting (§4); messages below the threshold are suppressed in-game but still written to the log file.
-- All existing `System.out` calls must be migrated to `WDLogger`.
+- `WDLogger` helper in `util/` wraps SLF4J and echoes messages to the player's chat.
+- Log level is controlled by the Mod Menu setting (§4); messages below the threshold are
+  suppressed in-game but still written to the log file.
+- All `System.out` / `System.err` calls have been migrated to `WDLogger`.
 
 ---
 
-## 8. Internationalisation (i18n)
+## 8. Internationalisation (i18n) ✅
 
 **Goal:** Ship translation files for four locales; fall back to English.
 
-Locales to include:
+| Code | Language | File |
+|---|---|---|
+| `en_us` | English (default) | `assets/worlddownloader/lang/en_us.json` |
+| `zh_cn` | Simplified Chinese | `assets/worlddownloader/lang/zh_cn.json` |
+| `zh_tw` | Traditional Chinese | `assets/worlddownloader/lang/zh_tw.json` |
+| `ja_jp` | Japanese | `assets/worlddownloader/lang/ja_jp.json` |
 
-| Code | Language |
-|---|---|
-| `en_us` | English (default) |
-| `zh_cn` | Simplified Chinese |
-| `zh_tw` | Traditional Chinese |
-| `ja_jp` | Japanese |
-
-All user-visible strings (UI labels, chat messages, keybinding names) must use translation keys.
+All user-visible strings (UI labels, chat messages, keybinding names) use translation keys.
 
 ---
 
-## 9. Entity Download *(low priority)*
+## 9. Entity Download *(low priority)* 🔲
 
 ### 9a. Decorative Entities
 Download and save paintings, item frames, and armour stands that are present in received chunks.
@@ -129,7 +133,7 @@ Download any entity (mobs, animals, etc.) visible in received chunks and write t
 
 ---
 
-## 10. Block Entity (Tile Entity) Data *(low priority)*
+## 10. Block Entity (Tile Entity) Data *(low priority)* 🔲
 
 Download and persist block entity data (chest inventories, furnace state, etc.) embedded in chunk data.
 This largely overlaps with the existing `ContainerTracker` work; the goal is to make it robust and complete.
@@ -138,6 +142,8 @@ This largely overlaps with the existing `ContainerTracker` work; the goal is to 
 
 ## Implementation Notes
 
-- The `ConflictResolver` interface (§3) and the mapping table (§5) should be designed first, as other features depend on them.
-- LibGUI is already a required dependency; use it for all new screens.
-- The existing one-shot export keybinding can remain as a convenience action inside the new UI (§6).
+- Items §1–§4 and §7–§8 are **complete**.
+- Items §5 and §6 depend on each other and should be tackled together next.
+- LibGUI is already a required dependency; use it for all new screens (§6).
+- The existing one-shot export keybinding (`O`) remains as a manual trigger alongside the toggle (`P`).
+
