@@ -81,13 +81,17 @@ Fixed by forcing the in-game logging to run on the render thread via `client.exe
 
 ---
 
-## 3. Performance & Thread Safety
+## 3. Performance & Thread Safety [DONE]
 
 ### [BUG] `captureLoadedChunks` runs synchronously on the game thread
 `DownloadManager`  
-When download is toggled on, `captureLoadedChunks` serializes all loaded chunks on the
+~~When download is toggled on, `captureLoadedChunks` serializes all loaded chunks on the
 game thread. This can cause a noticeable hitch. The serialization loop should run on a
-background thread (similar to the export path), with proper snapshot/copy semantics.
+background thread (similar to the export path), with proper snapshot/copy semantics.~~  
+**Fixed:** Renamed to `captureLoadedChunksAsync`.  Phase 1 (game thread) only collects
+`WorldChunk` *references* — no serialisation.  Phase 2 (daemon thread `WDL-InitCapture`)
+serialises each chunk and stores it via `ChunkListener`.  A CAS guard
+(`captureInProgress`) prevents duplicate concurrent captures.
 
 ### [BUG] Cached chunks never expire — potential OOM under long sessions
 `ChunkListener`, `ModConfig`  

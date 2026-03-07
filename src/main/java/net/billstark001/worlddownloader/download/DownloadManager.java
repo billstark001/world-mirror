@@ -25,6 +25,7 @@ import net.minecraft.client.world.ClientWorld;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -49,6 +50,8 @@ public final class DownloadManager {
     private static volatile boolean active = false;
     private static long lastPeriodicSyncMs = 0;
     private static final AtomicBoolean exportInProgress = new AtomicBoolean(false);
+    /** Guards against starting a second initial-capture while one is still running. */
+    private static final AtomicBoolean captureInProgress = new AtomicBoolean(false);
 
     public static boolean isActive() {
         return active;
@@ -72,7 +75,7 @@ public final class DownloadManager {
             // Capture chunks that are already loaded so the player does not need
             // to walk through the area again after enabling download.
             if (client.world != null) {
-                captureLoadedChunks(client);
+                captureLoadedChunksAsync(client);
             }
         }
         Text msg = Text.translatable(
@@ -167,38 +170,83 @@ public final class DownloadManager {
     // ── Internal ─────────────────────────────────────────────────────────────
 
     /**
-     * Captures all currently loaded chunks in the active dimension.
-     * Called on the game thread when download is toggled ON.
+     * Captures all currently loaded chunks in the active dimension without blocking
+     * the game thread.
+     *
+     * <p><b>Phase 1 (game thread, fast):</b> Iterates through chunk positions in a
+     * {@code range×range} square around the player and collects references to loaded
+     * {@link WorldChunk} objects.  Only reference lookups happen here — no NBT
+     * serialisation — so this phase completes in microseconds.
+     *
+     * <p><b>Phase 2 (background thread, {@code WDL-InitCapture}):</b> Serialises each
+     * collected chunk to NBT and stores the result via {@link ChunkListener}.  The
+     * capture is aborted early if download is deactivated mid-flight.
+     *
+     * <p>A CAS guard ({@link #captureInProgress}) ensures only one initial capture
+     * runs at a time.
      */
-    private static void captureLoadedChunks(MinecraftClient client) {
+    private static void captureLoadedChunksAsync(MinecraftClient client) {
         ClientWorld world = client.world;
         if (world == null || client.player == null) return;
+
+        if (!captureInProgress.compareAndSet(false, true)) {
+            WDLogger.debug("Initial chunk capture already in progress — skipping.");
+            return;
+        }
 
         RegistryKey<World> dimension = world.getRegistryKey();
         int playerCX = client.player.getBlockX() >> 4;
         int playerCZ = client.player.getBlockZ() >> 4;
-        // Use a generous radius; unloaded chunks are skipped via instanceof check
+        // 33 covers a ~66-chunk diameter, comfortably exceeding the maximum client-side
+        // render distance (typically 2–32 chunks).  Unloaded positions return an
+        // EmptyChunk and are filtered out by the instanceof check below.
         int range = 33;
-        int count = 0;
 
+        // ── Phase 1: collect WorldChunk references (game thread, no serialisation) ──
+        List<WorldChunk> toCapture = new ArrayList<>();
         for (int cx = playerCX - range; cx <= playerCX + range; cx++) {
             for (int cz = playerCZ - range; cz <= playerCZ + range; cz++) {
-                // getChunk returns EmptyChunk for unloaded positions; skip those
                 Chunk chunk = world.getChunk(cx, cz);
-                if (!(chunk instanceof WorldChunk wc)) continue;
-                try {
-                    if (ClientChunkSerializer.isChunkEmpty(wc)) continue;
-                    NbtCompound nbt = ClientChunkSerializer.serialize(world, wc);
-                    ChunkListener.addChunkNbt(dimension, new ChunkPos(cx, cz), nbt);
-                    count++;
-                } catch (Exception e) {
-                    WDLogger.warn("captureLoadedChunks: failed at "
-                            + cx + "," + cz + ": " + e.getMessage());
+                if (chunk instanceof WorldChunk wc) {
+                    toCapture.add(wc);
                 }
             }
         }
-        WDLogger.info("Captured " + count + " already-loaded chunks in ["
-                + dimension.getValue() + "]");
+
+        if (toCapture.isEmpty()) {
+            captureInProgress.set(false);
+            return;
+        }
+
+        WDLogger.info("Scheduling async initial capture of " + toCapture.size()
+                + " loaded chunks in [" + dimension.getValue() + "]...");
+
+        // ── Phase 2: serialise on a background thread ─────────────────────────
+        Thread captureThread = new Thread(() -> {
+            try {
+                int count = 0;
+                for (WorldChunk wc : toCapture) {
+                    // `active` is declared volatile; reading it here is always fresh.
+                    if (!active) break; // abort if download was deactivated mid-capture
+                    try {
+                        if (ClientChunkSerializer.isChunkEmpty(wc)) continue;
+                        NbtCompound nbt = ClientChunkSerializer.serialize(world, wc);
+                        ChunkListener.addChunkNbt(dimension, wc.getPos(), nbt);
+                        count++;
+                    } catch (Exception e) {
+                        WDLogger.warn("captureLoadedChunksAsync: failed at "
+                                + wc.getPos() + ": " + e.getMessage());
+                    }
+                }
+                WDLogger.info("Async initial capture complete: " + count + "/"
+                        + toCapture.size() + " chunks captured in ["
+                        + dimension.getValue() + "]");
+            } finally {
+                captureInProgress.set(false);
+            }
+        }, "WDL-InitCapture");
+        captureThread.setDaemon(true);
+        captureThread.start();
     }
 
     /**
