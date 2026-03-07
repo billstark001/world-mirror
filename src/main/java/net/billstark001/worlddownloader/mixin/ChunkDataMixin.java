@@ -42,6 +42,10 @@ public abstract class ChunkDataMixin {
 
         if (worldChunk != null) {
             try {
+                if (ClientChunkSerializer.isChunkEmpty(worldChunk)) {
+                    WDLogger.debug("Skipping empty chunk at " + pos);
+                    return;
+                }
                 NbtCompound chunkNbt = ClientChunkSerializer.serialize(world, worldChunk);
                 // Pass the dimension key so ChunkListener can store chunks per dimension
                 ChunkListener.addChunkNbt(world.getRegistryKey(), pos, chunkNbt);

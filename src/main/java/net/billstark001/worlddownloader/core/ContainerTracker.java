@@ -214,6 +214,9 @@ public class ContainerTracker {
 
 
     public static NbtCompound enhanceBlockEntityWithContainerData(BlockEntity blockEntity, NbtCompound originalNbt) {
+        if (originalNbt == null) {
+            return null;
+        }
         BlockPos pos = blockEntity.getPos();
         NbtCompound containerData = getContainerData(pos);
 

@@ -11,6 +11,9 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.entity.Entity;
 import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.NbtDouble;
+import net.minecraft.nbt.NbtFloat;
+import net.minecraft.nbt.NbtList;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.Registries;
 import net.minecraft.util.math.ChunkPos;
@@ -115,29 +118,67 @@ public class EntityTracker {
     // ── Entity serialisation ──────────────────────────────────────────────────
 
     /**
-     * Serializes {@code entity} to NBT using Minecraft's own {@link Entity#writeNbt}
-     * implementation.
+     * Serializes {@code entity} to NBT for storage in the entities region file.
      * <p>
-     * {@code writeNbt} is NOT overridden by client-only code; it writes exactly the
-     * same fields that the server would write when saving the entity to a region
-     * file.  On the client, the entity's tracked data (DataTracker) is populated via
-     * tracking packets, so fields such as painting motive, item-frame contents, armour
-     * stand pose, equipment, tamed-owner UUID, and so on are all available and will be
-     * serialized correctly.
+     * In Minecraft 1.21 the old {@code Entity.writeNbt(NbtCompound)} method was
+     * replaced by {@code Entity.writeData(net.minecraft.storage.WriteView)}.
+     * We manually build the minimal NBT that a saved entity record requires:
+     * type id, position, rotation, velocity, and on-ground flag.
      * <p>
-     * The only addition we make is the {@code id} key (entity type identifier), which
-     * {@code writeNbt} does not write itself but which Minecraft's region-file chunk
-     * serializer always includes.
+     * Entity-specific state (painting motive, item-frame contents, armorstand pose,
+     * mob equipment, etc.) is written by the entity's own {@code writeData} override,
+     * but since {@code WriteView} is an opaque interface there is no public API to
+     * extract the resulting NBT on the client.  A future update should either expose
+     * a factory method or use a Mixin {@code @Invoker} to call the internal
+     * {@code NbtCompoundWriteView} implementation.
      */
     private static NbtCompound serializeEntity(Entity entity) {
         try {
             NbtCompound nbt = new NbtCompound();
-            // entity.writeNbt() does not include the entity type id; prepend it
+
+            // Entity type identifier (required by region-file format)
             nbt.putString("id", Registries.ENTITY_TYPE.getId(entity.getType()).toString());
-            // TODO, FIXME: Delegate to Minecraft's own serialization — covers all entity types
-            // the `writeNbt` method does not exist.
-            // it only has `writeData(net.minecraft.storage.WriteView view)`.
-            // entity.writeNbt(nbt);
+
+            // Position
+            Vec3d pos = entity.getPos();
+            NbtList posList = new NbtList();
+            posList.add(NbtDouble.of(pos.x));
+            posList.add(NbtDouble.of(pos.y));
+            posList.add(NbtDouble.of(pos.z));
+            nbt.put("Pos", posList);
+
+            // Rotation (yaw, pitch)
+            NbtList rotList = new NbtList();
+            rotList.add(NbtFloat.of(entity.getYaw()));
+            rotList.add(NbtFloat.of(entity.getPitch()));
+            nbt.put("Rotation", rotList);
+
+            // Velocity
+            Vec3d velocity = entity.getVelocity();
+            NbtList motionList = new NbtList();
+            motionList.add(NbtDouble.of(velocity.x));
+            motionList.add(NbtDouble.of(velocity.y));
+            motionList.add(NbtDouble.of(velocity.z));
+            nbt.put("Motion", motionList);
+
+            // On-ground flag
+            nbt.putBoolean("OnGround", entity.isOnGround());
+
+            // Custom name, if set
+            if (entity.hasCustomName() && entity.getCustomName() != null) {
+                try {
+                    nbt.putString("CustomName",
+                            net.minecraft.text.Text.Serialization.toJsonString(
+                                    entity.getCustomName(),
+                                    entity.getWorld().getRegistryManager()));
+                } catch (Exception ignored) {
+                    // Custom name serialization is best-effort; skip if it fails
+                }
+            }
+
+            // UUID
+            nbt.putUuid("UUID", entity.getUuid());
+
             return nbt;
         } catch (Exception e) {
             WDLogger.warn("Failed to serialize entity " + entity.getType() + ": " + e.getMessage());

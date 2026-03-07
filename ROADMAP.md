@@ -9,7 +9,10 @@ Each item references the primary class(es) involved.
 
 ### [BUG] Incorrect Fabric Loom plugin ID in `build.gradle` *(CI-breaking)*
 `build.gradle`  
-Plugin ID `net.fabricmc.fabric-loom-remap` does not exist; the correct ID is `fabric-loom`.
+~~Plugin ID `net.fabricmc.fabric-loom-remap` does not exist; the correct ID is `fabric-loom`.~~  
+**Fixed:** `loom_version` updated to use the correct stable SNAPSHOT (`1.14-SNAPSHOT`);
+the `net.fabricmc.fabric-loom-remap` plugin ID is confirmed correct for obfuscated
+Minecraft 1.21.11 and is already properly declared.
 
 ---
 
@@ -17,38 +20,58 @@ Plugin ID `net.fabricmc.fabric-loom-remap` does not exist; the correct ID is `fa
 
 ### [BUG] `EntityTracker::serializeEntity` calls non-existent `entity.writeNbt`
 `EntityTracker`  
-The method `entity.writeNbt(NbtCompound)` does not exist in MC 1.21+.
+~~The method `entity.writeNbt(NbtCompound)` does not exist in MC 1.21+.
 Must be replaced with the `entity.writeData(net.minecraft.storage.WriteView)` API, or
-a manual serialization of the public entity state.
+a manual serialization of the public entity state.~~  
+**Partially fixed:** `serializeEntity` now writes the canonical NBT fields (type id,
+position, rotation, velocity, UUID, on-ground, custom name) via the public Entity API.
+Full entity-specific data (e.g. painting motive, armour-stand pose, mob equipment)
+still requires an `@Invoker` mixin to access the internal `NbtCompoundWriteView`.
 
 ### [BUG] Block-entity serialization crashes when `originalNbt` is null
 `ContainerTracker`, `ClientChunkSerializer`  
-`BlockEntity.createNbtWithIdentifyingData` can return `null`; passing that value to
+~~`BlockEntity.createNbtWithIdentifyingData` can return `null`; passing that value to
 `ContainerTracker.enhanceBlockEntityWithContainerData` causes a NPE.
-Both call-sites need null-guards.
+Both call-sites need null-guards.~~  
+**Fixed:** `enhanceBlockEntityWithContainerData` now returns `null` early when
+`originalNbt` is `null`.  The broken `ChestBlockEntityMixin` injection (which was
+creating a local `CallbackInfoReturnable` with a null return value and passing it
+through, causing the crash) has been replaced with an intentionally empty mixin class —
+container enhancement is correctly handled by `ClientChunkSerializer` only.
 
 ### [BUG] Saved world LevelName is always "Downloaded World"
 `WorldExporter`  
-The `LevelName` field in `level.dat` is hard-coded to `"Downloaded World"`.
-It should be derived from the mirror folder name / source world name.
+~~The `LevelName` field in `level.dat` is hard-coded to `"Downloaded World"`.
+It should be derived from the mirror folder name / source world name.~~  
+**Fixed:** `createLoadableWorld` now accepts a `levelName` parameter; `DownloadManager`
+passes the `sourceId` as the level name.
 
 ### [BUG] "World structure created at:" is logged on every export, not only on first creation
 `WorldExporter`, `DownloadManager`  
-`WorldExporter.createLoadableWorld` always logs this line, even for incremental updates.
+~~`WorldExporter.createLoadableWorld` always logs this line, even for incremental updates.
 The method should distinguish between first-time creation and subsequent updates and log
-accordingly.
+accordingly.~~  
+**Fixed:** `createLoadableWorld` checks for the existence of `level.dat` to distinguish
+first creation from subsequent syncs, and logs "World structure created" vs "World
+structure updated (incremental sync)" accordingly.
 
 ### [BUG] Empty chunks (sent by server for out-of-render-distance positions) are stored
 `ChunkDataMixin`, `ClientChunkSerializer`  
-Servers sometimes send completely empty chunks. A fast check for all-air block sections
+~~Servers sometimes send completely empty chunks. A fast check for all-air block sections
 and zero block entities should be performed before caching the chunk, to avoid wasting
-memory and polluting the exported world.
+memory and polluting the exported world.~~  
+**Fixed:** `ClientChunkSerializer.isChunkEmpty(Chunk)` performs a fast check (all
+sections empty + no block entity positions); `ChunkDataMixin.onChunkData` and
+`DownloadManager.captureLoadedChunks` both skip chunks that pass this check.
 
 ### [BUG] Exported world generates terrain from an uncontrolled random seed
 `WorldExporter`  
-The `level.dat` produced by `createLoadableWorld` uses a standard dimension preset, so
+~~The `level.dat` produced by `createLoadableWorld` uses a standard dimension preset, so
 undownloaded chunks are generated procedurally. The world should instead use a void
-superflat preset so that areas the player has not visited remain empty.
+superflat preset so that areas the player has not visited remain empty.~~  
+**Fixed:** `createLoadableWorld` now writes `generatorName: flat` with zero layers,
+`biome: minecraft:the_void`, and no structures — equivalent to the in-game "The Void"
+superflat preset.
 
 ### [BUG] Possible render-thread violation when exporting
 `WorldExporter`, `DownloadManager`  
@@ -69,13 +92,17 @@ background thread (similar to the export path), with proper snapshot/copy semant
 
 ### [BUG] Cached chunks never expire — potential OOM under long sessions
 `ChunkListener`, `ModConfig`  
-The in-memory chunk cache grows without bound.  
+~~The in-memory chunk cache grows without bound.  
 Add cache-control settings to `ModConfig`:
 - `maxCachedChunks` — evict oldest chunks when this limit is reached
 - `maxCacheDistanceChunks` — evict chunks farther than N chunks from the player
 - `maxCacheAgeSeconds` — evict chunks older than this threshold
 - `invalidateAfterExport` — if `true`, remove a chunk from the cache immediately after
-  it has been successfully written to disk
+  it has been successfully written to disk~~  
+**Fixed:** All four settings added to `ModConfig`.  `ChunkListener.evictStale` performs
+age-, count-, and distance-based eviction.  `ChunkListener.invalidateChunks` removes
+successfully exported chunks when `invalidateAfterExport = true`.  Both are wired into
+`DownloadManager.onClientTick` / `startBackgroundSync`.
 
 ---
 
@@ -94,9 +121,11 @@ and append a numeric suffix (e.g. `_2`) if it does not.
 
 ### [BUG] "Clear Data" button label is misleading
 `StatusScreen`, `en_us.json`  
-The button labelled "Clear Data" only clears the in-memory chunk/entity/container
+~~The button labelled "Clear Data" only clears the in-memory chunk/entity/container
 cache — it does not delete anything from disk. The label should be
-"Clear Cache" (or similar) to avoid user confusion.
+"Clear Cache" (or similar) to avoid user confusion.~~  
+**Fixed:** Button renamed to "Clear Cache" in `en_us.json` (and `zh_cn.json`); action
+message updated to clarify that disk data is unaffected.
 
 ### [BUG] Export status label on the status screen is not refreshed after export completes
 `StatusScreen`  

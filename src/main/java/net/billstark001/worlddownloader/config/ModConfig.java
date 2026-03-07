@@ -45,6 +45,35 @@ public class ModConfig {
     public LogLevel logLevel = LogLevel.INFO;
     public ConflictStrategy defaultConflictStrategy = ConflictStrategy.OVERWRITE;
 
+    // ── Cache control ─────────────────────────────────────────────────────────
+
+    /**
+     * Maximum number of chunks to keep in the in-memory cache across all dimensions.
+     * When the limit is exceeded, the oldest captured chunks are evicted first.
+     * Set to 0 to disable the limit.
+     */
+    public int maxCachedChunks = 0;
+
+    /**
+     * Maximum distance (in chunks) from the player at which cached chunks are retained.
+     * Chunks farther than this radius are evicted during the periodic sync tick.
+     * Set to 0 to disable distance-based eviction.
+     */
+    public int maxCacheDistanceChunks = 0;
+
+    /**
+     * Maximum age (in seconds) of a cached chunk before it is evicted.
+     * Set to 0 to disable time-based eviction.
+     */
+    public int maxCacheAgeSeconds = 0;
+
+    /**
+     * If {@code true}, a chunk is removed from the in-memory cache immediately after
+     * it has been successfully written to disk.  This reduces RAM usage at the cost of
+     * re-capturing the chunk if it needs to be re-exported.
+     */
+    public boolean invalidateAfterExport = false;
+
     // ── Singleton + persistence ───────────────────────────────────────────────
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();

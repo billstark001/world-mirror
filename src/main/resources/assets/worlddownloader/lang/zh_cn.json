@@ -29,7 +29,7 @@
   "msg.worlddownloader.exportDone":     "世界导出成功。",
   "msg.worlddownloader.exportBusy":     "导出正在进行中，请稍候。",
   "msg.worlddownloader.noChunks":       "没有缓存的区块，请先四处走动以加载区块。",
-  "msg.worlddownloader.cleared":        "已清除所有缓存数据。",
+  "msg.worlddownloader.cleared":        "已清除区块/实体/容器缓存（磁盘数据不受影响）。",
 
   "screen.worlddownloader.status.title":            "世界下载器状态",
   "screen.worlddownloader.status.sourceType":       "类型",
@@ -45,7 +45,7 @@
   "screen.worlddownloader.status.startDownload":    "开始下载",
   "screen.worlddownloader.status.stopDownload":     "停止下载",
   "screen.worlddownloader.status.exportNow":        "立即导出",
-  "screen.worlddownloader.status.clearData":        "清除数据",
+  "screen.worlddownloader.status.clearData":        "清除缓存",
   "screen.worlddownloader.status.noConflicts":      "无待解决冲突",
   "screen.worlddownloader.status.conflicts":        "待解决冲突",
   "screen.worlddownloader.status.overwriteAll":     "全部覆盖",

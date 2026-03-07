@@ -1,6 +1,8 @@
 package net.billstark001.worlddownloader.core;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -70,6 +72,113 @@ public class ChunkListener {
 
     public static void clear() {
         dimChunks.clear();
+    }
+
+    /**
+     * Evicts stale chunks from the cache according to the supplied policy parameters.
+     *
+     * @param maxAgeMs     evict chunks older than this many milliseconds; 0 = disabled
+     * @param maxCount     keep at most this many chunks total (oldest evicted first); 0 = disabled
+     * @param playerDimension  player's current dimension (may be {@code null})
+     * @param playerCX     player chunk X (used only when {@code maxDistChunks > 0})
+     * @param playerCZ     player chunk Z (used only when {@code maxDistChunks > 0})
+     * @param maxDistChunks evict chunks farther than this radius; 0 = disabled
+     */
+    public static void evictStale(long maxAgeMs, int maxCount,
+                                  RegistryKey<World> playerDimension,
+                                  int playerCX, int playerCZ, int maxDistChunks) {
+        long now = System.currentTimeMillis();
+        int evicted = 0;
+
+        // ── Age-based eviction ────────────────────────────────────────────────
+        if (maxAgeMs > 0) {
+            for (ConcurrentHashMap<ChunkPos, CapturedChunk> dimMap : dimChunks.values()) {
+                List<ChunkPos> toRemove = new ArrayList<>();
+                for (Map.Entry<ChunkPos, CapturedChunk> e : dimMap.entrySet()) {
+                    if (now - e.getValue().capturedAtMs() > maxAgeMs) {
+                        toRemove.add(e.getKey());
+                    }
+                }
+                for (ChunkPos p : toRemove) {
+                    dimMap.remove(p);
+                    evicted++;
+                }
+            }
+        }
+
+        // ── Distance-based eviction ───────────────────────────────────────────
+        if (maxDistChunks > 0 && playerDimension != null) {
+            ConcurrentHashMap<ChunkPos, CapturedChunk> dimMap = dimChunks.get(playerDimension);
+            if (dimMap != null) {
+                List<ChunkPos> toRemove = new ArrayList<>();
+                for (ChunkPos pos : dimMap.keySet()) {
+                    int dx = pos.x - playerCX;
+                    int dz = pos.z - playerCZ;
+                    if (Math.abs(dx) > maxDistChunks || Math.abs(dz) > maxDistChunks) {
+                        toRemove.add(pos);
+                    }
+                }
+                for (ChunkPos p : toRemove) {
+                    dimMap.remove(p);
+                    evicted++;
+                }
+            }
+        }
+
+        // ── Count-based eviction (evict oldest first) ─────────────────────────
+        if (maxCount > 0) {
+            // Collect all entries across all dimensions with their timestamps
+            List<Map.Entry<RegistryKey<World>, ChunkPos>> allEntries = new ArrayList<>();
+            for (Map.Entry<RegistryKey<World>, ConcurrentHashMap<ChunkPos, CapturedChunk>> dimEntry
+                    : dimChunks.entrySet()) {
+                for (ChunkPos pos : dimEntry.getValue().keySet()) {
+                    allEntries.add(new java.util.AbstractMap.SimpleEntry<>(dimEntry.getKey(), pos));
+                }
+            }
+            int total = allEntries.size();
+            if (total > maxCount) {
+                // Sort by capture time ascending (oldest first)
+                allEntries.sort((a, b) -> {
+                    CapturedChunk ca = dimChunks.get(a.getKey()) != null
+                            ? dimChunks.get(a.getKey()).get(a.getValue()) : null;
+                    CapturedChunk cb = dimChunks.get(b.getKey()) != null
+                            ? dimChunks.get(b.getKey()).get(b.getValue()) : null;
+                    long ta = (ca != null) ? ca.capturedAtMs() : 0;
+                    long tb = (cb != null) ? cb.capturedAtMs() : 0;
+                    return Long.compare(ta, tb);
+                });
+                int toEvict = total - maxCount;
+                for (int i = 0; i < toEvict; i++) {
+                    Map.Entry<RegistryKey<World>, ChunkPos> e = allEntries.get(i);
+                    ConcurrentHashMap<ChunkPos, CapturedChunk> dimMap = dimChunks.get(e.getKey());
+                    if (dimMap != null) {
+                        dimMap.remove(e.getValue());
+                        evicted++;
+                    }
+                }
+            }
+        }
+
+        if (evicted > 0) {
+            WDLogger.debug("Evicted " + evicted + " stale chunks from cache.");
+        }
+    }
+
+    /**
+     * Removes the specified chunks from the cache (used for invalidate-after-export).
+     */
+    public static void invalidateChunks(Map<RegistryKey<World>, Set<ChunkPos>> writtenByDim) {
+        int removed = 0;
+        for (Map.Entry<RegistryKey<World>, Set<ChunkPos>> dimEntry : writtenByDim.entrySet()) {
+            ConcurrentHashMap<ChunkPos, CapturedChunk> dimMap = dimChunks.get(dimEntry.getKey());
+            if (dimMap == null) continue;
+            for (ChunkPos pos : dimEntry.getValue()) {
+                if (dimMap.remove(pos) != null) removed++;
+            }
+        }
+        if (removed > 0) {
+            WDLogger.debug("Invalidated " + removed + " exported chunks from cache.");
+        }
     }
 }
 

@@ -29,7 +29,7 @@
   "msg.worlddownloader.exportDone":     "World exported successfully.",
   "msg.worlddownloader.exportBusy":     "Export already in progress — please wait.",
   "msg.worlddownloader.noChunks":       "No chunks cached — walk around to load chunks first.",
-  "msg.worlddownloader.cleared":        "Cleared all cached data.",
+  "msg.worlddownloader.cleared":        "Cleared chunk/entity/container cache (disk unchanged).",
 
   "screen.worlddownloader.status.title":            "World Downloader Status",
   "screen.worlddownloader.status.sourceType":       "Type",
@@ -45,7 +45,7 @@
   "screen.worlddownloader.status.startDownload":    "Start Download",
   "screen.worlddownloader.status.stopDownload":     "Stop Download",
   "screen.worlddownloader.status.exportNow":        "Export Now",
-  "screen.worlddownloader.status.clearData":        "Clear Data",
+  "screen.worlddownloader.status.clearData":        "Clear Cache",
   "screen.worlddownloader.status.noConflicts":      "No pending conflicts",
   "screen.worlddownloader.status.conflicts":        "Pending conflicts",
   "screen.worlddownloader.status.overwriteAll":     "Overwrite All",

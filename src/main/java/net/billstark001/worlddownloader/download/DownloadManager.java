@@ -87,6 +87,7 @@ public final class DownloadManager {
     /**
      * Should be called on every client tick.
      * Triggers a periodic background sync when the configured interval elapses.
+     * Also applies cache-eviction rules if configured.
      */
     public static void onClientTick(MinecraftClient client) {
         if (!active) return;
@@ -94,6 +95,8 @@ public final class DownloadManager {
         long interval = (long) ModConfig.get().syncIntervalSeconds * 1000L;
         if (now - lastPeriodicSyncMs >= interval) {
             lastPeriodicSyncMs = now;
+            // Apply cache-eviction rules before syncing
+            applyCacheEviction(client);
             startBackgroundSync(client, false);
         }
     }
@@ -184,6 +187,7 @@ public final class DownloadManager {
                 Chunk chunk = world.getChunk(cx, cz);
                 if (!(chunk instanceof WorldChunk wc)) continue;
                 try {
+                    if (ClientChunkSerializer.isChunkEmpty(wc)) continue;
                     NbtCompound nbt = ClientChunkSerializer.serialize(world, wc);
                     ChunkListener.addChunkNbt(dimension, new ChunkPos(cx, cz), nbt);
                     count++;
@@ -251,8 +255,13 @@ public final class DownloadManager {
                         Exporter.exportChunks(finalWorldFolder, snapshot, entitySnapshot,
                                 resolver, meta);
 
-                WorldExporter.createLoadableWorld(finalWorldFolder.toFile());
+                WorldExporter.createLoadableWorld(finalWorldFolder.toFile(), sourceId);
                 WorldMetadata.update(finalWorldFolder, sourceId, sourceType, written);
+
+                // Invalidate exported chunks if configured
+                if (ModConfig.get().invalidateAfterExport && !written.isEmpty()) {
+                    ChunkListener.invalidateChunks(written);
+                }
 
                 int totalWritten = written.values().stream().mapToInt(Set::size).sum();
                 WDLogger.info("Export complete: " + totalWritten + "/"
@@ -297,5 +306,25 @@ public final class DownloadManager {
             case MANUAL -> new ManualResolver();
             default     -> new OverwriteResolver();
         };
+    }
+
+    /**
+     * Applies cache-eviction rules from {@link ModConfig} to the chunk cache.
+     * Safe to call on the game thread.
+     */
+    private static void applyCacheEviction(MinecraftClient client) {
+        ModConfig cfg = ModConfig.get();
+        long maxAgeMs = (long) cfg.maxCacheAgeSeconds * 1000L;
+        int maxCount = cfg.maxCachedChunks;
+        int maxDist = cfg.maxCacheDistanceChunks;
+
+        if (maxAgeMs <= 0 && maxCount <= 0 && maxDist <= 0) return;
+
+        RegistryKey<World> playerDim = (client.world != null)
+                ? client.world.getRegistryKey() : null;
+        int playerCX = (client.player != null) ? (client.player.getBlockX() >> 4) : 0;
+        int playerCZ = (client.player != null) ? (client.player.getBlockZ() >> 4) : 0;
+
+        ChunkListener.evictStale(maxAgeMs, maxCount, playerDim, playerCX, playerCZ, maxDist);
     }
 }

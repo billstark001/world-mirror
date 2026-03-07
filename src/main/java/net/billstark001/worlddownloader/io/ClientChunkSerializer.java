@@ -28,6 +28,21 @@ import net.minecraft.registry.Registry;
 
 @Environment(EnvType.CLIENT)
 public class ClientChunkSerializer {
+
+    /**
+     * Returns {@code true} if the chunk has no non-air blocks and no block entities,
+     * which means the server sent an empty placeholder chunk (e.g. beyond its own
+     * render distance).  Such chunks are not worth caching or exporting.
+     */
+    public static boolean isChunkEmpty(Chunk chunk) {
+        for (ChunkSection section : chunk.getSectionArray()) {
+            if (section != null && !section.isEmpty()) {
+                return false;
+            }
+        }
+        return chunk.getBlockEntityPositions().isEmpty();
+    }
+
     public static NbtCompound serialize(ClientWorld world, Chunk chunk) {
         ChunkPos chunkPos = chunk.getPos();
         NbtCompound chunkNbt = new NbtCompound();
