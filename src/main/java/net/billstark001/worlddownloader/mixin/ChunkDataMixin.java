@@ -1,16 +1,17 @@
 package net.billstark001.worlddownloader.mixin;
 
+import net.billstark001.worlddownloader.download.DownloadManager;
+import net.billstark001.worlddownloader.core.ChunkListener;
+import net.billstark001.worlddownloader.io.ClientChunkSerializer;
+import net.billstark001.worlddownloader.util.WDLogger;
 import net.fabricmc.api.EnvType;
-import net.billstark001.worlddownloader.util.ChunkListener;
-import net.billstark001.worlddownloader.util.ClientChunkSerializer;
 import net.fabricmc.api.Environment;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.network.packet.s2c.play.ChunkDataS2CPacket;
-import net.minecraft.world.chunk.Chunk;
-import net.minecraft.world.chunk.WorldChunk;
 import net.minecraft.client.network.ClientPlayNetworkHandler;
 import net.minecraft.client.world.ClientWorld;
+import net.minecraft.network.packet.s2c.play.ChunkDataS2CPacket;
+import net.minecraft.util.math.ChunkPos;
+import net.minecraft.nbt.NbtCompound;
+import net.minecraft.world.chunk.WorldChunk;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -24,32 +25,32 @@ public abstract class ChunkDataMixin {
     @Shadow
     public abstract ClientWorld getWorld();
 
-
     @Inject(method = {"onChunkData"}, at = {@At("TAIL")})
     private void onChunkData(ChunkDataS2CPacket packet, CallbackInfo ci) {
+        if (!DownloadManager.isActive()) return;
+
         ClientWorld world = this.getWorld();
         if (world == null) {
-            System.err.println("❌ Client world is null during chunk data processing");
-
+            WDLogger.warn("Client world is null during chunk data processing.");
             return;
         }
+
         int x = packet.getChunkX();
         int z = packet.getChunkZ();
         ChunkPos pos = new ChunkPos(x, z);
-        WorldChunk WorldChunk = world.getChunk(x, z);
+        WorldChunk worldChunk = world.getChunk(x, z);
 
-        if (WorldChunk != null) {
-
+        if (worldChunk != null) {
             try {
-                NbtCompound chunkNbt = ClientChunkSerializer.serialize(world, WorldChunk);
-                ChunkListener.addChunkNbt(pos, chunkNbt);
-                System.out.println("✅ Saved chunk NBT for: " + pos);
+                NbtCompound chunkNbt = ClientChunkSerializer.serialize(world, worldChunk);
+                // Pass the dimension key so ChunkListener can store chunks per dimension
+                ChunkListener.addChunkNbt(world.getRegistryKey(), pos, chunkNbt);
             } catch (Exception e) {
-                System.err.println("❌ Failed to capture chunk NBT for " + pos + ": " + e.getMessage());
-                e.printStackTrace();
+                WDLogger.warn("Failed to capture chunk NBT for " + pos + ": " + e.getMessage());
             }
         } else {
-            System.out.println("⚠ Chunk at " + pos + " not fully loaded when onChunkData processed");
+            WDLogger.debug("Chunk at " + pos + " not fully loaded when onChunkData fired.");
         }
     }
 }
+

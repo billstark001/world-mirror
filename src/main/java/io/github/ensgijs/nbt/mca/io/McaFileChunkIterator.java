@@ -195,22 +195,11 @@ public class McaFileChunkIterator<T extends ChunkBase> implements ChunkIterator<
         in.close();
     }
 
-    private static class ChunkMetaInfo {
-        public final int index;
-        public final int offset;
-        public final int sectors;
-        public final int timestamp;
-
-        public ChunkMetaInfo(int index, int offset, int sectors, int timestamp) {
-            this.index = index;
-            this.offset = offset;
-            this.sectors = sectors;
-            this.timestamp = timestamp;
-        }
+    private record ChunkMetaInfo(int index, int offset, int sectors, int timestamp) {
 
         @Override
-        public String toString() {
-            return "index: " + index + "; offset: " + offset + "; sectors: " + sectors + "; timestamp: " + timestamp;
+            public String toString() {
+                return "index: " + index + "; offset: " + offset + "; sectors: " + sectors + "; timestamp: " + timestamp;
+            }
         }
-    }
 }

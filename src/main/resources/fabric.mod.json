@@ -17,6 +17,9 @@
   "entrypoints": {
     "client": [
       "net.billstark001.worlddownloader.WorldDownloaderClient"
+    ],
+    "modmenu": [
+      "net.billstark001.worlddownloader.config.ModMenuApiImpl"
     ]
   },
   "mixins": [

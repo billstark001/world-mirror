@@ -2,16 +2,7 @@ package io.github.ensgijs.nbt.query.evaluator;
 
 import io.github.ensgijs.nbt.tag.*;
 
-public class IndexEvaluator implements Evaluator {
-    private final int index;
-
-    public int index() {
-        return index;
-    }
-
-    public IndexEvaluator(int index) {
-        this.index = index;
-    }
+public record IndexEvaluator(int index) implements Evaluator {
 
     public Object eval(Tag<?> tag) {
         if (tag instanceof ListTag) {

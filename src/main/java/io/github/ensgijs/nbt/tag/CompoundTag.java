@@ -1,6 +1,5 @@
 package io.github.ensgijs.nbt.tag;
 
-import java.lang.reflect.Array;
 import java.util.*;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
@@ -709,28 +708,26 @@ public class CompoundTag extends Tag<Map<String, Tag<?>>>
         return copy;
     }
 
-    private static class CompoundTagIterator implements Iterator<NamedTag> {
-        private final Iterator<Map.Entry<String, Tag<?>>> iterator;
+    private record CompoundTagIterator(Iterator<Map.Entry<String, Tag<?>>> iterator) implements Iterator<NamedTag> {
+            private CompoundTagIterator(Set<Map.Entry<String, Tag<?>>> iterator) {
+                this(iterator.iterator());
+            }
 
-        CompoundTagIterator(Set<Map.Entry<String, Tag<?>>> set) {
-            this.iterator = set.iterator();
-        }
+            @Override
+            public boolean hasNext() {
+                return iterator.hasNext();
+            }
 
-        @Override
-        public boolean hasNext() {
-            return iterator.hasNext();
-        }
+            @Override
+            public NamedTag next() {
+                return new MappedNamedTag(iterator.next());
+            }
 
-        @Override
-        public NamedTag next() {
-            return new MappedNamedTag(iterator.next());
+            @Override
+            public void remove() {
+                iterator.remove();
+            }
         }
-
-        @Override
-        public void remove() {
-            iterator.remove();
-        }
-    }
 
     private static class MappedNamedTag extends NamedTag {
         private final Map.Entry<String, Tag<?>> entry;

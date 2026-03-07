@@ -13,8 +13,28 @@ import java.util.stream.StreamSupport;
  * @param <T> Concrete type of section.
  */
 public abstract class SectionedChunkBase<T extends SectionBase<?>> extends ChunkBase implements Iterable<T> {
-    private final TreeMap<Integer, T> sections = new TreeMap<>();
-    private final Map<T, Integer> sectionHeightLookup = new HashMap<>();
+    private TreeMap<Integer, T> sections;
+    private Map<T, Integer> sectionHeightLookup;
+
+    @Override
+    protected void initMembers() {
+        super.initMembers();
+        sections = new TreeMap<>();
+        sectionHeightLookup = new HashMap<>();
+    }
+
+    // Defensive guard for cases where a subclass forgot to call super.initMembers().
+    private void ensureSectionContainersInitialized() {
+        if (sections == null) {
+            sections = new TreeMap<>();
+        }
+        if (sectionHeightLookup == null) {
+            sectionHeightLookup = new HashMap<>();
+            for (Map.Entry<Integer, T> entry : sections.entrySet()) {
+                sectionHeightLookup.put(entry.getValue(), entry.getKey());
+            }
+        }
+    }
 
     protected SectionedChunkBase(int dataVersion) {
         super(dataVersion);
@@ -22,8 +42,6 @@ public abstract class SectionedChunkBase<T extends SectionBase<?>> extends Chunk
 
     /**
      * Create a new chunk based on raw base data from a region file.
-     *
-     * @param data The raw base data to be used.
      */
     public SectionedChunkBase(CompoundTag data) {
         super(data);

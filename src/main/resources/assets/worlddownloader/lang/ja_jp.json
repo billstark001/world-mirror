@@ -1,0 +1,58 @@
+{
+  "key.category.worlddownloader.default": "ワールドダウンローダー",
+
+  "key.worlddownloader.export": "ワールドをエクスポート",
+  "key.worlddownloader.clear":  "キャッシュデータをクリア",
+  "key.worlddownloader.toggle": "ダウンロードの切り替え",
+  "key.worlddownloader.status": "ステータス画面を開く",
+
+  "config.worlddownloader.title": "ワールドダウンローダー設定",
+
+  "config.worlddownloader.saveLoc": "保存場所",
+  "config.worlddownloader.saveLoc.downloaded": "ダウンロードフォルダ",
+  "config.worlddownloader.saveLoc.saves": "セーブフォルダ",
+
+  "config.worlddownloader.syncInterval": "同期間隔",
+
+  "config.worlddownloader.logLevel": "ログレベル",
+  "config.worlddownloader.logLevel.debug":   "デバッグ",
+  "config.worlddownloader.logLevel.info":    "情報",
+  "config.worlddownloader.logLevel.warning": "警告",
+
+  "config.worlddownloader.conflictStrategy": "競合戦略",
+  "config.worlddownloader.conflictStrategy.overwrite": "上書き",
+  "config.worlddownloader.conflictStrategy.ignore":    "無視",
+  "config.worlddownloader.conflictStrategy.manual":    "手動",
+
+  "msg.worlddownloader.downloadStart":  "§aワールドダウンローダー：有効",
+  "msg.worlddownloader.downloadStop":   "§cワールドダウンローダー：無効",
+  "msg.worlddownloader.exportDone":     "ワールドのエクスポートが完了しました。",
+  "msg.worlddownloader.exportBusy":     "エクスポート中です。しばらくお待ちください。",
+  "msg.worlddownloader.noChunks":       "キャッシュされたチャンクがありません。チャンクを読み込むために歩き回ってください。",
+  "msg.worlddownloader.cleared":        "すべてのキャッシュデータをクリアしました。",
+
+  "screen.worlddownloader.status.title":            "ワールドダウンローダー ステータス",
+  "screen.worlddownloader.status.sourceType":       "タイプ",
+  "screen.worlddownloader.status.sourceId":         "ソース",
+  "screen.worlddownloader.status.mirrorPath":       "ミラー",
+  "screen.worlddownloader.status.chunks":           "キャッシュ済みチャンク",
+  "screen.worlddownloader.status.lastSync":         "最終同期",
+  "screen.worlddownloader.status.lastSyncNever":    "なし",
+  "screen.worlddownloader.status.downloadActive":   "§aダウンロード：有効",
+  "screen.worlddownloader.status.downloadInactive": "§cダウンロード：無効",
+  "screen.worlddownloader.status.exportRunning":    "§eエクスポート：実行中…",
+  "screen.worlddownloader.status.exportIdle":       "エクスポート：待機中",
+  "screen.worlddownloader.status.startDownload":    "ダウンロード開始",
+  "screen.worlddownloader.status.stopDownload":     "ダウンロード停止",
+  "screen.worlddownloader.status.exportNow":        "今すぐエクスポート",
+  "screen.worlddownloader.status.clearData":        "データをクリア",
+  "screen.worlddownloader.status.noConflicts":      "保留中の競合なし",
+  "screen.worlddownloader.status.conflicts":        "保留中の競合",
+  "screen.worlddownloader.status.overwriteAll":     "すべて上書き",
+  "screen.worlddownloader.status.ignoreAll":        "すべて無視",
+  "screen.worlddownloader.status.saveLoc":          "保存場所",
+  "screen.worlddownloader.status.conflictStrategy": "競合戦略",
+  "screen.worlddownloader.status.openSettings":     "グローバル設定",
+  "screen.worlddownloader.status.openFromSettings": "ステータス画面を開く"
+}
+

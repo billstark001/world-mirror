@@ -16,8 +16,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 
-import static io.github.ensgijs.nbt.mca.DataVersion.JAVA_1_18_21W37A;
-
 /**
  * Abstracts away the interactions with individual chunks and mca files.
  * <p>Early impl limitations:</p>

@@ -1,10 +1,9 @@
 package net.billstark001.worlddownloader.mixin;
 
-import net.billstark001.worlddownloader.util.ContainerTracker;
+import net.billstark001.worlddownloader.core.ContainerTracker;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.network.ClientPlayNetworkHandler;
-import net.minecraft.item.ItemStack;
 import net.minecraft.network.packet.s2c.play.CloseScreenS2CPacket;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.network.packet.s2c.play.InventoryS2CPacket;
@@ -13,6 +12,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.network.packet.s2c.play.OpenScreenS2CPacket;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
+import net.billstark001.worlddownloader.util.WDLogger;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -36,10 +36,10 @@ public class DebugContainerMixin {
         }
 
 
-        System.out.println("🔍 DEBUG: OpenScreen packet");
-        System.out.println("   - syncId: " + packet.getSyncId());
-        System.out.println("   - name: " + packet.getName().getString());
-        System.out.println("   - target: " + targetInfo);
+        WDLogger.debug("DEBUG: OpenScreen packet");
+        WDLogger.debug("  syncId: " + packet.getSyncId());
+        WDLogger.debug("  name: " + packet.getName().getString());
+        WDLogger.debug("  target: " + targetInfo);
 
         ContainerTracker.onContainerOpened(packet.getSyncId(), packet.getName());
     }
@@ -47,10 +47,11 @@ public class DebugContainerMixin {
 
     @Inject(method = {"onScreenHandlerSlotUpdate"}, at = {@At("HEAD")})
     private void debugOnSlotUpdate(ScreenHandlerSlotUpdateS2CPacket packet, CallbackInfo ci) {
-        String itemInfo = packet.getStack().isEmpty() ? "empty" : (packet.getStack().getItem().toString() + " x" + packet.getStack().getItem().toString());
+        String itemInfo = packet.getStack().isEmpty() ? "empty"
+                : (packet.getStack().getItem() + " x" + packet.getStack().getCount());
 
-        System.out.println("🔍 DEBUG: SlotUpdate packet - syncId: " + packet.getSyncId() + ", slot: " + packet
-                .getSlot() + ", item: " + itemInfo);
+        WDLogger.debug("DEBUG: SlotUpdate - syncId: " + packet.getSyncId()
+                + ", slot: " + packet.getSlot() + ", item: " + itemInfo);
 
         ContainerTracker.onSlotUpdate(packet.getSyncId(), packet.getSlot(), packet.getStack());
     }
@@ -101,16 +102,17 @@ public class DebugContainerMixin {
             }
         }
 
-        System.out.println("🔍 DEBUG: Inventory packet - syncId: " + packet.syncId());
-        System.out.println("   - Total slots: " + totalSlots + " (" + containerSlots + " container + " + playerSlots + " player)");
-        System.out.println("   - Non-empty: " + nonEmptySlots + " (" + containerNonEmpty + " container + " + playerNonEmpty + " player)");
+        WDLogger.debug("DEBUG: Inventory - syncId: " + packet.syncId());
+        WDLogger.debug("  Total slots: " + totalSlots);
+        WDLogger.debug("  Non-empty slots: " + nonEmptySlots);
 
 
-        System.out.println("   - Container items (first 10):");
+        WDLogger.debug("  Container items (first 10):");
         for (i = 0; i < Math.min(10, containerSlots) && i < packet.contents().size(); i++) {
             if (!packet.contents().get(i).isEmpty()) {
-                System.out.println("     [" + i + "] " + packet.contents().get(i).getItem().toString() + " x" + packet
-                        .contents().get(i).getCount());
+                WDLogger.debug("  [" + i + "] "
+                        + packet.contents().get(i).getItem()
+                        + " x" + packet.contents().get(i).getCount());
             }
         }
 
@@ -119,7 +121,7 @@ public class DebugContainerMixin {
 
     @Inject(method = {"onCloseScreen"}, at = {@At("HEAD")})
     private void debugOnCloseScreen(CloseScreenS2CPacket packet, CallbackInfo ci) {
-        System.out.println("🔍 DEBUG: CloseScreen packet - syncId: " + packet.getSyncId());
+        WDLogger.debug("DEBUG: CloseScreen - syncId: " + packet.getSyncId());
         ContainerTracker.onContainerClosed(packet.getSyncId());
     }
 }

@@ -1,33 +1,30 @@
-package net.billstark001.worlddownloader.util;
+package net.billstark001.worlddownloader.io;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import net.billstark001.worlddownloader.core.ContainerTracker;
+import net.billstark001.worlddownloader.util.WDLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.SharedConstants;
 import net.minecraft.block.Block;
 import net.minecraft.nbt.*;
-import net.minecraft.util.Nameable;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.world.biome.Biome;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.registry.Registry;
-import net.minecraft.text.Text;
 import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.block.entity.BlockEntityType;
 import net.minecraft.block.BlockState;
 import net.minecraft.world.chunk.*;
 import net.minecraft.world.Heightmap;
 import net.minecraft.util.Identifier;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.registry.RegistryKey;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.registry.RegistryWrapper;
 import net.minecraft.registry.RegistryKeys;
+import net.minecraft.registry.Registry;
 
 @Environment(EnvType.CLIENT)
 public class ClientChunkSerializer {
@@ -92,7 +89,7 @@ public class ClientChunkSerializer {
                         blockEntities.add(beNbt);
                     }
                 } catch (Exception e) {
-                    System.err.println("Failed to serialize block entity at " + pos + ": " + e.getMessage());
+                    WDLogger.warn("Failed to serialize block entity at " + pos + ": " + e.getMessage());
                 }
             }
         }
@@ -111,98 +108,29 @@ public class ClientChunkSerializer {
     }
 
 
+    /**
+     * Serializes a block entity to NBT.
+     * <p>
+     * {@link BlockEntity#createNbtWithIdentifyingData} writes the entity type id,
+     * coordinates, and all client-side data (sign text, beacon effects, banner
+     * patterns, skull owner, etc.) via {@code writeNbt}.  The only data that is NOT
+     * available on the client is item inventories for containers the player has never
+     * opened; those are supplied by {@link ContainerTracker}, which intercepts the
+     * inventory packets when the player opens a container.
+     */
     private static NbtCompound serializeBlockEntityWithItems(BlockEntity blockEntity, RegistryWrapper.WrapperLookup registryLookup) {
         try {
+            // Get full block entity NBT: type id, x/y/z, and all client-tracked state
             NbtCompound beNbt = blockEntity.createNbtWithIdentifyingData(registryLookup);
 
-
+            // Merge container item data captured when the player opened this container
             beNbt = ContainerTracker.enhanceBlockEntityWithContainerData(blockEntity, beNbt);
-
-
-            try {
-                MinecraftClient client = MinecraftClient.getInstance();
-                if (client.world != null) {
-
-                    Registry<BlockEntityType<?>> blockEntityTypeRegistry = client.world.getRegistryManager().getOrThrow(RegistryKeys.BLOCK_ENTITY_TYPE);
-                    if (blockEntityTypeRegistry != null) {
-                        Identifier beTypeId = blockEntityTypeRegistry.getId(blockEntity.getType());
-                        if (beTypeId != null) {
-                            beNbt.putString("id", beTypeId.toString());
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                System.err.println("⚠ Failed to get block entity type ID: " + e.getMessage());
-            }
-
-
-            BlockPos pos = blockEntity.getPos();
-            beNbt.putInt("x", pos.getX());
-            beNbt.putInt("y", pos.getY());
-            beNbt.putInt("z", pos.getZ());
-
-
-            try {
-                NbtCompound additionalData = blockEntity.createNbtWithIdentifyingData(registryLookup);
-
-
-                if (additionalData.contains("Items") && !beNbt.contains("Items")) {
-                    beNbt.put("Items", additionalData.get("Items"));
-                    System.out.println("✅ Saved items for " + blockEntity.getType().toString() + " at " + blockEntity.getPos());
-                }
-
-
-                for (String key : new String[]{"inventory", "Inventory", "items", "Contents"}) {
-                    if (additionalData.contains(key) && !beNbt.contains(key)) {
-                        beNbt.put(key, additionalData.get(key));
-                        System.out.println("✅ Saved " + key + " for " + blockEntity.getType().toString());
-                    }
-                }
-
-
-                if (additionalData.contains("CustomName") && !beNbt.contains("CustomName")) {
-                    beNbt.put("CustomName", additionalData.get("CustomName"));
-                } else if (additionalData.contains("custom_name") && !beNbt.contains("CustomName")) {
-                    beNbt.put("CustomName", additionalData.get("custom_name"));
-                }
-
-
-                if (additionalData.contains("Lock")) {
-                    beNbt.put("Lock", additionalData.get("Lock"));
-                }
-
-
-                if (blockEntity instanceof Nameable) {
-                    Nameable nameable = (Nameable) blockEntity;
-                    if (nameable.hasCustomName()) {
-                        Text customName = nameable.getCustomName();
-                        if (customName != null) {
-                            try {
-                                String jsonName = customName.getString();
-                                beNbt.putString("CustomName", jsonName);
-                            } catch (Exception e) {
-                                String simpleName = "\"" + customName.getString() + "\"";
-                                beNbt.putString("CustomName", simpleName);
-                            }
-
-                        }
-                    }
-                }
-
-            } catch (Exception e) {
-                System.err.println("⚠ Failed to get additional NBT data for block entity: " + e.getMessage());
-            }
 
             return beNbt;
         } catch (Exception e) {
-            System.err.println("❌ Failed to serialize block entity with items: " + e.getMessage());
-
-            try {
-                return blockEntity.createNbtWithIdentifyingData(registryLookup);
-            } catch (Exception fallbackException) {
-                System.err.println("❌ Fallback serialization also failed: " + fallbackException.getMessage());
-                return null;
-            }
+            WDLogger.warn("Failed to serialize block entity at "
+                    + blockEntity.getPos() + ": " + e.getMessage());
+            return null;
         }
     }
 
