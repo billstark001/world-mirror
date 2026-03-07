@@ -165,7 +165,8 @@ public class EntityTracker {
             nbt.putBoolean("OnGround", entity.isOnGround());
 
             // Custom name, if set
-            if (entity.hasCustomName() && entity.getCustomName() != null) {
+            if (entity.hasCustomName() && entity.getCustomName() != null
+                    && entity.getWorld() != null) {
                 try {
                     nbt.putString("CustomName",
                             net.minecraft.text.Text.Serialization.toJsonString(

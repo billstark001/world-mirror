@@ -54,16 +54,16 @@ public class WorldExporter {
                 }
                 throw throwable;
             }
-            NbtCompound root = new NbtCompound();
-            root.putInt("DataVersion", SharedConstants.getGameVersion().dataVersion().id());
-
             // Only write level.dat on first creation; on subsequent syncs just refresh session.lock.
             if (firstTime) {
+                NbtCompound root = new NbtCompound();
+                root.putInt("DataVersion", SharedConstants.getGameVersion().dataVersion().id());
+
                 NbtCompound data = new NbtCompound();
 
                 data.putString("LevelName", (levelName != null && !levelName.isEmpty())
                         ? levelName : "Downloaded World");
-                data.putLong("RandomSeed", 0L);
+                data.putLong("RandomSeed", 0L); // seed is irrelevant for void superflat; 0 keeps it deterministic
                 data.putInt("version", 19133);
                 data.putBoolean("initialized", true);
 

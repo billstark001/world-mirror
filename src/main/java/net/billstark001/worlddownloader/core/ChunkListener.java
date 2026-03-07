@@ -106,7 +106,7 @@ public class ChunkListener {
             }
         }
 
-        // ── Distance-based eviction ───────────────────────────────────────────
+        // ── Distance-based eviction (Chebyshev distance = square boundary) ───────
         if (maxDistChunks > 0 && playerDimension != null) {
             ConcurrentHashMap<ChunkPos, CapturedChunk> dimMap = dimChunks.get(playerDimension);
             if (dimMap != null) {
