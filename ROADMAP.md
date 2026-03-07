@@ -109,45 +109,67 @@ successfully exported chunks when `invalidateAfterExport = true`.  Both are wire
 
 ---
 
-## 4. Save-Name & Conflict Handling
+## 4. Save-Name & Conflict Handling [DONE]
 
 ### [BUG] No handling for folder-name collision when saving to `saves/`
 `WorldMetadata`, `DownloadManager`, `MirrorMapping`  
-When `defaultSaveLocation = SAVES` and a folder with the same name already exists in
+~~When `defaultSaveLocation = SAVES` and a folder with the same name already exists in
 `saves/`, the mod silently overwrites `level.dat`. The correct approach is to read the
 existing `wdl_meta.json` on first access to confirm the folder belongs to this mirror,
 and append a numeric suffix (e.g. `_2`) if it does not.
 All singleplayer's saving folders are named as `unnamed`, causing a collision on every export.
-This is a critical bug that must be fixed before the next release.
+This is a critical bug that must be fixed before the next release.~~  
+**Fixed:** `WorldMetadata.isOwnedBy(Path, String)` checks whether an existing folder's
+`wdl_meta.json` belongs to a given `sourceId`.  `DownloadManager.resolveOutputPath` tries
+the base name first and falls back to `_2`, `_3`, … until a free or owned folder is found.
+`DownloadManager.isFolderFreeOrOwned` wraps the check.  When a suffix is assigned it is
+persisted back to `MirrorMapping` so every subsequent call goes to the same folder.
 
 ---
 
-## 5. UI Polish
+## 5. UI Polish [DONE]
 
 ### [BUG] "Clear Data" button label is misleading
 `StatusScreen`, `en_us.json`  
 ~~The button labelled "Clear Data" only clears the in-memory chunk/entity/container
 cache — it does not delete anything from disk. The label should be
 "Clear Cache" (or similar) to avoid user confusion.~~  
-**Fixed:** Button renamed to "Clear Cache" in `en_us.json` (and `zh_cn.json`); action
+**Fixed:** Button renamed to "Clear Cache" in all four lang files
+(`en_us.json`, `zh_cn.json`, `zh_tw.json`, `ja_jp.json`); action
 message updated to clarify that disk data is unaffected.
 
 ### [BUG] Export status label on the status screen is not refreshed after export completes
 `StatusScreen`  
-The export-running/idle label is read once at screen construction. After an export
+~~The export-running/idle label is read once at screen construction. After an export
 completes the label remains "Running" until the screen is closed and reopened.
 The screen should poll `DownloadManager.isExportInProgress()` periodically or
-hook into the export-complete callback to trigger a UI refresh.
+hook into the export-complete callback to trigger a UI refresh.~~  
+**Fixed:** New `StatusClientScreen` wrapper overrides `tick()` to compare the current
+export-in-progress and download-active states against the values captured at construction.
+When either changes, the screen automatically reopens itself.  All `open()` / `reopen()`
+calls now use `StatusClientScreen` instead of a plain `CottonClientScreen`.
 
 ### [IMPROVEMENT] In-game status screen is too tall; consider tabbed layout
 `StatusScreen`  
-The single-panel design grows very tall. Splitting content into tabs
-(e.g. Status, Settings, Conflicts) would improve usability on small screens.
+~~The single-panel design grows very tall. Splitting content into tabs
+(e.g. Status, Settings, Conflicts) would improve usability on small screens.~~  
+**Fixed:** `StatusScreen` now has three tabs — **Status** (source info + stats + action
+buttons), **Settings** (per-world save-location + conflict-strategy overrides + link to
+global settings), and **Conflicts** (pending manual-conflict queue).  The active tab is
+stored in a static field so it survives `reopen()` calls.  The window height is fixed so
+switching tabs does not resize the screen.
 
 ### [IMPROVEMENT] Mod-menu config screen should match the vanilla settings style
 `ConfigScreen`  
-Replace the current plain-button layout with a style closer to vanilla
-`GameOptionsScreen` (option rows with title on the left, cycling value on the right).
+~~Replace the current plain-button layout with a style closer to vanilla
+`GameOptionsScreen` (option rows with title on the left, cycling value on the right).~~  
+**Fixed:** `ConfigScreen` now uses a two-column layout: the setting name is drawn as a
+text label on the left half (`cx − 155`, 150 px wide) and a cycling `ButtonWidget` on
+the right half (`cx + 5`, 150 px wide) shows and changes the current value.  A "Cache
+Control" section header separates the four new §3 cache settings from the original four.
+All eight settings (including the four added in §3) are now accessible and translated in
+all four language files.  The section header and labels are rendered by `Screen.render()`
+using `DrawContext.drawTextWithShadow`.
 
 ---
 

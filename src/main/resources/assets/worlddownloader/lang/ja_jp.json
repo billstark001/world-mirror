@@ -24,12 +24,21 @@
   "config.worlddownloader.conflictStrategy.ignore":    "無視",
   "config.worlddownloader.conflictStrategy.manual":    "手動",
 
+  "config.worlddownloader.section.cache": "── キャッシュ制御 ──",
+  "config.worlddownloader.maxCachedChunks":        "最大キャッシュチャンク数",
+  "config.worlddownloader.maxCacheDistanceChunks": "最大キャッシュ距離",
+  "config.worlddownloader.maxCacheAgeSeconds":     "最大キャッシュ時間",
+  "config.worlddownloader.invalidateAfterExport":  "エクスポート後にキャッシュを無効化",
+  "config.worlddownloader.disabled": "無効",
+  "config.worlddownloader.on":  "オン",
+  "config.worlddownloader.off": "オフ",
+
   "msg.worlddownloader.downloadStart":  "§aワールドダウンローダー：有効",
   "msg.worlddownloader.downloadStop":   "§cワールドダウンローダー：無効",
   "msg.worlddownloader.exportDone":     "ワールドのエクスポートが完了しました。",
   "msg.worlddownloader.exportBusy":     "エクスポート中です。しばらくお待ちください。",
   "msg.worlddownloader.noChunks":       "キャッシュされたチャンクがありません。チャンクを読み込むために歩き回ってください。",
-  "msg.worlddownloader.cleared":        "すべてのキャッシュデータをクリアしました。",
+  "msg.worlddownloader.cleared":        "チャンク/エンティティ/コンテナキャッシュをクリアしました（ディスクは変更されていません）。",
 
   "screen.worlddownloader.status.title":            "ワールドダウンローダー ステータス",
   "screen.worlddownloader.status.sourceType":       "タイプ",
@@ -45,7 +54,7 @@
   "screen.worlddownloader.status.startDownload":    "ダウンロード開始",
   "screen.worlddownloader.status.stopDownload":     "ダウンロード停止",
   "screen.worlddownloader.status.exportNow":        "今すぐエクスポート",
-  "screen.worlddownloader.status.clearData":        "データをクリア",
+  "screen.worlddownloader.status.clearData":        "キャッシュをクリア",
   "screen.worlddownloader.status.noConflicts":      "保留中の競合なし",
   "screen.worlddownloader.status.conflicts":        "保留中の競合",
   "screen.worlddownloader.status.overwriteAll":     "すべて上書き",
@@ -53,6 +62,13 @@
   "screen.worlddownloader.status.saveLoc":          "保存場所",
   "screen.worlddownloader.status.conflictStrategy": "競合戦略",
   "screen.worlddownloader.status.openSettings":     "グローバル設定",
-  "screen.worlddownloader.status.openFromSettings": "ステータス画面を開く"
+  "screen.worlddownloader.status.openFromSettings": "ステータス画面を開く",
+
+  "screen.worlddownloader.tab.status":          "ステータス",
+  "screen.worlddownloader.tab.settings":        "設定",
+  "screen.worlddownloader.tab.conflicts":       "競合",
+  "screen.worlddownloader.tab.settingsHeader":  "ワールド別設定",
+  "screen.worlddownloader.tab.conflictsHeader": "競合キュー"
 }
+
 

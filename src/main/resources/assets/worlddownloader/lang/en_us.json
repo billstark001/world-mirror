@@ -24,6 +24,15 @@
   "config.worlddownloader.conflictStrategy.ignore":    "Ignore",
   "config.worlddownloader.conflictStrategy.manual":    "Manual",
 
+  "config.worlddownloader.section.cache": "── Cache Control ──",
+  "config.worlddownloader.maxCachedChunks":        "Max Cached Chunks",
+  "config.worlddownloader.maxCacheDistanceChunks": "Max Cache Distance",
+  "config.worlddownloader.maxCacheAgeSeconds":     "Max Cache Age",
+  "config.worlddownloader.invalidateAfterExport":  "Invalidate After Export",
+  "config.worlddownloader.disabled": "Disabled",
+  "config.worlddownloader.on":  "On",
+  "config.worlddownloader.off": "Off",
+
   "msg.worlddownloader.downloadStart":  "§aWorld Downloader: Active",
   "msg.worlddownloader.downloadStop":   "§cWorld Downloader: Inactive",
   "msg.worlddownloader.exportDone":     "World exported successfully.",
@@ -53,5 +62,12 @@
   "screen.worlddownloader.status.saveLoc":          "Save Location",
   "screen.worlddownloader.status.conflictStrategy": "Conflict Strategy",
   "screen.worlddownloader.status.openSettings":     "Global Settings",
-  "screen.worlddownloader.status.openFromSettings": "Open Status Screen"
+  "screen.worlddownloader.status.openFromSettings": "Open Status Screen",
+
+  "screen.worlddownloader.tab.status":          "Status",
+  "screen.worlddownloader.tab.settings":        "Settings",
+  "screen.worlddownloader.tab.conflicts":       "Conflicts",
+  "screen.worlddownloader.tab.settingsHeader":  "Per-World Settings",
+  "screen.worlddownloader.tab.conflictsHeader": "Conflict Queue"
 }
+

@@ -160,18 +160,60 @@ public final class DownloadManager {
             saveLocation = ModConfig.get().defaultSaveLocation;
         }
 
-        if (saveLocation == ModConfig.SaveLocation.SAVES) {
-            return FabricLoader.getInstance().getGameDir().resolve("saves").resolve(folderName);
+        Path base = (saveLocation == ModConfig.SaveLocation.SAVES)
+                ? FabricLoader.getInstance().getGameDir().resolve("saves")
+                : FabricLoader.getInstance().getGameDir().resolve("downloaded_worlds");
+
+        // Collision detection: if the target folder exists but is owned by a different
+        // source (or has no wdl_meta.json but already contains a level.dat), find a
+        // free suffix so we never clobber another world or another mirror.
+        Path resolved = resolveOutputPath(base, folderName, sourceId);
+        String resolvedName = resolved.getFileName().toString();
+        if (!resolvedName.equals(folderName)) {
+            // Persist the new collision-free name so future calls go to the same folder.
+            MirrorMapping.getInstance().setMirrorFolderName(sourceId, resolvedName);
+            WDLogger.info("Folder name collision resolved: '"
+                    + folderName + "' → '" + resolvedName + "'");
         }
-        return FabricLoader.getInstance().getGameDir()
-                .resolve("downloaded_worlds").resolve(folderName);
+        return resolved;
+    }
+
+    /**
+     * Resolves a collision-free output path under {@code base} for the given
+     * {@code folderName} and {@code sourceId}.
+     *
+     * <ul>
+     *   <li>If the candidate folder does not exist → return it.</li>
+     *   <li>If it exists and is owned by {@code sourceId} (matching
+     *       {@code wdl_meta.json}) → return it.</li>
+     *   <li>Otherwise append {@code _2}, {@code _3}, … until a free or owned
+     *       folder is found.</li>
+     * </ul>
+     */
+    private static Path resolveOutputPath(Path base, String folderName, String sourceId) {
+        Path candidate = base.resolve(folderName);
+        if (isFolderFreeOrOwned(candidate, sourceId)) return candidate;
+
+        for (int suffix = 2; suffix < 1000; suffix++) {
+            candidate = base.resolve(folderName + "_" + suffix);
+            if (isFolderFreeOrOwned(candidate, sourceId)) return candidate;
+        }
+        // Fallback (should never happen in practice)
+        return base.resolve(folderName + "_" + System.currentTimeMillis());
+    }
+
+    /**
+     * Returns {@code true} if the folder is safe to use:
+     * either it does not exist yet, or it already belongs to {@code sourceId}.
+     */
+    private static boolean isFolderFreeOrOwned(Path folder, String sourceId) {
+        if (!folder.toFile().exists()) return true;
+        return WorldMetadata.isOwnedBy(folder, sourceId);
     }
 
     // ── Internal ─────────────────────────────────────────────────────────────
 
     /**
-     * Captures all currently loaded chunks in the active dimension without blocking
-     * the game thread.
      *
      * <p><b>Phase 1 (game thread, fast):</b> Iterates through chunk positions in a
      * {@code range×range} square around the player and collects references to loaded

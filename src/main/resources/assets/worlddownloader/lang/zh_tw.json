@@ -24,12 +24,21 @@
   "config.worlddownloader.conflictStrategy.ignore":    "忽略",
   "config.worlddownloader.conflictStrategy.manual":    "手動",
 
+  "config.worlddownloader.section.cache": "── 快取控制 ──",
+  "config.worlddownloader.maxCachedChunks":        "最大快取區塊數",
+  "config.worlddownloader.maxCacheDistanceChunks": "最大快取距離",
+  "config.worlddownloader.maxCacheAgeSeconds":     "最大快取時長",
+  "config.worlddownloader.invalidateAfterExport":  "匯出後清除快取",
+  "config.worlddownloader.disabled": "已停用",
+  "config.worlddownloader.on":  "開",
+  "config.worlddownloader.off": "關",
+
   "msg.worlddownloader.downloadStart":  "§a世界下載器：已啟動",
   "msg.worlddownloader.downloadStop":   "§c世界下載器：已停用",
   "msg.worlddownloader.exportDone":     "世界匯出成功。",
   "msg.worlddownloader.exportBusy":     "匯出進行中，請稍候。",
   "msg.worlddownloader.noChunks":       "沒有快取的區塊，請先四處走動以載入區塊。",
-  "msg.worlddownloader.cleared":        "已清除所有快取資料。",
+  "msg.worlddownloader.cleared":        "已清除區塊/實體/容器快取（磁碟資料不受影響）。",
 
   "screen.worlddownloader.status.title":            "世界下載器狀態",
   "screen.worlddownloader.status.sourceType":       "類型",
@@ -45,7 +54,7 @@
   "screen.worlddownloader.status.startDownload":    "開始下載",
   "screen.worlddownloader.status.stopDownload":     "停止下載",
   "screen.worlddownloader.status.exportNow":        "立即匯出",
-  "screen.worlddownloader.status.clearData":        "清除資料",
+  "screen.worlddownloader.status.clearData":        "清除快取",
   "screen.worlddownloader.status.noConflicts":      "無待處理衝突",
   "screen.worlddownloader.status.conflicts":        "待處理衝突",
   "screen.worlddownloader.status.overwriteAll":     "全部覆蓋",
@@ -53,6 +62,13 @@
   "screen.worlddownloader.status.saveLoc":          "儲存位置",
   "screen.worlddownloader.status.conflictStrategy": "衝突策略",
   "screen.worlddownloader.status.openSettings":     "全域設定",
-  "screen.worlddownloader.status.openFromSettings": "開啟狀態介面"
+  "screen.worlddownloader.status.openFromSettings": "開啟狀態介面",
+
+  "screen.worlddownloader.tab.status":          "狀態",
+  "screen.worlddownloader.tab.settings":        "設定",
+  "screen.worlddownloader.tab.conflicts":       "衝突",
+  "screen.worlddownloader.tab.settingsHeader":  "每世界設定",
+  "screen.worlddownloader.tab.conflictsHeader": "衝突佇列"
 }
+
 

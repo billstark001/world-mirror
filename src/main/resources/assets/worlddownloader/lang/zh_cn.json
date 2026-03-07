@@ -24,6 +24,15 @@
   "config.worlddownloader.conflictStrategy.ignore":    "忽略",
   "config.worlddownloader.conflictStrategy.manual":    "手动",
 
+  "config.worlddownloader.section.cache": "── 缓存控制 ──",
+  "config.worlddownloader.maxCachedChunks":        "最大缓存区块数",
+  "config.worlddownloader.maxCacheDistanceChunks": "最大缓存距离",
+  "config.worlddownloader.maxCacheAgeSeconds":     "最大缓存时长",
+  "config.worlddownloader.invalidateAfterExport":  "导出后清除缓存",
+  "config.worlddownloader.disabled": "已禁用",
+  "config.worlddownloader.on":  "开",
+  "config.worlddownloader.off": "关",
+
   "msg.worlddownloader.downloadStart":  "§a世界下载器：已激活",
   "msg.worlddownloader.downloadStop":   "§c世界下载器：已停用",
   "msg.worlddownloader.exportDone":     "世界导出成功。",
@@ -53,6 +62,13 @@
   "screen.worlddownloader.status.saveLoc":          "保存位置",
   "screen.worlddownloader.status.conflictStrategy": "冲突策略",
   "screen.worlddownloader.status.openSettings":     "全局设置",
-  "screen.worlddownloader.status.openFromSettings": "打开状态界面"
+  "screen.worlddownloader.status.openFromSettings": "打开状态界面",
+
+  "screen.worlddownloader.tab.status":          "状态",
+  "screen.worlddownloader.tab.settings":        "设置",
+  "screen.worlddownloader.tab.conflicts":       "冲突",
+  "screen.worlddownloader.tab.settingsHeader":  "每世界设置",
+  "screen.worlddownloader.tab.conflictsHeader": "冲突队列"
 }
+
 

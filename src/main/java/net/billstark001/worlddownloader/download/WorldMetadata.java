@@ -115,6 +115,23 @@ public class WorldMetadata {
     // ── Convenience update ────────────────────────────────────────────────────
 
     /**
+     * Returns {@code true} if a {@code wdl_meta.json} exists in {@code worldFolder}
+     * and its {@code sourceId} field matches the given value.
+     * Returns {@code false} if the file does not exist or cannot be read.
+     * Safe to call from any thread.
+     */
+    public static boolean isOwnedBy(Path worldFolder, String sourceId) {
+        Path metaFile = worldFolder.resolve(FILE_NAME);
+        if (!metaFile.toFile().exists()) return false;
+        try (Reader r = new FileReader(metaFile.toFile())) {
+            WorldMetadata meta = GSON.fromJson(r, WorldMetadata.class);
+            return meta != null && sourceId.equals(meta.sourceId);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
      * Load-or-create, stamp all written chunks with the current time,
      * update {@code lastSyncTime}, then save.
      */

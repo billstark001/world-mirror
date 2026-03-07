@@ -1,6 +1,5 @@
 package net.billstark001.worlddownloader.ui;
 
-import io.github.cottonmc.cotton.gui.client.CottonClientScreen;
 import io.github.cottonmc.cotton.gui.client.LightweightGuiDescription;
 import io.github.cottonmc.cotton.gui.widget.WButton;
 import io.github.cottonmc.cotton.gui.widget.WLabel;
@@ -23,36 +22,46 @@ import java.nio.file.Path;
 import java.util.List;
 
 /**
- * In-game status screen for World Downloader (roadmap §6).
+ * In-game status screen for World Downloader.
  * <p>
- * Built with LibGUI ({@link LightweightGuiDescription} + {@link CottonClientScreen}).
- * Shows:
+ * Built with LibGUI ({@link LightweightGuiDescription} + {@link StatusClientScreen}).
+ * Split into three tabs:
  * <ul>
- *   <li>Source world/server info</li>
- *   <li>Cached-chunk statistics and last-sync time</li>
- *   <li>Download-active / export-in-progress status</li>
- *   <li>Toggle download, Export now, Clear data action buttons</li>
- *   <li>Manual-conflict queue with Overwrite-All / Ignore-All resolution</li>
- *   <li>Per-world save-location and conflict-strategy overrides</li>
- *   <li>Shortcut to the global settings screen</li>
+ *   <li><b>Status</b> — source info, cache statistics, download/export state, action buttons.</li>
+ *   <li><b>Settings</b> — per-world save-location and conflict-strategy overrides, plus a
+ *       shortcut to the global settings screen.</li>
+ *   <li><b>Conflicts</b> — pending manual-conflict queue with bulk Overwrite/Ignore actions.</li>
  * </ul>
  *
- * <p>The screen is reopened (recreated) after every action so that all labels
- * reflect the current state without requiring individual widget updates.
+ * <p>The active tab is remembered across reopens via {@link #activeTab}.
+ * {@link StatusClientScreen} wraps this description and polls the export/download
+ * state on every tick, automatically reopening the screen when either state changes.
  */
 @Environment(EnvType.CLIENT)
 public class StatusScreen extends LightweightGuiDescription {
 
     // ── Layout constants ──────────────────────────────────────────────────────
 
-    private static final int W       = 300;  // root panel width
-    private static final int MARGIN  = 8;    // left/right margin
-    private static final int INNER_W = W - MARGIN * 2;
-    private static final int HALF_W  = (INNER_W - 4) / 2;
-    private static final int BTN_H   = 20;
-    private static final int LBL_H   = 10;
-    private static final int ROW_GAP = 13;   // label row height
-    private static final int SECT_GAP = 6;  // extra space between sections
+    private static final int W        = 300;   // root panel width
+    private static final int MARGIN   = 8;     // outer margin
+    private static final int INNER_W  = W - MARGIN * 2;       // 284
+    private static final int HALF_W   = (INNER_W - 4) / 2;    // 140
+    private static final int BTN_H    = 20;
+    private static final int LBL_H    = 10;
+    private static final int ROW_GAP  = 13;
+    private static final int SECT_GAP = 6;
+
+    // Three equal-width tab buttons with a 4px gap between them
+    private static final int TAB_GAP = 4;
+    private static final int TAB_W   = (INNER_W - TAB_GAP * 2) / 3;  // 92
+
+    // Fixed window height regardless of active tab (avoids jarring resize)
+    private static final int FIXED_H = 232;
+
+    // ── Tab state (persisted across reopens) ─────────────────────────────────
+
+    /** 0 = Status, 1 = Settings, 2 = Conflicts */
+    private static int activeTab = 0;
 
     // ── Construction ─────────────────────────────────────────────────────────
 
@@ -68,52 +77,86 @@ public class StatusScreen extends LightweightGuiDescription {
         boolean isExport   = DownloadManager.isExportInProgress();
         List<ChunkPos> pendingConflicts = ManualResolver.getPendingConflicts();
 
-        // Last sync time from metadata (may read from disk; acceptable at screen-open time)
         String lastSyncStr = computeLastSyncStr(client, sourceId, sourceType);
 
-        // Per-world settings (resolve effective values)
         ModConfig.SaveLocation effectiveSaveLoc = resolveEffectiveSaveLoc(sourceId);
         ModConfig.ConflictStrategy effectiveStrategy = resolveEffectiveStrategy(sourceId);
 
-        // ── Build widget tree ─────────────────────────────────────────────────
+        // ── Root panel ────────────────────────────────────────────────────────
         WPlainPanel root = new WPlainPanel();
         setRootPanel(root);
 
         int y = MARGIN;
 
-        // Title
-        WLabel title = new WLabel(Text.translatable("screen.worlddownloader.status.title"));
-        title.setHorizontalAlignment(HorizontalAlignment.CENTER);
-        root.add(title, MARGIN, y, INNER_W, LBL_H);
+        // ── Tab buttons ───────────────────────────────────────────────────────
+        String[] tabKeys = {
+            "screen.worlddownloader.tab.status",
+            "screen.worlddownloader.tab.settings",
+            "screen.worlddownloader.tab.conflicts"
+        };
+        for (int i = 0; i < 3; i++) {
+            final int tabIndex = i;
+            // Highlight the active tab with bold prefix
+            Text tabLabel = (activeTab == tabIndex)
+                    ? Text.literal("§l").append(Text.translatable(tabKeys[i]))
+                    : Text.translatable(tabKeys[i]);
+            WButton tabBtn = new WButton(tabLabel);
+            tabBtn.setOnClick(() -> { activeTab = tabIndex; reopen(); });
+            root.add(tabBtn, MARGIN + tabIndex * (TAB_W + TAB_GAP), y, TAB_W, BTN_H);
+        }
+        y += BTN_H + 4;
+
+        // ── Tab content ───────────────────────────────────────────────────────
+        switch (activeTab) {
+            case 0 -> y = buildStatusTab(root, y, sourceType, sourceId, folderName,
+                                         totalChunks, lastSyncStr, isActive, isExport);
+            case 1 -> y = buildSettingsTab(root, y, sourceId, effectiveSaveLoc,
+                                           effectiveStrategy);
+            case 2 -> y = buildConflictsTab(root, y, pendingConflicts);
+        }
+
+        root.setSize(W, FIXED_H);
+        root.validate(this);
+    }
+
+    // ── Tab builders ──────────────────────────────────────────────────────────
+
+    /** Builds the Status tab and returns the new y after all widgets. */
+    private int buildStatusTab(WPlainPanel root, int y,
+                               String sourceType, String sourceId, String folderName,
+                               int totalChunks, String lastSyncStr,
+                               boolean isActive, boolean isExport) {
+
+        // Source info
+        root.add(rowLabel("screen.worlddownloader.status.sourceType", sourceType),
+                MARGIN, y, INNER_W, LBL_H);
+        y += ROW_GAP;
+        root.add(rowLabel("screen.worlddownloader.status.sourceId", sourceId),
+                MARGIN, y, INNER_W, LBL_H);
+        y += ROW_GAP;
+        root.add(rowLabel("screen.worlddownloader.status.mirrorPath", folderName),
+                MARGIN, y, INNER_W, LBL_H);
         y += ROW_GAP + SECT_GAP;
 
-        // ── Source info ───────────────────────────────────────────────────────
-        root.add(rowLabel("screen.worlddownloader.status.sourceType", sourceType), MARGIN, y, INNER_W, LBL_H);
+        // Stats
+        root.add(rowLabel("screen.worlddownloader.status.chunks", String.valueOf(totalChunks)),
+                MARGIN, y, INNER_W, LBL_H);
         y += ROW_GAP;
-        root.add(rowLabel("screen.worlddownloader.status.sourceId", sourceId), MARGIN, y, INNER_W, LBL_H);
-        y += ROW_GAP;
-        root.add(rowLabel("screen.worlddownloader.status.mirrorPath", folderName), MARGIN, y, INNER_W, LBL_H);
-        y += ROW_GAP + SECT_GAP;
-
-        // ── Statistics ────────────────────────────────────────────────────────
-        root.add(rowLabel("screen.worlddownloader.status.chunks", String.valueOf(totalChunks)), MARGIN, y, INNER_W, LBL_H);
-        y += ROW_GAP;
-        root.add(rowLabel("screen.worlddownloader.status.lastSync", lastSyncStr), MARGIN, y, INNER_W, LBL_H);
+        root.add(rowLabel("screen.worlddownloader.status.lastSync", lastSyncStr),
+                MARGIN, y, INNER_W, LBL_H);
         y += ROW_GAP;
 
-        // Download status and export status on the same line
         WLabel dlStatus = new WLabel(
                 Text.translatable(isActive ? "screen.worlddownloader.status.downloadActive"
                                            : "screen.worlddownloader.status.downloadInactive"));
         root.add(dlStatus, MARGIN, y, HALF_W, LBL_H);
-
         WLabel expStatus = new WLabel(
                 Text.translatable(isExport ? "screen.worlddownloader.status.exportRunning"
                                            : "screen.worlddownloader.status.exportIdle"));
         root.add(expStatus, MARGIN + HALF_W + 4, y, HALF_W, LBL_H);
         y += ROW_GAP + SECT_GAP;
 
-        // ── Action buttons ────────────────────────────────────────────────────
+        // Action buttons
         WButton toggleBtn = new WButton(
                 Text.translatable(isActive ? "screen.worlddownloader.status.stopDownload"
                                            : "screen.worlddownloader.status.startDownload"));
@@ -123,7 +166,8 @@ public class StatusScreen extends LightweightGuiDescription {
         });
         root.add(toggleBtn, MARGIN, y, HALF_W, BTN_H);
 
-        WButton exportBtn = new WButton(Text.translatable("screen.worlddownloader.status.exportNow"));
+        WButton exportBtn = new WButton(
+                Text.translatable("screen.worlddownloader.status.exportNow"));
         exportBtn.setOnClick(() -> {
             DownloadManager.exportNow(MinecraftClient.getInstance());
             reopen();
@@ -131,46 +175,35 @@ public class StatusScreen extends LightweightGuiDescription {
         root.add(exportBtn, MARGIN + HALF_W + 4, y, HALF_W, BTN_H);
         y += BTN_H + 4;
 
-        WButton clearBtn = new WButton(Text.translatable("screen.worlddownloader.status.clearData"));
+        WButton clearBtn = new WButton(
+                Text.translatable("screen.worlddownloader.status.clearData"));
         clearBtn.setOnClick(() -> {
             DownloadManager.clearAll(MinecraftClient.getInstance());
             reopen();
         });
         root.add(clearBtn, MARGIN, y, INNER_W, BTN_H);
-        y += BTN_H + SECT_GAP;
+        y += BTN_H + 4;
 
-        // ── Conflict queue ────────────────────────────────────────────────────
-        if (pendingConflicts.isEmpty()) {
-            root.add(
-                    new WLabel(Text.translatable("screen.worlddownloader.status.noConflicts")),
-                    MARGIN, y, INNER_W, LBL_H);
-            y += ROW_GAP + SECT_GAP;
-        } else {
-            root.add(rowLabel("screen.worlddownloader.status.conflicts",
-                    String.valueOf(pendingConflicts.size())), MARGIN, y, INNER_W, LBL_H);
-            y += ROW_GAP;
+        WButton closeBtn = new WButton(Text.translatable("gui.done"));
+        closeBtn.setOnClick(() -> MinecraftClient.getInstance().setScreen(null));
+        root.add(closeBtn, MARGIN, y, INNER_W, BTN_H);
+        y += BTN_H + MARGIN;
 
-            WButton overwriteAllBtn = new WButton(
-                    Text.translatable("screen.worlddownloader.status.overwriteAll"));
-            overwriteAllBtn.setOnClick(() -> {
-                ManualResolver.clearPendingConflicts();
-                DownloadManager.exportNow(MinecraftClient.getInstance());
-                reopen();
-            });
-            root.add(overwriteAllBtn, MARGIN, y, HALF_W, BTN_H);
+        return y;
+    }
 
-            WButton ignoreAllBtn = new WButton(
-                    Text.translatable("screen.worlddownloader.status.ignoreAll"));
-            ignoreAllBtn.setOnClick(() -> {
-                ManualResolver.clearPendingConflicts();
-                reopen();
-            });
-            root.add(ignoreAllBtn, MARGIN + HALF_W + 4, y, HALF_W, BTN_H);
-            y += BTN_H + SECT_GAP;
-        }
+    /** Builds the Settings tab and returns the new y after all widgets. */
+    private int buildSettingsTab(WPlainPanel root, int y,
+                                 String sourceId,
+                                 ModConfig.SaveLocation effectiveSaveLoc,
+                                 ModConfig.ConflictStrategy effectiveStrategy) {
 
-        // ── Per-world settings ────────────────────────────────────────────────
-        final String sid = sourceId;  // must be effectively-final for lambdas
+        final String sid = sourceId;
+
+        WLabel header = new WLabel(Text.translatable("screen.worlddownloader.tab.settingsHeader"));
+        header.setHorizontalAlignment(HorizontalAlignment.CENTER);
+        root.add(header, MARGIN, y, INNER_W, LBL_H);
+        y += ROW_GAP + SECT_GAP;
 
         WButton saveLocBtn = new WButton(
                 Text.translatable("screen.worlddownloader.status.saveLoc")
@@ -202,24 +235,65 @@ public class StatusScreen extends LightweightGuiDescription {
         root.add(strategyBtn, MARGIN, y, INNER_W, BTN_H);
         y += BTN_H + SECT_GAP;
 
-        // ── Bottom buttons ────────────────────────────────────────────────────
         WButton settingsBtn = new WButton(
                 Text.translatable("screen.worlddownloader.status.openSettings"));
         settingsBtn.setOnClick(() -> {
             MinecraftClient mc = MinecraftClient.getInstance();
-            // Pass current screen as parent so Settings screen returns here
-            mc.setScreen(new ConfigScreen(new CottonClientScreen(new StatusScreen())));
+            mc.setScreen(new ConfigScreen(new StatusClientScreen()));
         });
-        root.add(settingsBtn, MARGIN, y, HALF_W, BTN_H);
+        root.add(settingsBtn, MARGIN, y, INNER_W, BTN_H);
+        y += BTN_H + 4;
 
         WButton closeBtn = new WButton(Text.translatable("gui.done"));
         closeBtn.setOnClick(() -> MinecraftClient.getInstance().setScreen(null));
-        root.add(closeBtn, MARGIN + HALF_W + 4, y, HALF_W, BTN_H);
+        root.add(closeBtn, MARGIN, y, INNER_W, BTN_H);
         y += BTN_H + MARGIN;
 
-        // Fix total height now that we know it
-        root.setSize(W, y);
-        root.validate(this);
+        return y;
+    }
+
+    /** Builds the Conflicts tab and returns the new y after all widgets. */
+    private int buildConflictsTab(WPlainPanel root, int y, List<ChunkPos> pendingConflicts) {
+
+        WLabel header = new WLabel(Text.translatable("screen.worlddownloader.tab.conflictsHeader"));
+        header.setHorizontalAlignment(HorizontalAlignment.CENTER);
+        root.add(header, MARGIN, y, INNER_W, LBL_H);
+        y += ROW_GAP + SECT_GAP;
+
+        if (pendingConflicts.isEmpty()) {
+            root.add(new WLabel(Text.translatable("screen.worlddownloader.status.noConflicts")),
+                    MARGIN, y, INNER_W, LBL_H);
+            y += ROW_GAP + SECT_GAP;
+        } else {
+            root.add(rowLabel("screen.worlddownloader.status.conflicts",
+                    String.valueOf(pendingConflicts.size())), MARGIN, y, INNER_W, LBL_H);
+            y += ROW_GAP;
+
+            WButton overwriteAllBtn = new WButton(
+                    Text.translatable("screen.worlddownloader.status.overwriteAll"));
+            overwriteAllBtn.setOnClick(() -> {
+                ManualResolver.clearPendingConflicts();
+                DownloadManager.exportNow(MinecraftClient.getInstance());
+                reopen();
+            });
+            root.add(overwriteAllBtn, MARGIN, y, HALF_W, BTN_H);
+
+            WButton ignoreAllBtn = new WButton(
+                    Text.translatable("screen.worlddownloader.status.ignoreAll"));
+            ignoreAllBtn.setOnClick(() -> {
+                ManualResolver.clearPendingConflicts();
+                reopen();
+            });
+            root.add(ignoreAllBtn, MARGIN + HALF_W + 4, y, HALF_W, BTN_H);
+            y += BTN_H + SECT_GAP;
+        }
+
+        WButton closeBtn = new WButton(Text.translatable("gui.done"));
+        closeBtn.setOnClick(() -> MinecraftClient.getInstance().setScreen(null));
+        root.add(closeBtn, MARGIN, y, INNER_W, BTN_H);
+        y += BTN_H + MARGIN;
+
+        return y;
     }
 
     // ── Factory ───────────────────────────────────────────────────────────────
@@ -227,15 +301,15 @@ public class StatusScreen extends LightweightGuiDescription {
     /** Opens a fresh status screen on the game thread. */
     public static void open() {
         MinecraftClient mc = MinecraftClient.getInstance();
-        mc.execute(() -> mc.setScreen(new CottonClientScreen(new StatusScreen())));
+        mc.execute(() -> mc.setScreen(new StatusClientScreen()));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /** Reopens the screen (recreates it so all labels reflect current state). */
-    private static void reopen() {
+    static void reopen() {
         MinecraftClient mc = MinecraftClient.getInstance();
-        mc.execute(() -> mc.setScreen(new CottonClientScreen(new StatusScreen())));
+        mc.execute(() -> mc.setScreen(new StatusClientScreen()));
     }
 
     /** Builds a "{label}: {value}" label widget. */
@@ -268,10 +342,6 @@ public class StatusScreen extends LightweightGuiDescription {
         return (secs / 3600) + "h ago";
     }
 
-    /**
-     * Returns the effective save location for the given source:
-     * per-world override if set, otherwise the global config default.
-     */
     private static ModConfig.SaveLocation resolveEffectiveSaveLoc(String sourceId) {
         String perWorld = MirrorMapping.getInstance().getPerWorldSaveLocation(sourceId);
         if (perWorld != null) {
@@ -281,10 +351,6 @@ public class StatusScreen extends LightweightGuiDescription {
         return ModConfig.get().defaultSaveLocation;
     }
 
-    /**
-     * Returns the effective conflict strategy for the given source:
-     * per-world override if set, otherwise the global config default.
-     */
     private static ModConfig.ConflictStrategy resolveEffectiveStrategy(String sourceId) {
         String perWorld = MirrorMapping.getInstance().getPerWorldConflictStrategy(sourceId);
         if (perWorld != null) {
@@ -294,3 +360,4 @@ public class StatusScreen extends LightweightGuiDescription {
         return ModConfig.get().defaultConflictStrategy;
     }
 }
+
