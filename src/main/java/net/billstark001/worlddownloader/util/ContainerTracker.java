@@ -32,7 +32,7 @@ public class ContainerTracker {
         if (HitResult instanceof BlockHitResult blockHit) {
             BlockPos pos = blockHit.getBlockPos();
             openContainers.put(syncId, new ContainerData(pos, name));
-            System.out.println("📦 Container opened at " + pos + ": " + name.getString());
+            WDLogger.debug("Container opened at " + pos + ": " + name.getString());
         }
 
     }
@@ -50,7 +50,7 @@ public class ContainerTracker {
             int totalSlots = contents.size();
             int containerSlots = determineContainerSlots(totalSlots);
 
-            System.out.println("🔍 Processing container: " + totalSlots + " total slots, " + containerSlots + " container slots");
+            WDLogger.debug("Processing container: " + totalSlots + " total slots, " + containerSlots + " container slots");
 
 
             if (containerSlots == 54) {
@@ -68,7 +68,7 @@ public class ContainerTracker {
         savedContainerData.put(container.pos, containerNbt);
 
         int nonEmptySlots = countNonEmptySlots(contents, containerSlots);
-        System.out.println("✅ Saved regular container at " + container.pos + " with " + nonEmptySlots + "/" + containerSlots + " filled slots");
+        WDLogger.debug("Saved regular container at " + container.pos + " with " + nonEmptySlots + "/" + containerSlots + " filled slots");
     }
 
     private static void handleDoubleChest(ContainerData container, List<ItemStack> contents) {
@@ -128,11 +128,11 @@ public class ContainerTracker {
             int leftNonEmpty = countNonEmptySlots(leftChestItems, 27);
             int rightNonEmpty = countNonEmptySlots(rightChestItems, 27);
 
-            System.out.println("✅ Saved double chest:");
-            System.out.println("   - Left chest at " + leftChestPos + " with " + leftNonEmpty + "/27 items");
-            System.out.println("   - Right chest at " + rightChestPos + " with " + rightNonEmpty + "/27 items");
+            WDLogger.debug("Saved double chest:");
+            WDLogger.debug("  Left chest at " + leftChestPos + " with " + leftNonEmpty + "/27 items");
+            WDLogger.debug("  Right chest at " + rightChestPos + " with " + rightNonEmpty + "/27 items");
         } catch (Exception e) {
-            System.err.println("❌ Failed to handle double chest, falling back to regular container: " + e.getMessage());
+            WDLogger.warn("Failed to handle double chest, falling back: " + e.getMessage());
             handleRegularContainer(container, contents, 54);
         }
     }
@@ -189,7 +189,7 @@ public class ContainerTracker {
     public static void onContainerClosed(int syncId) {
         ContainerData container = openContainers.remove(syncId);
         if (container != null) {
-            System.out.println("🚪 Container closed at " + container.pos);
+            WDLogger.debug("Container closed at " + container.pos);
         }
     }
 
@@ -204,7 +204,7 @@ public class ContainerTracker {
     public static void clear() {
         openContainers.clear();
         savedContainerData.clear();
-        System.out.println("🗑️ Cleared all container data");
+        WDLogger.info("Cleared all container data");
     }
 
     public static int getTotalSavedContainers() {
@@ -220,7 +220,7 @@ public class ContainerTracker {
             if (containerData.contains("Items")) {
                 originalNbt.put("Items", containerData.get("Items"));
                 NbtList items = (NbtList) containerData.get("Items");
-                System.out.println("✅ Enhanced block entity at " + pos + " with " + items.size() + " items");
+                WDLogger.debug("Enhanced block entity at " + pos + " with " + items.size() + " items");
             }
             if (containerData.contains("CustomName")) {
                 originalNbt.put("CustomName", containerData.get("CustomName"));

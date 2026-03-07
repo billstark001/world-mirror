@@ -63,10 +63,9 @@ public class WorldFileWriter {
                 }
                 throw throwable;
             }
-            System.out.println("✅ level.dat created at " + levelDat.getAbsolutePath());
+            WDLogger.info("level.dat created at " + levelDat.getAbsolutePath());
         } catch (Exception e) {
-            System.err.println("Failed to create level.dat");
-            e.printStackTrace();
+            WDLogger.warn("Failed to create level.dat: " + e.getMessage());
         }
     }
 }

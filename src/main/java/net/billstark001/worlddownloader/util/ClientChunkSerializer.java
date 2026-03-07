@@ -92,7 +92,7 @@ public class ClientChunkSerializer {
                         blockEntities.add(beNbt);
                     }
                 } catch (Exception e) {
-                    System.err.println("Failed to serialize block entity at " + pos + ": " + e.getMessage());
+                    WDLogger.warn("Failed to serialize block entity at " + pos + ": " + e.getMessage());
                 }
             }
         }
@@ -132,7 +132,7 @@ public class ClientChunkSerializer {
                     }
                 }
             } catch (Exception e) {
-                System.err.println("⚠ Failed to get block entity type ID: " + e.getMessage());
+                WDLogger.warn("Failed to get block entity type ID: " + e.getMessage());
             }
 
 
@@ -148,14 +148,14 @@ public class ClientChunkSerializer {
 
                 if (additionalData.contains("Items") && !beNbt.contains("Items")) {
                     beNbt.put("Items", additionalData.get("Items"));
-                    System.out.println("✅ Saved items for " + blockEntity.getType().toString() + " at " + blockEntity.getPos());
+                    WDLogger.debug("Saved items for " + blockEntity.getType() + " at " + blockEntity.getPos());
                 }
 
 
                 for (String key : new String[]{"inventory", "Inventory", "items", "Contents"}) {
                     if (additionalData.contains(key) && !beNbt.contains(key)) {
                         beNbt.put(key, additionalData.get(key));
-                        System.out.println("✅ Saved " + key + " for " + blockEntity.getType().toString());
+                        WDLogger.debug("Saved " + key + " for " + blockEntity.getType());
                     }
                 }
 
@@ -190,17 +190,17 @@ public class ClientChunkSerializer {
                 }
 
             } catch (Exception e) {
-                System.err.println("⚠ Failed to get additional NBT data for block entity: " + e.getMessage());
+                WDLogger.warn("Failed to get additional NBT data: " + e.getMessage());
             }
 
             return beNbt;
         } catch (Exception e) {
-            System.err.println("❌ Failed to serialize block entity with items: " + e.getMessage());
+            WDLogger.warn("Failed to serialize block entity with items: " + e.getMessage());
 
             try {
                 return blockEntity.createNbtWithIdentifyingData(registryLookup);
             } catch (Exception fallbackException) {
-                System.err.println("❌ Fallback serialization also failed: " + fallbackException.getMessage());
+                WDLogger.warn("Fallback serialization also failed: " + fallbackException.getMessage());
                 return null;
             }
         }

@@ -157,10 +157,9 @@ public class WorldExporter {
                 }
                 throw throwable;
             }
-            System.out.println("✅ World structure created at: " + worldFolder.getAbsolutePath());
+            WDLogger.info("World structure created at: " + worldFolder.getAbsolutePath());
         } catch (Exception e) {
-            System.err.println("❌ Failed to create loadable world: " + e.getMessage());
-            e.printStackTrace();
+            WDLogger.warn("Failed to create loadable world: " + e.getMessage());
         }
     }
 }

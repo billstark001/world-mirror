@@ -15,7 +15,7 @@ public class ChunkListener {
 
     public static void addChunkNbt(ChunkPos pos, NbtCompound chunkNbt) {
         downloadedChunkNbt.put(pos, chunkNbt);
-        System.out.println("[WorldDownloader] Captured raw NBT chunk: " + pos);
+        WDLogger.debug("Captured chunk NBT: " + pos);
     }
 
     public static Map<ChunkPos, NbtCompound> getAll() {
@@ -26,3 +26,4 @@ public class ChunkListener {
         downloadedChunkNbt.clear();
     }
 }
+

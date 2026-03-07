@@ -31,14 +31,14 @@ public class EntityTracker {
         ClientWorld world = client.world;
 
         if (world == null) {
-            System.err.println("❌ ClientWorld is null, cannot capture entities");
+            WDLogger.warn("ClientWorld is null, cannot capture entities");;
 
             return;
         }
         chunkEntities.clear();
         int totalEntities = 0;
 
-        System.out.println("🔍 Starting entity capture...");
+        WDLogger.info("Starting entity capture...");
 
         for (Entity entity : world.getEntities()) {
             if (entity == null) {
@@ -64,20 +64,20 @@ public class EntityTracker {
                         totalEntities++;
 
                         String entityType = Registries.ENTITY_TYPE.getId(entity.getType()).toString();
-                        System.out.println("📝 Captured " + entityType + " at " + String.format("%.1f,%.1f,%.1f", new Object[]{pos.x, pos.y, pos.z}) + " in chunk " + chunkPos);
+                        WDLogger.debug("Captured " + entityType + " at " + pos + " in chunk " + chunkPos);
                     }
                 } catch (Exception e) {
-                    System.err.println("❌ Failed to serialize entity " + entity.getType() + " at " + pos + ": " + e.getMessage());
+                    WDLogger.warn("Failed to serialize entity at " + pos + ": " + e.getMessage());
                     e.printStackTrace();
                 }
             }
         }
 
-        System.out.println("✅ Captured " + totalEntities + " entities across " + chunkEntities.size() + " chunks");
+        WDLogger.info("Captured " + totalEntities + " entities across " + chunkEntities.size() + " chunks");
 
 
         for (Map.Entry<ChunkPos, List<NbtCompound>> entry : chunkEntities.entrySet()) {
-            System.out.println("   Chunk " + entry.getKey() + ": " + entry.getValue().size() + " entities");
+            WDLogger.debug("Chunk " + entry.getKey() + ": " + entry.getValue().size() + " entities");
         }
     }
 
@@ -178,8 +178,7 @@ public class EntityTracker {
 
             return entityNbt;
         } catch (Exception e) {
-            System.err.println("❌ Failed to serialize entity " + entity.getType() + ": " + e.getMessage());
-            e.printStackTrace();
+            WDLogger.warn("Failed to serialize entity " + entity.getType() + ": " + e.getMessage());
             return null;
         }
     }
@@ -272,13 +271,13 @@ public class EntityTracker {
                 try {
                     ContainerData.test1(client, itemNbt, itemStack);
                 } catch (Exception e) {
-                    System.err.println("⚠ Failed to encode item components, using basic data only: " + e.getMessage());
+                    WDLogger.warn("Failed to encode item components: " + e.getMessage());
                 }
 
                 entityNbt.put("Item", itemNbt);
-                System.out.println("   - Item: " + Registries.ITEM.getId(itemStack.getItem()) + " x" + itemStack.getCount());
+                WDLogger.debug("Item: " + Registries.ITEM.getId(itemStack.getItem()) + " x" + itemStack.getCount());
             } catch (Exception e) {
-                System.err.println("❌ Failed to serialize item stack for ItemEntity: " + e.getMessage());
+                WDLogger.warn("Failed to serialize item stack for ItemEntity: " + e.getMessage());
 
 
                 NbtCompound basicItem = new NbtCompound();
@@ -292,7 +291,7 @@ public class EntityTracker {
     public static List<NbtCompound> getEntitiesForChunk(ChunkPos chunkPos) {
         List<NbtCompound> entities = chunkEntities.getOrDefault(chunkPos, new ArrayList<>());
         if (!entities.isEmpty()) {
-            System.out.println("📦 Retrieved " + entities.size() + " entities for chunk " + chunkPos);
+            WDLogger.debug("Retrieved " + entities.size() + " entities for chunk " + chunkPos);
         }
         return entities;
     }
@@ -300,7 +299,7 @@ public class EntityTracker {
     public static void clear() {
         int totalEntities = getTotalTrackedEntities();
         chunkEntities.clear();
-        System.out.println("🗑️ Cleared " + totalEntities + " tracked entities");
+        WDLogger.info("Cleared " + totalEntities + " tracked entities");
     }
 
     public static int getTotalTrackedEntities() {

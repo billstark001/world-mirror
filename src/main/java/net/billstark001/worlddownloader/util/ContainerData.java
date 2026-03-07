@@ -75,7 +75,7 @@ public class ContainerData {
                     itemsList.add(itemNbt);
                 }
             } catch (Exception e) {
-                System.err.println("❌ Failed to serialize item in slot " + entry.getKey() + ": " + e.getMessage());
+                WDLogger.warn("Failed to serialize item in slot " + entry.getKey() + ": " + e.getMessage());
             }
         }
 
@@ -128,12 +128,12 @@ public class ContainerData {
             try {
                 test1(client, itemNbt, stack);
             } catch (Exception e) {
-                System.err.println("⚠ Failed to encode item components for " + itemId + ": " + e.getMessage());
+                WDLogger.warn("Failed to encode item components for " + itemId + ": " + e.getMessage());
             }
 
             return itemNbt;
         } catch (Exception e) {
-            System.err.println("❌ Item serialization failed: " + e.getMessage());
+            WDLogger.warn("Item serialization failed: " + e.getMessage());
 
             NbtCompound basicItem = new NbtCompound();
             basicItem.putString("id", Registries.ITEM.getId(stack.getItem()).toString());

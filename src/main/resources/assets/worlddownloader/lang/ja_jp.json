@@ -1,0 +1,31 @@
+{
+  "category.worlddownloader": "ワールドダウンローダー",
+
+  "key.worlddownloader.export": "ワールドをエクスポート",
+  "key.worlddownloader.clear":  "キャッシュデータをクリア",
+  "key.worlddownloader.toggle": "ダウンロードの切り替え",
+
+  "config.worlddownloader.title": "ワールドダウンローダー設定",
+
+  "config.worlddownloader.saveLoc": "保存場所",
+  "config.worlddownloader.saveLoc.downloaded": "ダウンロードフォルダ",
+  "config.worlddownloader.saveLoc.saves": "セーブフォルダ",
+
+  "config.worlddownloader.syncInterval": "同期間隔",
+
+  "config.worlddownloader.logLevel": "ログレベル",
+  "config.worlddownloader.logLevel.debug":   "デバッグ",
+  "config.worlddownloader.logLevel.info":    "情報",
+  "config.worlddownloader.logLevel.warning": "警告",
+
+  "config.worlddownloader.conflictStrategy": "競合戦略",
+  "config.worlddownloader.conflictStrategy.overwrite": "上書き",
+  "config.worlddownloader.conflictStrategy.ignore":    "無視",
+  "config.worlddownloader.conflictStrategy.manual":    "手動",
+
+  "msg.worlddownloader.downloadStart": "§aワールドダウンローダー：有効",
+  "msg.worlddownloader.downloadStop":  "§cワールドダウンローダー：無効",
+  "msg.worlddownloader.exportDone":    "ワールドのエクスポートが完了しました。",
+  "msg.worlddownloader.noChunks":      "キャッシュされたチャンクがありません。チャンクを読み込むために歩き回ってください。",
+  "msg.worlddownloader.cleared":       "すべてのキャッシュデータをクリアしました。"
+}

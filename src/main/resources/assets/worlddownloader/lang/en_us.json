@@ -1,0 +1,31 @@
+{
+  "category.worlddownloader": "World Downloader",
+
+  "key.worlddownloader.export": "Export World",
+  "key.worlddownloader.clear":  "Clear Cached Data",
+  "key.worlddownloader.toggle": "Toggle Download",
+
+  "config.worlddownloader.title": "World Downloader Settings",
+
+  "config.worlddownloader.saveLoc": "Save Location",
+  "config.worlddownloader.saveLoc.downloaded": "Downloaded Folder",
+  "config.worlddownloader.saveLoc.saves": "Saves Folder",
+
+  "config.worlddownloader.syncInterval": "Sync Interval",
+
+  "config.worlddownloader.logLevel": "Log Level",
+  "config.worlddownloader.logLevel.debug":   "Debug",
+  "config.worlddownloader.logLevel.info":    "Info",
+  "config.worlddownloader.logLevel.warning": "Warning",
+
+  "config.worlddownloader.conflictStrategy": "Conflict Strategy",
+  "config.worlddownloader.conflictStrategy.overwrite": "Overwrite",
+  "config.worlddownloader.conflictStrategy.ignore":    "Ignore",
+  "config.worlddownloader.conflictStrategy.manual":    "Manual",
+
+  "msg.worlddownloader.downloadStart": "§aWorld Downloader: Active",
+  "msg.worlddownloader.downloadStop":  "§cWorld Downloader: Inactive",
+  "msg.worlddownloader.exportDone":    "World exported successfully.",
+  "msg.worlddownloader.noChunks":      "No chunks cached — walk around to load chunks first.",
+  "msg.worlddownloader.cleared":       "Cleared all cached data."
+}
