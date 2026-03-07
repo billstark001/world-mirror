@@ -1,38 +1,38 @@
 {
-	"schemaVersion": 1,
-	"id": "worlddownloader",
-	"version": "${version}",
-	"name": "World Downloader",
-	"description": "A client-side mod that lets you download the world you are currently playing on a multiplayer server. Captures chunks, entities, and container contents, then exports them as a loadable singleplayer save.",
-	"authors": [
-		"billstark001"
-	],
-	"contact": {
-		"sources": "https://github.com/billstark001/world-downloader",
-		"issues": "https://github.com/billstark001/world-downloader/issues"
-	},
-	"license": "MIT",
-	"icon": "assets/worlddownloader/icon.png",
-	"environment": "client",
-	"entrypoints": {
-		"client": [
-			"net.billstark001.worlddownloader.WorldDownloaderClient"
-		]
-	},
-	"mixins": [
-		{
-			"config": "worlddownloader.mixins.json",
-			"environment": "client"
-		}
-	],
-	"depends": {
-		"fabricloader": ">=0.18.2",
-		"minecraft": "~1.21.11",
-		"java": ">=21",
-		"fabric-api": "*",
-		"libgui": "*"
-	},
-	"suggests": {
-		"modmenu": "*"
-	}
+  "schemaVersion": 1,
+  "id": "worlddownloader",
+  "version": "${version}",
+  "name": "World Downloader",
+  "description": "A client-side mod that lets you download the world you are currently playing on a multiplayer server. Captures chunks, entities, and container contents, then exports them as a loadable singleplayer save.",
+  "authors": [
+    "billstark001"
+  ],
+  "contact": {
+    "sources": "https://github.com/billstark001/world-downloader",
+    "issues": "https://github.com/billstark001/world-downloader/issues"
+  },
+  "license": "MIT",
+  "icon": "assets/worlddownloader/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "net.billstark001.worlddownloader.WorldDownloaderClient"
+    ]
+  },
+  "mixins": [
+    {
+      "config": "worlddownloader.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=0.18.2",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": "*",
+    "libgui": "*"
+  },
+  "suggests": {
+    "modmenu": "*"
+  }
 }

@@ -2,7 +2,9 @@
 
 **Version:** 0.1.0 · **Minecraft:** 1.21.11 · **Loader:** Fabric
 
-A client-side Fabric mod that lets you download the world you are currently playing on a multiplayer server. It silently captures chunk data, entities, and container (chest/barrel/etc.) contents as you explore, and exports everything as a fully loadable singleplayer save.
+A client-side Fabric mod that lets you download the world you are currently playing on a multiplayer server. It silently
+captures chunk data, entities, and container (chest/barrel/etc.) contents as you explore, and exports everything as a
+fully loadable singleplayer save.
 
 ## Features
 
@@ -14,9 +16,9 @@ A client-side Fabric mod that lets you download the world you are currently play
 
 ## Keybindings
 
-| Key | Action |
-|-----|--------|
-| `O` | Export captured world to `downloaded_world/` |
+| Key | Action                                               |
+|-----|------------------------------------------------------|
+| `O` | Export captured world to `downloaded_world/`         |
 | `L` | Clear all captured chunk, entity, and container data |
 
 ## Installation
@@ -47,8 +49,9 @@ Output jar: `build/libs/world-downloader-0.1.0.jar`
 
 ## Credits
 
-- Fork of the original [World Downloader](https://modrinth.com/mod/world-downloader) by **KuudraLoremaster** (MIT license)
-- Uses a modified version of [Querz/NBT](https://github.com/Querz/NBT) (MIT license)
+- Fork of the original [World Downloader](https://modrinth.com/mod/world-downloader) by **KuudraLoremaster** (MIT
+  license)
+- Uses a modified version of [Querz/NBT](https://github.com/Querz/NBT) and a [fork](https://github.com/ens-gijs/NBT/tree/master) (both under MIT license)
 
 ## License
 
