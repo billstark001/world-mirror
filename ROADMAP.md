@@ -113,6 +113,8 @@ When `defaultSaveLocation = SAVES` and a folder with the same name already exist
 `saves/`, the mod silently overwrites `level.dat`. The correct approach is to read the
 existing `wdl_meta.json` on first access to confirm the folder belongs to this mirror,
 and append a numeric suffix (e.g. `_2`) if it does not.
+All singleplayer's saving folders are named as `unnamed`, causing a collision on every export.
+This is a critical bug that must be fixed before the next release.
 
 ---
 
