@@ -226,6 +226,7 @@ public abstract class TerrainChunkBase<T extends TerrainSectionBase> extends Sec
 
     @Override
     protected void initMembers() {
+        super.initMembers();
         // give this a reasonable default
         yPos = DEFAULT_WORLD_BOTTOM_Y_POS.get(dataVersion);
     }
