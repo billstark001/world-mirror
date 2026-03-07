@@ -48,7 +48,7 @@ public final class WDLogger {
             return;
         }
         MinecraftClient client = MinecraftClient.getInstance();
-        if (client == null || client.player == null) {
+        if (client == null) {
             return;
         }
         String prefix = switch (level) {
@@ -56,6 +56,12 @@ public final class WDLogger {
             case INFO    -> "§f[WDL] ";
             case WARNING -> "§e[WDL WARN] ";
         };
-        client.player.sendMessage(Text.literal(prefix + msg), false);
+        Text text = Text.literal(prefix + msg);
+        // Always dispatch onto the main (render) thread to avoid thread-safety issues.
+        client.execute(() -> {
+            if (client.player != null) {
+                client.player.sendMessage(text, false);
+            }
+        });
     }
 }

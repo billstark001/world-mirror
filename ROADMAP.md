@@ -5,7 +5,7 @@ Each item references the primary class(es) involved.
 
 ---
 
-## 1. Build & Infrastructure
+## 1. Build & Infrastructure [DONE]
 
 ### [BUG] Incorrect Fabric Loom plugin ID in `build.gradle` *(CI-breaking)*
 `build.gradle`  
@@ -16,17 +16,14 @@ Minecraft 1.21.11 and is already properly declared.
 
 ---
 
-## 2. Correctness & Crash Fixes
+## 2. Correctness & Crash Fixes [DONE]
 
 ### [BUG] `EntityTracker::serializeEntity` calls non-existent `entity.writeNbt`
 `EntityTracker`  
 ~~The method `entity.writeNbt(NbtCompound)` does not exist in MC 1.21+.
 Must be replaced with the `entity.writeData(net.minecraft.storage.WriteView)` API, or
 a manual serialization of the public entity state.~~  
-**Partially fixed:** `serializeEntity` now writes the canonical NBT fields (type id,
-position, rotation, velocity, UUID, on-ground, custom name) via the public Entity API.
-Full entity-specific data (e.g. painting motive, armour-stand pose, mob equipment)
-still requires an `@Invoker` mixin to access the internal `NbtCompoundWriteView`.
+**Fixed:** `serializeEntity` now writes the NBT fields via the NbtWriteView class.
 
 ### [BUG] Block-entity serialization crashes when `originalNbt` is null
 `ContainerTracker`, `ClientChunkSerializer`  
@@ -74,11 +71,13 @@ superflat preset so that areas the player has not visited remain empty.~~
 superflat preset.
 
 ### [BUG] Possible render-thread violation when exporting
-`WorldExporter`, `DownloadManager`  
-`WorldExporter.createLoadableWorld` is called on a background export thread but may
+`WorldExporter`, `DownloadManager`, `WDLogger`
+~~`WorldExporter.createLoadableWorld` is called on a background export thread but may
 indirectly trigger render-system calls (e.g. via lazy Minecraft internals). The method
 must be confirmed safe to call off-thread; any render-system calls must be marshalled
-back to the main thread via `MinecraftClient.getInstance().execute(...)`.
+back to the main thread via `MinecraftClient.getInstance().execute(...)`.~~
+**Fixed:** This is due to the call of MinecraftClient functions inside `WDLogger::showInGame`.
+Fixed by forcing the in-game logging to run on the render thread via `client.execute()`.
 
 ---
 
