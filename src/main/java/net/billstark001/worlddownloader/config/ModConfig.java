@@ -1,19 +1,19 @@
 package net.billstark001.worlddownloader.config;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import net.fabricmc.loader.api.FabricLoader;
-
-import java.io.FileReader;
-import java.io.FileWriter;
-import java.io.Reader;
-import java.io.Writer;
-import java.nio.file.Path;
+import me.shedaniel.autoconfig.AutoConfig;
+import me.shedaniel.autoconfig.ConfigData;
+import me.shedaniel.autoconfig.annotation.Config;
+import me.shedaniel.autoconfig.annotation.ConfigEntry;
+import me.shedaniel.autoconfig.serializer.GsonConfigSerializer;
 
 /**
  * Persistent mod configuration stored in config/worlddownloader.json.
+ * <p>
+ * Registered with Cloth Config's {@link AutoConfig} so that the library
+ * can generate an in-game settings screen automatically.
  */
-public class ModConfig {
+@Config(name = "worlddownloader")
+public class ModConfig implements ConfigData {
 
     // ── Enums ────────────────────────────────────────────────────────────────
 
@@ -37,80 +37,147 @@ public class ModConfig {
         MANUAL
     }
 
+    /**
+     * Describes how the download state should change on a specific lifecycle event.
+     */
+    public enum TransitionBehavior {
+        /** Activate download automatically. */
+        START,
+        /** Deactivate download automatically. */
+        STOP,
+        /** Leave the download state exactly as it was. */
+        KEEP
+    }
+
     // ── Fields ───────────────────────────────────────────────────────────────
 
+    @ConfigEntry.Gui.Tooltip
+    @ConfigEntry.Gui.EnumHandler(option = ConfigEntry.Gui.EnumHandler.EnumDisplayOption.DROPDOWN)
     public SaveLocation defaultSaveLocation = SaveLocation.DOWNLOADED;
+
     /** How often (seconds) the periodic sync fires while downloading is active. */
-    public int syncIntervalSeconds = 10;
+    @ConfigEntry.Gui.Tooltip
+    @ConfigEntry.BoundedDiscrete(min = 5, max = 600)
+    public int syncIntervalSeconds = 30;
+
+    @ConfigEntry.Gui.Tooltip
+    @ConfigEntry.Gui.EnumHandler(option = ConfigEntry.Gui.EnumHandler.EnumDisplayOption.DROPDOWN)
     public LogLevel logLevel = LogLevel.INFO;
+
+    @ConfigEntry.Gui.Tooltip
+    @ConfigEntry.Gui.EnumHandler(option = ConfigEntry.Gui.EnumHandler.EnumDisplayOption.DROPDOWN)
     public ConflictStrategy defaultConflictStrategy = ConflictStrategy.OVERWRITE;
 
     // ── Cache control ─────────────────────────────────────────────────────────
 
-    /**
-     * Maximum number of chunks to keep in the in-memory cache across all dimensions.
-     * When the limit is exceeded, the oldest captured chunks are evicted first.
-     * Set to 0 to disable the limit.
-     */
-    public int maxCachedChunks = 0;
+    @ConfigEntry.Gui.CollapsibleObject
+    public CacheConfig cache = new CacheConfig();
+
+    public static class CacheConfig {
+
+        /**
+         * Maximum number of chunks to keep in the in-memory cache across all dimensions.
+         * When the limit is exceeded, the oldest captured chunks are evicted first.
+         * Set to 0 to disable the limit.
+         */
+        @ConfigEntry.Gui.Tooltip
+        @ConfigEntry.BoundedDiscrete(min = 0, max = 12800)
+        public int maxCachedChunks = 0;
+
+        /**
+         * Maximum distance (in chunks) from the player at which cached chunks are retained.
+         * Chunks farther than this radius are evicted during the periodic sync tick.
+         * Set to 0 to disable distance-based eviction.
+         */
+        @ConfigEntry.Gui.Tooltip
+        @ConfigEntry.BoundedDiscrete(min = 0, max = 64)
+        public int maxCacheDistanceChunks = 32;
+
+        /**
+         * Maximum age (in seconds) of a cached chunk before it is evicted.
+         * Set to 0 to disable time-based eviction.
+         */
+        @ConfigEntry.Gui.Tooltip
+        @ConfigEntry.BoundedDiscrete(min = 0, max = 14400)
+        public int maxCacheAgeSeconds = 1800;
+
+        /**
+         * If {@code true}, a chunk is removed from the in-memory cache immediately after
+         * it has been successfully written to disk.  This reduces RAM usage at the cost of
+         * re-capturing the chunk if it needs to be re-exported.
+         */
+        @ConfigEntry.Gui.Tooltip
+        public boolean invalidateAfterExport = false;
+    }
+
+    // ── Lifecycle behaviour ───────────────────────────────────────────────────
+
+    @ConfigEntry.Gui.CollapsibleObject
+    public LifecycleConfig lifecycle = new LifecycleConfig();
 
     /**
-     * Maximum distance (in chunks) from the player at which cached chunks are retained.
-     * Chunks farther than this radius are evicted during the periodic sync tick.
-     * Set to 0 to disable distance-based eviction.
+     * Controls how the download state changes on world lifecycle events.
+     * Each field uses {@link TransitionBehavior} to describe whether to
+     * start, stop, or keep the current state.
      */
-    public int maxCacheDistanceChunks = 0;
+    public static class LifecycleConfig {
+
+        /**
+         * Behaviour when the player first joins a world (or reconnects to a server).
+         * Default: STOP — downloading does not start automatically.
+         */
+        @ConfigEntry.Gui.Tooltip
+        @ConfigEntry.Gui.EnumHandler(option = ConfigEntry.Gui.EnumHandler.EnumDisplayOption.DROPDOWN)
+        public TransitionBehavior onJoinWorld = TransitionBehavior.STOP;
+
+        /**
+         * Behaviour when the player travels to a different dimension within the
+         * same world / server (e.g. entering the Nether or the End).
+         * Default: KEEP — the current download state is preserved.
+         */
+        @ConfigEntry.Gui.Tooltip
+        @ConfigEntry.Gui.EnumHandler(option = ConfigEntry.Gui.EnumHandler.EnumDisplayOption.DROPDOWN)
+        public TransitionBehavior onDimensionChange = TransitionBehavior.KEEP;
+
+        /**
+         * Behaviour when the player is transferred to a different logical world on
+         * the same server (e.g. via a multiworld / per-world plugin such as Multiverse).
+         * Detected by a change in {@code sourceId} while still connected to the same server.
+         * Default: STOP — downloading stops to avoid mixing data from different worlds.
+         */
+        @ConfigEntry.Gui.Tooltip
+        @ConfigEntry.Gui.EnumHandler(option = ConfigEntry.Gui.EnumHandler.EnumDisplayOption.DROPDOWN)
+        public TransitionBehavior onServerWorldChange = TransitionBehavior.STOP;
+    }
+
+    // ── Singleton + AutoConfig integration ────────────────────────────────────
+
+    @ConfigEntry.Gui.Excluded
+    private static boolean registered = false;
 
     /**
-     * Maximum age (in seconds) of a cached chunk before it is evicted.
-     * Set to 0 to disable time-based eviction.
+     * Registers the config with AutoConfig (idempotent).
+     * Must be called once during mod initialisation before any call to {@link #get()}.
      */
-    public int maxCacheAgeSeconds = 0;
+    public static void register() {
+        if (!registered) {
+            AutoConfig.register(ModConfig.class, GsonConfigSerializer::new);
+            registered = true;
+        }
+    }
 
-    /**
-     * If {@code true}, a chunk is removed from the in-memory cache immediately after
-     * it has been successfully written to disk.  This reduces RAM usage at the cost of
-     * re-capturing the chunk if it needs to be re-exported.
-     */
-    public boolean invalidateAfterExport = false;
-
-    // ── Singleton + persistence ───────────────────────────────────────────────
-
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final String CONFIG_FILE = "worlddownloader.json";
-
-    private static ModConfig instance;
-
-    /** Returns the loaded singleton, loading it from disk if needed. */
+    /** Returns the live config instance managed by AutoConfig. */
     public static ModConfig get() {
-        if (instance == null) {
-            load();
+        if (!registered) {
+            register();
         }
-        return instance;
+        return AutoConfig.getConfigHolder(ModConfig.class).getConfig();
     }
 
-    /** Loads (or reloads) the config from disk. */
-    public static void load() {
-        Path file = FabricLoader.getInstance().getConfigDir().resolve(CONFIG_FILE);
-        if (file.toFile().exists()) {
-            try (Reader r = new FileReader(file.toFile())) {
-                ModConfig loaded = GSON.fromJson(r, ModConfig.class);
-                instance = (loaded != null) ? loaded : new ModConfig();
-            } catch (Exception e) {
-                instance = new ModConfig();
-            }
-        } else {
-            instance = new ModConfig();
-        }
-    }
-
-    /** Persists the current config to disk. */
+    /** Persists the current config to disk via AutoConfig. */
     public void save() {
-        Path file = FabricLoader.getInstance().getConfigDir().resolve(CONFIG_FILE);
-        try (Writer w = new FileWriter(file.toFile())) {
-            GSON.toJson(this, w);
-        } catch (Exception e) {
-            // Not critical — ignore
+        if (registered) {
+            AutoConfig.getConfigHolder(ModConfig.class).save();
         }
     }
 }

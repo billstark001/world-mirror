@@ -6,32 +6,14 @@
   "key.worlddownloader.toggle": "ダウンロードの切り替え",
   "key.worlddownloader.status": "ステータス画面を開く",
 
-  "config.worlddownloader.title": "ワールドダウンローダー設定",
-
   "config.worlddownloader.saveLoc": "保存場所",
   "config.worlddownloader.saveLoc.downloaded": "ダウンロードフォルダ",
   "config.worlddownloader.saveLoc.saves": "セーブフォルダ",
-
-  "config.worlddownloader.syncInterval": "同期間隔",
-
-  "config.worlddownloader.logLevel": "ログレベル",
-  "config.worlddownloader.logLevel.debug":   "デバッグ",
-  "config.worlddownloader.logLevel.info":    "情報",
-  "config.worlddownloader.logLevel.warning": "警告",
 
   "config.worlddownloader.conflictStrategy": "競合戦略",
   "config.worlddownloader.conflictStrategy.overwrite": "上書き",
   "config.worlddownloader.conflictStrategy.ignore":    "無視",
   "config.worlddownloader.conflictStrategy.manual":    "手動",
-
-  "config.worlddownloader.section.cache": "── キャッシュ制御 ──",
-  "config.worlddownloader.maxCachedChunks":        "最大キャッシュチャンク数",
-  "config.worlddownloader.maxCacheDistanceChunks": "最大キャッシュ距離",
-  "config.worlddownloader.maxCacheAgeSeconds":     "最大キャッシュ時間",
-  "config.worlddownloader.invalidateAfterExport":  "エクスポート後にキャッシュを無効化",
-  "config.worlddownloader.disabled": "無効",
-  "config.worlddownloader.on":  "オン",
-  "config.worlddownloader.off": "オフ",
 
   "msg.worlddownloader.downloadStart":  "§aワールドダウンローダー：有効",
   "msg.worlddownloader.downloadStop":   "§cワールドダウンローダー：無効",
@@ -68,7 +50,61 @@
   "screen.worlddownloader.tab.settings":        "設定",
   "screen.worlddownloader.tab.conflicts":       "競合",
   "screen.worlddownloader.tab.settingsHeader":  "ワールド別設定",
-  "screen.worlddownloader.tab.conflictsHeader": "競合キュー"
+  "screen.worlddownloader.tab.conflictsHeader": "競合キュー",
+
+  "text.autoconfig.worlddownloader.title": "ワールドダウンローダー設定",
+
+  "text.autoconfig.worlddownloader.option.defaultSaveLocation": "保存場所",
+  "text.autoconfig.worlddownloader.option.defaultSaveLocation.@Tooltip": "ダウンロードされたワールドの保存先。\nDOWNLOADED：ゲームディレクトリ/downloaded_worlds\nSAVES：ゲームディレクトリ/saves/<名前>",
+  "text.autoconfig.worlddownloader.option.defaultSaveLocation.downloaded": "ダウンロードフォルダ",
+  "text.autoconfig.worlddownloader.option.defaultSaveLocation.saves": "セーブフォルダ",
+
+  "text.autoconfig.worlddownloader.option.syncIntervalSeconds": "同期間隔（秒）",
+  "text.autoconfig.worlddownloader.option.syncIntervalSeconds.@Tooltip": "ダウンロードが有効な間、定期同期が発生する頻度（秒）。",
+
+  "text.autoconfig.worlddownloader.option.logLevel": "ログレベル",
+  "text.autoconfig.worlddownloader.option.logLevel.@Tooltip": "MODのログ出力の詳細度。",
+  "text.autoconfig.worlddownloader.option.logLevel.debug":   "デバッグ",
+  "text.autoconfig.worlddownloader.option.logLevel.info":    "情報",
+  "text.autoconfig.worlddownloader.option.logLevel.warning": "警告",
+
+  "text.autoconfig.worlddownloader.option.defaultConflictStrategy": "競合戦略",
+  "text.autoconfig.worlddownloader.option.defaultConflictStrategy.@Tooltip": "ローカルチャンクが既に存在する場合の処理方法。\nOVERWRITE：ローカルチャンクをサーバーバージョンで置き換える。\nIGNORE：ローカルチャンクを保持する。\nMANUAL：手動処理のためにキューに追加（Ignoreにフォールバック）。",
+  "text.autoconfig.worlddownloader.option.defaultConflictStrategy.overwrite": "上書き",
+  "text.autoconfig.worlddownloader.option.defaultConflictStrategy.ignore":    "無視",
+  "text.autoconfig.worlddownloader.option.defaultConflictStrategy.manual":    "手動",
+
+  "text.autoconfig.worlddownloader.option.cache": "キャッシュ制御",
+
+  "text.autoconfig.worlddownloader.option.cache.maxCachedChunks": "最大キャッシュチャンク数",
+  "text.autoconfig.worlddownloader.option.cache.maxCachedChunks.@Tooltip": "メモリに保持する最大チャンク数。0に設定するとこの制限を無効にします。",
+
+  "text.autoconfig.worlddownloader.option.cache.maxCacheDistanceChunks": "最大キャッシュ距離（チャンク）",
+  "text.autoconfig.worlddownloader.option.cache.maxCacheDistanceChunks.@Tooltip": "このチャンク半径を超えるとチャンクが削除されます。0に設定すると無効。",
+
+  "text.autoconfig.worlddownloader.option.cache.maxCacheAgeSeconds": "最大キャッシュ時間（秒）",
+  "text.autoconfig.worlddownloader.option.cache.maxCacheAgeSeconds.@Tooltip": "キャッシュされたチャンクの最大生存時間。0に設定すると無効。",
+
+  "text.autoconfig.worlddownloader.option.cache.invalidateAfterExport": "エクスポート後にキャッシュを無効化",
+  "text.autoconfig.worlddownloader.option.cache.invalidateAfterExport.@Tooltip": "有効にすると、チャンクがディスクに書き込まれた直後にメモリから削除されます。",
+
+  "text.autoconfig.worlddownloader.option.lifecycle": "ライフサイクル動作",
+
+  "text.autoconfig.worlddownloader.option.lifecycle.onJoinWorld": "ワールド参加時",
+  "text.autoconfig.worlddownloader.option.lifecycle.onJoinWorld.@Tooltip": "プレイヤーがワールドまたはサーバーに参加（または再参加）したときのダウンロード状態。\nSTART：自動的にダウンロードを開始。\nSTOP：ダウンロードを停止（デフォルト）。\nKEEP：現在の状態を維持。",
+  "text.autoconfig.worlddownloader.option.lifecycle.onJoinWorld.start": "開始",
+  "text.autoconfig.worlddownloader.option.lifecycle.onJoinWorld.stop":  "停止",
+  "text.autoconfig.worlddownloader.option.lifecycle.onJoinWorld.keep":  "維持",
+
+  "text.autoconfig.worlddownloader.option.lifecycle.onDimensionChange": "ディメンション変更時",
+  "text.autoconfig.worlddownloader.option.lifecycle.onDimensionChange.@Tooltip": "プレイヤーが別のディメンション（例：オーバーワールド → ネザー）に移動したときのダウンロード状態。\nSTART：自動的にダウンロードを開始。\nSTOP：ダウンロードを停止。\nKEEP：現在の状態を維持（デフォルト）。",
+  "text.autoconfig.worlddownloader.option.lifecycle.onDimensionChange.start": "開始",
+  "text.autoconfig.worlddownloader.option.lifecycle.onDimensionChange.stop":  "停止",
+  "text.autoconfig.worlddownloader.option.lifecycle.onDimensionChange.keep":  "維持",
+
+  "text.autoconfig.worlddownloader.option.lifecycle.onServerWorldChange": "サーバーワールド変更時",
+  "text.autoconfig.worlddownloader.option.lifecycle.onServerWorldChange.@Tooltip": "プレイヤーが同じサーバー上の別の論理ワールドに送られたとき（例：マルチワールドプラグイン）のダウンロード状態。\nSTART：自動的にダウンロードを開始。\nSTOP：ダウンロードを停止（デフォルト）。\nKEEP：現在の状態を維持。",
+  "text.autoconfig.worlddownloader.option.lifecycle.onServerWorldChange.start": "開始",
+  "text.autoconfig.worlddownloader.option.lifecycle.onServerWorldChange.stop":  "停止",
+  "text.autoconfig.worlddownloader.option.lifecycle.onServerWorldChange.keep":  "維持"
 }
-
-

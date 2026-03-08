@@ -8,6 +8,7 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.util.Identifier;
@@ -29,7 +30,7 @@ public class WorldDownloaderClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
-        ModConfig.load();
+        ModConfig.register();
 
         toggleKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key.worlddownloader.toggle",
@@ -66,6 +67,16 @@ public class WorldDownloaderClient implements ClientModInitializer {
             }
             DownloadManager.onClientTick(client);
         });
+
+        // Apply the configured on-join behaviour whenever the player enters a world.
+        // ClientPlayConnectionEvents.JOIN fires after the world object is available,
+        // which is exactly when we need it.
+        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) ->
+                DownloadManager.onJoinWorld(client));
+
+        // Reset lifecycle tracking state when the player leaves a server / world.
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) ->
+                DownloadManager.onLeaveWorld());
     }
 }
 

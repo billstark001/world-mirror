@@ -5,7 +5,7 @@ import io.github.cottonmc.cotton.gui.widget.WButton;
 import io.github.cottonmc.cotton.gui.widget.WLabel;
 import io.github.cottonmc.cotton.gui.widget.WPlainPanel;
 import io.github.cottonmc.cotton.gui.widget.data.HorizontalAlignment;
-import net.billstark001.worlddownloader.config.ConfigScreen;
+import me.shedaniel.autoconfig.AutoConfigClient;
 import net.billstark001.worlddownloader.config.ModConfig;
 import net.billstark001.worlddownloader.conflict.ManualResolver;
 import net.billstark001.worlddownloader.download.DownloadManager;
@@ -101,7 +101,7 @@ public class StatusScreen extends LightweightGuiDescription {
                     ? Text.literal("§l").append(Text.translatable(tabKeys[i]))
                     : Text.translatable(tabKeys[i]);
             WButton tabBtn = new WButton(tabLabel);
-            tabBtn.setOnClick(() -> { activeTab = tabIndex; reopen(); });
+            tabBtn.setOnClick(() -> { activeTab = tabIndex; open(); });
             root.add(tabBtn, MARGIN + tabIndex * (TAB_W + TAB_GAP), y, TAB_W, BTN_H);
         }
         y += BTN_H + 4;
@@ -162,7 +162,7 @@ public class StatusScreen extends LightweightGuiDescription {
                                            : "screen.worlddownloader.status.startDownload"));
         toggleBtn.setOnClick(() -> {
             DownloadManager.toggle(MinecraftClient.getInstance());
-            reopen();
+            open();
         });
         root.add(toggleBtn, MARGIN, y, HALF_W, BTN_H);
 
@@ -170,7 +170,7 @@ public class StatusScreen extends LightweightGuiDescription {
                 Text.translatable("screen.worlddownloader.status.exportNow"));
         exportBtn.setOnClick(() -> {
             DownloadManager.exportNow(MinecraftClient.getInstance());
-            reopen();
+            open();
         });
         root.add(exportBtn, MARGIN + HALF_W + 4, y, HALF_W, BTN_H);
         y += BTN_H + 4;
@@ -179,7 +179,7 @@ public class StatusScreen extends LightweightGuiDescription {
                 Text.translatable("screen.worlddownloader.status.clearData"));
         clearBtn.setOnClick(() -> {
             DownloadManager.clearAll(MinecraftClient.getInstance());
-            reopen();
+            open();
         });
         root.add(clearBtn, MARGIN, y, INNER_W, BTN_H);
         y += BTN_H + 4;
@@ -215,7 +215,7 @@ public class StatusScreen extends LightweightGuiDescription {
             ModConfig.SaveLocation[] vals = ModConfig.SaveLocation.values();
             ModConfig.SaveLocation next = vals[(effectiveSaveLoc.ordinal() + 1) % vals.length];
             MirrorMapping.getInstance().setPerWorldSaveLocation(sid, next.name());
-            reopen();
+            open();
         });
         root.add(saveLocBtn, MARGIN, y, INNER_W, BTN_H);
         y += BTN_H + 4;
@@ -230,7 +230,7 @@ public class StatusScreen extends LightweightGuiDescription {
             ModConfig.ConflictStrategy[] vals = ModConfig.ConflictStrategy.values();
             ModConfig.ConflictStrategy next = vals[(effectiveStrategy.ordinal() + 1) % vals.length];
             MirrorMapping.getInstance().setPerWorldConflictStrategy(sid, next.name());
-            reopen();
+            open();
         });
         root.add(strategyBtn, MARGIN, y, INNER_W, BTN_H);
         y += BTN_H + SECT_GAP;
@@ -239,7 +239,9 @@ public class StatusScreen extends LightweightGuiDescription {
                 Text.translatable("screen.worlddownloader.status.openSettings"));
         settingsBtn.setOnClick(() -> {
             MinecraftClient mc = MinecraftClient.getInstance();
-            mc.setScreen(new ConfigScreen(new StatusClientScreen()));
+            mc.setScreen(
+                    AutoConfigClient.getConfigScreen(ModConfig.class, new StatusClientScreen()).get()
+            );
         });
         root.add(settingsBtn, MARGIN, y, INNER_W, BTN_H);
         y += BTN_H + 4;
@@ -274,7 +276,7 @@ public class StatusScreen extends LightweightGuiDescription {
             overwriteAllBtn.setOnClick(() -> {
                 ManualResolver.clearPendingConflicts();
                 DownloadManager.exportNow(MinecraftClient.getInstance());
-                reopen();
+                open();
             });
             root.add(overwriteAllBtn, MARGIN, y, HALF_W, BTN_H);
 
@@ -282,7 +284,7 @@ public class StatusScreen extends LightweightGuiDescription {
                     Text.translatable("screen.worlddownloader.status.ignoreAll"));
             ignoreAllBtn.setOnClick(() -> {
                 ManualResolver.clearPendingConflicts();
-                reopen();
+                open();
             });
             root.add(ignoreAllBtn, MARGIN + HALF_W + 4, y, HALF_W, BTN_H);
             y += BTN_H + SECT_GAP;
@@ -305,12 +307,6 @@ public class StatusScreen extends LightweightGuiDescription {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-
-    /** Reopens the screen (recreates it so all labels reflect current state). */
-    static void reopen() {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        mc.execute(() -> mc.setScreen(new StatusClientScreen()));
-    }
 
     /** Builds a "{label}: {value}" label widget. */
     private static WLabel rowLabel(String translationKey, String value) {

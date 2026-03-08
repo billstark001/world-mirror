@@ -22,6 +22,7 @@ import net.minecraft.world.World;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.WorldChunk;
 import net.minecraft.client.world.ClientWorld;
+import org.jspecify.annotations.NonNull;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -47,14 +48,29 @@ public final class DownloadManager {
 
     // ── State ─────────────────────────────────────────────────────────────────
 
-    private static volatile boolean active = false;
+    private static final AtomicBoolean currentActive = new AtomicBoolean(false);
     private static long lastPeriodicSyncMs = 0;
     private static final AtomicBoolean exportInProgress = new AtomicBoolean(false);
     /** Guards against starting a second initial-capture while one is still running. */
     private static final AtomicBoolean captureInProgress = new AtomicBoolean(false);
 
+    // ── Lifecycle tracking ────────────────────────────────────────────────────
+
+    /**
+     * The dimension registry key observed on the previous client tick.
+     * Used to detect dimension changes (e.g. Overworld → Nether).
+     */
+    private static volatile RegistryKey<World> lastDimension = null;
+
+    /**
+     * The sourceId observed on the previous client tick.
+     * Used to detect server-side world changes (e.g. Multiverse world switch)
+     * while remaining connected to the same server address.
+     */
+    private static volatile String lastSourceId = null;
+
     public static boolean isActive() {
-        return active;
+        return currentActive.get();
     }
 
     public static boolean isExportInProgress() {
@@ -69,8 +85,9 @@ public final class DownloadManager {
      * immediately captured so that the player does not need to reload them.
      */
     public static void toggle(MinecraftClient client) {
-        active = !active;
-        if (active) {
+        boolean nowActive = !currentActive.get();
+        currentActive.set(nowActive);
+        if (nowActive) {
             lastPeriodicSyncMs = System.currentTimeMillis();
             // Capture chunks that are already loaded so the player does not need
             // to walk through the area again after enabling download.
@@ -79,29 +96,12 @@ public final class DownloadManager {
             }
         }
         Text msg = Text.translatable(
-                active ? "msg.worlddownloader.downloadStart"
-                       : "msg.worlddownloader.downloadStop");
+                nowActive ? "msg.worlddownloader.downloadStart"
+                          : "msg.worlddownloader.downloadStop");
         if (client.player != null) {
             client.player.sendMessage(msg, true);
         }
-        WDLogger.info(active ? "Download activated" : "Download deactivated");
-    }
-
-    /**
-     * Should be called on every client tick.
-     * Triggers a periodic background sync when the configured interval elapses.
-     * Also applies cache-eviction rules if configured.
-     */
-    public static void onClientTick(MinecraftClient client) {
-        if (!active) return;
-        long now = System.currentTimeMillis();
-        long interval = (long) ModConfig.get().syncIntervalSeconds * 1000L;
-        if (now - lastPeriodicSyncMs >= interval) {
-            lastPeriodicSyncMs = now;
-            // Apply cache-eviction rules before syncing
-            applyCacheEviction(client);
-            startBackgroundSync(client, false);
-        }
+        WDLogger.info(nowActive ? "Download activated" : "Download deactivated");
     }
 
     /**
@@ -137,15 +137,136 @@ public final class DownloadManager {
                 + " entities, " + containers + " containers.");
     }
 
+    // ── Lifecycle event handlers ──────────────────────────────────────────────
+
+    /**
+     * Called when the player joins (or re-joins) a world / server.
+     * Resets lifecycle tracking state and applies the configured
+     * {@link ModConfig.LifecycleConfig#onJoinWorld} behaviour.
+     */
+    public static void onJoinWorld(MinecraftClient client) {
+        // Reset tracking so subsequent change-detection starts fresh.
+        lastDimension = (client.world != null) ? client.world.getRegistryKey() : null;
+        lastSourceId  = WorldMetadata.detectSourceId(client);
+
+        applyTransition(client, ModConfig.get().lifecycle.onJoinWorld, "join-world");
+    }
+
+    /**
+     * Called when the player disconnects from a world / server.
+     * Resets lifecycle tracking state so the next join starts clean.
+     * Download state is NOT changed here — leaving the world inherently stops capture.
+     */
+    public static void onLeaveWorld() {
+        lastDimension = null;
+        lastSourceId  = null;
+        currentActive.set(false); // no world to download — always stop
+        WDLogger.info("Left world; download deactivated.");
+    }
+
+    /**
+     * Should be called on every client tick.
+     * Triggers a periodic background sync when the configured interval elapses,
+     * applies cache-eviction rules, and detects dimension / server-world changes.
+     */
+    public static void onClientTick(MinecraftClient client) {
+        if (client.world == null) return;
+
+        RegistryKey<World> currentDim = client.world.getRegistryKey();
+        String currentSourceId = WorldMetadata.detectSourceId(client);
+
+        // ── Detect server-side world change (same address, different logical world) ──
+        // Must be checked BEFORE dimension change, as a world change also implies
+        // a dimension change.
+        if (lastSourceId != null && !lastSourceId.equals(currentSourceId)) {
+            WDLogger.info("Server world change detected: '" + lastSourceId
+                    + "' → '" + currentSourceId + "'");
+            lastSourceId  = currentSourceId;
+            lastDimension = currentDim;
+            applyTransition(client, ModConfig.get().lifecycle.onServerWorldChange,
+                    "server-world-change");
+            // Re-capture loaded chunks according to the new active state
+            if (currentActive.get()) captureLoadedChunksAsync(client);
+            if (!currentActive.get()) return;
+        }
+
+        // ── Detect dimension change (Overworld ↔ Nether ↔ End, etc.) ──────────
+        if (lastDimension != null && !lastDimension.equals(currentDim)) {
+            WDLogger.info("Dimension change detected: '" + lastDimension.getValue()
+                    + "' → '" + currentDim.getValue() + "'");
+            lastDimension = currentDim;
+            applyTransition(client, ModConfig.get().lifecycle.onDimensionChange,
+                    "dimension-change");
+            // Re-capture loaded chunks according to the new active state
+            if (currentActive.get()) captureLoadedChunksAsync(client);
+        }
+
+        // Update tracking even if player was in null world on the previous tick
+        if (lastDimension == null) lastDimension = currentDim;
+        if (lastSourceId  == null) lastSourceId  = currentSourceId;
+
+        if (!currentActive.get()) return;
+
+        long now = System.currentTimeMillis();
+        long interval = (long) ModConfig.get().syncIntervalSeconds * 1000L;
+        if (now - lastPeriodicSyncMs >= interval) {
+            lastPeriodicSyncMs = now;
+            applyCacheEviction(client);
+            startBackgroundSync(client, false);
+        }
+    }
+
+    /**
+     * Applies a {@link ModConfig.TransitionBehavior} to the download state.
+     * Sends an appropriate HUD message when the state actually changes.
+     *
+     * @param eventName human-readable event name used only for logging
+     */
+    private static void applyTransition(MinecraftClient client,
+                                        ModConfig.TransitionBehavior behavior,
+                                        String eventName) {
+        boolean desired;
+        switch (behavior) {
+            case START -> desired = true;
+            case STOP  -> desired = false;
+            default    -> { return; } // KEEP — do nothing
+        }
+        if (currentActive.get() == desired) return; // already in the right state
+
+        currentActive.set(desired);
+        if (desired) lastPeriodicSyncMs = System.currentTimeMillis();
+
+        Text msg = Text.translatable(
+                desired ? "msg.worlddownloader.downloadStart"
+                       : "msg.worlddownloader.downloadStop");
+        if (client.player != null) client.player.sendMessage(msg, true);
+        WDLogger.info("Download " + (desired ? "activated" : "deactivated")
+                + " by lifecycle event: " + eventName);
+    }
+
     // ── Output path ───────────────────────────────────────────────────────────
 
     /**
      * Returns the root folder for the mirror world.
      * Per-world save-location (from {@link MirrorMapping}) takes precedence over the global config.
+     *
+     * <p>Resolution strategy (prevents both collision clobbering and the {@code _2_2_2…}
+     * suffix-accumulation bug):
+     * <ol>
+     *   <li>Determine the <em>base</em> folder name from {@code entries} (never contains a
+     *       generated suffix).</li>
+     *   <li>If {@code resolvedFolderNames} already contains an entry for this source
+     *       <em>and</em> that folder still exists and is still owned by us, reuse it
+     *       immediately — no rescan needed.</li>
+     *   <li>Otherwise run the full collision scan starting from the base name, find a free
+     *       or owned folder, and persist the winner into {@code resolvedFolderNames} only
+     *       (the base name in {@code entries} is never touched).</li>
+     * </ol>
      */
     public static Path getOutputPath(MinecraftClient client) {
         String sourceId   = WorldMetadata.detectSourceId(client);
-        String folderName = MirrorMapping.getInstance().getMirrorFolderName(sourceId);
+        // Always the sanitised base name — no suffix appended here.
+        String baseName   = MirrorMapping.getInstance().getMirrorFolderName(sourceId);
 
         // Per-world override wins over global config
         String perWorldLoc = MirrorMapping.getInstance().getPerWorldSaveLocation(sourceId);
@@ -164,16 +285,26 @@ public final class DownloadManager {
                 ? FabricLoader.getInstance().getGameDir().resolve("saves")
                 : FabricLoader.getInstance().getGameDir().resolve("downloaded_worlds");
 
-        // Collision detection: if the target folder exists but is owned by a different
-        // source (or has no wdl_meta.json but already contains a level.dat), find a
-        // free suffix so we never clobber another world or another mirror.
-        Path resolved = resolveOutputPath(base, folderName, sourceId);
+        String saveLocName = saveLocation.name();
+
+        // Fast path: if we already recorded a validated resolved name for this
+        // (source, save-location) pair, getResolvedFolderName() has already
+        // checked existence and ownership — reuse it immediately.
+        String cachedResolved = MirrorMapping.getInstance()
+                .getResolvedFolderName(sourceId, saveLocName, base);
+        if (cachedResolved != null) {
+            return base.resolve(cachedResolved);
+        }
+
+        // Full collision scan starting from the base name.
+        Path resolved = resolveOutputPath(base, baseName, sourceId);
         String resolvedName = resolved.getFileName().toString();
-        if (!resolvedName.equals(folderName)) {
-            // Persist the new collision-free name so future calls go to the same folder.
-            MirrorMapping.getInstance().setMirrorFolderName(sourceId, resolvedName);
+
+        // Persist the winner — keyed by (sourceId, saveLocName) — never touch entries.
+        MirrorMapping.getInstance().setResolvedFolderName(sourceId, saveLocName, resolvedName);
+        if (!resolvedName.equals(baseName)) {
             WDLogger.info("Folder name collision resolved: '"
-                    + folderName + "' → '" + resolvedName + "'");
+                    + baseName + "' → '" + resolvedName + "'");
         }
         return resolved;
     }
@@ -264,12 +395,18 @@ public final class DownloadManager {
                 + " loaded chunks in [" + dimension.getValue() + "]...");
 
         // ── Phase 2: serialise on a background thread ─────────────────────────
-        Thread captureThread = new Thread(() -> {
+        Thread captureThread = getCaptureThread(toCapture, world, dimension);
+        captureThread.setDaemon(true);
+        captureThread.start();
+    }
+
+    private static @NonNull Thread getCaptureThread(List<WorldChunk> toCapture, ClientWorld world, RegistryKey<World> dimension) {
+        return new Thread(() -> {
             try {
                 int count = 0;
                 for (WorldChunk wc : toCapture) {
                     // `active` is declared volatile; reading it here is always fresh.
-                    if (!active) break; // abort if download was deactivated mid-capture
+                    if (!currentActive.get()) break; // abort if download was deactivated mid-capture
                     try {
                         if (ClientChunkSerializer.isChunkEmpty(wc)) continue;
                         NbtCompound nbt = ClientChunkSerializer.serialize(world, wc);
@@ -287,8 +424,6 @@ public final class DownloadManager {
                 captureInProgress.set(false);
             }
         }, "WDL-InitCapture");
-        captureThread.setDaemon(true);
-        captureThread.start();
     }
 
     /**
@@ -349,7 +484,7 @@ public final class DownloadManager {
                 WorldMetadata.update(finalWorldFolder, sourceId, sourceType, written);
 
                 // Invalidate exported chunks if configured
-                if (ModConfig.get().invalidateAfterExport && !written.isEmpty()) {
+                if (ModConfig.get().cache.invalidateAfterExport && !written.isEmpty()) {
                     ChunkListener.invalidateChunks(written);
                 }
 
@@ -404,9 +539,9 @@ public final class DownloadManager {
      */
     private static void applyCacheEviction(MinecraftClient client) {
         ModConfig cfg = ModConfig.get();
-        long maxAgeMs = (long) cfg.maxCacheAgeSeconds * 1000L;
-        int maxCount = cfg.maxCachedChunks;
-        int maxDist = cfg.maxCacheDistanceChunks;
+        long maxAgeMs = (long) cfg.cache.maxCacheAgeSeconds * 1000L;
+        int maxCount = cfg.cache.maxCachedChunks;
+        int maxDist = cfg.cache.maxCacheDistanceChunks;
 
         if (maxAgeMs <= 0 && maxCount <= 0 && maxDist <= 0) return;
 

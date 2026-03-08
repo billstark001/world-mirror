@@ -6,32 +6,14 @@
   "key.worlddownloader.toggle": "切换下载",
   "key.worlddownloader.status": "打开状态界面",
 
-  "config.worlddownloader.title": "世界下载器设置",
-
   "config.worlddownloader.saveLoc": "保存位置",
   "config.worlddownloader.saveLoc.downloaded": "下载文件夹",
   "config.worlddownloader.saveLoc.saves": "存档文件夹",
-
-  "config.worlddownloader.syncInterval": "同步间隔",
-
-  "config.worlddownloader.logLevel": "日志级别",
-  "config.worlddownloader.logLevel.debug":   "调试",
-  "config.worlddownloader.logLevel.info":    "信息",
-  "config.worlddownloader.logLevel.warning": "警告",
 
   "config.worlddownloader.conflictStrategy": "冲突策略",
   "config.worlddownloader.conflictStrategy.overwrite": "覆盖",
   "config.worlddownloader.conflictStrategy.ignore":    "忽略",
   "config.worlddownloader.conflictStrategy.manual":    "手动",
-
-  "config.worlddownloader.section.cache": "── 缓存控制 ──",
-  "config.worlddownloader.maxCachedChunks":        "最大缓存区块数",
-  "config.worlddownloader.maxCacheDistanceChunks": "最大缓存距离",
-  "config.worlddownloader.maxCacheAgeSeconds":     "最大缓存时长",
-  "config.worlddownloader.invalidateAfterExport":  "导出后清除缓存",
-  "config.worlddownloader.disabled": "已禁用",
-  "config.worlddownloader.on":  "开",
-  "config.worlddownloader.off": "关",
 
   "msg.worlddownloader.downloadStart":  "§a世界下载器：已激活",
   "msg.worlddownloader.downloadStop":   "§c世界下载器：已停用",
@@ -68,7 +50,61 @@
   "screen.worlddownloader.tab.settings":        "设置",
   "screen.worlddownloader.tab.conflicts":       "冲突",
   "screen.worlddownloader.tab.settingsHeader":  "每世界设置",
-  "screen.worlddownloader.tab.conflictsHeader": "冲突队列"
+  "screen.worlddownloader.tab.conflictsHeader": "冲突队列",
+
+  "text.autoconfig.worlddownloader.title": "世界下载器设置",
+
+  "text.autoconfig.worlddownloader.option.defaultSaveLocation": "保存位置",
+  "text.autoconfig.worlddownloader.option.defaultSaveLocation.@Tooltip": "下载世界的保存位置。\nDOWNLOADED：游戏目录/downloaded_worlds\nSAVES：游戏目录/saves/<名称>",
+  "text.autoconfig.worlddownloader.option.defaultSaveLocation.downloaded": "下载文件夹",
+  "text.autoconfig.worlddownloader.option.defaultSaveLocation.saves": "存档文件夹",
+
+  "text.autoconfig.worlddownloader.option.syncIntervalSeconds": "同步间隔（秒）",
+  "text.autoconfig.worlddownloader.option.syncIntervalSeconds.@Tooltip": "下载激活时，定期同步触发的频率（秒）。",
+
+  "text.autoconfig.worlddownloader.option.logLevel": "日志级别",
+  "text.autoconfig.worlddownloader.option.logLevel.@Tooltip": "模组日志输出的详细程度。",
+  "text.autoconfig.worlddownloader.option.logLevel.debug":   "调试",
+  "text.autoconfig.worlddownloader.option.logLevel.info":    "信息",
+  "text.autoconfig.worlddownloader.option.logLevel.warning": "警告",
+
+  "text.autoconfig.worlddownloader.option.defaultConflictStrategy": "冲突策略",
+  "text.autoconfig.worlddownloader.option.defaultConflictStrategy.@Tooltip": "当本地区块已存在时的处理方式。\nOVERWRITE：用服务器版本替换本地区块。\nIGNORE：保留本地区块。\nMANUAL：排队等待手动处理（回退为忽略）。",
+  "text.autoconfig.worlddownloader.option.defaultConflictStrategy.overwrite": "覆盖",
+  "text.autoconfig.worlddownloader.option.defaultConflictStrategy.ignore":    "忽略",
+  "text.autoconfig.worlddownloader.option.defaultConflictStrategy.manual":    "手动",
+
+  "text.autoconfig.worlddownloader.option.cache": "缓存控制",
+
+  "text.autoconfig.worlddownloader.option.cache.maxCachedChunks": "最大缓存区块数",
+  "text.autoconfig.worlddownloader.option.cache.maxCachedChunks.@Tooltip": "内存中保留的最大区块数。设为 0 禁用此限制。",
+
+  "text.autoconfig.worlddownloader.option.cache.maxCacheDistanceChunks": "最大缓存距离（区块）",
+  "text.autoconfig.worlddownloader.option.cache.maxCacheDistanceChunks.@Tooltip": "超过此半径的区块将被驱逐。设为 0 禁用。",
+
+  "text.autoconfig.worlddownloader.option.cache.maxCacheAgeSeconds": "最大缓存时长（秒）",
+  "text.autoconfig.worlddownloader.option.cache.maxCacheAgeSeconds.@Tooltip": "缓存区块的最大存活时间。设为 0 禁用。",
+
+  "text.autoconfig.worlddownloader.option.cache.invalidateAfterExport": "导出后清除缓存",
+  "text.autoconfig.worlddownloader.option.cache.invalidateAfterExport.@Tooltip": "启用后，区块写入磁盘后立即从内存中移除。",
+
+  "text.autoconfig.worlddownloader.option.lifecycle": "生命周期行为",
+
+  "text.autoconfig.worlddownloader.option.lifecycle.onJoinWorld": "进入世界时",
+  "text.autoconfig.worlddownloader.option.lifecycle.onJoinWorld.@Tooltip": "玩家进入（或重新进入）世界或服务器时的下载状态。\nSTART：自动开始下载。\nSTOP：停止下载（默认）。\nKEEP：保持当前状态不变。",
+  "text.autoconfig.worlddownloader.option.lifecycle.onJoinWorld.start": "开始下载",
+  "text.autoconfig.worlddownloader.option.lifecycle.onJoinWorld.stop":  "停止下载",
+  "text.autoconfig.worlddownloader.option.lifecycle.onJoinWorld.keep":  "保持上次状态",
+
+  "text.autoconfig.worlddownloader.option.lifecycle.onDimensionChange": "切换维度时",
+  "text.autoconfig.worlddownloader.option.lifecycle.onDimensionChange.@Tooltip": "玩家切换维度（如主世界 → 下界）时的下载状态。\nSTART：自动开始下载。\nSTOP：停止下载。\nKEEP：保持当前状态不变（默认）。",
+  "text.autoconfig.worlddownloader.option.lifecycle.onDimensionChange.start": "开始下载",
+  "text.autoconfig.worlddownloader.option.lifecycle.onDimensionChange.stop":  "停止下载",
+  "text.autoconfig.worlddownloader.option.lifecycle.onDimensionChange.keep":  "保持上次状态",
+
+  "text.autoconfig.worlddownloader.option.lifecycle.onServerWorldChange": "切换服务器世界时",
+  "text.autoconfig.worlddownloader.option.lifecycle.onServerWorldChange.@Tooltip": "玩家在同一服务器上被传送至不同逻辑世界（如多世界插件）时的下载状态。\nSTART：自动开始下载。\nSTOP：停止下载（默认）。\nKEEP：保持当前状态不变。",
+  "text.autoconfig.worlddownloader.option.lifecycle.onServerWorldChange.start": "开始下载",
+  "text.autoconfig.worlddownloader.option.lifecycle.onServerWorldChange.stop":  "停止下载",
+  "text.autoconfig.worlddownloader.option.lifecycle.onServerWorldChange.keep":  "保持上次状态"
 }
-
-

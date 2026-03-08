@@ -6,32 +6,14 @@
   "key.worlddownloader.toggle": "Toggle Download",
   "key.worlddownloader.status": "Open Status Screen",
 
-  "config.worlddownloader.title": "World Downloader Settings",
-
   "config.worlddownloader.saveLoc": "Save Location",
   "config.worlddownloader.saveLoc.downloaded": "Downloaded Folder",
   "config.worlddownloader.saveLoc.saves": "Saves Folder",
-
-  "config.worlddownloader.syncInterval": "Sync Interval",
-
-  "config.worlddownloader.logLevel": "Log Level",
-  "config.worlddownloader.logLevel.debug":   "Debug",
-  "config.worlddownloader.logLevel.info":    "Info",
-  "config.worlddownloader.logLevel.warning": "Warning",
 
   "config.worlddownloader.conflictStrategy": "Conflict Strategy",
   "config.worlddownloader.conflictStrategy.overwrite": "Overwrite",
   "config.worlddownloader.conflictStrategy.ignore":    "Ignore",
   "config.worlddownloader.conflictStrategy.manual":    "Manual",
-
-  "config.worlddownloader.section.cache": "── Cache Control ──",
-  "config.worlddownloader.maxCachedChunks":        "Max Cached Chunks",
-  "config.worlddownloader.maxCacheDistanceChunks": "Max Cache Distance",
-  "config.worlddownloader.maxCacheAgeSeconds":     "Max Cache Age",
-  "config.worlddownloader.invalidateAfterExport":  "Invalidate After Export",
-  "config.worlddownloader.disabled": "Disabled",
-  "config.worlddownloader.on":  "On",
-  "config.worlddownloader.off": "Off",
 
   "msg.worlddownloader.downloadStart":  "§aWorld Downloader: Active",
   "msg.worlddownloader.downloadStop":   "§cWorld Downloader: Inactive",
@@ -68,6 +50,62 @@
   "screen.worlddownloader.tab.settings":        "Settings",
   "screen.worlddownloader.tab.conflicts":       "Conflicts",
   "screen.worlddownloader.tab.settingsHeader":  "Per-World Settings",
-  "screen.worlddownloader.tab.conflictsHeader": "Conflict Queue"
+  "screen.worlddownloader.tab.conflictsHeader": "Conflict Queue",
+
+  "text.autoconfig.worlddownloader.title": "World Downloader Settings",
+
+  "text.autoconfig.worlddownloader.option.defaultSaveLocation": "Save Location",
+  "text.autoconfig.worlddownloader.option.defaultSaveLocation.@Tooltip": "Where downloaded worlds are saved.\nDOWNLOADED: game-dir/downloaded_worlds\nSAVES: game-dir/saves/<name>",
+  "text.autoconfig.worlddownloader.option.defaultSaveLocation.downloaded": "Downloaded Folder",
+  "text.autoconfig.worlddownloader.option.defaultSaveLocation.saves": "Saves Folder",
+
+  "text.autoconfig.worlddownloader.option.syncIntervalSeconds": "Sync Interval (seconds)",
+  "text.autoconfig.worlddownloader.option.syncIntervalSeconds.@Tooltip": "How often (in seconds) the periodic sync fires while downloading is active.",
+
+  "text.autoconfig.worlddownloader.option.logLevel": "Log Level",
+  "text.autoconfig.worlddownloader.option.logLevel.@Tooltip": "Verbosity of the mod's log output.",
+  "text.autoconfig.worlddownloader.option.logLevel.debug":   "Debug",
+  "text.autoconfig.worlddownloader.option.logLevel.info":    "Info",
+  "text.autoconfig.worlddownloader.option.logLevel.warning": "Warning",
+
+  "text.autoconfig.worlddownloader.option.defaultConflictStrategy": "Conflict Strategy",
+  "text.autoconfig.worlddownloader.option.defaultConflictStrategy.@Tooltip": "How to handle conflicts when a local chunk already exists.\nOVERWRITE: Replace local chunk with server version.\nIGNORE: Keep local chunk.\nMANUAL: Queue for manual decision (falls back to Ignore).",
+  "text.autoconfig.worlddownloader.option.defaultConflictStrategy.overwrite": "Overwrite",
+  "text.autoconfig.worlddownloader.option.defaultConflictStrategy.ignore":    "Ignore",
+  "text.autoconfig.worlddownloader.option.defaultConflictStrategy.manual":    "Manual",
+
+  "text.autoconfig.worlddownloader.option.cache": "Cache Control",
+
+  "text.autoconfig.worlddownloader.option.cache.maxCachedChunks": "Max Cached Chunks",
+  "text.autoconfig.worlddownloader.option.cache.maxCachedChunks.@Tooltip": "Maximum number of chunks kept in memory. Set to 0 to disable this limit.",
+
+  "text.autoconfig.worlddownloader.option.cache.maxCacheDistanceChunks": "Max Cache Distance (chunks)",
+  "text.autoconfig.worlddownloader.option.cache.maxCacheDistanceChunks.@Tooltip": "Chunks farther than this radius from the player are evicted. Set to 0 to disable.",
+
+  "text.autoconfig.worlddownloader.option.cache.maxCacheAgeSeconds": "Max Cache Age (seconds)",
+  "text.autoconfig.worlddownloader.option.cache.maxCacheAgeSeconds.@Tooltip": "Maximum age of a cached chunk before eviction. Set to 0 to disable.",
+
+  "text.autoconfig.worlddownloader.option.cache.invalidateAfterExport": "Invalidate After Export",
+  "text.autoconfig.worlddownloader.option.cache.invalidateAfterExport.@Tooltip": "If enabled, a chunk is removed from memory immediately after being written to disk.",
+
+  "text.autoconfig.worlddownloader.option.lifecycle": "Lifecycle Behaviour",
+
+  "text.autoconfig.worlddownloader.option.lifecycle.onJoinWorld": "On Join World",
+  "text.autoconfig.worlddownloader.option.lifecycle.onJoinWorld.@Tooltip": "Download state when the player joins (or re-joins) a world or server.\nSTART: begin downloading automatically.\nSTOP: stop downloading (default).\nKEEP: leave state unchanged.",
+  "text.autoconfig.worlddownloader.option.lifecycle.onJoinWorld.start": "Start",
+  "text.autoconfig.worlddownloader.option.lifecycle.onJoinWorld.stop":  "Stop",
+  "text.autoconfig.worlddownloader.option.lifecycle.onJoinWorld.keep":  "Keep",
+
+  "text.autoconfig.worlddownloader.option.lifecycle.onDimensionChange": "On Dimension Change",
+  "text.autoconfig.worlddownloader.option.lifecycle.onDimensionChange.@Tooltip": "Download state when the player moves to a different dimension (e.g. Overworld → Nether).\nSTART: begin downloading automatically.\nSTOP: stop downloading.\nKEEP: leave state unchanged (default).",
+  "text.autoconfig.worlddownloader.option.lifecycle.onDimensionChange.start": "Start",
+  "text.autoconfig.worlddownloader.option.lifecycle.onDimensionChange.stop":  "Stop",
+  "text.autoconfig.worlddownloader.option.lifecycle.onDimensionChange.keep":  "Keep",
+
+  "text.autoconfig.worlddownloader.option.lifecycle.onServerWorldChange": "On Server World Change",
+  "text.autoconfig.worlddownloader.option.lifecycle.onServerWorldChange.@Tooltip": "Download state when the player is sent to a different world on the same server (e.g. Multiverse plugin).\nSTART: begin downloading automatically.\nSTOP: stop downloading (default).\nKEEP: leave state unchanged.",
+  "text.autoconfig.worlddownloader.option.lifecycle.onServerWorldChange.start": "Start",
+  "text.autoconfig.worlddownloader.option.lifecycle.onServerWorldChange.stop":  "Stop",
+  "text.autoconfig.worlddownloader.option.lifecycle.onServerWorldChange.keep":  "Keep"
 }
 
