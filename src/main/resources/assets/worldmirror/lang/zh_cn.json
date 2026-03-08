@@ -1,0 +1,110 @@
+{
+  "key.category.worldmirror.default": "World Mirror",
+
+  "key.worldmirror.export": "导出世界",
+  "key.worldmirror.clear":  "清除缓存数据",
+  "key.worldmirror.toggle": "切换下载",
+  "key.worldmirror.status": "打开状态界面",
+
+  "config.worldmirror.saveLoc": "保存位置",
+  "config.worldmirror.saveLoc.downloaded": "下载文件夹",
+  "config.worldmirror.saveLoc.saves": "存档文件夹",
+
+  "config.worldmirror.conflictStrategy": "冲突策略",
+  "config.worldmirror.conflictStrategy.overwrite": "覆盖",
+  "config.worldmirror.conflictStrategy.ignore":    "忽略",
+  "config.worldmirror.conflictStrategy.manual":    "手动",
+
+  "msg.worldmirror.downloadStart":  "§aWorld Mirror：已激活",
+  "msg.worldmirror.downloadStop":   "§cWorld Mirror：已停用",
+  "msg.worldmirror.exportDone":     "世界导出成功。",
+  "msg.worldmirror.exportBusy":     "导出正在进行中，请稍候。",
+  "msg.worldmirror.noChunks":       "没有缓存的区块，请先四处走动以加载区块。",
+  "msg.worldmirror.cleared":        "已清除区块/实体/容器缓存（磁盘数据不受影响）。",
+
+  "screen.worldmirror.status.title":            "World Mirror 状态",
+  "screen.worldmirror.status.sourceType":       "类型",
+  "screen.worldmirror.status.sourceId":         "来源",
+  "screen.worldmirror.status.mirrorPath":       "镜像",
+  "screen.worldmirror.status.chunks":           "已缓存区块",
+  "screen.worldmirror.status.lastSync":         "上次同步",
+  "screen.worldmirror.status.lastSyncNever":    "从未",
+  "screen.worldmirror.status.downloadActive":   "§a正在下载：激活",
+  "screen.worldmirror.status.downloadInactive": "§c下载：已停用",
+  "screen.worldmirror.status.exportRunning":    "§e导出：进行中…",
+  "screen.worldmirror.status.exportIdle":       "导出：空闲",
+  "screen.worldmirror.status.startDownload":    "开始下载",
+  "screen.worldmirror.status.stopDownload":     "停止下载",
+  "screen.worldmirror.status.exportNow":        "立即导出",
+  "screen.worldmirror.status.clearData":        "清除缓存",
+  "screen.worldmirror.status.noConflicts":      "无待解决冲突",
+  "screen.worldmirror.status.conflicts":        "待解决冲突",
+  "screen.worldmirror.status.overwriteAll":     "全部覆盖",
+  "screen.worldmirror.status.ignoreAll":        "全部忽略",
+  "screen.worldmirror.status.saveLoc":          "保存位置",
+  "screen.worldmirror.status.conflictStrategy": "冲突策略",
+  "screen.worldmirror.status.openSettings":     "全局设置",
+  "screen.worldmirror.status.openFromSettings": "打开状态界面",
+
+  "screen.worldmirror.tab.status":          "状态",
+  "screen.worldmirror.tab.settings":        "设置",
+  "screen.worldmirror.tab.conflicts":       "冲突",
+  "screen.worldmirror.tab.settingsHeader":  "每世界设置",
+  "screen.worldmirror.tab.conflictsHeader": "冲突队列",
+
+  "text.autoconfig.worldmirror.title": "World Mirror 设置",
+
+  "text.autoconfig.worldmirror.option.defaultSaveLocation": "保存位置",
+  "text.autoconfig.worldmirror.option.defaultSaveLocation.@Tooltip": "下载世界的保存位置。\nDOWNLOADED：游戏目录/downloaded_worlds\nSAVES：游戏目录/saves/<名称>",
+  "text.autoconfig.worldmirror.option.defaultSaveLocation.downloaded": "下载文件夹",
+  "text.autoconfig.worldmirror.option.defaultSaveLocation.saves": "存档文件夹",
+
+  "text.autoconfig.worldmirror.option.syncIntervalSeconds": "同步间隔（秒）",
+  "text.autoconfig.worldmirror.option.syncIntervalSeconds.@Tooltip": "下载激活时，定期同步触发的频率（秒）。",
+
+  "text.autoconfig.worldmirror.option.logLevel": "日志级别",
+  "text.autoconfig.worldmirror.option.logLevel.@Tooltip": "模组日志输出的详细程度。",
+  "text.autoconfig.worldmirror.option.logLevel.debug":   "调试",
+  "text.autoconfig.worldmirror.option.logLevel.info":    "信息",
+  "text.autoconfig.worldmirror.option.logLevel.warning": "警告",
+
+  "text.autoconfig.worldmirror.option.defaultConflictStrategy": "冲突策略",
+  "text.autoconfig.worldmirror.option.defaultConflictStrategy.@Tooltip": "当本地区块已存在时的处理方式。\nOVERWRITE：用服务器版本替换本地区块。\nIGNORE：保留本地区块。\nMANUAL：排队等待手动处理（回退为忽略）。",
+  "text.autoconfig.worldmirror.option.defaultConflictStrategy.overwrite": "覆盖",
+  "text.autoconfig.worldmirror.option.defaultConflictStrategy.ignore":    "忽略",
+  "text.autoconfig.worldmirror.option.defaultConflictStrategy.manual":    "手动",
+
+  "text.autoconfig.worldmirror.option.cache": "缓存控制",
+
+  "text.autoconfig.worldmirror.option.cache.maxCachedChunks": "最大缓存区块数",
+  "text.autoconfig.worldmirror.option.cache.maxCachedChunks.@Tooltip": "内存中保留的最大区块数。设为 0 禁用此限制。",
+
+  "text.autoconfig.worldmirror.option.cache.maxCacheDistanceChunks": "最大缓存距离（区块）",
+  "text.autoconfig.worldmirror.option.cache.maxCacheDistanceChunks.@Tooltip": "超过此半径的区块将被驱逐。设为 0 禁用。",
+
+  "text.autoconfig.worldmirror.option.cache.maxCacheAgeSeconds": "最大缓存时长（秒）",
+  "text.autoconfig.worldmirror.option.cache.maxCacheAgeSeconds.@Tooltip": "缓存区块的最大存活时间。设为 0 禁用。",
+
+  "text.autoconfig.worldmirror.option.cache.invalidateAfterExport": "导出后清除缓存",
+  "text.autoconfig.worldmirror.option.cache.invalidateAfterExport.@Tooltip": "启用后，区块写入磁盘后立即从内存中移除。",
+
+  "text.autoconfig.worldmirror.option.lifecycle": "生命周期行为",
+
+  "text.autoconfig.worldmirror.option.lifecycle.onJoinWorld": "进入世界时",
+  "text.autoconfig.worldmirror.option.lifecycle.onJoinWorld.@Tooltip": "玩家进入（或重新进入）世界或服务器时的下载状态。\nSTART：自动开始下载。\nSTOP：停止下载（默认）。\nKEEP：保持当前状态不变。",
+  "text.autoconfig.worldmirror.option.lifecycle.onJoinWorld.start": "开始下载",
+  "text.autoconfig.worldmirror.option.lifecycle.onJoinWorld.stop":  "停止下载",
+  "text.autoconfig.worldmirror.option.lifecycle.onJoinWorld.keep":  "保持上次状态",
+
+  "text.autoconfig.worldmirror.option.lifecycle.onDimensionChange": "切换维度时",
+  "text.autoconfig.worldmirror.option.lifecycle.onDimensionChange.@Tooltip": "玩家切换维度（如主世界 → 下界）时的下载状态。\nSTART：自动开始下载。\nSTOP：停止下载。\nKEEP：保持当前状态不变（默认）。",
+  "text.autoconfig.worldmirror.option.lifecycle.onDimensionChange.start": "开始下载",
+  "text.autoconfig.worldmirror.option.lifecycle.onDimensionChange.stop":  "停止下载",
+  "text.autoconfig.worldmirror.option.lifecycle.onDimensionChange.keep":  "保持上次状态",
+
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange": "切换服务器世界时",
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.@Tooltip": "玩家在同一服务器上被传送至不同逻辑世界（如多世界插件）时的下载状态。\nSTART：自动开始下载。\nSTOP：停止下载（默认）。\nKEEP：保持当前状态不变。",
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.start": "开始下载",
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.stop":  "停止下载",
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.keep":  "保持上次状态"
+}

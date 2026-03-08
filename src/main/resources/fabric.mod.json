@@ -1,30 +1,30 @@
 {
   "schemaVersion": 1,
-  "id": "worlddownloader",
+  "id": "worldmirror",
   "version": "${version}",
-  "name": "World Downloader",
+  "name": "World Mirror",
   "description": "A client-side mod that lets you download the world you are currently playing on a multiplayer server. Captures chunks, entities, and container contents, then exports them as a loadable singleplayer save.",
   "authors": [
     "billstark001"
   ],
   "contact": {
-    "sources": "https://github.com/billstark001/world-downloader",
-    "issues": "https://github.com/billstark001/world-downloader/issues"
+    "sources": "https://github.com/billstark001/world-mirror",
+    "issues": "https://github.com/billstark001/world-mirror/issues"
   },
   "license": "MIT",
-  "icon": "assets/worlddownloader/icon.png",
+  "icon": "assets/worldmirror/icon.png",
   "environment": "client",
   "entrypoints": {
     "client": [
-      "net.billstark001.worlddownloader.WorldDownloaderClient"
+      "net.billstark001.worldmirror.WorldMirrorClient"
     ],
     "modmenu": [
-      "net.billstark001.worlddownloader.config.ModMenuApiImpl"
+      "net.billstark001.worldmirror.config.ModMenuApiImpl"
     ]
   },
   "mixins": [
     {
-      "config": "worlddownloader.mixins.json",
+      "config": "worldmirror.mixins.json",
       "environment": "client"
     }
   ],
