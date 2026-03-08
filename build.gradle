@@ -3,7 +3,7 @@ plugins {
     id 'maven-publish'
 }
 
-version = project.mod_version
+version = "${project.mod_version}+${project.minecraft_version}"
 group = project.maven_group
 
 base {
@@ -19,7 +19,7 @@ repositories {
 
 loom {
     mods {
-        "worlddownloader" {
+        "worldmirror" {
             sourceSet sourceSets.main
         }
     }
@@ -40,6 +40,11 @@ dependencies {
 
     // LibGUI — GUI framework for configuration and UI screens
     modImplementation "io.github.cottonmc:LibGui:${project.libgui_version}"
+
+    // Cloth Config — configuration library for mod settings screens
+    modApi include("me.shedaniel.cloth:cloth-config-fabric:${project.clothconfig_version}") {
+        exclude(group: "net.fabricmc.fabric-api")
+    }
 }
 
 processResources {

@@ -1,0 +1,111 @@
+{
+  "key.category.worldmirror.default": "World Mirror",
+
+  "key.worldmirror.export": "Export World",
+  "key.worldmirror.clear":  "Clear Cached Data",
+  "key.worldmirror.toggle": "Toggle Download",
+  "key.worldmirror.status": "Open Status Screen",
+
+  "config.worldmirror.saveLoc": "Save Location",
+  "config.worldmirror.saveLoc.downloaded": "Downloaded Folder",
+  "config.worldmirror.saveLoc.saves": "Saves Folder",
+
+  "config.worldmirror.conflictStrategy": "Conflict Strategy",
+  "config.worldmirror.conflictStrategy.overwrite": "Overwrite",
+  "config.worldmirror.conflictStrategy.ignore":    "Ignore",
+  "config.worldmirror.conflictStrategy.manual":    "Manual",
+
+  "msg.worldmirror.downloadStart":  "§aWorld Mirror: Active",
+  "msg.worldmirror.downloadStop":   "§cWorld Mirror: Inactive",
+  "msg.worldmirror.exportDone":     "World exported successfully.",
+  "msg.worldmirror.exportBusy":     "Export already in progress — please wait.",
+  "msg.worldmirror.noChunks":       "No chunks cached — walk around to load chunks first.",
+  "msg.worldmirror.cleared":        "Cleared chunk/entity/container cache (disk unchanged).",
+
+  "screen.worldmirror.status.title":            "World Mirror Status",
+  "screen.worldmirror.status.sourceType":       "Type",
+  "screen.worldmirror.status.sourceId":         "Source",
+  "screen.worldmirror.status.mirrorPath":       "Mirror",
+  "screen.worldmirror.status.chunks":           "Chunks cached",
+  "screen.worldmirror.status.lastSync":         "Last sync",
+  "screen.worldmirror.status.lastSyncNever":    "Never",
+  "screen.worldmirror.status.downloadActive":   "§aDownloading: Active",
+  "screen.worldmirror.status.downloadInactive": "§cDownloading: Off",
+  "screen.worldmirror.status.exportRunning":    "§eExport: Running…",
+  "screen.worldmirror.status.exportIdle":       "Export: Idle",
+  "screen.worldmirror.status.startDownload":    "Start Download",
+  "screen.worldmirror.status.stopDownload":     "Stop Download",
+  "screen.worldmirror.status.exportNow":        "Export Now",
+  "screen.worldmirror.status.clearData":        "Clear Cache",
+  "screen.worldmirror.status.noConflicts":      "No pending conflicts",
+  "screen.worldmirror.status.conflicts":        "Pending conflicts",
+  "screen.worldmirror.status.overwriteAll":     "Overwrite All",
+  "screen.worldmirror.status.ignoreAll":        "Ignore All",
+  "screen.worldmirror.status.saveLoc":          "Save Location",
+  "screen.worldmirror.status.conflictStrategy": "Conflict Strategy",
+  "screen.worldmirror.status.openSettings":     "Global Settings",
+  "screen.worldmirror.status.openFromSettings": "Open Status Screen",
+
+  "screen.worldmirror.tab.status":          "Status",
+  "screen.worldmirror.tab.settings":        "Settings",
+  "screen.worldmirror.tab.conflicts":       "Conflicts",
+  "screen.worldmirror.tab.settingsHeader":  "Per-World Settings",
+  "screen.worldmirror.tab.conflictsHeader": "Conflict Queue",
+
+  "text.autoconfig.worldmirror.title": "World Mirror Settings",
+
+  "text.autoconfig.worldmirror.option.defaultSaveLocation": "Save Location",
+  "text.autoconfig.worldmirror.option.defaultSaveLocation.@Tooltip": "Where downloaded worlds are saved.\nDOWNLOADED: game-dir/downloaded_worlds\nSAVES: game-dir/saves/<name>",
+  "text.autoconfig.worldmirror.option.defaultSaveLocation.downloaded": "Downloaded Folder",
+  "text.autoconfig.worldmirror.option.defaultSaveLocation.saves": "Saves Folder",
+
+  "text.autoconfig.worldmirror.option.syncIntervalSeconds": "Sync Interval (seconds)",
+  "text.autoconfig.worldmirror.option.syncIntervalSeconds.@Tooltip": "How often (in seconds) the periodic sync fires while downloading is active.",
+
+  "text.autoconfig.worldmirror.option.logLevel": "Log Level",
+  "text.autoconfig.worldmirror.option.logLevel.@Tooltip": "Verbosity of the mod's log output.",
+  "text.autoconfig.worldmirror.option.logLevel.debug":   "Debug",
+  "text.autoconfig.worldmirror.option.logLevel.info":    "Info",
+  "text.autoconfig.worldmirror.option.logLevel.warning": "Warning",
+
+  "text.autoconfig.worldmirror.option.defaultConflictStrategy": "Conflict Strategy",
+  "text.autoconfig.worldmirror.option.defaultConflictStrategy.@Tooltip": "How to handle conflicts when a local chunk already exists.\nOVERWRITE: Replace local chunk with server version.\nIGNORE: Keep local chunk.\nMANUAL: Queue for manual decision (falls back to Ignore).",
+  "text.autoconfig.worldmirror.option.defaultConflictStrategy.overwrite": "Overwrite",
+  "text.autoconfig.worldmirror.option.defaultConflictStrategy.ignore":    "Ignore",
+  "text.autoconfig.worldmirror.option.defaultConflictStrategy.manual":    "Manual",
+
+  "text.autoconfig.worldmirror.option.cache": "Cache Control",
+
+  "text.autoconfig.worldmirror.option.cache.maxCachedChunks": "Max Cached Chunks",
+  "text.autoconfig.worldmirror.option.cache.maxCachedChunks.@Tooltip": "Maximum number of chunks kept in memory. Set to 0 to disable this limit.",
+
+  "text.autoconfig.worldmirror.option.cache.maxCacheDistanceChunks": "Max Cache Distance (chunks)",
+  "text.autoconfig.worldmirror.option.cache.maxCacheDistanceChunks.@Tooltip": "Chunks farther than this radius from the player are evicted. Set to 0 to disable.",
+
+  "text.autoconfig.worldmirror.option.cache.maxCacheAgeSeconds": "Max Cache Age (seconds)",
+  "text.autoconfig.worldmirror.option.cache.maxCacheAgeSeconds.@Tooltip": "Maximum age of a cached chunk before eviction. Set to 0 to disable.",
+
+  "text.autoconfig.worldmirror.option.cache.invalidateAfterExport": "Invalidate After Export",
+  "text.autoconfig.worldmirror.option.cache.invalidateAfterExport.@Tooltip": "If enabled, a chunk is removed from memory immediately after being written to disk.",
+
+  "text.autoconfig.worldmirror.option.lifecycle": "Lifecycle Behaviour",
+
+  "text.autoconfig.worldmirror.option.lifecycle.onJoinWorld": "On Join World",
+  "text.autoconfig.worldmirror.option.lifecycle.onJoinWorld.@Tooltip": "Download state when the player joins (or re-joins) a world or server.\nSTART: begin downloading automatically.\nSTOP: stop downloading (default).\nKEEP: leave state unchanged.",
+  "text.autoconfig.worldmirror.option.lifecycle.onJoinWorld.start": "Start",
+  "text.autoconfig.worldmirror.option.lifecycle.onJoinWorld.stop":  "Stop",
+  "text.autoconfig.worldmirror.option.lifecycle.onJoinWorld.keep":  "Keep",
+
+  "text.autoconfig.worldmirror.option.lifecycle.onDimensionChange": "On Dimension Change",
+  "text.autoconfig.worldmirror.option.lifecycle.onDimensionChange.@Tooltip": "Download state when the player moves to a different dimension (e.g. Overworld → Nether).\nSTART: begin downloading automatically.\nSTOP: stop downloading.\nKEEP: leave state unchanged (default).",
+  "text.autoconfig.worldmirror.option.lifecycle.onDimensionChange.start": "Start",
+  "text.autoconfig.worldmirror.option.lifecycle.onDimensionChange.stop":  "Stop",
+  "text.autoconfig.worldmirror.option.lifecycle.onDimensionChange.keep":  "Keep",
+
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange": "On Server World Change",
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.@Tooltip": "Download state when the player is sent to a different world on the same server (e.g. Multiverse plugin).\nSTART: begin downloading automatically.\nSTOP: stop downloading (default).\nKEEP: leave state unchanged.",
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.start": "Start",
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.stop":  "Stop",
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.keep":  "Keep"
+}
+

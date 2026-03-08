@@ -1,0 +1,110 @@
+{
+  "key.category.worldmirror.default": "World Mirror",
+
+  "key.worldmirror.export": "ワールドをエクスポート",
+  "key.worldmirror.clear":  "キャッシュデータをクリア",
+  "key.worldmirror.toggle": "ダウンロードの切り替え",
+  "key.worldmirror.status": "ステータス画面を開く",
+
+  "config.worldmirror.saveLoc": "保存場所",
+  "config.worldmirror.saveLoc.downloaded": "ダウンロードフォルダ",
+  "config.worldmirror.saveLoc.saves": "セーブフォルダ",
+
+  "config.worldmirror.conflictStrategy": "競合戦略",
+  "config.worldmirror.conflictStrategy.overwrite": "上書き",
+  "config.worldmirror.conflictStrategy.ignore":    "無視",
+  "config.worldmirror.conflictStrategy.manual":    "手動",
+
+  "msg.worldmirror.downloadStart":  "§aWorld Mirror：有効",
+  "msg.worldmirror.downloadStop":   "§cWorld Mirror：無効",
+  "msg.worldmirror.exportDone":     "ワールドのエクスポートが完了しました。",
+  "msg.worldmirror.exportBusy":     "エクスポート中です。しばらくお待ちください。",
+  "msg.worldmirror.noChunks":       "キャッシュされたチャンクがありません。チャンクを読み込むために歩き回ってください。",
+  "msg.worldmirror.cleared":        "チャンク/エンティティ/コンテナキャッシュをクリアしました（ディスクは変更されていません）。",
+
+  "screen.worldmirror.status.title":            "World Mirror ステータス",
+  "screen.worldmirror.status.sourceType":       "タイプ",
+  "screen.worldmirror.status.sourceId":         "ソース",
+  "screen.worldmirror.status.mirrorPath":       "ミラー",
+  "screen.worldmirror.status.chunks":           "キャッシュ済みチャンク",
+  "screen.worldmirror.status.lastSync":         "最終同期",
+  "screen.worldmirror.status.lastSyncNever":    "なし",
+  "screen.worldmirror.status.downloadActive":   "§aダウンロード：有効",
+  "screen.worldmirror.status.downloadInactive": "§cダウンロード：無効",
+  "screen.worldmirror.status.exportRunning":    "§eエクスポート：実行中…",
+  "screen.worldmirror.status.exportIdle":       "エクスポート：待機中",
+  "screen.worldmirror.status.startDownload":    "ダウンロード開始",
+  "screen.worldmirror.status.stopDownload":     "ダウンロード停止",
+  "screen.worldmirror.status.exportNow":        "今すぐエクスポート",
+  "screen.worldmirror.status.clearData":        "キャッシュをクリア",
+  "screen.worldmirror.status.noConflicts":      "保留中の競合なし",
+  "screen.worldmirror.status.conflicts":        "保留中の競合",
+  "screen.worldmirror.status.overwriteAll":     "すべて上書き",
+  "screen.worldmirror.status.ignoreAll":        "すべて無視",
+  "screen.worldmirror.status.saveLoc":          "保存場所",
+  "screen.worldmirror.status.conflictStrategy": "競合戦略",
+  "screen.worldmirror.status.openSettings":     "グローバル設定",
+  "screen.worldmirror.status.openFromSettings": "ステータス画面を開く",
+
+  "screen.worldmirror.tab.status":          "ステータス",
+  "screen.worldmirror.tab.settings":        "設定",
+  "screen.worldmirror.tab.conflicts":       "競合",
+  "screen.worldmirror.tab.settingsHeader":  "ワールド別設定",
+  "screen.worldmirror.tab.conflictsHeader": "競合キュー",
+
+  "text.autoconfig.worldmirror.title": "World Mirror 設定",
+
+  "text.autoconfig.worldmirror.option.defaultSaveLocation": "保存場所",
+  "text.autoconfig.worldmirror.option.defaultSaveLocation.@Tooltip": "ダウンロードされたワールドの保存先。\nDOWNLOADED：ゲームディレクトリ/downloaded_worlds\nSAVES：ゲームディレクトリ/saves/<名前>",
+  "text.autoconfig.worldmirror.option.defaultSaveLocation.downloaded": "ダウンロードフォルダ",
+  "text.autoconfig.worldmirror.option.defaultSaveLocation.saves": "セーブフォルダ",
+
+  "text.autoconfig.worldmirror.option.syncIntervalSeconds": "同期間隔（秒）",
+  "text.autoconfig.worldmirror.option.syncIntervalSeconds.@Tooltip": "ダウンロードが有効な間、定期同期が発生する頻度（秒）。",
+
+  "text.autoconfig.worldmirror.option.logLevel": "ログレベル",
+  "text.autoconfig.worldmirror.option.logLevel.@Tooltip": "MODのログ出力の詳細度。",
+  "text.autoconfig.worldmirror.option.logLevel.debug":   "デバッグ",
+  "text.autoconfig.worldmirror.option.logLevel.info":    "情報",
+  "text.autoconfig.worldmirror.option.logLevel.warning": "警告",
+
+  "text.autoconfig.worldmirror.option.defaultConflictStrategy": "競合戦略",
+  "text.autoconfig.worldmirror.option.defaultConflictStrategy.@Tooltip": "ローカルチャンクが既に存在する場合の処理方法。\nOVERWRITE：ローカルチャンクをサーバーバージョンで置き換える。\nIGNORE：ローカルチャンクを保持する。\nMANUAL：手動処理のためにキューに追加（Ignoreにフォールバック）。",
+  "text.autoconfig.worldmirror.option.defaultConflictStrategy.overwrite": "上書き",
+  "text.autoconfig.worldmirror.option.defaultConflictStrategy.ignore":    "無視",
+  "text.autoconfig.worldmirror.option.defaultConflictStrategy.manual":    "手動",
+
+  "text.autoconfig.worldmirror.option.cache": "キャッシュ制御",
+
+  "text.autoconfig.worldmirror.option.cache.maxCachedChunks": "最大キャッシュチャンク数",
+  "text.autoconfig.worldmirror.option.cache.maxCachedChunks.@Tooltip": "メモリに保持する最大チャンク数。0に設定するとこの制限を無効にします。",
+
+  "text.autoconfig.worldmirror.option.cache.maxCacheDistanceChunks": "最大キャッシュ距離（チャンク）",
+  "text.autoconfig.worldmirror.option.cache.maxCacheDistanceChunks.@Tooltip": "このチャンク半径を超えるとチャンクが削除されます。0に設定すると無効。",
+
+  "text.autoconfig.worldmirror.option.cache.maxCacheAgeSeconds": "最大キャッシュ時間（秒）",
+  "text.autoconfig.worldmirror.option.cache.maxCacheAgeSeconds.@Tooltip": "キャッシュされたチャンクの最大生存時間。0に設定すると無効。",
+
+  "text.autoconfig.worldmirror.option.cache.invalidateAfterExport": "エクスポート後にキャッシュを無効化",
+  "text.autoconfig.worldmirror.option.cache.invalidateAfterExport.@Tooltip": "有効にすると、チャンクがディスクに書き込まれた直後にメモリから削除されます。",
+
+  "text.autoconfig.worldmirror.option.lifecycle": "ライフサイクル動作",
+
+  "text.autoconfig.worldmirror.option.lifecycle.onJoinWorld": "ワールド参加時",
+  "text.autoconfig.worldmirror.option.lifecycle.onJoinWorld.@Tooltip": "プレイヤーがワールドまたはサーバーに参加（または再参加）したときのダウンロード状態。\nSTART：自動的にダウンロードを開始。\nSTOP：ダウンロードを停止（デフォルト）。\nKEEP：現在の状態を維持。",
+  "text.autoconfig.worldmirror.option.lifecycle.onJoinWorld.start": "開始",
+  "text.autoconfig.worldmirror.option.lifecycle.onJoinWorld.stop":  "停止",
+  "text.autoconfig.worldmirror.option.lifecycle.onJoinWorld.keep":  "維持",
+
+  "text.autoconfig.worldmirror.option.lifecycle.onDimensionChange": "ディメンション変更時",
+  "text.autoconfig.worldmirror.option.lifecycle.onDimensionChange.@Tooltip": "プレイヤーが別のディメンション（例：オーバーワールド → ネザー）に移動したときのダウンロード状態。\nSTART：自動的にダウンロードを開始。\nSTOP：ダウンロードを停止。\nKEEP：現在の状態を維持（デフォルト）。",
+  "text.autoconfig.worldmirror.option.lifecycle.onDimensionChange.start": "開始",
+  "text.autoconfig.worldmirror.option.lifecycle.onDimensionChange.stop":  "停止",
+  "text.autoconfig.worldmirror.option.lifecycle.onDimensionChange.keep":  "維持",
+
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange": "サーバーワールド変更時",
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.@Tooltip": "プレイヤーが同じサーバー上の別の論理ワールドに送られたとき（例：マルチワールドプラグイン）のダウンロード状態。\nSTART：自動的にダウンロードを開始。\nSTOP：ダウンロードを停止（デフォルト）。\nKEEP：現在の状態を維持。",
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.start": "開始",
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.stop":  "停止",
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.keep":  "維持"
+}

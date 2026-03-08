@@ -1,4 +1,4 @@
-# World Downloader
+# World Mirror
 
 **Version:** 0.1.0 · **Minecraft:** 1.21.11 · **Loader:** Fabric
 
@@ -20,7 +20,7 @@ region-file save that you can open immediately in singleplayer.
 | **Entity capture** | All non-player entities in captured chunks — mobs, animals, paintings, item frames, armour stands, dropped items, vehicles, etc. — are serialized using Minecraft's own `writeNbt` and merged into the exported chunk data. |
 | **Container tracking** | The mod intercepts inventory packets when you open a chest, barrel, hopper, furnace, or any other container and saves the item stacks. They are merged into the block entity NBT on export. Double chests are handled correctly (each half is saved to its own position). |
 | **Block entity data** | Signs (text), beacons (effects), banners (patterns), player heads (owner), lecterns (stored book), and all other block entities whose data the server sends to the client are persisted via `createNbtWithIdentifyingData`. |
-| **World–mirror mapping** | Every server address or singleplayer world name is mapped to a sanitised local folder name, stored in `config/worlddownloader/mirrors.json`.  The same server always exports to the same folder. |
+| **World–mirror mapping** | Every server address or singleplayer world name is mapped to a sanitised local folder name, stored in `config/worldmirror/mirrors.json`.  The same server always exports to the same folder. |
 | **Per-world settings** | Save location and conflict strategy can be overridden per world from the status screen without touching the global config. |
 | **Conflict resolution** | Three built-in strategies for chunks that already exist on disk: *Overwrite* (default), *Ignore* (keep local), and *Manual* (queue for later resolution). |
 | **In-game status screen** | Press **I** to open a LibGUI status panel showing source info, sync statistics, download state, a conflict-resolution queue, and per-world setting overrides. |
@@ -39,7 +39,7 @@ region-file save that you can open immediately in singleplayer.
 | **L** | Clear all cached chunks, entities, and containers |
 | **I** | Open the in-game status screen |
 
-All keybindings are rebindable in *Options → Controls → World Downloader*.
+All keybindings are rebindable in *Options → Controls → World Mirror*.
 
 ---
 
@@ -59,7 +59,7 @@ The status screen shows:
 
 ## Configuration
 
-Open *Mod Menu → World Downloader → Settings* (or click **Global Settings** in the status screen).
+Open *Mod Menu → World Mirror → Settings* (or click **Global Settings** in the status screen).
 
 | Setting | Values | Default |
 |---------|--------|---------|
@@ -68,7 +68,7 @@ Open *Mod Menu → World Downloader → Settings* (or click **Global Settings** 
 | In-game log level | `Debug` / `Info` / `Warning` | `Info` |
 | Conflict strategy | `Overwrite` / `Ignore` / `Manual` | `Overwrite` |
 
-Configuration is persisted in `<.minecraft>/config/worlddownloader.json`.
+Configuration is persisted in `<.minecraft>/config/worldmirror.json`.
 
 ### Save locations
 
@@ -106,10 +106,10 @@ downloaded_worlds/<mirror-name>/
 ├── data/
 ├── poi/
 ├── entities/
-└── wdl_meta.json             ← World Downloader metadata
+└── worldmirror_meta.json             ← World Mirror metadata
 ```
 
-`wdl_meta.json` fields:
+`worldmirror_meta.json` fields:
 
 | Field | Description |
 |-------|-------------|
@@ -163,14 +163,14 @@ container during the session.
 2. Install [Fabric API](https://modrinth.com/mod/fabric-api)
 3. Install [LibGUI](https://github.com/CottonMC/LibGui) ≥ 15.1.0 (required)
 4. *(Optional)* Install [ModMenu](https://modrinth.com/mod/modmenu) for the in-game mod list
-5. Drop `world-downloader-0.1.0.jar` into your `mods/` folder
+5. Drop the compiled JAR file into your `mods/` folder
 
 ---
 
 ## Typical Usage
 
 1. Join a multiplayer server.
-2. Press **P** — the action bar shows *World Downloader: Active*.
+2. Press **P** — the action bar shows *World Mirror: Active*.
 3. Walk around to load terrain.  Open containers to capture their inventories.
 4. Press **I** to check sync statistics and status at any time.
 5. When finished, press **P** again (or let the periodic sync run) — the mirror world is
@@ -196,7 +196,7 @@ Press **L** to clear all cached data and start a new capture.
 ./gradlew build
 ```
 
-Output: `build/libs/world-downloader-0.1.0.jar`
+Output: `build/libs/world-mirror-<version>.jar`
 
 ---
 
@@ -206,7 +206,7 @@ Output: `build/libs/world-downloader-0.1.0.jar`
   `ChunkListener` (dimension-aware: `Map<RegistryKey<World>, Map<ChunkPos, CapturedChunk>>`).
 - Container data is captured in `ContainerMixin` and stored in `ContainerTracker`.
 - Entities are snapshot-serialized on the game thread by `EntityTracker` before each export.
-- The actual disk I/O runs on a background daemon thread (`WDL-Export`) to avoid freezing
+- The actual disk I/O runs on a background daemon thread (`WM-Export`) to avoid freezing
   the game.  The game thread only provides an immutable snapshot of the cached data.
 - Region files are read and written using a bundled fork of
   [ens-gijs/NBT](https://github.com/ens-gijs/NBT) (Querz MCA library).
