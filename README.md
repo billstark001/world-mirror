@@ -45,6 +45,8 @@ All keybindings are rebindable in *Options → Controls → World Mirror*.
 
 ## In-Game Status Screen (I key)
 
+![Status screen](assets/in-game-screen.png)
+
 The status screen shows:
 
 - **Source info** — type (singleplayer / server), source ID, local mirror folder name
@@ -58,6 +60,8 @@ The status screen shows:
 ---
 
 ## Configuration
+
+![Mod Menu settings screen](assets/config-screen.png)
 
 Open *Mod Menu → World Mirror → Settings* (or click **Global Settings** in the status screen).
 
