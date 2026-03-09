@@ -18,16 +18,19 @@ import io.github.ensgijs.nbt.mca.io.McaFileHelpers;
 import io.github.ensgijs.nbt.tag.CompoundTag;
 import net.billstark001.worldmirror.conflict.ConflictContext;
 import net.billstark001.worldmirror.conflict.ConflictResolver;
-import net.billstark001.worldmirror.download.WorldMetadata;
+import net.billstark001.worldmirror.download.ChunkDatabase;
 import net.billstark001.worldmirror.core.ChunkListener;
+import net.billstark001.worldmirror.core.ContainerTracker;
 import net.billstark001.worldmirror.core.EntityTracker;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.NbtElement;
 import net.minecraft.nbt.NbtList;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.util.Identifier;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.world.World;
 
@@ -47,16 +50,20 @@ public class Exporter {
      * </ul>
      * <p>
      * Only "dirty" chunks are written — i.e. chunks whose {@link ChunkListener.CapturedChunk#capturedAtMs()}
-     * is newer than their last recorded write time in {@code meta}.
+     * is newer than their last recorded write time, and whose update source is not
+     * outranked by a higher-priority source in {@code db}.
      * <p>
-     * This method is safe to call from a background thread.  All Minecraft
-     * state has already been serialised before the snapshot was taken.
+     * Container item data captured by {@link ContainerTracker} is merged into block
+     * entity NBT at export time, ensuring items are included even when the player
+     * opened containers after the initial chunk capture.
+     * <p>
+     * This method is safe to call from a background thread.
      *
-     * @param worldFolder  Root directory of the mirror world.
-     * @param snapshot     Immutable snapshot produced by {@link ChunkListener#snapshot()}.
+     * @param worldFolder    Root directory of the mirror world.
+     * @param snapshot       Immutable snapshot produced by {@link ChunkListener#snapshot()}.
      * @param entitySnapshot Immutable snapshot produced by {@link EntityTracker#snapshot()}.
-     * @param resolver     Conflict resolver for chunks that already exist on disk.
-     * @param meta         Metadata for dirty-check and time-stamping.
+     * @param resolver       Conflict resolver for chunks that already exist on disk.
+     * @param db             Chunk database for dirty-check and priority enforcement.
      * @return Map from dimension → set of chunk positions actually written.
      */
     public static Map<RegistryKey<World>, Set<ChunkPos>> exportChunks(
@@ -64,7 +71,7 @@ public class Exporter {
             Map<RegistryKey<World>, Map<ChunkPos, ChunkListener.CapturedChunk>> snapshot,
             Map<RegistryKey<World>, Map<ChunkPos, List<NbtCompound>>> entitySnapshot,
             ConflictResolver resolver,
-            WorldMetadata meta) throws Exception {
+            ChunkDatabase db) throws Exception {
 
         Map<RegistryKey<World>, Set<ChunkPos>> allWritten = new HashMap<>();
         int dimCount = 0;
@@ -80,7 +87,7 @@ public class Exporter {
             Files.createDirectories(regionDir);
 
             Set<ChunkPos> written = exportDimensionChunks(
-                    regionDir, dimChunks, dimEntities, resolver, meta, dimension);
+                    regionDir, dimChunks, dimEntities, resolver, db, dimension);
             allWritten.put(dimension, written);
             dimCount++;
 
@@ -99,7 +106,7 @@ public class Exporter {
             Map<ChunkPos, ChunkListener.CapturedChunk> dimChunks,
             Map<ChunkPos, List<NbtCompound>> dimEntities,
             ConflictResolver resolver,
-            WorldMetadata meta,
+            ChunkDatabase db,
             RegistryKey<World> dimension) {
 
         // ── Load / create region file handles ─────────────────────────────────
@@ -136,11 +143,12 @@ public class Exporter {
             ChunkPos chunkPos  = entry.getKey();
             ChunkListener.CapturedChunk captured = entry.getValue();
 
-            // ── Dirty check: skip if not changed since last export ────────────
-            long lastWriteMs = meta.getChunkWriteTime(dimension, chunkPos);
-            if (captured.capturedAtMs() <= lastWriteMs) {
-                WMLogger.debug("Skipping unchanged chunk [" + dimension.getValue()
-                        + "] " + chunkPos);
+            // ── Dirty / priority check ────────────────────────────────────────
+            String dimStr = dimension.getValue().toString();
+            if (db.shouldSkipUpdate(dimStr, chunkPos.x, chunkPos.z,
+                    "world_mirror", captured.capturedAtMs())) {
+                WMLogger.debug("Skipping chunk [" + dimension.getValue()
+                        + "] " + chunkPos + " (not dirty or higher-priority source)");
                 continue;
             }
 
@@ -165,6 +173,13 @@ public class Exporter {
 
                 // ── Work on a copy so we don't mutate the live cache ──────────
                 NbtCompound chunkNbt = captured.nbt().copy();
+
+                // ── Merge latest container data (items not present at capture) ─
+                // Container items are captured lazily when the player opens a
+                // container; applying them here ensures the export always uses
+                // the most up-to-date inventory state regardless of when the
+                // chunk was first serialised.
+                mergeContainerData(chunkNbt);
 
                 // ── Merge entities ────────────────────────────────────────────
                 List<NbtCompound> entities = EntityTracker.getEntitiesForChunk(dimEntities, chunkPos);
@@ -204,6 +219,34 @@ public class Exporter {
         }
 
         return written;
+    }
+
+    // ── Container data merging (bug fix) ─────────────────────────────────────
+
+    /**
+     * Merges container inventory data captured by {@link ContainerTracker} into the
+     * {@code block_entities} list of a chunk NBT compound.
+     *
+     * <p>Container items are not available on the client at chunk-load time; they are
+     * only captured when the player opens a container.  Applying them here at export
+     * time ensures that any container opened during the session is saved with its
+     * correct inventory, regardless of when the chunk was first serialised.
+     */
+    private static void mergeContainerData(NbtCompound chunkNbt) {
+        NbtList blockEntities = chunkNbt.getList("block_entities", NbtElement.COMPOUND_TYPE);
+        for (int i = 0; i < blockEntities.size(); i++) {
+            NbtCompound beNbt = blockEntities.getCompound(i);
+            BlockPos bePos    = new BlockPos(beNbt.getInt("x"), beNbt.getInt("y"), beNbt.getInt("z"));
+            NbtCompound containerData = ContainerTracker.getContainerData(bePos);
+            if (containerData == null) continue;
+
+            if (containerData.contains("Items")) {
+                beNbt.put("Items", containerData.get("Items").copy());
+            }
+            if (containerData.contains("CustomName")) {
+                beNbt.put("CustomName", containerData.get("CustomName").copy());
+            }
+        }
     }
 
     // ── Dimension → directory mapping ────────────────────────────────────────

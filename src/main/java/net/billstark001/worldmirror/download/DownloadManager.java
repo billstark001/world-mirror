@@ -26,6 +26,7 @@ import org.jspecify.annotations.NonNull;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -471,17 +472,36 @@ public final class DownloadManager {
         final Path finalWorldFolder = worldFolder;
 
         Thread worker = new Thread(() -> {
+            ChunkDatabase db = null;
             try {
                 WorldMetadata meta = WorldMetadata.loadOrCreate(
                         finalWorldFolder, sourceId, sourceType);
+
+                // Open (or create) the chunk database for this mirror world
+                try {
+                    db = ChunkDatabase.open(finalWorldFolder, sourceId);
+                } catch (SQLException e) {
+                    WMLogger.warn("Could not open chunk database, export aborted: " + e.getMessage());
+                    return;
+                }
+
+                // Migrate legacy chunkUpdateTimes from JSON → SQLite (idempotent)
+                meta.migrateAndCleanChunkTimes(db, finalWorldFolder);
+
                 ConflictResolver resolver = buildResolverForSource(sourceId);
 
                 Map<RegistryKey<World>, Set<ChunkPos>> written =
                         Exporter.exportChunks(finalWorldFolder, snapshot, entitySnapshot,
-                                resolver, meta);
+                                resolver, db);
 
                 WorldExporter.createLoadableWorld(finalWorldFolder.toFile(), sourceId);
-                WorldMetadata.update(finalWorldFolder, sourceId, sourceType, written);
+                WorldMetadata.update(finalWorldFolder, sourceId, sourceType);
+
+                // Record written chunks in the database
+                for (Map.Entry<RegistryKey<World>, Set<ChunkPos>> dimEntry : written.entrySet()) {
+                    String dimStr = dimEntry.getKey().getValue().toString();
+                    db.recordUpdates(dimStr, dimEntry.getValue(), "world_mirror");
+                }
 
                 // Invalidate exported chunks if configured
                 if (ModConfig.get().cache.invalidateAfterExport && !written.isEmpty()) {
@@ -505,6 +525,7 @@ public final class DownloadManager {
             } catch (Exception e) {
                 WMLogger.warn("Export failed: " + e.getMessage(), e);
             } finally {
+                if (db != null) db.close();
                 exportInProgress.set(false);
             }
         }, "WM-Export");

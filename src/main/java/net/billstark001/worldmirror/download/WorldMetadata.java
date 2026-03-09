@@ -5,18 +5,13 @@ import com.google.gson.GsonBuilder;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.world.World;
 
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.Reader;
 import java.io.Writer;
 import java.nio.file.Path;
-import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Per-world metadata written to {@code <mirror>/worldmirror_meta.json}.
@@ -44,11 +39,17 @@ public class WorldMetadata {
     public long lastSyncTime = 0;
 
     /**
-     * Per-chunk last-write timestamp.
-     * Key format: {@code "<dim_namespace>:<dim_path>|<chunkX>,<chunkZ>"},
-     * e.g. {@code "minecraft:overworld|0,0"}.
+     * Legacy per-chunk last-write timestamp map — kept for reading old JSON files
+     * during migration to {@code data/world_mirror.sqlite}.
+     * <p>
+     * This field is <em>not</em> written back to JSON after migration (it is set to
+     * {@code null}, and GSON skips null fields by default).  New code should use
+     * {@link ChunkDatabase} instead.
+     *
+     * @deprecated Use {@link ChunkDatabase} for chunk timestamp tracking.
      */
-    public Map<String, Long> chunkUpdateTimes = new HashMap<>();
+    @Deprecated
+    public Map<String, Long> chunkUpdateTimes = null;
 
     // ── Persistence ───────────────────────────────────────────────────────────
 
@@ -59,6 +60,10 @@ public class WorldMetadata {
      * Loads existing metadata from {@code worldFolder/worldmirror_meta.json}, or
      * creates a fresh instance with the supplied source information.
      * Safe to call from any thread.
+     * <p>
+     * If the loaded file contains a legacy {@code chunkUpdateTimes} field, that data
+     * is preserved in the returned instance so the caller can migrate it to the
+     * SQLite database via {@link #migrateAndCleanChunkTimes(ChunkDatabase, Path)}.
      */
     public static WorldMetadata loadOrCreate(Path worldFolder,
                                              String sourceId,
@@ -68,7 +73,8 @@ public class WorldMetadata {
             try (Reader r = new FileReader(metaFile.toFile())) {
                 WorldMetadata loaded = GSON.fromJson(r, WorldMetadata.class);
                 if (loaded != null) {
-                    if (loaded.chunkUpdateTimes == null) loaded.chunkUpdateTimes = new HashMap<>();
+                    // chunkUpdateTimes may be non-null if this is an old JSON file;
+                    // keep it so the caller can trigger migration if needed.
                     return loaded;
                 }
             } catch (Exception e) {
@@ -94,22 +100,27 @@ public class WorldMetadata {
         }
     }
 
-    // ── Per-chunk time tracking ───────────────────────────────────────────────
+    // ── Per-chunk time tracking (legacy — replaced by ChunkDatabase) ─────────
 
     /**
-     * Returns the last time the given chunk was written to disk (0 if never).
+     * If this instance was loaded from an old JSON file that contained a non-empty
+     * {@code chunkUpdateTimes} map, this method migrates that data into {@code db}
+     * and then clears the field so it is not written back to JSON.
+     * <p>
+     * Safe to call even if migration has already been performed (idempotent).
+     *
+     * @param db          open {@link ChunkDatabase} to migrate into
+     * @param worldFolder mirror-world root (used to re-save cleaned JSON)
      */
-    public long getChunkWriteTime(RegistryKey<World> dimension, ChunkPos pos) {
-        return chunkUpdateTimes.getOrDefault(chunkKey(dimension, pos), 0L);
-    }
-
-    /** Records that the given chunk was written at {@code timeMs}. */
-    public void setChunkWriteTime(RegistryKey<World> dimension, ChunkPos pos, long timeMs) {
-        chunkUpdateTimes.put(chunkKey(dimension, pos), timeMs);
-    }
-
-    private static String chunkKey(RegistryKey<World> dim, ChunkPos pos) {
-        return dim.getValue().toString() + "|" + pos.x + "," + pos.z;
+    @SuppressWarnings("deprecation")
+    public void migrateAndCleanChunkTimes(ChunkDatabase db, Path worldFolder) {
+        if (chunkUpdateTimes != null && !chunkUpdateTimes.isEmpty()) {
+            db.migrateFromChunkUpdateTimes(chunkUpdateTimes);
+        }
+        if (chunkUpdateTimes != null) {
+            chunkUpdateTimes = null; // null → GSON skips field on next save
+            save(worldFolder);      // write clean JSON without chunkUpdateTimes
+        }
     }
 
     // ── Convenience update ────────────────────────────────────────────────────
@@ -132,13 +143,14 @@ public class WorldMetadata {
     }
 
     /**
-     * Load-or-create, stamp all written chunks with the current time,
-     * update {@code lastSyncTime}, then save.
+     * Load-or-create, update {@code lastSyncTime} and {@code modVersion}, then save.
+     * <p>
+     * Chunk write timestamps are no longer stored in JSON; they are managed by
+     * {@link ChunkDatabase} instead.
      */
     public static void update(Path worldFolder,
                               String sourceId,
-                              String sourceType,
-                              Map<RegistryKey<World>, Set<ChunkPos>> writtenByDim) {
+                              String sourceType) {
         WorldMetadata meta = loadOrCreate(worldFolder, sourceId, sourceType);
         long now = System.currentTimeMillis();
         meta.lastSyncTime = now;
@@ -146,11 +158,7 @@ public class WorldMetadata {
                 .getModContainer("worldmirror")
                 .map(c -> c.getMetadata().getVersion().getFriendlyString())
                 .orElse("unknown");
-        for (Map.Entry<RegistryKey<World>, Set<ChunkPos>> dimEntry : writtenByDim.entrySet()) {
-            for (ChunkPos pos : dimEntry.getValue()) {
-                meta.setChunkWriteTime(dimEntry.getKey(), pos, now);
-            }
-        }
+        meta.chunkUpdateTimes = null; // ensure legacy field is not written back
         meta.save(worldFolder);
     }
 
