@@ -27,7 +27,7 @@ capture.
 New UI screen and `DownloadManager`  
 Allow the player to choose a radius and a save name, then snapshot all chunks within
 that radius into a freshly created save. Spawn point = player's current position. The
-new save must also use the void superflat preset (see §2).
+new save must also use the void superflat preset.
 
 ### ✅ [DONE] Compatibility standard for third-party chunk importers
 `ChunkDatabase`, `DATABASE.md`  
