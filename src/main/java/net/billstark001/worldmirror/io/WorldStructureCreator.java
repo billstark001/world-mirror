@@ -11,7 +11,7 @@ import net.minecraft.SharedConstants;
 import net.minecraft.nbt.*;
 
 @Environment(EnvType.CLIENT)
-public class WorldExporter {
+public class WorldStructureCreator {
 
     public static NbtCompound createFlatGenerator() {
         NbtCompound generator = new NbtCompound();

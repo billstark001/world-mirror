@@ -94,7 +94,7 @@ public class EntityTracker {
         return result;
     }
 
-    /** Looks up entities in a pre-fetched per-dimension entity map (for use inside Exporter). */
+    /** Looks up entities in a pre-fetched per-dimension entity map (for use inside ChunkExporter). */
     public static List<NbtCompound> getEntitiesForChunk(
             Map<ChunkPos, List<NbtCompound>> dimEntities, ChunkPos pos) {
         if (dimEntities == null) return List.of();

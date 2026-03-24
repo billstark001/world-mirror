@@ -3,11 +3,7 @@ package net.billstark001.worldmirror.io;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 import io.github.ensgijs.nbt.io.BinaryNbtDeserializer;
 import io.github.ensgijs.nbt.io.CompressionType;
@@ -18,15 +14,14 @@ import io.github.ensgijs.nbt.mca.io.McaFileHelpers;
 import io.github.ensgijs.nbt.tag.CompoundTag;
 import net.billstark001.worldmirror.conflict.ConflictContext;
 import net.billstark001.worldmirror.conflict.ConflictResolver;
-import net.billstark001.worldmirror.download.ChunkDatabase;
 import net.billstark001.worldmirror.core.ChunkListener;
 import net.billstark001.worldmirror.core.ContainerTracker;
 import net.billstark001.worldmirror.core.EntityTracker;
+import net.billstark001.worldmirror.download.ChunkDatabase;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtElement;
 import net.minecraft.nbt.NbtList;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.util.Identifier;
@@ -36,7 +31,7 @@ import net.minecraft.world.World;
 
 
 @Environment(EnvType.CLIENT)
-public class Exporter {
+public class ChunkExporter {
 
     /**
      * Exports all chunks in the snapshot to the given world folder.
@@ -233,18 +228,30 @@ public class Exporter {
      * correct inventory, regardless of when the chunk was first serialised.
      */
     private static void mergeContainerData(NbtCompound chunkNbt) {
-        NbtList blockEntities = chunkNbt.getList("block_entities", NbtElement.COMPOUND_TYPE);
+        Optional<NbtList> _blockEntities = chunkNbt.getList("block_entities");
+        if (_blockEntities.isEmpty()) {
+            return;
+        }
+        NbtList blockEntities = _blockEntities.get();
         for (int i = 0; i < blockEntities.size(); i++) {
-            NbtCompound beNbt = blockEntities.getCompound(i);
-            BlockPos bePos    = new BlockPos(beNbt.getInt("x"), beNbt.getInt("y"), beNbt.getInt("z"));
+            Optional<NbtCompound> _beNbt = blockEntities.getCompound(i);
+            if (_beNbt.isEmpty()) {
+                continue;
+            }
+            NbtCompound beNbt = _beNbt.get();
+            BlockPos bePos    = new BlockPos(
+                    beNbt.getInt("x").orElse(0),
+                    beNbt.getInt("y").orElse(0),
+                    beNbt.getInt("z").orElse(0)
+            );
             NbtCompound containerData = ContainerTracker.getContainerData(bePos);
             if (containerData == null) continue;
 
             if (containerData.contains("Items")) {
-                beNbt.put("Items", containerData.get("Items").copy());
+                beNbt.put("Items", Objects.requireNonNull(containerData.get("Items")).copy());
             }
             if (containerData.contains("CustomName")) {
-                beNbt.put("CustomName", containerData.get("CustomName").copy());
+                beNbt.put("CustomName", Objects.requireNonNull(containerData.get("CustomName")).copy());
             }
         }
     }

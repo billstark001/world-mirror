@@ -6,12 +6,12 @@ import net.billstark001.worldmirror.conflict.ManualResolver;
 import net.billstark001.worldmirror.conflict.OverwriteResolver;
 import net.billstark001.worldmirror.config.ModConfig;
 import net.billstark001.worldmirror.core.ChunkListener;
-import net.billstark001.worldmirror.io.ClientChunkSerializer;
+import net.billstark001.worldmirror.io.ChunkExporter;
+import net.billstark001.worldmirror.io.ChunkSerializer;
 import net.billstark001.worldmirror.core.ContainerTracker;
 import net.billstark001.worldmirror.core.EntityTracker;
-import net.billstark001.worldmirror.io.Exporter;
 import net.billstark001.worldmirror.util.WMLogger;
-import net.billstark001.worldmirror.io.WorldExporter;
+import net.billstark001.worldmirror.io.WorldStructureCreator;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.nbt.NbtCompound;
@@ -409,8 +409,8 @@ public final class DownloadManager {
                     // `active` is declared volatile; reading it here is always fresh.
                     if (!currentActive.get()) break; // abort if download was deactivated mid-capture
                     try {
-                        if (ClientChunkSerializer.isChunkEmpty(wc)) continue;
-                        NbtCompound nbt = ClientChunkSerializer.serialize(world, wc);
+                        if (ChunkSerializer.isChunkEmpty(wc)) continue;
+                        NbtCompound nbt = ChunkSerializer.serialize(world, wc);
                         ChunkListener.addChunkNbt(dimension, wc.getPos(), nbt);
                         count++;
                     } catch (Exception e) {
@@ -491,10 +491,10 @@ public final class DownloadManager {
                 ConflictResolver resolver = buildResolverForSource(sourceId);
 
                 Map<RegistryKey<World>, Set<ChunkPos>> written =
-                        Exporter.exportChunks(finalWorldFolder, snapshot, entitySnapshot,
+                        ChunkExporter.exportChunks(finalWorldFolder, snapshot, entitySnapshot,
                                 resolver, db);
 
-                WorldExporter.createLoadableWorld(finalWorldFolder.toFile(), sourceId);
+                WorldStructureCreator.createLoadableWorld(finalWorldFolder.toFile(), sourceId);
                 WorldMetadata.update(finalWorldFolder, sourceId, sourceType);
 
                 // Record written chunks in the database
