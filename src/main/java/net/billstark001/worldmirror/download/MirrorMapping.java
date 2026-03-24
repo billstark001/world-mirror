@@ -82,10 +82,10 @@ public class MirrorMapping {
     /** Separator used inside compound map keys (not valid in sourceId or location names). */
     private static final char KEY_SEP = '\0';
 
-    private static MirrorMapping instance;
+    private static volatile MirrorMapping instance;
 
     /** Returns the singleton, loading from disk lazily. */
-    public static MirrorMapping getInstance() {
+    public static synchronized MirrorMapping getInstance() {
         if (instance == null) {
             instance = loadOrCreate();
         }
@@ -117,7 +117,7 @@ public class MirrorMapping {
     }
 
     /** Persists the current mapping to disk. */
-    public void save() {
+    public synchronized void save() {
         Path configDir = configDir();
         try {
             Files.createDirectories(configDir);
@@ -136,7 +136,7 @@ public class MirrorMapping {
      * (and persisting) a new name if none has been set yet.
      * Always returns the <em>base</em> name — never a suffixed collision-resolved name.
      */
-    public String getMirrorFolderName(String sourceId) {
+    public synchronized String getMirrorFolderName(String sourceId) {
         String existing = entries.get(sourceId);
         if (existing != null && !existing.isBlank()) {
             return existing;
@@ -152,7 +152,7 @@ public class MirrorMapping {
      * Also clears all previously cached resolved names for this source so the next
      * call to {@link #getResolvedFolderName} re-runs the collision scan.
      */
-    public void setMirrorFolderName(String sourceId, String folderName) {
+    public synchronized void setMirrorFolderName(String sourceId, String folderName) {
         entries.put(sourceId, folderName);
         // Invalidate resolved names for every save-location since the base changed.
         resolvedFolderNames.entrySet().removeIf(e -> e.getKey().startsWith(sourceId + KEY_SEP));
@@ -179,7 +179,7 @@ public class MirrorMapping {
      * @param base            the root directory that corresponds to {@code saveLocationName}
      * @return the validated resolved folder name, or {@code null}
      */
-    public String getResolvedFolderName(String sourceId, String saveLocationName, Path base) {
+    public synchronized String getResolvedFolderName(String sourceId, String saveLocationName, Path base) {
         String key = sourceId + KEY_SEP + saveLocationName;
         String v = resolvedFolderNames.get(key);
         if (v == null || v.isBlank()) return null;
@@ -211,7 +211,7 @@ public class MirrorMapping {
      * @param saveLocationName the enum name of the save-location
      * @param resolvedName    the folder name that was chosen (relative to the location root)
      */
-    public void setResolvedFolderName(String sourceId, String saveLocationName,
+    public synchronized void setResolvedFolderName(String sourceId, String saveLocationName,
                                       String resolvedName) {
         resolvedFolderNames.put(sourceId + KEY_SEP + saveLocationName, resolvedName);
         save();
@@ -224,7 +224,7 @@ public class MirrorMapping {
      *
      * @param sourceId the world's source identifier
      */
-    public void invalidateResolvedFolderNames(String sourceId) {
+    public synchronized void invalidateResolvedFolderNames(String sourceId) {
         boolean changed = resolvedFolderNames.entrySet()
                 .removeIf(e -> e.getKey().startsWith(sourceId + KEY_SEP));
         if (changed) save();
@@ -236,7 +236,7 @@ public class MirrorMapping {
      * Returns the per-world save-location override for {@code sourceId},
      * or {@code null} if none has been set (meaning: use the global config).
      */
-    public String getPerWorldSaveLocation(String sourceId) {
+    public synchronized String getPerWorldSaveLocation(String sourceId) {
         String v = perWorldSaveLocation.get(sourceId);
         return (v != null && !v.isBlank()) ? v : null;
     }
@@ -247,7 +247,7 @@ public class MirrorMapping {
      * Also invalidates all cached resolved folder names for this source because the
      * effective base directory may have changed.
      */
-    public void setPerWorldSaveLocation(String sourceId, String locationName) {
+    public synchronized void setPerWorldSaveLocation(String sourceId, String locationName) {
         if (locationName == null || locationName.isBlank()) {
             perWorldSaveLocation.remove(sourceId);
         } else {
@@ -264,7 +264,7 @@ public class MirrorMapping {
      * Returns the per-world conflict-strategy override for {@code sourceId},
      * or {@code null} if none has been set (meaning: use the global config).
      */
-    public String getPerWorldConflictStrategy(String sourceId) {
+    public synchronized String getPerWorldConflictStrategy(String sourceId) {
         String v = perWorldConflictStrategy.get(sourceId);
         return (v != null && !v.isBlank()) ? v : null;
     }
@@ -273,7 +273,7 @@ public class MirrorMapping {
      * Sets a per-world conflict-strategy override.
      * Pass {@code null} or an empty string to remove the override.
      */
-    public void setPerWorldConflictStrategy(String sourceId, String strategyName) {
+    public synchronized void setPerWorldConflictStrategy(String sourceId, String strategyName) {
         if (strategyName == null || strategyName.isBlank()) {
             perWorldConflictStrategy.remove(sourceId);
         } else {

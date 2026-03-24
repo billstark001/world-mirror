@@ -9,8 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- **Container items now export correctly.**  
-  Chest, barrel, hopper, dropper, dispenser, shulker box, and other container block entity inventories are now merged from `ContainerTracker` at export time rather than at capture time.  Previously, containers were always exported empty because item data arrives in separate inventory packets after the initial chunk data.  See `KNOWN_BUGS.md` BUG-1 for details.
+- Container items now export correctly. (BUG-1 in `KNOWN_BUGS.md`)
+- Redstone components and other stateful blocks now export with their correct state. 
+- Biome and light data are now included correctly in chunk exports.
+- Performance and memory issues in the caching and serialization processes have been comprehensively addressed:
+  - Reduced blocking of the rendering/game threads caused by large-scale block capture before export, preventing noticeable stuttering caused by synchronous serialization.
+  - Fixed an issue where container caches were not cleaned up synchronously when blocks expired, and modified the storage to be isolated by dimension to reduce memory growth after prolonged operation.
+  - Cleaned up entity data that was out of sync with the block cache to prevent the continuous accumulation of entity cache data after dimension switching or frequent exports.
+  - Tightened concurrent access paths for mirror mapping configurations to reduce the risk of race conditions between background exports and foreground configuration reads/writes.
 
 ### Added
 

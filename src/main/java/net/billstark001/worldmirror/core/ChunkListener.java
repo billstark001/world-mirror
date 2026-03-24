@@ -89,10 +89,13 @@ public class ChunkListener {
                                   int playerCX, int playerCZ, int maxDistChunks) {
         long now = System.currentTimeMillis();
         int evicted = 0;
+        Map<RegistryKey<World>, Set<ChunkPos>> evictedByDim = new HashMap<>();
 
         // ── Age-based eviction ────────────────────────────────────────────────
         if (maxAgeMs > 0) {
-            for (ConcurrentHashMap<ChunkPos, CapturedChunk> dimMap : dimChunks.values()) {
+            for (Map.Entry<RegistryKey<World>, ConcurrentHashMap<ChunkPos, CapturedChunk>> dimEntry
+                    : dimChunks.entrySet()) {
+                ConcurrentHashMap<ChunkPos, CapturedChunk> dimMap = dimEntry.getValue();
                 List<ChunkPos> toRemove = new ArrayList<>();
                 for (Map.Entry<ChunkPos, CapturedChunk> e : dimMap.entrySet()) {
                     if (now - e.getValue().capturedAtMs() > maxAgeMs) {
@@ -102,6 +105,10 @@ public class ChunkListener {
                 for (ChunkPos p : toRemove) {
                     dimMap.remove(p);
                     evicted++;
+                }
+                if (!toRemove.isEmpty()) {
+                    evictedByDim.computeIfAbsent(dimEntry.getKey(), k -> ConcurrentHashMap.newKeySet())
+                            .addAll(toRemove);
                 }
             }
         }
@@ -122,38 +129,41 @@ public class ChunkListener {
                     dimMap.remove(p);
                     evicted++;
                 }
+                if (!toRemove.isEmpty()) {
+                    evictedByDim.computeIfAbsent(playerDimension, k -> ConcurrentHashMap.newKeySet())
+                            .addAll(toRemove);
+                }
             }
         }
 
         // ── Count-based eviction (evict oldest first) ─────────────────────────
         if (maxCount > 0) {
-            // Collect all entries across all dimensions with their timestamps
-            List<Map.Entry<RegistryKey<World>, ChunkPos>> allEntries = new ArrayList<>();
+            // Pre-snapshot (dim, pos, timestamp) triples so the sort comparator
+            // makes no live ConcurrentHashMap lookups (avoids O(n log n) map
+            // accesses on the game thread and eliminates a potential race with
+            // background writers).
+            record Entry(RegistryKey<World> dim, ChunkPos pos, long ts) {}
+            List<Entry> allEntries = new ArrayList<>();
             for (Map.Entry<RegistryKey<World>, ConcurrentHashMap<ChunkPos, CapturedChunk>> dimEntry
                     : dimChunks.entrySet()) {
-                for (ChunkPos pos : dimEntry.getValue().keySet()) {
-                    allEntries.add(new java.util.AbstractMap.SimpleEntry<>(dimEntry.getKey(), pos));
+                for (Map.Entry<ChunkPos, CapturedChunk> e : dimEntry.getValue().entrySet()) {
+                    allEntries.add(new Entry(dimEntry.getKey(), e.getKey(),
+                            e.getValue().capturedAtMs()));
                 }
             }
             int total = allEntries.size();
             if (total > maxCount) {
-                // Sort by capture time ascending (oldest first)
-                allEntries.sort((a, b) -> {
-                    CapturedChunk ca = dimChunks.get(a.getKey()) != null
-                            ? dimChunks.get(a.getKey()).get(a.getValue()) : null;
-                    CapturedChunk cb = dimChunks.get(b.getKey()) != null
-                            ? dimChunks.get(b.getKey()).get(b.getValue()) : null;
-                    long ta = (ca != null) ? ca.capturedAtMs() : 0;
-                    long tb = (cb != null) ? cb.capturedAtMs() : 0;
-                    return Long.compare(ta, tb);
-                });
+                // Sort ascending by pre-captured timestamp — no live map access.
+                allEntries.sort(java.util.Comparator.comparingLong(Entry::ts));
                 int toEvict = total - maxCount;
                 for (int i = 0; i < toEvict; i++) {
-                    Map.Entry<RegistryKey<World>, ChunkPos> e = allEntries.get(i);
-                    ConcurrentHashMap<ChunkPos, CapturedChunk> dimMap = dimChunks.get(e.getKey());
+                    Entry e = allEntries.get(i);
+                    ConcurrentHashMap<ChunkPos, CapturedChunk> dimMap = dimChunks.get(e.dim());
                     if (dimMap != null) {
-                        dimMap.remove(e.getValue());
+                        dimMap.remove(e.pos());
                         evicted++;
+                        evictedByDim.computeIfAbsent(e.dim(), k -> ConcurrentHashMap.newKeySet())
+                                .add(e.pos());
                     }
                 }
             }
@@ -161,6 +171,8 @@ public class ChunkListener {
 
         if (evicted > 0) {
             WMLogger.debug("Evicted " + evicted + " stale chunks from cache.");
+            ContainerTracker.evictForChunks(evictedByDim);
+            EntityTracker.pruneToMatchCapturedChunks();
         }
     }
 
@@ -173,12 +185,17 @@ public class ChunkListener {
             ConcurrentHashMap<ChunkPos, CapturedChunk> dimMap = dimChunks.get(dimEntry.getKey());
             if (dimMap == null) continue;
             for (ChunkPos pos : dimEntry.getValue()) {
-                if (dimMap.remove(pos) != null) removed++;
+                if (dimMap.remove(pos) != null) {
+                    removed++;
+                }
             }
         }
         if (removed > 0) {
             WMLogger.debug("Invalidated " + removed + " exported chunks from cache.");
+            ContainerTracker.evictForChunks(writtenByDim);
+            EntityTracker.pruneToMatchCapturedChunks();
         }
     }
+
 }
 

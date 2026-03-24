@@ -174,7 +174,7 @@ public class ChunkExporter {
                 // container; applying them here ensures the export always uses
                 // the most up-to-date inventory state regardless of when the
                 // chunk was first serialised.
-                mergeContainerData(chunkNbt);
+                mergeContainerData(dimension, chunkNbt);
 
                 // ── Merge entities ────────────────────────────────────────────
                 List<NbtCompound> entities = EntityTracker.getEntitiesForChunk(dimEntities, chunkPos);
@@ -227,7 +227,7 @@ public class ChunkExporter {
      * time ensures that any container opened during the session is saved with its
      * correct inventory, regardless of when the chunk was first serialised.
      */
-    private static void mergeContainerData(NbtCompound chunkNbt) {
+    private static void mergeContainerData(RegistryKey<World> dimension, NbtCompound chunkNbt) {
         Optional<NbtList> _blockEntities = chunkNbt.getList("block_entities");
         if (_blockEntities.isEmpty()) {
             return;
@@ -244,7 +244,7 @@ public class ChunkExporter {
                     beNbt.getInt("y").orElse(0),
                     beNbt.getInt("z").orElse(0)
             );
-            NbtCompound containerData = ContainerTracker.getContainerData(bePos);
+            NbtCompound containerData = ContainerTracker.getContainerData(dimension, bePos);
             if (containerData == null) continue;
 
             if (containerData.contains("Items")) {

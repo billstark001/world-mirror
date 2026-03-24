@@ -22,12 +22,12 @@ import net.minecraft.world.World;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.WorldChunk;
 import net.minecraft.client.world.ClientWorld;
-import org.jspecify.annotations.NonNull;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.SQLException;
-import java.util.ArrayList;
+import java.util.ArrayDeque;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -57,6 +57,15 @@ public final class DownloadManager {
     private static final int INITIAL_CAPTURE_RANGE = 33;
     private static final int PRE_EXPORT_CAPTURE_RANGE = 8;
     private static final int STOP_CAPTURE_RANGE = 6;
+    private static final int CAPTURE_CHUNKS_PER_TICK = 8;
+    private static final Object captureQueueLock = new Object();
+    private static final ArrayDeque<PendingChunkCapture> pendingCaptures = new ArrayDeque<>();
+    private static final Set<CaptureKey> pendingCaptureSet = new HashSet<>();
+    private static PendingExportRequest pendingExport = null;
+
+    private record CaptureKey(RegistryKey<World> dimension, int chunkX, int chunkZ) { }
+    private record PendingChunkCapture(CaptureKey key, String reason) { }
+    private record PendingExportRequest(boolean shouldNotify, String preferredSourceId, String preferredSourceType) { }
 
     // ── Lifecycle tracking ────────────────────────────────────────────────────
 
@@ -101,6 +110,7 @@ public final class DownloadManager {
                 captureLoadedChunksAsync(client);
             }
         } else {
+            clearPendingCaptureState();
             finalizeCaptureOnStop(client, "manual-toggle");
         }
         Text msg = Text.translatable(
@@ -116,7 +126,9 @@ public final class DownloadManager {
      * Performs an immediate one-shot export regardless of the toggle state.
      */
     public static void exportNow(MinecraftClient client) {
-        if (ChunkListener.isEmpty()) {
+        boolean canPreCapture = ModConfig.get().lifecycle.captureNearbyBeforeExport
+                && client.world != null && client.player != null;
+        if (ChunkListener.isEmpty() && !canPreCapture) {
             Text msg = Text.translatable("msg.worldmirror.noChunks");
             if (client.player != null) client.player.sendMessage(msg, false);
             WMLogger.warn("No chunks to export.");
@@ -133,6 +145,7 @@ public final class DownloadManager {
 
     /** Clears all in-memory caches. */
     public static void clearAll(MinecraftClient client) {
+        clearPendingCaptureState();
         int chunks     = ChunkListener.getTotalCount();
         int entities   = EntityTracker.getTotalTrackedEntities();
         int containers = ContainerTracker.getTotalSavedContainers();
@@ -153,6 +166,7 @@ public final class DownloadManager {
      * {@link ModConfig.LifecycleConfig#onJoinWorld} behaviour.
      */
     public static void onJoinWorld(MinecraftClient client) {
+        clearPendingCaptureState();
         applyTransition(client, ModConfig.get().lifecycle.onJoinWorld, "join-world");
 
         // Reset tracking so subsequent change-detection starts fresh.
@@ -170,7 +184,10 @@ public final class DownloadManager {
     public static void onLeaveWorld(MinecraftClient client) {
         if (currentActive.get()) {
             currentActive.set(false);
+            clearPendingCaptureState();
             finalizeCaptureOnStop(client, "leave-world");
+        } else {
+            clearPendingCaptureState();
         }
         lastDimension = null;
         lastSourceId  = null;
@@ -187,6 +204,9 @@ public final class DownloadManager {
     public static void onClientTick(MinecraftClient client) {
         if (client.world == null) return;
 
+        processPendingCaptures(client);
+        tryStartDeferredExport(client);
+
         RegistryKey<World> currentDim = client.world.getRegistryKey();
         String currentSourceId = WorldMetadata.detectSourceId(client);
         String currentSourceType = WorldMetadata.detectSourceType(client);
@@ -197,6 +217,7 @@ public final class DownloadManager {
         if (lastSourceId != null && !lastSourceId.equals(currentSourceId)) {
             WMLogger.info("Server world change detected: '" + lastSourceId
                     + "' → '" + currentSourceId + "'");
+            clearPendingCaptureState();
             applyTransition(client, ModConfig.get().lifecycle.onServerWorldChange,
                     "server-world-change");
             lastSourceId  = currentSourceId;
@@ -212,6 +233,7 @@ public final class DownloadManager {
             WMLogger.info("Dimension change detected: '" + lastDimension.getValue()
                     + "' → '" + currentDim.getValue() + "'");
             lastDimension = currentDim;
+            clearPendingCaptureState();
             applyTransition(client, ModConfig.get().lifecycle.onDimensionChange,
                     "dimension-change");
             // Re-capture loaded chunks according to the new active state
@@ -255,6 +277,7 @@ public final class DownloadManager {
         currentActive.set(desired);
         if (desired) lastPeriodicSyncMs = System.currentTimeMillis();
         if (!desired) {
+            clearPendingCaptureState();
             finalizeCaptureOnStop(client, eventName);
         }
 
@@ -371,100 +394,45 @@ public final class DownloadManager {
     // ── Internal ─────────────────────────────────────────────────────────────
 
     /**
-     *
-     * <p><b>Phase 1 (game thread, fast):</b> Iterates through chunk positions in a
-     * {@code range×range} square around the player and collects references to loaded
-     * {@link WorldChunk} objects.  Only reference lookups happen here — no NBT
-     * serialisation — so this phase completes in microseconds.
-     *
-     * <p><b>Phase 2 (background thread, {@code WM-InitCapture}):</b> Serialises each
-     * collected chunk to NBT and stores the result via {@link ChunkListener}.  The
-     * capture is aborted early if download is deactivated mid-flight.
-     *
-     * <p>A CAS guard ({@link #captureInProgress}) ensures only one initial capture
-     * runs at a time.
+     * Queues a wide area of already-loaded chunks for incremental capture on the
+     * game thread. Capturing is spread across subsequent ticks to avoid long render
+     * thread stalls while still keeping all chunk/world access on the correct thread.
      */
     private static void captureLoadedChunksAsync(MinecraftClient client) {
         ClientWorld world = client.world;
         if (world == null || client.player == null) return;
 
-        if (!captureInProgress.compareAndSet(false, true)) {
-            WMLogger.debug("Initial chunk capture already in progress — skipping.");
-            return;
-        }
-
         RegistryKey<World> dimension = world.getRegistryKey();
         int playerCX = client.player.getBlockX() >> 4;
         int playerCZ = client.player.getBlockZ() >> 4;
-        // Covers a wide area for the one-time initial capture.
-        int range = INITIAL_CAPTURE_RANGE;
-
-        // ── Phase 1: collect WorldChunk references (game thread, no serialisation) ──
-        List<WorldChunk> toCapture = new ArrayList<>();
-        for (int cx = playerCX - range; cx <= playerCX + range; cx++) {
-            for (int cz = playerCZ - range; cz <= playerCZ + range; cz++) {
-                Chunk chunk = world.getChunk(cx, cz);
-                if (chunk instanceof WorldChunk wc) {
-                    toCapture.add(wc);
-                }
-            }
+        int queued = queueLoadedChunks(world, playerCX, playerCZ, INITIAL_CAPTURE_RANGE,
+                "initial-capture");
+        if (queued > 0) {
+            WMLogger.info("Queued " + queued + " loaded chunks for incremental capture in ["
+                    + dimension.getValue() + "]...");
         }
-
-        if (toCapture.isEmpty()) {
-            captureInProgress.set(false);
-            return;
-        }
-
-        WMLogger.info("Scheduling async initial capture of " + toCapture.size()
-                + " loaded chunks in [" + dimension.getValue() + "]...");
-
-        // ── Phase 2: serialise on a background thread ─────────────────────────
-        Thread captureThread = getCaptureThread(toCapture, world, dimension);
-        captureThread.setDaemon(true);
-        captureThread.start();
-    }
-
-    private static @NonNull Thread getCaptureThread(List<WorldChunk> toCapture, ClientWorld world, RegistryKey<World> dimension) {
-        return new Thread(() -> {
-            try {
-                int count = 0;
-                for (WorldChunk wc : toCapture) {
-                    // `active` is declared volatile; reading it here is always fresh.
-                    if (!currentActive.get()) break; // abort if download was deactivated mid-capture
-                    try {
-                        if (ChunkSerializer.isChunkEmpty(wc)) continue;
-                        NbtCompound nbt = ChunkSerializer.serialize(world, wc);
-                        ChunkListener.addChunkNbt(dimension, wc.getPos(), nbt);
-                        count++;
-                    } catch (Exception e) {
-                        WMLogger.warn("captureLoadedChunksAsync: failed at "
-                                + wc.getPos() + ": " + e.getMessage());
-                    }
-                }
-                WMLogger.info("Async initial capture complete: " + count + "/"
-                        + toCapture.size() + " chunks captured in ["
-                        + dimension.getValue() + "]");
-            } finally {
-                captureInProgress.set(false);
-            }
-        }, "WM-InitCapture");
     }
 
     /**
      * Captures loaded chunks around the player synchronously on the game thread.
-     * Used before export and while stopping download to reduce data loss windows.
+     *
+     * <p><b>Use only at disconnect / toggle-off time</b> (a one-shot event where a
+     * brief freeze is acceptable and the world is still fully accessible). During
+     * normal gameplay, {@link #startBackgroundSync} instead schedules incremental
+     * chunk capture across subsequent client ticks so large nearby refreshes do not
+     * block a single render frame.</p>
      */
-    private static int captureNearbyLoadedChunksSync(MinecraftClient client, int range, String reason) {
+    private static void captureNearbyLoadedChunksSync(MinecraftClient client, String reason) {
         ClientWorld world = client.world;
-        if (world == null || client.player == null || range <= 0) return 0;
+        if (world == null || client.player == null) return;
 
         RegistryKey<World> dimension = world.getRegistryKey();
         int playerCX = client.player.getBlockX() >> 4;
         int playerCZ = client.player.getBlockZ() >> 4;
         int captured = 0;
 
-        for (int cx = playerCX - range; cx <= playerCX + range; cx++) {
-            for (int cz = playerCZ - range; cz <= playerCZ + range; cz++) {
+        for (int cx = playerCX - STOP_CAPTURE_RANGE; cx <= playerCX + STOP_CAPTURE_RANGE; cx++) {
+            for (int cz = playerCZ - STOP_CAPTURE_RANGE; cz <= playerCZ + STOP_CAPTURE_RANGE; cz++) {
                 Chunk chunk = world.getChunk(cx, cz);
                 if (!(chunk instanceof WorldChunk wc)) continue;
                 try {
@@ -480,10 +448,9 @@ public final class DownloadManager {
         }
 
         if (captured > 0) {
-            WMLogger.info("Captured " + captured + " nearby chunks (range=" + range
+            WMLogger.info("Captured " + captured + " nearby chunks (range=" + STOP_CAPTURE_RANGE
                     + ") for " + reason + ".");
         }
-        return captured;
     }
 
     /**
@@ -492,15 +459,12 @@ public final class DownloadManager {
      */
     private static void finalizeCaptureOnStop(MinecraftClient client, String reason) {
         ModConfig.LifecycleConfig lifecycle = ModConfig.get().lifecycle;
-        boolean didStopCapture = false;
-
         if (lifecycle.captureNearbyOnStop) {
-            didStopCapture = captureNearbyLoadedChunksSync(client, STOP_CAPTURE_RANGE,
-                    "stop-" + reason) > 0;
+            captureNearbyLoadedChunksSync(client, "stop-" + reason);
         }
 
         if (lifecycle.exportAllCachedOnStop) {
-            startBackgroundSync(client, false, didStopCapture,
+            startBackgroundSync(client, false, true,
                     lastSourceId, lastSourceType);
         }
     }
@@ -513,9 +477,7 @@ public final class DownloadManager {
         startBackgroundSync(client, notify, false, null, null);
     }
 
-    private static void startBackgroundSync(MinecraftClient client,
-                                            boolean notify,
-                                            boolean preCaptureAlreadyDone,
+    private static void startBackgroundSync(MinecraftClient client, boolean notify, boolean preCaptureAlreadyDone,
                                             String preferredSourceId,
                                             String preferredSourceType) {
         if (exportInProgress.get()) {
@@ -523,8 +485,19 @@ public final class DownloadManager {
             return;
         }
 
-        if (!preCaptureAlreadyDone && ModConfig.get().lifecycle.captureNearbyBeforeExport) {
-            captureNearbyLoadedChunksSync(client, PRE_EXPORT_CAPTURE_RANGE, "pre-export");
+        // Queue nearby capture work and defer export until that incremental
+        // capture has finished. This keeps all chunk/world access on the main
+        // thread without blocking it for hundreds of serialisations at once.
+        if (!preCaptureAlreadyDone && ModConfig.get().lifecycle.captureNearbyBeforeExport
+                && client.world != null && client.player != null) {
+            int playerCX = client.player.getBlockX() >> 4;
+            int playerCZ = client.player.getBlockZ() >> 4;
+            int queued = queueLoadedChunks(client.world, playerCX, playerCZ,
+                    PRE_EXPORT_CAPTURE_RANGE, "pre-export");
+            if (queued > 0 || captureInProgress.get()) {
+                deferExport(notify, preferredSourceId, preferredSourceType);
+                return;
+            }
         }
 
         // ── Game-thread preparations ──────────────────────────────────────────
@@ -534,9 +507,12 @@ public final class DownloadManager {
             return;
         }
 
+        EntityTracker.pruneToMatchCapturedChunks();
+
         // Capture entities for the current dimension (must happen on game thread)
         if (client.world != null) {
             EntityTracker.captureEntitiesForWorld(client.world);
+            EntityTracker.pruneToMatchCapturedChunks();
         }
         Map<RegistryKey<World>, Map<ChunkPos, List<NbtCompound>>> entitySnapshot =
                 EntityTracker.snapshot();
@@ -544,21 +520,20 @@ public final class DownloadManager {
         // Collect source info while on the game thread
         String sourceId = preferredSourceId;
         String sourceType = preferredSourceType;
-        if (sourceId == null || sourceId.isBlank() || "unknown".equals(sourceId)) {
+        if (isUnknownSourceId(sourceId)) {
             sourceId = WorldMetadata.detectSourceId(client);
         }
-        if (sourceType == null || sourceType.isBlank()) {
+        if (isBlank(sourceType)) {
             sourceType = WorldMetadata.detectSourceType(client);
         }
-        if ((sourceId == null || sourceId.isBlank() || "unknown".equals(sourceId))
-                && lastSourceId != null) {
+        if (isUnknownSourceId(sourceId) && lastSourceId != null) {
             sourceId = lastSourceId;
         }
-        if ((sourceType == null || sourceType.isBlank()) && lastSourceType != null) {
+        if (isBlank(sourceType) && lastSourceType != null) {
             sourceType = lastSourceType;
         }
-        if (sourceId == null || sourceId.isBlank()) sourceId = "unknown";
-        if (sourceType == null || sourceType.isBlank()) sourceType = "server";
+        if (isUnknownSourceId(sourceId)) sourceId = "unknown";
+        if (isBlank(sourceType)) sourceType = "server";
 
         lastSourceId = sourceId;
         lastSourceType = sourceType;
@@ -577,7 +552,7 @@ public final class DownloadManager {
 
         int totalChunks = snapshot.values().stream().mapToInt(Map::size).sum();
         WMLogger.info("Queuing background export of " + totalChunks
-                + " chunks across " + snapshot.size() + " dimension(s)...");
+                + " cached chunk(s) across " + snapshot.size() + " dimension(s)...");
 
         // ── Background thread ─────────────────────────────────────────────────
         exportInProgress.set(true);
@@ -609,13 +584,11 @@ public final class DownloadManager {
                 WorldStructureCreator.createLoadableWorld(finalWorldFolder.toFile(), finalSourceId);
                 WorldMetadata.update(finalWorldFolder, finalSourceId, finalSourceType);
 
-                // Record written chunks in the database
                 for (Map.Entry<RegistryKey<World>, Set<ChunkPos>> dimEntry : written.entrySet()) {
                     String dimStr = dimEntry.getKey().getValue().toString();
                     db.recordUpdates(dimStr, dimEntry.getValue(), "world_mirror");
                 }
 
-                // Invalidate exported chunks if configured
                 if (ModConfig.get().cache.invalidateAfterExport && !written.isEmpty()) {
                     ChunkListener.invalidateChunks(written);
                 }
@@ -643,6 +616,125 @@ public final class DownloadManager {
         }, "WM-Export");
         worker.setDaemon(true);
         worker.start();
+    }
+
+    private static int queueLoadedChunks(ClientWorld world, int playerCX, int playerCZ,
+                                         int range, String reason) {
+        if (world == null || range <= 0) return 0;
+
+        RegistryKey<World> dimension = world.getRegistryKey();
+        int queued = 0;
+        synchronized (captureQueueLock) {
+            for (int cx = playerCX - range; cx <= playerCX + range; cx++) {
+                for (int cz = playerCZ - range; cz <= playerCZ + range; cz++) {
+                    Chunk chunk = world.getChunk(cx, cz);
+                    if (!(chunk instanceof WorldChunk)) continue;
+                    CaptureKey key = new CaptureKey(dimension, cx, cz);
+                    if (pendingCaptureSet.add(key)) {
+                        PendingChunkCapture request = new PendingChunkCapture(key, reason);
+                        pendingCaptures.add(request);
+                        queued++;
+                    }
+                }
+            }
+            captureInProgress.set(!pendingCaptures.isEmpty());
+        }
+        return queued;
+    }
+
+    private static void processPendingCaptures(MinecraftClient client) {
+        ClientWorld world = client.world;
+        if (world == null) return;
+
+        RegistryKey<World> currentDimension = world.getRegistryKey();
+        int processed = 0;
+        int captured = 0;
+
+        while (processed < CAPTURE_CHUNKS_PER_TICK) {
+            PendingChunkCapture request;
+            synchronized (captureQueueLock) {
+                request = pendingCaptures.pollFirst();
+                if (request != null) {
+                    pendingCaptureSet.remove(request.key());
+                }
+                captureInProgress.set(!pendingCaptures.isEmpty());
+            }
+
+            if (request == null) {
+                break;
+            }
+
+            processed++;
+            if (!currentDimension.equals(request.key().dimension())) {
+                continue;
+            }
+
+            Chunk chunk = world.getChunk(request.key().chunkX(), request.key().chunkZ());
+            if (!(chunk instanceof WorldChunk wc)) {
+                continue;
+            }
+
+            try {
+                if (ChunkSerializer.isChunkEmpty(wc)) continue;
+                NbtCompound nbt = ChunkSerializer.serialize(world, wc);
+                ChunkListener.addChunkNbt(request.key().dimension(), wc.getPos(), nbt);
+                captured++;
+            } catch (Exception e) {
+                WMLogger.warn("Incremental capture failed at " + wc.getPos()
+                        + " (" + request.reason() + "): " + e.getMessage());
+            }
+        }
+
+        if (captured > 0 && !captureInProgress.get()) {
+            WMLogger.info("Incremental chunk capture finished with " + captured + " chunk(s) on the last tick.");
+        }
+    }
+
+    private static void deferExport(boolean notify, String preferredSourceId, String preferredSourceType) {
+        synchronized (captureQueueLock) {
+            if (pendingExport == null) {
+                pendingExport = new PendingExportRequest(notify, preferredSourceId, preferredSourceType);
+            } else {
+                pendingExport = new PendingExportRequest(
+                        pendingExport.shouldNotify() || notify,
+                        choosePreferred(preferredSourceId, pendingExport.preferredSourceId()),
+                        choosePreferred(preferredSourceType, pendingExport.preferredSourceType()));
+            }
+        }
+    }
+
+    private static void tryStartDeferredExport(MinecraftClient client) {
+        PendingExportRequest request;
+        synchronized (captureQueueLock) {
+            if (!pendingCaptures.isEmpty() || exportInProgress.get() || pendingExport == null) {
+                return;
+            }
+            request = pendingExport;
+            pendingExport = null;
+        }
+        startBackgroundSync(client, request.shouldNotify(), true,
+                request.preferredSourceId(), request.preferredSourceType());
+    }
+
+    private static void clearPendingCaptureState() {
+        synchronized (captureQueueLock) {
+            pendingCaptures.clear();
+            pendingCaptureSet.clear();
+            pendingExport = null;
+            captureInProgress.set(false);
+        }
+    }
+
+    private static boolean isUnknownSourceId(String sourceId) {
+        return sourceId == null || sourceId.isBlank() || "unknown".equals(sourceId);
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private static String choosePreferred(String candidate, String fallback) {
+        return !isBlank(candidate) ? candidate : fallback;
     }
 
     /**
