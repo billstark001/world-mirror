@@ -54,6 +54,9 @@ public final class DownloadManager {
     private static final AtomicBoolean exportInProgress = new AtomicBoolean(false);
     /** Guards against starting a second initial-capture while one is still running. */
     private static final AtomicBoolean captureInProgress = new AtomicBoolean(false);
+    private static final int INITIAL_CAPTURE_RANGE = 33;
+    private static final int PRE_EXPORT_CAPTURE_RANGE = 8;
+    private static final int STOP_CAPTURE_RANGE = 6;
 
     // ── Lifecycle tracking ────────────────────────────────────────────────────
 
@@ -69,6 +72,7 @@ public final class DownloadManager {
      * while remaining connected to the same server address.
      */
     private static volatile String lastSourceId = null;
+    private static volatile String lastSourceType = null;
 
     public static boolean isActive() {
         return currentActive.get();
@@ -86,7 +90,8 @@ public final class DownloadManager {
      * immediately captured so that the player does not need to reload them.
      */
     public static void toggle(MinecraftClient client) {
-        boolean nowActive = !currentActive.get();
+        boolean wasActive = currentActive.get();
+        boolean nowActive = !wasActive;
         currentActive.set(nowActive);
         if (nowActive) {
             lastPeriodicSyncMs = System.currentTimeMillis();
@@ -95,6 +100,8 @@ public final class DownloadManager {
             if (client.world != null) {
                 captureLoadedChunksAsync(client);
             }
+        } else {
+            finalizeCaptureOnStop(client, "manual-toggle");
         }
         Text msg = Text.translatable(
                 nowActive ? "msg.worldmirror.downloadStart"
@@ -146,21 +153,28 @@ public final class DownloadManager {
      * {@link ModConfig.LifecycleConfig#onJoinWorld} behaviour.
      */
     public static void onJoinWorld(MinecraftClient client) {
+        applyTransition(client, ModConfig.get().lifecycle.onJoinWorld, "join-world");
+
         // Reset tracking so subsequent change-detection starts fresh.
         lastDimension = (client.world != null) ? client.world.getRegistryKey() : null;
         lastSourceId  = WorldMetadata.detectSourceId(client);
-
-        applyTransition(client, ModConfig.get().lifecycle.onJoinWorld, "join-world");
+        lastSourceType = WorldMetadata.detectSourceType(client);
     }
 
     /**
      * Called when the player disconnects from a world / server.
      * Resets lifecycle tracking state so the next join starts clean.
-     * Download state is NOT changed here — leaving the world inherently stops capture.
+     * If download was active, runs stop-time finalisation (optional capture/export)
+     * before clearing lifecycle tracking state.
      */
-    public static void onLeaveWorld() {
+    public static void onLeaveWorld(MinecraftClient client) {
+        if (currentActive.get()) {
+            currentActive.set(false);
+            finalizeCaptureOnStop(client, "leave-world");
+        }
         lastDimension = null;
         lastSourceId  = null;
+        lastSourceType = null;
         currentActive.set(false); // no world to download — always stop
         WMLogger.info("Left world; download deactivated.");
     }
@@ -175,6 +189,7 @@ public final class DownloadManager {
 
         RegistryKey<World> currentDim = client.world.getRegistryKey();
         String currentSourceId = WorldMetadata.detectSourceId(client);
+        String currentSourceType = WorldMetadata.detectSourceType(client);
 
         // ── Detect server-side world change (same address, different logical world) ──
         // Must be checked BEFORE dimension change, as a world change also implies
@@ -182,10 +197,11 @@ public final class DownloadManager {
         if (lastSourceId != null && !lastSourceId.equals(currentSourceId)) {
             WMLogger.info("Server world change detected: '" + lastSourceId
                     + "' → '" + currentSourceId + "'");
-            lastSourceId  = currentSourceId;
-            lastDimension = currentDim;
             applyTransition(client, ModConfig.get().lifecycle.onServerWorldChange,
                     "server-world-change");
+            lastSourceId  = currentSourceId;
+            lastSourceType = currentSourceType;
+            lastDimension = currentDim;
             // Re-capture loaded chunks according to the new active state
             if (currentActive.get()) captureLoadedChunksAsync(client);
             if (!currentActive.get()) return;
@@ -205,6 +221,7 @@ public final class DownloadManager {
         // Update tracking even if player was in null world on the previous tick
         if (lastDimension == null) lastDimension = currentDim;
         if (lastSourceId  == null) lastSourceId  = currentSourceId;
+        if (lastSourceType == null) lastSourceType = currentSourceType;
 
         if (!currentActive.get()) return;
 
@@ -226,16 +243,20 @@ public final class DownloadManager {
     private static void applyTransition(MinecraftClient client,
                                         ModConfig.TransitionBehavior behavior,
                                         String eventName) {
+        boolean wasActive = currentActive.get();
         boolean desired;
         switch (behavior) {
             case START -> desired = true;
             case STOP  -> desired = false;
             default    -> { return; } // KEEP — do nothing
         }
-        if (currentActive.get() == desired) return; // already in the right state
+        if (wasActive == desired) return; // already in the right state
 
         currentActive.set(desired);
         if (desired) lastPeriodicSyncMs = System.currentTimeMillis();
+        if (!desired) {
+            finalizeCaptureOnStop(client, eventName);
+        }
 
         Text msg = Text.translatable(
                 desired ? "msg.worldmirror.downloadStart"
@@ -266,6 +287,10 @@ public final class DownloadManager {
      */
     public static Path getOutputPath(MinecraftClient client) {
         String sourceId   = WorldMetadata.detectSourceId(client);
+        return getOutputPathForSource(sourceId);
+    }
+
+    private static Path getOutputPathForSource(String sourceId) {
         // Always the sanitised base name — no suffix appended here.
         String baseName   = MirrorMapping.getInstance().getMirrorFolderName(sourceId);
 
@@ -371,10 +396,8 @@ public final class DownloadManager {
         RegistryKey<World> dimension = world.getRegistryKey();
         int playerCX = client.player.getBlockX() >> 4;
         int playerCZ = client.player.getBlockZ() >> 4;
-        // 33 covers a ~66-chunk diameter, comfortably exceeding the maximum client-side
-        // render distance (typically 2–32 chunks).  Unloaded positions return an
-        // EmptyChunk and are filtered out by the instanceof check below.
-        int range = 33;
+        // Covers a wide area for the one-time initial capture.
+        int range = INITIAL_CAPTURE_RANGE;
 
         // ── Phase 1: collect WorldChunk references (game thread, no serialisation) ──
         List<WorldChunk> toCapture = new ArrayList<>();
@@ -428,13 +451,80 @@ public final class DownloadManager {
     }
 
     /**
+     * Captures loaded chunks around the player synchronously on the game thread.
+     * Used before export and while stopping download to reduce data loss windows.
+     */
+    private static int captureNearbyLoadedChunksSync(MinecraftClient client, int range, String reason) {
+        ClientWorld world = client.world;
+        if (world == null || client.player == null || range <= 0) return 0;
+
+        RegistryKey<World> dimension = world.getRegistryKey();
+        int playerCX = client.player.getBlockX() >> 4;
+        int playerCZ = client.player.getBlockZ() >> 4;
+        int captured = 0;
+
+        for (int cx = playerCX - range; cx <= playerCX + range; cx++) {
+            for (int cz = playerCZ - range; cz <= playerCZ + range; cz++) {
+                Chunk chunk = world.getChunk(cx, cz);
+                if (!(chunk instanceof WorldChunk wc)) continue;
+                try {
+                    if (ChunkSerializer.isChunkEmpty(wc)) continue;
+                    NbtCompound nbt = ChunkSerializer.serialize(world, wc);
+                    ChunkListener.addChunkNbt(dimension, wc.getPos(), nbt);
+                    captured++;
+                } catch (Exception e) {
+                    WMLogger.warn("captureNearbyLoadedChunksSync(" + reason + "): failed at "
+                            + wc.getPos() + ": " + e.getMessage());
+                }
+            }
+        }
+
+        if (captured > 0) {
+            WMLogger.info("Captured " + captured + " nearby chunks (range=" + range
+                    + ") for " + reason + ".");
+        }
+        return captured;
+    }
+
+    /**
+     * Finalisation path when download is deactivated.
+     * Optionally captures nearby chunks and then writes all cached chunks once.
+     */
+    private static void finalizeCaptureOnStop(MinecraftClient client, String reason) {
+        ModConfig.LifecycleConfig lifecycle = ModConfig.get().lifecycle;
+        boolean didStopCapture = false;
+
+        if (lifecycle.captureNearbyOnStop) {
+            didStopCapture = captureNearbyLoadedChunksSync(client, STOP_CAPTURE_RANGE,
+                    "stop-" + reason) > 0;
+        }
+
+        if (lifecycle.exportAllCachedOnStop) {
+            startBackgroundSync(client, false, didStopCapture,
+                    lastSourceId, lastSourceType);
+        }
+    }
+
+    /**
      * Prepares a snapshot on the game thread, then hands it off to a background
      * daemon thread for the actual I/O work.
      */
     private static void startBackgroundSync(MinecraftClient client, boolean notify) {
+        startBackgroundSync(client, notify, false, null, null);
+    }
+
+    private static void startBackgroundSync(MinecraftClient client,
+                                            boolean notify,
+                                            boolean preCaptureAlreadyDone,
+                                            String preferredSourceId,
+                                            String preferredSourceType) {
         if (exportInProgress.get()) {
             WMLogger.warn("Export already in progress — skipping.");
             return;
+        }
+
+        if (!preCaptureAlreadyDone && ModConfig.get().lifecycle.captureNearbyBeforeExport) {
+            captureNearbyLoadedChunksSync(client, PRE_EXPORT_CAPTURE_RANGE, "pre-export");
         }
 
         // ── Game-thread preparations ──────────────────────────────────────────
@@ -452,11 +542,33 @@ public final class DownloadManager {
                 EntityTracker.snapshot();
 
         // Collect source info while on the game thread
-        String sourceId   = WorldMetadata.detectSourceId(client);
-        String sourceType = WorldMetadata.detectSourceType(client);
+        String sourceId = preferredSourceId;
+        String sourceType = preferredSourceType;
+        if (sourceId == null || sourceId.isBlank() || "unknown".equals(sourceId)) {
+            sourceId = WorldMetadata.detectSourceId(client);
+        }
+        if (sourceType == null || sourceType.isBlank()) {
+            sourceType = WorldMetadata.detectSourceType(client);
+        }
+        if ((sourceId == null || sourceId.isBlank() || "unknown".equals(sourceId))
+                && lastSourceId != null) {
+            sourceId = lastSourceId;
+        }
+        if ((sourceType == null || sourceType.isBlank()) && lastSourceType != null) {
+            sourceType = lastSourceType;
+        }
+        if (sourceId == null || sourceId.isBlank()) sourceId = "unknown";
+        if (sourceType == null || sourceType.isBlank()) sourceType = "server";
+
+        lastSourceId = sourceId;
+        lastSourceType = sourceType;
+
+        final String finalSourceId = sourceId;
+        final String finalSourceType = sourceType;
+
         Path worldFolder;
         try {
-            worldFolder = getOutputPath(client);
+            worldFolder = getOutputPathForSource(finalSourceId);
             Files.createDirectories(worldFolder);
         } catch (Exception e) {
             WMLogger.warn("Failed to prepare output directory: " + e.getMessage());
@@ -475,11 +587,11 @@ public final class DownloadManager {
             ChunkDatabase db = null;
             try {
                 WorldMetadata meta = WorldMetadata.loadOrCreate(
-                        finalWorldFolder, sourceId, sourceType);
+                        finalWorldFolder, finalSourceId, finalSourceType);
 
                 // Open (or create) the chunk database for this mirror world
                 try {
-                    db = ChunkDatabase.open(finalWorldFolder, sourceId);
+                    db = ChunkDatabase.open(finalWorldFolder, finalSourceId);
                 } catch (SQLException e) {
                     WMLogger.warn("Could not open chunk database, export aborted: " + e.getMessage());
                     return;
@@ -488,14 +600,14 @@ public final class DownloadManager {
                 // Migrate legacy chunkUpdateTimes from JSON → SQLite (idempotent)
                 meta.migrateAndCleanChunkTimes(db, finalWorldFolder);
 
-                ConflictResolver resolver = buildResolverForSource(sourceId);
+                ConflictResolver resolver = buildResolverForSource(finalSourceId);
 
                 Map<RegistryKey<World>, Set<ChunkPos>> written =
                         ChunkExporter.exportChunks(finalWorldFolder, snapshot, entitySnapshot,
                                 resolver, db);
 
-                WorldStructureCreator.createLoadableWorld(finalWorldFolder.toFile(), sourceId);
-                WorldMetadata.update(finalWorldFolder, sourceId, sourceType);
+                WorldStructureCreator.createLoadableWorld(finalWorldFolder.toFile(), finalSourceId);
+                WorldMetadata.update(finalWorldFolder, finalSourceId, finalSourceType);
 
                 // Record written chunks in the database
                 for (Map.Entry<RegistryKey<World>, Set<ChunkPos>> dimEntry : written.entrySet()) {

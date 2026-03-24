@@ -76,7 +76,7 @@ public class WorldMirrorClient implements ClientModInitializer {
 
         // Reset lifecycle tracking state when the player leaves a server / world.
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) ->
-                DownloadManager.onLeaveWorld());
+                DownloadManager.onLeaveWorld(client));
     }
 }
 

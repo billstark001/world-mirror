@@ -148,6 +148,26 @@ public class ModConfig implements ConfigData {
         @ConfigEntry.Gui.Tooltip
         @ConfigEntry.Gui.EnumHandler(option = ConfigEntry.Gui.EnumHandler.EnumDisplayOption.DROPDOWN)
         public TransitionBehavior onServerWorldChange = TransitionBehavior.STOP;
+
+        /**
+         * If enabled, capture loaded chunks around the player right before each export.
+         * Uses a short radius to keep the game-thread cost low.
+         */
+        @ConfigEntry.Gui.Tooltip
+        public boolean captureNearbyBeforeExport = true;
+
+        /**
+         * If enabled, capture loaded chunks around the player once when download stops.
+         * This runs before optional stop-time export.
+         */
+        @ConfigEntry.Gui.Tooltip
+        public boolean captureNearbyOnStop = false;
+
+        /**
+         * If enabled, trigger one final export of all cached chunks when download stops.
+         */
+        @ConfigEntry.Gui.Tooltip
+        public boolean exportAllCachedOnStop = false;
     }
 
     // ── Singleton + AutoConfig integration ────────────────────────────────────

@@ -106,6 +106,15 @@
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.@Tooltip": "Download state when the player is sent to a different world on the same server (e.g. Multiverse plugin).\nSTART: begin downloading automatically.\nSTOP: stop downloading (default).\nKEEP: leave state unchanged.",
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.start": "Start",
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.stop":  "Stop",
-  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.keep":  "Keep"
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.keep":  "Keep",
+
+  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyBeforeExport": "Capture Nearby Before Export",
+  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyBeforeExport.@Tooltip": "Capture loaded chunks around the player before each export to reduce missed recent changes.",
+
+  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyOnStop": "Capture Nearby On Stop",
+  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyOnStop.@Tooltip": "Capture loaded chunks around the player once when download stops.",
+
+  "text.autoconfig.worldmirror.option.lifecycle.exportAllCachedOnStop": "Export All Cached On Stop",
+  "text.autoconfig.worldmirror.option.lifecycle.exportAllCachedOnStop.@Tooltip": "Write all currently cached chunks once when download stops. If stop capture is enabled, nearby chunks are captured first."
 }
 

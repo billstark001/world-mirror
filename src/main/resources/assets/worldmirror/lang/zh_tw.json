@@ -106,5 +106,14 @@
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.@Tooltip": "玩家在同一伺服器上被傳送至不同邏輯世界（如多世界外掛）時的下載狀態。\nSTART：自動開始下載。\nSTOP：停止下載（預設）。\nKEEP：保持目前狀態不變。",
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.start": "開始下載",
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.stop":  "停止下載",
-  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.keep":  "保持上次狀態"
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.keep":  "保持上次狀態",
+
+  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyBeforeExport": "每次匯出前快取附近區塊",
+  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyBeforeExport.@Tooltip": "每次匯出前，先快取玩家附近已載入區塊，減少最近變更漏寫。",
+
+  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyOnStop": "停止下載時快取附近區塊",
+  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyOnStop.@Tooltip": "下載停止時，額外快取一次玩家附近已載入區塊。",
+
+  "text.autoconfig.worldmirror.option.lifecycle.exportAllCachedOnStop": "停止下載時寫入全部快取",
+  "text.autoconfig.worldmirror.option.lifecycle.exportAllCachedOnStop.@Tooltip": "下載停止時，將目前所有快取區塊寫入一次。若啟用「停止下載時快取附近區塊」，則會先快取再寫入。"
 }
