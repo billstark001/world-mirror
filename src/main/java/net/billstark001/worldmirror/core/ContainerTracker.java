@@ -10,6 +10,7 @@ import net.fabricmc.api.Environment;
 import net.minecraft.item.ItemStack;
 import net.minecraft.block.ChestBlock;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.ChunkPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.nbt.NbtCompound;
@@ -20,12 +21,16 @@ import net.minecraft.block.BlockState;
 import net.minecraft.block.enums.ChestType;
 import net.minecraft.state.property.Property;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.registry.RegistryKey;
 import net.minecraft.util.hit.BlockHitResult;
+import net.minecraft.world.World;
 
 @Environment(EnvType.CLIENT)
 public class ContainerTracker {
+    private record ContainerKey(RegistryKey<World> dimension, BlockPos pos) { }
+
     private static final Map<Integer, ContainerData> openContainers = new ConcurrentHashMap<>();
-    private static final Map<BlockPos, NbtCompound> savedContainerData = new ConcurrentHashMap<>();
+    private static final Map<ContainerKey, NbtCompound> savedContainerData = new ConcurrentHashMap<>();
 
     public static void onContainerOpened(int syncId, Text name) {
         MinecraftClient client = MinecraftClient.getInstance();
@@ -64,9 +69,13 @@ public class ContainerTracker {
     }
 
     private static void handleRegularContainer(ContainerData container, List<ItemStack> contents, int containerSlots) {
+        RegistryKey<World> dimension = currentDimension();
+        if (dimension == null) {
+            return;
+        }
         container.setContainerInventory(contents, containerSlots);
         NbtCompound containerNbt = container.toNbt();
-        savedContainerData.put(container.pos, containerNbt);
+        savedContainerData.put(new ContainerKey(dimension, container.pos), containerNbt);
 
         int nonEmptySlots = countNonEmptySlots(contents, containerSlots);
         WMLogger.debug("Saved regular container at " + container.pos + " with " + nonEmptySlots + "/" + containerSlots + " filled slots");
@@ -89,8 +98,9 @@ public class ContainerTracker {
         }
         try {
             BlockPos leftChestPos, rightChestPos;
-            ChestType chestType = (ChestType) blockState.get((Property) ChestBlock.CHEST_TYPE);
-            Direction facing = (Direction) blockState.get((Property) ChestBlock.FACING);
+            ChestType chestType = blockState.get(ChestBlock.CHEST_TYPE);
+            Direction facing = blockState.get(ChestBlock.FACING);
+            RegistryKey<World> dimension = client.world.getRegistryKey();
 
 
             if (chestType == ChestType.SINGLE) {
@@ -118,13 +128,13 @@ public class ContainerTracker {
             leftContainer.setContainerInventory(leftChestItems, 27);
             leftContainer.setChestType(ChestType.LEFT, facing);
             NbtCompound leftChestNbt = leftContainer.toNbt();
-            savedContainerData.put(leftChestPos, leftChestNbt);
+            savedContainerData.put(new ContainerKey(dimension, leftChestPos), leftChestNbt);
 
             ContainerData rightContainer = new ContainerData(rightChestPos, container.name);
             rightContainer.setContainerInventory(rightChestItems, 27);
             rightContainer.setChestType(ChestType.RIGHT, facing);
             NbtCompound rightChestNbt = rightContainer.toNbt();
-            savedContainerData.put(rightChestPos, rightChestNbt);
+            savedContainerData.put(new ContainerKey(dimension, rightChestPos), rightChestNbt);
 
             int leftNonEmpty = countNonEmptySlots(leftChestItems, 27);
             int rightNonEmpty = countNonEmptySlots(rightChestItems, 27);
@@ -194,18 +204,57 @@ public class ContainerTracker {
         }
     }
 
-    public static NbtCompound getContainerData(BlockPos pos) {
-        return savedContainerData.get(pos);
+    public static NbtCompound getContainerData(RegistryKey<World> dimension, BlockPos pos) {
+        if (dimension == null || pos == null) return null;
+        return savedContainerData.get(new ContainerKey(dimension, pos));
     }
 
-    public static boolean hasContainerData(BlockPos pos) {
-        return savedContainerData.containsKey(pos);
+    public static boolean hasContainerData(RegistryKey<World> dimension, BlockPos pos) {
+        if (dimension == null || pos == null) return false;
+        return savedContainerData.containsKey(new ContainerKey(dimension, pos));
     }
 
     public static void clear() {
         openContainers.clear();
         savedContainerData.clear();
         WMLogger.info("Cleared all container data");
+    }
+
+    /**
+     * Removes saved container data for all block positions that fall inside any of
+     * the given chunk positions.  Called by {@link ChunkListener} whenever chunks
+     * are evicted from the cache so that container data does not accumulate
+     * indefinitely in long-running sessions.
+     *
+     * @param evictedChunks the set of chunk positions whose container data should
+     *                      be discarded
+     */
+    public static void evictForChunks(Map<RegistryKey<World>, ? extends java.util.Collection<ChunkPos>> evictedByDim) {
+        if (evictedByDim == null || evictedByDim.isEmpty()) return;
+
+        Map<RegistryKey<World>, java.util.Set<ChunkPos>> normalized = new java.util.HashMap<>();
+        for (Map.Entry<RegistryKey<World>, ? extends java.util.Collection<ChunkPos>> entry : evictedByDim.entrySet()) {
+            java.util.Collection<ChunkPos> chunks = entry.getValue();
+            if (chunks == null || chunks.isEmpty()) continue;
+            normalized.put(entry.getKey(), chunks instanceof java.util.Set<?>
+                    ? (java.util.Set<ChunkPos>) chunks
+                    : new java.util.HashSet<>(chunks));
+        }
+        if (normalized.isEmpty()) return;
+
+        int removed = 0;
+        java.util.Iterator<ContainerKey> it = savedContainerData.keySet().iterator();
+        while (it.hasNext()) {
+            ContainerKey key = it.next();
+            java.util.Set<ChunkPos> chunkSet = normalized.get(key.dimension());
+            if (chunkSet != null && chunkSet.contains(new ChunkPos(key.pos()))) {
+                it.remove();
+                removed++;
+            }
+        }
+        if (removed > 0) {
+            WMLogger.debug("Evicted " + removed + " container entries across " + normalized.size() + " dimension(s).");
+        }
     }
 
     public static int getTotalSavedContainers() {
@@ -218,7 +267,10 @@ public class ContainerTracker {
             return null;
         }
         BlockPos pos = blockEntity.getPos();
-        NbtCompound containerData = getContainerData(pos);
+        RegistryKey<World> dimension = blockEntity.getWorld() != null
+                ? blockEntity.getWorld().getRegistryKey()
+                : currentDimension();
+        NbtCompound containerData = getContainerData(dimension, pos);
 
         if (containerData != null) {
             if (containerData.contains("Items")) {
@@ -236,5 +288,10 @@ public class ContainerTracker {
         }
 
         return originalNbt;
+    }
+
+    private static RegistryKey<World> currentDimension() {
+        MinecraftClient client = MinecraftClient.getInstance();
+        return client.world != null ? client.world.getRegistryKey() : null;
     }
 }

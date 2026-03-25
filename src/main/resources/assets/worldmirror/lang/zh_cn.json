@@ -106,5 +106,14 @@
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.@Tooltip": "玩家在同一服务器上被传送至不同逻辑世界（如多世界插件）时的下载状态。\nSTART：自动开始下载。\nSTOP：停止下载（默认）。\nKEEP：保持当前状态不变。",
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.start": "开始下载",
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.stop":  "停止下载",
-  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.keep":  "保持上次状态"
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.keep":  "保持上次状态",
+
+  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyBeforeExport": "每次导出前缓存附近区块",
+  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyBeforeExport.@Tooltip": "每次导出前，先缓存玩家附近已加载区块，减少最近变更漏写。",
+
+  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyOnStop": "停止下载时缓存附近区块",
+  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyOnStop.@Tooltip": "下载停止时，额外缓存一次玩家附近已加载区块。",
+
+  "text.autoconfig.worldmirror.option.lifecycle.exportAllCachedOnStop": "停止下载时写入全部缓存",
+  "text.autoconfig.worldmirror.option.lifecycle.exportAllCachedOnStop.@Tooltip": "下载停止时，将当前所有缓存区块写入一次。若启用了“停止下载时缓存附近区块”，则会先缓存再写入。"
 }

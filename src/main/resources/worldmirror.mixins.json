@@ -5,10 +5,8 @@
   "client": [
     "ChestBlockEntityMixin",
     "ChunkDataMixin",
-    "ChunkDataPacketAccessor",
     "ContainerMixin",
-    "DebugContainerMixin",
-    "SerializedChunkInvoker"
+    "DebugContainerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

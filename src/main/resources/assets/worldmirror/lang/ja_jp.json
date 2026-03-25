@@ -106,5 +106,14 @@
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.@Tooltip": "プレイヤーが同じサーバー上の別の論理ワールドに送られたとき（例：マルチワールドプラグイン）のダウンロード状態。\nSTART：自動的にダウンロードを開始。\nSTOP：ダウンロードを停止（デフォルト）。\nKEEP：現在の状態を維持。",
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.start": "開始",
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.stop":  "停止",
-  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.keep":  "維持"
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.keep":  "維持",
+
+  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyBeforeExport": "エクスポート前に周辺チャンクを取得",
+  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyBeforeExport.@Tooltip": "各エクスポート前に、プレイヤー周辺の読み込み済みチャンクを取得して直近の変更の取りこぼしを減らします。",
+
+  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyOnStop": "停止時に周辺チャンクを取得",
+  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyOnStop.@Tooltip": "ダウンロード停止時に、プレイヤー周辺の読み込み済みチャンクを1回追加で取得します。",
+
+  "text.autoconfig.worldmirror.option.lifecycle.exportAllCachedOnStop": "停止時に全キャッシュを書き出す",
+  "text.autoconfig.worldmirror.option.lifecycle.exportAllCachedOnStop.@Tooltip": "ダウンロード停止時に、現在キャッシュされている全チャンクを1回書き出します。停止時取得が有効なら、先に周辺チャンクを取得してから書き出します。"
 }

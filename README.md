@@ -1,6 +1,6 @@
 # World Mirror
 
-**Version:** 0.1.0 · **Minecraft:** 1.21.11 · **Loader:** Fabric
+**Version:** 0.2.0 · **Minecraft:** 1.21.11 · **Loader:** Fabric
 
 A client-side Fabric mod that silently mirrors the world you are playing on a multiplayer
 server — or even a singleplayer world — into a fully loadable local copy.  As you explore,

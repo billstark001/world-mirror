@@ -94,7 +94,7 @@ public class EntityTracker {
         return result;
     }
 
-    /** Looks up entities in a pre-fetched per-dimension entity map (for use inside Exporter). */
+    /** Looks up entities in a pre-fetched per-dimension entity map (for use inside ChunkExporter). */
     public static List<NbtCompound> getEntitiesForChunk(
             Map<ChunkPos, List<NbtCompound>> dimEntities, ChunkPos pos) {
         if (dimEntities == null) return List.of();
@@ -112,6 +112,55 @@ public class EntityTracker {
         return dimChunkEntities.values().stream()
                 .mapToInt(m -> m.values().stream().mapToInt(List::size).sum())
                 .sum();
+    }
+
+    /**
+     * Removes entity data for chunks/dimensions that no longer exist in
+     * {@link ChunkListener}'s captured-chunk cache.
+     */
+    public static void pruneToMatchCapturedChunks() {
+        int removedChunks = 0;
+        int removedEntities = 0;
+        List<RegistryKey<World>> emptyDims = new ArrayList<>();
+
+        for (Map.Entry<RegistryKey<World>, Map<ChunkPos, List<NbtCompound>>> dimEntry
+                : dimChunkEntities.entrySet()) {
+            RegistryKey<World> dimension = dimEntry.getKey();
+            Map<ChunkPos, ChunkListener.CapturedChunk> capturedChunks =
+                    ChunkListener.getDimension(dimension);
+            Map<ChunkPos, List<NbtCompound>> entitiesByChunk = dimEntry.getValue();
+
+            if (capturedChunks.isEmpty()) {
+                removedChunks += entitiesByChunk.size();
+                removedEntities += entitiesByChunk.values().stream().mapToInt(List::size).sum();
+                emptyDims.add(dimension);
+                continue;
+            }
+
+            List<ChunkPos> staleChunks = new ArrayList<>();
+            for (Map.Entry<ChunkPos, List<NbtCompound>> chunkEntry : entitiesByChunk.entrySet()) {
+                if (!capturedChunks.containsKey(chunkEntry.getKey())) {
+                    staleChunks.add(chunkEntry.getKey());
+                    removedEntities += chunkEntry.getValue().size();
+                }
+            }
+            for (ChunkPos pos : staleChunks) {
+                entitiesByChunk.remove(pos);
+                removedChunks++;
+            }
+            if (entitiesByChunk.isEmpty()) {
+                emptyDims.add(dimension);
+            }
+        }
+
+        for (RegistryKey<World> dimension : emptyDims) {
+            dimChunkEntities.remove(dimension);
+        }
+
+        if (removedChunks > 0 || removedEntities > 0) {
+            WMLogger.debug("Pruned " + removedChunks + " stale entity chunk entr"
+                    + (removedChunks == 1 ? "y" : "ies") + " (" + removedEntities + " entities).");
+        }
     }
 
     // ── Entity serialisation ──────────────────────────────────────────────────
