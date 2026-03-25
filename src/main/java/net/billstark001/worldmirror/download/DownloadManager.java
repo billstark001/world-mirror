@@ -581,7 +581,7 @@ public final class DownloadManager {
                         ChunkExporter.exportChunks(finalWorldFolder, snapshot, entitySnapshot,
                                 resolver, db);
 
-                WorldStructureCreator.createLoadableWorld(finalWorldFolder.toFile(), finalSourceId);
+                WorldStructureCreator.createLoadableWorld(finalWorldFolder, finalSourceId);
                 WorldMetadata.update(finalWorldFolder, finalSourceId, finalSourceType);
 
                 for (Map.Entry<RegistryKey<World>, Set<ChunkPos>> dimEntry : written.entrySet()) {

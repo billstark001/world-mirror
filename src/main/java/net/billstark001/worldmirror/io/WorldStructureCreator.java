@@ -1,17 +1,42 @@
 package net.billstark001.worldmirror.io;
 
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
-
+import com.mojang.serialization.Lifecycle;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.SharedConstants;
+import net.minecraft.entity.boss.dragon.EnderDragonFight;
 import net.minecraft.nbt.*;
+import net.minecraft.registry.*;
+import net.minecraft.resource.DataConfiguration;
+import net.minecraft.resource.featuretoggle.FeatureSet;
+import net.minecraft.util.Util;
+import net.minecraft.util.Uuids;
+import net.minecraft.world.Difficulty;
+import net.minecraft.world.GameMode;
+import net.minecraft.world.WorldProperties;
+import net.minecraft.world.border.WorldBorder;
+import net.minecraft.world.dimension.DimensionOptions;
+import net.minecraft.world.gen.GeneratorOptions;
+import net.minecraft.world.level.LevelInfo;
+import net.minecraft.world.level.LevelProperties;
+import net.minecraft.world.rule.GameRules;
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
+
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Stream;
 
 @Environment(EnvType.CLIENT)
 public class WorldStructureCreator {
+
+    private static final String DEFAULT_WORLD_NAME = "Downloaded World";
+    private static final long DEFAULT_SEED = 0L;
+    private static final long DEFAULT_DAYTIME = 6000L;
 
     public static NbtCompound createFlatGenerator() {
         NbtCompound generator = new NbtCompound();
@@ -70,64 +95,7 @@ public class WorldStructureCreator {
         return spawnSettings;
     }
 
-    public static NbtCompound createWorldData(String levelName) {
-
-        NbtCompound data = new NbtCompound();
-
-        data.putInt("DataVersion", SharedConstants.getGameVersion().dataVersion().id());
-
-        data.putString("LevelName", (levelName != null && !levelName.isEmpty())
-                ? levelName : "Downloaded World");
-        data.putLong("RandomSeed", 0L); // seed is irrelevant for void superflat; 0 keeps it deterministic
-        data.putInt("version", 19133);
-        data.putBoolean("initialized", true);
-
-        data.putInt("GameType", 1);
-        data.putBoolean("allowCommands", true);
-        data.putBoolean("hardcore", false);
-        data.putInt("Difficulty", 0);
-        data.putBoolean("DifficultyLocked", false);
-
-        // Void superflat — prevents the game from generating any terrain for
-        // chunks that have not been downloaded.  The generator settings string
-        // encodes a superflat world with a single air layer and no structures.
-        data.put("WorldGenSettings", createFlatWorldGenSettings());
-
-        NbtCompound spawnSettings = createSpawnSettings(0, 80, 0);
-        data.put("spawn", spawnSettings);
-
-        data.putLong("Time", 6000L);
-        data.putLong("DayTime", 6000L);
-        data.putLong("LastPlayed", System.currentTimeMillis());
-
-        NbtCompound worldBorder = new NbtCompound();
-        worldBorder.putDouble("BorderCenterX", 0.0D);
-        worldBorder.putDouble("BorderCenterZ", 0.0D);
-        worldBorder.putDouble("BorderSize", 5.9999968E7D);
-        worldBorder.putDouble("BorderSizeLerpTarget", 5.9999968E7D);
-        worldBorder.putLong("BorderSizeLerpTime", 0L);
-        worldBorder.putDouble("BorderSafeZone", 5.0D);
-        worldBorder.putDouble("BorderDamagePerBlock", 0.2D);
-        worldBorder.putInt("BorderWarningBlocks", 5);
-        worldBorder.putInt("BorderWarningTime", 15);
-        data.put("WorldBorder", worldBorder);
-
-        NbtCompound gameRules = new NbtCompound();
-//                gameRules.putString("keepInventory", "false");
-//                gameRules.putString("mobGriefing", "false");
-//                gameRules.putString("doFireTick", "false");
-//                gameRules.putString("doMobSpawning", "false");
-//                gameRules.putString("doMobLoot", "true");
-//                gameRules.putString("doTileDrops", "true");
-//                gameRules.putString("commandBlockOutput", "true");
-//                gameRules.putString("naturalRegeneration", "true");
-//                gameRules.putString("doDaylightCycle", "false");
-//                gameRules.putString("logAdminCommands", "true");
-//                gameRules.putString("showDeathMessages", "true");
-//                gameRules.putString("randomTickSpeed", "0");
-//                gameRules.putString("sendCommandFeedback", "true");
-        data.put("game_rules", gameRules);
-
+    public static NbtCompound createPlayerData() {
         NbtCompound player = new NbtCompound();
         player.putString("Dimension", "minecraft:overworld");
 
@@ -158,7 +126,140 @@ public class WorldStructureCreator {
         player.put("Inventory", new NbtList());
         player.put("EnderItems", new NbtList());
 
-        data.put("Player", player);
+        return player;
+    }
+
+    private static String normalizeLevelName(String levelName) {
+        return (levelName != null && !levelName.isEmpty()) ? levelName : DEFAULT_WORLD_NAME;
+    }
+
+    @SuppressWarnings({"deprecated"})
+    private static LevelProperties instantiateLevelProperties(String levelName) {
+        LevelInfo levelInfo = new LevelInfo(
+                levelName,
+                GameMode.CREATIVE,
+                false,
+                Difficulty.PEACEFUL,
+                true,
+                new GameRules(FeatureSet.empty()),
+                DataConfiguration.SAFE_MODE
+        );
+        GeneratorOptions generatorOptions = new GeneratorOptions(DEFAULT_SEED, false, false);
+        @SuppressWarnings("deprecation") LevelProperties properties = new LevelProperties(
+                levelInfo,
+                generatorOptions,
+                LevelProperties.SpecialProperty.FLAT,
+                Lifecycle.stable()
+        );
+
+        properties.setDifficultyLocked(false);
+        properties.setInitialized(true);
+        properties.setRaining(false);
+        properties.setRainTime(0);
+        properties.setThundering(false);
+        properties.setThunderTime(0);
+        properties.setClearWeatherTime(0);
+        properties.setTime(DEFAULT_DAYTIME);
+        properties.setTimeOfDay(DEFAULT_DAYTIME);
+
+        return properties;
+    }
+
+    private static NbtList createStringList(Set<String> strings) {
+        NbtList nbtList = new NbtList();
+        Stream<NbtString> var10000 = strings.stream().map(NbtString::of);
+        Objects.requireNonNull(nbtList);
+        var10000.forEach(nbtList::add);
+        return nbtList;
+    }
+
+    /**
+     * Matches the implementation of the corresponding method in {@link LevelProperties}
+     * as of Minecraft version 1.21.11.
+     * * <p>This implementation substitutes or omits world gen information, as {@code ClientWorld}
+     * does not provide such data.</p>
+     * * <p><b>Maintenance Note:</b> During future mod updates, it is critical to ensure this
+     * implementation maintains parity with the latest upstream logic in {@code LevelProperties}.</p>
+     */
+    private static NbtCompound serializeLevelProperties(LevelProperties properties, @Nullable NbtCompound playerNbt) {
+
+        NbtCompound levelNbt = new NbtCompound();
+
+        levelNbt.put("ServerBrands", createStringList(properties.getServerBrands()));
+        levelNbt.putBoolean("WasModded", properties.isModded());
+
+        NbtCompound nbtCompound = new NbtCompound();
+        nbtCompound.putString("Name", SharedConstants.getGameVersion().name());
+        nbtCompound.putInt("Id", SharedConstants.getGameVersion().dataVersion().id());
+        nbtCompound.putBoolean("Snapshot", !SharedConstants.getGameVersion().stable());
+        nbtCompound.putString("Series", SharedConstants.getGameVersion().dataVersion().series());
+        levelNbt.put("Version", nbtCompound);
+        NbtHelper.putDataVersion(levelNbt);
+
+        // world gen settings removed
+
+        levelNbt.putInt("GameType", properties.getLevelInfo().getGameMode().getIndex());
+        levelNbt.put("spawn", WorldProperties.SpawnPoint.CODEC, properties.getSpawnPoint());
+        levelNbt.putLong("Time", properties.getTime());
+        levelNbt.putLong("DayTime", properties.getTimeOfDay());
+        levelNbt.putLong("LastPlayed", Util.getEpochTimeMs());
+        levelNbt.putString("LevelName", properties.getLevelInfo().getLevelName());
+        levelNbt.putInt("version", 19133);
+        levelNbt.putInt("clearWeatherTime", properties.getClearWeatherTime());
+        levelNbt.putInt("rainTime", properties.getRainTime());
+        levelNbt.putBoolean("raining", properties.isRaining());
+        levelNbt.putInt("thunderTime", properties.getThunderTime());
+        levelNbt.putBoolean("thundering", properties.isThundering());
+        levelNbt.putBoolean("hardcore", properties.getLevelInfo().isHardcore());
+        levelNbt.putBoolean("allowCommands", properties.getLevelInfo().areCommandsAllowed());
+        levelNbt.putBoolean("initialized", properties.isInitialized());
+        properties.getWorldBorder().ifPresent((worldBorder) -> levelNbt.put("world_border", WorldBorder.Properties.CODEC, worldBorder));
+        levelNbt.putByte("Difficulty", (byte) properties.getLevelInfo().getDifficulty().getId());
+        levelNbt.putBoolean("DifficultyLocked", properties.isDifficultyLocked());
+        levelNbt.put("game_rules", GameRules.createCodec(properties.getEnabledFeatures()), properties.getLevelInfo().getGameRules());
+        levelNbt.put("DragonFight", EnderDragonFight.Data.CODEC, properties.getDragonFight());
+
+        if (playerNbt != null) {
+            levelNbt.put("Player", playerNbt);
+        }
+
+        levelNbt.copyFromCodec(DataConfiguration.MAP_CODEC, properties.getLevelInfo().getDataConfiguration());
+        if (properties.getCustomBossEvents() != null) {
+            levelNbt.put("CustomBossEvents", properties.getCustomBossEvents());
+        }
+
+        levelNbt.put("ScheduledEvents", properties.getScheduledEvents().toNbt());
+        levelNbt.putInt("WanderingTraderSpawnDelay", properties.getWanderingTraderSpawnDelay());
+        levelNbt.putInt("WanderingTraderSpawnChance", properties.getWanderingTraderSpawnChance());
+        levelNbt.putNullable("WanderingTraderId", Uuids.INT_STREAM_CODEC, properties.getWanderingTraderId());
+
+        return levelNbt;
+    }
+
+    /**
+     * New preferred path: build world data through LevelProperties and then patch
+     * fields that must stay equivalent to our historical mirror world output.
+     */
+    public static NbtCompound createWorldDataFromLevelProperties(String levelName) {
+        String resolvedLevelName = normalizeLevelName(levelName);
+
+        SimpleRegistry<Registry<?>> registries = new SimpleRegistry<>(
+                RegistryKey.ofRegistry(RegistryKeys.ROOT),
+                Lifecycle.stable(),
+                true
+        );
+        SimpleRegistry<DimensionOptions> dimensionOptions = new SimpleRegistry<>(RegistryKeys.DIMENSION, Lifecycle.stable(), true);
+        registries.createEntry(dimensionOptions);
+
+        NbtCompound player = createPlayerData();
+
+        LevelProperties properties = instantiateLevelProperties(resolvedLevelName);
+        NbtCompound data = serializeLevelProperties(properties, player);
+
+        // Preserve the existing mirror-world generation profile and spawn shape.
+        data.put("WorldGenSettings", createFlatWorldGenSettings());
+        data.put("spawn", createSpawnSettings(0, 80, 0));
+        data.putLong("RandomSeed", DEFAULT_SEED);
 
         return data;
     }
@@ -172,28 +273,14 @@ public class WorldStructureCreator {
      * {@code session.lock} timestamp is refreshed and "World structure updated" is logged
      * to distinguish incremental sync from initial creation.
      *
-     * @param worldFolder  root directory of the mirror world
+     * @param worldFolderPath  root directory of the mirror world
      * @param levelName    human-readable name to embed in {@code level.dat}
      */
-    public static void createLoadableWorld(File worldFolder, String levelName) {
+    public static void createLoadableWorld(Path worldFolderPath, String levelName) {
         try {
-            boolean firstTime = !(new File(worldFolder, "level.dat")).exists();
+            boolean firstTime = !(worldFolderPath.resolve("level.dat").toFile()).exists();
 
-            if (!worldFolder.exists()) {
-                worldFolder.mkdirs();
-            }
-
-            (new File(worldFolder, "region")).mkdirs();
-            (new File(worldFolder, "playerdata")).mkdirs();
-            (new File(worldFolder, "advancements")).mkdirs();
-            (new File(worldFolder, "stats")).mkdirs();
-            (new File(worldFolder, "data")).mkdirs();
-            (new File(worldFolder, "poi")).mkdirs();
-            (new File(worldFolder, "entities")).mkdirs();
-
-
-            File sessionLock = new File(worldFolder, "session.lock");
-            DataOutputStream out = new DataOutputStream(new FileOutputStream(sessionLock));
+            DataOutputStream out = getOutputStream(worldFolderPath);
             try {
                 out.writeLong(System.currentTimeMillis());
                 out.close();
@@ -208,10 +295,10 @@ public class WorldStructureCreator {
             // Only write level.dat on first creation; on subsequent syncs just refresh session.lock.
             if (firstTime) {
                 NbtCompound root = new NbtCompound();
-                NbtCompound data = createWorldData(levelName);
+                NbtCompound data = createWorldDataFromLevelProperties(levelName);
                 root.put("Data", data);
 
-                File levelDat = new File(worldFolder, "level.dat");
+                File levelDat = worldFolderPath.resolve("level.dat").toFile();
                 FileOutputStream fos = new FileOutputStream(levelDat);
                 try {
                     NbtIo.writeCompressed(root, fos);
@@ -224,13 +311,37 @@ public class WorldStructureCreator {
                     }
                     throw throwable;
                 }
-                WMLogger.info("World structure created at: " + worldFolder.getAbsolutePath()
+                WMLogger.info("World structure created at: " + worldFolderPath.toAbsolutePath()
                         + " (name: " + data.getString("LevelName") + ")");
             } else {
-                WMLogger.info("World structure updated (incremental sync): " + worldFolder.getAbsolutePath());
+                WMLogger.info("World structure updated (incremental sync): " + worldFolderPath.toAbsolutePath());
             }
         } catch (Exception e) {
             WMLogger.warn("Failed to create loadable world: " + e.getMessage());
         }
+    }
+
+    private static final String[] worldFolderSubPaths;
+    static {
+        worldFolderSubPaths = new String[] {
+                "region",
+                "playerdata",
+                "advancements",
+                "stats",
+                "data",
+                "poi",
+                "entities"
+        };
+    }
+
+    private static @NonNull DataOutputStream getOutputStream(Path worldFolderPath) throws IOException {
+        Files.createDirectories(worldFolderPath);
+
+        for (String subPath : worldFolderSubPaths) {
+            Files.createDirectories(worldFolderPath.resolve(subPath));
+        }
+
+        File sessionLock = worldFolderPath.resolve("session.lock").toFile();
+        return new DataOutputStream(new FileOutputStream(sessionLock));
     }
 }
