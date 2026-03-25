@@ -5,7 +5,11 @@ Items marked **Fixed** were resolved and the fix is described.
 
 ---
 
-## BUG-1: Container blocks export without item data [Fixed in 0.2.0]
+## BUG-1: Container blocks export without item data [Fixed in 0.2.0
+
+### BUG-1-1: Block entity data may be overridden with empty ones on export
+
+### BUG-1-2: Large chest inventory order may be reversed on export
 
 ## BUG-2: Villager and entity data not persisted correctly
 
