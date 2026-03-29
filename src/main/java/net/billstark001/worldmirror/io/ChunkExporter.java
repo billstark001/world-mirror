@@ -82,7 +82,7 @@ public class ChunkExporter {
             Files.createDirectories(regionDir);
 
             Set<ChunkPos> written = exportDimensionChunks(
-                    regionDir, dimChunks, dimEntities, resolver, db, dimension);
+                    regionDir, dimChunks, dimEntities, resolver, db, dimension, worldFolder);
             allWritten.put(dimension, written);
             dimCount++;
 
@@ -102,7 +102,8 @@ public class ChunkExporter {
             Map<ChunkPos, List<NbtCompound>> dimEntities,
             ConflictResolver resolver,
             ChunkDatabase db,
-            RegistryKey<World> dimension) {
+            RegistryKey<World> dimension,
+            Path worldFolder) {
 
         // ── Load / create region file handles ─────────────────────────────────
         Map<String, McaRegionFile> regionFiles = new HashMap<>();
@@ -157,17 +158,18 @@ public class ChunkExporter {
             McaRegionFile mcaFile = regionFiles.get(key);
 
             try {
+                // ── Work on a copy so we don't mutate the live cache ──────────
+                NbtCompound chunkNbt = captured.nbt().copy();
+
                 // ── Conflict check ────────────────────────────────────────────
                 boolean existsLocally = preExistingRegionKeys.contains(key)
                         && mcaFile.getChunk(localX, localZ) != null;
-                if (!resolver.shouldWriteChunk(new ConflictContext(chunkPos, existsLocally))) {
+                if (!resolver.shouldWriteChunk(new ConflictContext(
+                        chunkPos, existsLocally, chunkNbt, dimension, worldFolder))) {
                     WMLogger.debug("Conflict resolver kept local chunk "
                             + chunkPos + " [" + dimension.getValue() + "]");
                     continue;
                 }
-
-                // ── Work on a copy so we don't mutate the live cache ──────────
-                NbtCompound chunkNbt = captured.nbt().copy();
 
                 // ── Merge latest container data (items not present at capture) ─
                 // Container items are captured lazily when the player opens a

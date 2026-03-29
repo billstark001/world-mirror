@@ -265,6 +265,40 @@ public class WorldStructureCreator {
     }
 
     /**
+     * Creates the {@code level.dat} for a new nearby-export world, setting the
+     * spawn point to the player's current block position.
+     *
+     * @param worldFolderPath root directory of the new world
+     * @param levelName       human-readable name for the save
+     * @param spawnX          spawn block X coordinate
+     * @param spawnY          spawn block Y coordinate
+     * @param spawnZ          spawn block Z coordinate
+     */
+    public static void createLoadableWorldWithSpawn(Path worldFolderPath, String levelName,
+                                                    int spawnX, int spawnY, int spawnZ) {
+        try {
+            DataOutputStream out = getOutputStream(worldFolderPath);
+            out.writeLong(System.currentTimeMillis());
+            out.close();
+
+            NbtCompound data = createWorldDataFromLevelProperties(levelName);
+            data.put("WorldGenSettings", createFlatWorldGenSettings());
+            data.put("spawn", createSpawnSettings(spawnX, spawnY, spawnZ));
+            data.putLong("RandomSeed", DEFAULT_SEED);
+
+            NbtCompound root = new NbtCompound();
+            root.put("Data", data);
+            File levelDat = worldFolderPath.resolve("level.dat").toFile();
+            FileOutputStream fos = new FileOutputStream(levelDat);
+            NbtIo.writeCompressed(root, fos);
+            fos.close();
+            WMLogger.info("Nearby-export world created at: " + worldFolderPath.toAbsolutePath());
+        } catch (Exception e) {
+            WMLogger.warn("createLoadableWorldWithSpawn failed: " + e.getMessage());
+        }
+    }
+
+    /**
      * Creates or updates the {@code level.dat} and supporting directory structure
      * for a mirror world.
      *

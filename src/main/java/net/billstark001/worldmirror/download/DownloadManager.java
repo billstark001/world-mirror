@@ -27,6 +27,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.SQLException;
 import java.util.ArrayDeque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -777,4 +778,120 @@ public final class DownloadManager {
 
         ChunkListener.evictStale(maxAgeMs, maxCount, playerDim, playerCX, playerCZ, maxDist);
     }
+
+    // ── Export nearby region ──────────────────────────────────────────────────
+
+    /**
+     * Captures all loaded chunks within {@code radiusChunks} of the player's
+     * current position and exports them to a freshly created save with the given
+     * {@code worldName}.  The spawn point of the new world is set to the player's
+     * current block position.
+     *
+     * <p>This runs the capture synchronously on the calling (game) thread, then
+     * hands off the MCA export and world-creation to a background thread.
+     *
+     * @param client       the Minecraft client instance
+     * @param worldName    the name for the new singleplayer save
+     * @param radiusChunks capture radius in chunks (e.g. 16 = a 33×33 chunk area)
+     */
+    public static void exportNearbyToNewSave(MinecraftClient client,
+                                             String worldName, int radiusChunks) {
+        ClientWorld world = client.world;
+        if (world == null || client.player == null) {
+            if (client.player != null)
+                client.player.sendMessage(
+                        Text.literal("§cCannot export: no world loaded."), false);
+            return;
+        }
+
+        RegistryKey<World> dimension = world.getRegistryKey();
+        int playerCX = client.player.getBlockX() >> 4;
+        int playerCZ = client.player.getBlockZ() >> 4;
+        int playerBX = client.player.getBlockX();
+        int playerBY = client.player.getBlockY();
+        int playerBZ = client.player.getBlockZ();
+
+        // Capture nearby chunks synchronously on the game thread
+        Map<ChunkPos, ChunkListener.CapturedChunk> nearbyChunks = new HashMap<>();
+        for (int cx = playerCX - radiusChunks; cx <= playerCX + radiusChunks; cx++) {
+            for (int cz = playerCZ - radiusChunks; cz <= playerCZ + radiusChunks; cz++) {
+                Chunk chunk = world.getChunk(cx, cz);
+                if (!(chunk instanceof WorldChunk wc)) continue;
+                try {
+                    if (ChunkSerializer.isChunkEmpty(wc)) continue;
+                    NbtCompound nbt = ChunkSerializer.serialize(world, wc);
+                    nearbyChunks.put(wc.getPos(),
+                            new ChunkListener.CapturedChunk(nbt, System.currentTimeMillis()));
+                } catch (Exception e) {
+                    WMLogger.warn("exportNearbyToNewSave: failed to capture " + wc.getPos()
+                            + ": " + e.getMessage());
+                }
+            }
+        }
+
+        if (nearbyChunks.isEmpty()) {
+            if (client.player != null)
+                client.player.sendMessage(
+                        Text.literal("§cNo chunks captured in radius " + radiusChunks + "."), false);
+            return;
+        }
+
+        Map<RegistryKey<World>, Map<ChunkPos, ChunkListener.CapturedChunk>> snapshot =
+                Map.of(dimension, nearbyChunks);
+        Map<RegistryKey<World>, Map<ChunkPos, List<NbtCompound>>> entitySnapshot = Map.of();
+
+        // Determine output path — always in the saves folder for easy play
+        String safeName = worldName.isBlank() ? "NearbyExport" : worldName;
+        Path base = FabricLoader.getInstance().getGameDir().resolve("saves");
+        Path outFolder = base.resolve(sanitiseFolderName(safeName));
+        // Avoid overwriting an existing save
+        int suffix = 1;
+        while (outFolder.toFile().exists()) {
+            outFolder = base.resolve(sanitiseFolderName(safeName) + "_" + suffix++);
+        }
+        final Path finalOut = outFolder;
+        final int finalBX = playerBX, finalBY = playerBY, finalBZ = playerBZ;
+        final String sourceId = WorldMetadata.detectSourceId(client);
+        final String sourceType = WorldMetadata.detectSourceType(client);
+
+        WMLogger.info("Exporting " + nearbyChunks.size() + " nearby chunk(s) to '"
+                + finalOut.getFileName() + "'...");
+
+        Thread worker = new Thread(() -> {
+            try {
+                Files.createDirectories(finalOut);
+                ChunkDatabase db = ChunkDatabase.open(finalOut, sourceId);
+                try {
+                    ChunkExporter.exportChunks(
+                            finalOut, snapshot, entitySnapshot,
+                            new OverwriteResolver(), db);
+                } finally {
+                    db.close();
+                }
+                WorldStructureCreator.createLoadableWorldWithSpawn(
+                        finalOut, safeName, finalBX, finalBY, finalBZ);
+                WMLogger.info("Nearby export complete: " + finalOut.toAbsolutePath());
+                client.execute(() -> {
+                    if (client.player != null)
+                        client.player.sendMessage(
+                                Text.literal("§aExported to saves/" + finalOut.getFileName()),
+                                false);
+                });
+            } catch (Exception e) {
+                WMLogger.warn("exportNearbyToNewSave failed: " + e.getMessage());
+                client.execute(() -> {
+                    if (client.player != null)
+                        client.player.sendMessage(
+                                Text.literal("§cExport failed: " + e.getMessage()), false);
+                });
+            }
+        }, "WM-NearbyExport");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private static String sanitiseFolderName(String name) {
+        return name.replaceAll("[\\\\/:*?\"<>|]", "_");
+    }
 }
+

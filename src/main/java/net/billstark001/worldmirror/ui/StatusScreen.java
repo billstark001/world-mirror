@@ -7,7 +7,7 @@ import io.github.cottonmc.cotton.gui.widget.WPlainPanel;
 import io.github.cottonmc.cotton.gui.widget.data.HorizontalAlignment;
 import me.shedaniel.autoconfig.AutoConfigClient;
 import net.billstark001.worldmirror.config.ModConfig;
-import net.billstark001.worldmirror.conflict.ManualResolver;
+import net.billstark001.worldmirror.conflict.ConflictManager;
 import net.billstark001.worldmirror.download.DownloadManager;
 import net.billstark001.worldmirror.download.MirrorMapping;
 import net.billstark001.worldmirror.download.WorldMetadata;
@@ -16,10 +16,8 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.text.Text;
-import net.minecraft.util.math.ChunkPos;
 
 import java.nio.file.Path;
-import java.util.List;
 
 /**
  * In-game status screen for World Mirror.
@@ -30,7 +28,7 @@ import java.util.List;
  *   <li><b>Status</b> — source info, cache statistics, download/export state, action buttons.</li>
  *   <li><b>Settings</b> — per-world save-location and conflict-strategy overrides, plus a
  *       shortcut to the global settings screen.</li>
- *   <li><b>Conflicts</b> — pending manual-conflict queue with bulk Overwrite/Ignore actions.</li>
+ *   <li><b>Conflicts</b> — bulk Overwrite / Discard conflict resolution plus the Chunk Map.</li>
  * </ul>
  *
  * <p>The active tab is remembered across reopens via {@link #activeTab}.
@@ -75,7 +73,9 @@ public class StatusScreen extends LightweightGuiDescription {
         int    totalChunks = ChunkListener.getTotalCount();
         boolean isActive   = DownloadManager.isActive();
         boolean isExport   = DownloadManager.isExportInProgress();
-        List<ChunkPos> pendingConflicts = ManualResolver.getPendingConflicts();
+
+        Path worldFolder = DownloadManager.getOutputPath(client);
+        int conflictCount = ConflictManager.countAllConflicts(worldFolder);
 
         String lastSyncStr = computeLastSyncStr(client, sourceId, sourceType);
 
@@ -112,7 +112,7 @@ public class StatusScreen extends LightweightGuiDescription {
                                          totalChunks, lastSyncStr, isActive, isExport);
             case 1 -> y = buildSettingsTab(root, y, sourceId, effectiveSaveLoc,
                                            effectiveStrategy);
-            case 2 -> y = buildConflictsTab(root, y, pendingConflicts);
+            case 2 -> y = buildConflictsTab(root, y, conflictCount, worldFolder);
         }
 
         root.setSize(W, FIXED_H);
@@ -182,6 +182,12 @@ public class StatusScreen extends LightweightGuiDescription {
             open();
         });
         root.add(clearBtn, MARGIN, y, INNER_W, BTN_H);
+        y += BTN_H + 4;
+
+        WButton exportNearbyBtn = new WButton(
+                Text.translatable("screen.worldmirror.status.exportNearby"));
+        exportNearbyBtn.setOnClick(() -> ExportNearbyScreen.open(new StatusClientScreen()));
+        root.add(exportNearbyBtn, MARGIN, y, INNER_W, BTN_H);
         y += BTN_H + 4;
 
         WButton closeBtn = new WButton(Text.translatable("gui.done"));
@@ -255,40 +261,47 @@ public class StatusScreen extends LightweightGuiDescription {
     }
 
     /** Builds the Conflicts tab and returns the new y after all widgets. */
-    private int buildConflictsTab(WPlainPanel root, int y, List<ChunkPos> pendingConflicts) {
+    private int buildConflictsTab(WPlainPanel root, int y,
+                                  int conflictCount, Path worldFolder) {
 
         WLabel header = new WLabel(Text.translatable("screen.worldmirror.tab.conflictsHeader"));
         header.setHorizontalAlignment(HorizontalAlignment.CENTER);
         root.add(header, MARGIN, y, INNER_W, LBL_H);
         y += ROW_GAP + SECT_GAP;
 
-        if (pendingConflicts.isEmpty()) {
+        if (conflictCount == 0) {
             root.add(new WLabel(Text.translatable("screen.worldmirror.status.noConflicts")),
                     MARGIN, y, INNER_W, LBL_H);
             y += ROW_GAP + SECT_GAP;
         } else {
             root.add(rowLabel("screen.worldmirror.status.conflicts",
-                    String.valueOf(pendingConflicts.size())), MARGIN, y, INNER_W, LBL_H);
+                    String.valueOf(conflictCount)), MARGIN, y, INNER_W, LBL_H);
             y += ROW_GAP;
 
             WButton overwriteAllBtn = new WButton(
                     Text.translatable("screen.worldmirror.status.overwriteAll"));
             overwriteAllBtn.setOnClick(() -> {
-                ManualResolver.clearPendingConflicts();
-                DownloadManager.exportNow(MinecraftClient.getInstance());
+                ConflictManager.clearAllConflicts(worldFolder, true);
                 open();
             });
             root.add(overwriteAllBtn, MARGIN, y, HALF_W, BTN_H);
 
-            WButton ignoreAllBtn = new WButton(
-                    Text.translatable("screen.worldmirror.status.ignoreAll"));
-            ignoreAllBtn.setOnClick(() -> {
-                ManualResolver.clearPendingConflicts();
+            WButton discardAllBtn = new WButton(
+                    Text.translatable("screen.worldmirror.status.discardAll"));
+            discardAllBtn.setOnClick(() -> {
+                ConflictManager.clearAllConflicts(worldFolder, false);
                 open();
             });
-            root.add(ignoreAllBtn, MARGIN + HALF_W + 4, y, HALF_W, BTN_H);
+            root.add(discardAllBtn, MARGIN + HALF_W + 4, y, HALF_W, BTN_H);
             y += BTN_H + SECT_GAP;
         }
+
+        // Chunk map button
+        WButton chunkMapBtn = new WButton(
+                Text.translatable("screen.worldmirror.status.openChunkMap"));
+        chunkMapBtn.setOnClick(() -> ChunkMapScreen.open());
+        root.add(chunkMapBtn, MARGIN, y, INNER_W, BTN_H);
+        y += BTN_H + 4;
 
         WButton closeBtn = new WButton(Text.translatable("gui.done"));
         closeBtn.setOnClick(() -> MinecraftClient.getInstance().setScreen(null));
@@ -356,4 +369,3 @@ public class StatusScreen extends LightweightGuiDescription {
         return ModConfig.get().defaultConflictStrategy;
     }
 }
-
