@@ -8,7 +8,6 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.screen.ScreenTexts;
 import net.minecraft.text.Text;
 
 /**
@@ -80,7 +79,7 @@ public class ExportNearbyScreen extends Screen {
 
         // Cancel
         addDrawableChild(ButtonWidget.builder(
-                ScreenTexts.CANCEL,
+                Text.translatable("gui.cancel"),
                 btn -> MinecraftClient.getInstance().setScreen(parent)
         ).dimensions(cx + 6, cy + 30, 94, 20).build());
     }

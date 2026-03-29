@@ -891,7 +891,10 @@ public final class DownloadManager {
     }
 
     private static String sanitiseFolderName(String name) {
-        return name.replaceAll("[\\\\/:*?\"<>|]", "_");
+        // Remove path separators, control characters, and any ".." sequences
+        return name.replaceAll("[\\\\/:*?\"<>|]", "_")
+                   .replaceAll("\\.\\.", "_")
+                   .strip();
     }
 }
 
