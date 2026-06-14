@@ -1,5 +1,6 @@
 package net.billstark001.worldmirror;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import net.billstark001.worldmirror.config.ModConfig;
 import net.billstark001.worldmirror.download.DownloadManager;
 import net.billstark001.worldmirror.ui.StatusScreen;
@@ -7,11 +8,10 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
-import net.minecraft.util.Identifier;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.resources.Identifier;
 
 @Environment(EnvType.CLIENT)
 public class WorldMirrorClient implements ClientModInitializer {
@@ -21,48 +21,48 @@ public class WorldMirrorClient implements ClientModInitializer {
      * Using a plain string avoids the double-namespace expansion that produced
      * {@code key.category.minecraft.category.worldmirror}.
      */
-    private static final KeyBinding.Category CATEGORY = KeyBinding.Category.create(Identifier.of("worldmirror", "default"));
+    private static final KeyMapping.Category CATEGORY = KeyMapping.Category.register(Identifier.fromNamespaceAndPath("worldmirror", "default"));
 
-    private static KeyBinding toggleKey;
-    private static KeyBinding exportKey;
-    private static KeyBinding clearKey;
-    private static KeyBinding statusKey;
+    private static KeyMapping toggleKey;
+    private static KeyMapping exportKey;
+    private static KeyMapping clearKey;
+    private static KeyMapping statusKey;
 
     @Override
     public void onInitializeClient() {
         ModConfig.register();
 
-        toggleKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+        toggleKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.worldmirror.toggle",
-                InputUtil.Type.SCANCODE, 0x19 /* P */,
+                InputConstants.Type.SCANCODE, 0x19 /* P */,
                 CATEGORY));
 
-        exportKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+        exportKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.worldmirror.export",
-                InputUtil.Type.SCANCODE, 0x18 /* O */,
+                InputConstants.Type.SCANCODE, 0x18 /* O */,
                 CATEGORY));
 
-        clearKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+        clearKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.worldmirror.clear",
-                InputUtil.Type.SCANCODE, 0x26 /* L */,
+                InputConstants.Type.SCANCODE, 0x26 /* L */,
                 CATEGORY));
 
-        statusKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+        statusKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.worldmirror.status",
-                InputUtil.Type.SCANCODE, 0x17 /* I */,
+                InputConstants.Type.SCANCODE, 0x17 /* I */,
                 CATEGORY));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            while (toggleKey.wasPressed()) {
+            while (toggleKey.consumeClick()) {
                 DownloadManager.toggle(client);
             }
-            while (exportKey.wasPressed()) {
+            while (exportKey.consumeClick()) {
                 DownloadManager.exportNow(client);
             }
-            while (clearKey.wasPressed()) {
+            while (clearKey.consumeClick()) {
                 DownloadManager.clearAll(client);
             }
-            while (statusKey.wasPressed()) {
+            while (statusKey.consumeClick()) {
                 StatusScreen.open();
             }
             DownloadManager.onClientTick(client);

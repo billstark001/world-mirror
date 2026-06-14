@@ -1,14 +1,12 @@
 {
   "required": true,
   "package": "net.billstark001.worldmirror.mixin",
-  "compatibilityLevel": "JAVA_21",
+  "compatibilityLevel": "JAVA_25",
   "client": [
     "ChestBlockEntityMixin",
     "ChunkDataMixin",
-    "ChunkDataPacketAccessor",
     "ContainerMixin",
-    "DebugContainerMixin",
-    "SerializedChunkInvoker"
+    "DebugContainerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -1,7 +1,5 @@
 package net.billstark001.worldmirror.io;
 
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -10,21 +8,28 @@ import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.SharedConstants;
-import net.minecraft.block.Block;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.*;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.world.biome.Biome;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.block.BlockState;
-import net.minecraft.world.chunk.*;
-import net.minecraft.world.Heightmap;
-import net.minecraft.util.Identifier;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.registry.entry.RegistryEntry;
-import net.minecraft.registry.RegistryWrapper;
-import net.minecraft.registry.RegistryKeys;
-import net.minecraft.registry.Registry;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.Property;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.chunk.PalettedContainer;
+import net.minecraft.world.level.chunk.PalettedContainerRO;
+import net.minecraft.world.level.chunk.PalettedContainerRO.PackedData;
+import net.minecraft.world.level.chunk.Strategy;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
+import net.minecraft.world.level.levelgen.Heightmap;
 
 @Environment(EnvType.CLIENT)
 public class ClientChunkSerializer {
@@ -34,58 +39,58 @@ public class ClientChunkSerializer {
      * which means the server sent an empty placeholder chunk (e.g. beyond its own
      * render distance).  Such chunks are not worth caching or exporting.
      */
-    public static boolean isChunkEmpty(Chunk chunk) {
-        for (ChunkSection section : chunk.getSectionArray()) {
-            if (section != null && !section.isEmpty()) {
+    public static boolean isChunkEmpty(ChunkAccess chunk) {
+        for (LevelChunkSection section : chunk.getSections()) {
+            if (section != null && !section.hasOnlyAir()) {
                 return false;
             }
         }
-        return chunk.getBlockEntityPositions().isEmpty();
+        return chunk.getBlockEntitiesPos().isEmpty();
     }
 
-    public static NbtCompound serialize(ClientWorld world, Chunk chunk) {
+    public static CompoundTag serialize(ClientLevel world, ChunkAccess chunk) {
         ChunkPos chunkPos = chunk.getPos();
-        NbtCompound chunkNbt = new NbtCompound();
+        CompoundTag chunkNbt = new CompoundTag();
 
 
-        chunkNbt.putInt("DataVersion", SharedConstants.getGameVersion().dataVersion().id());
+        chunkNbt.putInt("DataVersion", SharedConstants.getCurrentVersion().dataVersion().version());
 
 
-        chunkNbt.putInt("xPos", chunkPos.x);
-        chunkNbt.putInt("zPos", chunkPos.z);
+        chunkNbt.putInt("xPos", chunkPos.x());
+        chunkNbt.putInt("zPos", chunkPos.z());
 
 
         chunkNbt.putLong("InhabitedTime", chunk.getInhabitedTime());
 
 
-        Registry<ChunkStatus> chunkStatusRegistry = world.getRegistryManager().getOrThrow(RegistryKeys.CHUNK_STATUS);
-        Identifier statusId = chunkStatusRegistry.getId(chunk.getStatus());
+        Registry<ChunkStatus> chunkStatusRegistry = world.registryAccess().lookupOrThrow(Registries.CHUNK_STATUS);
+        Identifier statusId = chunkStatusRegistry.getKey(chunk.getPersistedStatus());
         chunkNbt.putString("Status", (statusId != null) ? statusId.toString() : "minecraft:full");
 
 
-        NbtCompound heightmaps = new NbtCompound();
-        for (Map.Entry<Heightmap.Type, Heightmap> entry : chunk.getHeightmaps()) {
-            heightmaps.put(entry.getKey().getId(), new NbtLongArray(entry.getValue().asLongArray()));
+        CompoundTag heightmaps = new CompoundTag();
+        for (Map.Entry<Heightmap.Types, Heightmap> entry : chunk.getHeightmaps()) {
+            heightmaps.put(entry.getKey().getSerializationKey(), new LongArrayTag(entry.getValue().getRawData()));
         }
         chunkNbt.put("Heightmaps", heightmaps);
 
 
-        NbtList sections = new NbtList();
-        Registry<Biome> biomeRegistry = world.getRegistryManager().getOrThrow(RegistryKeys.BIOME);
-        int minSectionY = world.getBottomSectionCoord();
+        ListTag sections = new ListTag();
+        Registry<Biome> biomeRegistry = world.registryAccess().lookupOrThrow(Registries.BIOME);
+        int minSectionY = world.getMinSectionY();
 
-        for (int y = minSectionY; y < world.getTopSectionCoord(); y++) {
-            ChunkSection section = chunk.getSectionArray()[world.sectionCoordToIndex(y)];
-            if (section != null && !section.isEmpty()) {
-                NbtCompound sectionNbt = new NbtCompound();
+        for (int y = minSectionY; y < world.getMaxSectionY(); y++) {
+            LevelChunkSection section = chunk.getSections()[world.getSectionIndexFromSectionY(y)];
+            if (section != null && !section.hasOnlyAir()) {
+                CompoundTag sectionNbt = new CompoundTag();
                 sectionNbt.putByte("Y", (byte) y);
 
 
-                PalettedContainer<BlockState> blockContainer = section.getBlockStateContainer();
-                sectionNbt.put("block_states", serializeBlockStates(blockContainer, world.getRegistryManager()));
+                PalettedContainer<BlockState> blockContainer = section.getStates();
+                sectionNbt.put("block_states", serializeBlockStates(blockContainer, world.registryAccess()));
 
 
-                ReadableContainer<RegistryEntry<Biome>> biomeContainer = section.getBiomeContainer();
+                PalettedContainerRO<Holder<Biome>> biomeContainer = section.getBiomes();
                 sectionNbt.put("biomes", serializeBiomes(biomeContainer, biomeRegistry));
 
                 sections.add(sectionNbt);
@@ -94,12 +99,12 @@ public class ClientChunkSerializer {
         chunkNbt.put("sections", sections);
 
 
-        NbtList blockEntities = new NbtList();
-        for (BlockPos pos : chunk.getBlockEntityPositions()) {
+        ListTag blockEntities = new ListTag();
+        for (BlockPos pos : chunk.getBlockEntitiesPos()) {
             BlockEntity be = chunk.getBlockEntity(pos);
             if (be != null) {
                 try {
-                    NbtCompound beNbt = serializeBlockEntityWithItems(be, world.getRegistryManager());
+                    CompoundTag beNbt = serializeBlockEntityWithItems(be, world.registryAccess());
                     if (beNbt != null) {
                         blockEntities.add(beNbt);
                     }
@@ -111,10 +116,10 @@ public class ClientChunkSerializer {
         chunkNbt.put("block_entities", blockEntities);
 
 
-        chunkNbt.put("structures", new NbtCompound());
+        chunkNbt.put("structures", new CompoundTag());
 
 
-        chunkNbt.putBoolean("isLightOn", chunk.isLightOn());
+        chunkNbt.putBoolean("isLightOn", chunk.isLightCorrect());
 
 
         chunkNbt.putLong("LastUpdate", System.currentTimeMillis() / 1000L);
@@ -126,17 +131,17 @@ public class ClientChunkSerializer {
     /**
      * Serializes a block entity to NBT.
      * <p>
-     * {@link BlockEntity#createNbtWithIdentifyingData} writes the entity type id,
+     * {@link BlockEntity#saveWithFullMetadata} writes the entity type id,
      * coordinates, and all client-side data (sign text, beacon effects, banner
      * patterns, skull owner, etc.) via {@code writeNbt}.  The only data that is NOT
      * available on the client is item inventories for containers the player has never
      * opened; those are supplied by {@link ContainerTracker}, which intercepts the
      * inventory packets when the player opens a container.
      */
-    private static NbtCompound serializeBlockEntityWithItems(BlockEntity blockEntity, RegistryWrapper.WrapperLookup registryLookup) {
+    private static CompoundTag serializeBlockEntityWithItems(BlockEntity blockEntity, HolderLookup.Provider registryLookup) {
         try {
             // Get full block entity NBT: type id, x/y/z, and all client-tracked state
-            NbtCompound beNbt = blockEntity.createNbtWithIdentifyingData(registryLookup);
+            CompoundTag beNbt = blockEntity.saveWithFullMetadata(registryLookup);
 
             // Merge container item data captured when the player opened this container
             beNbt = ContainerTracker.enhanceBlockEntityWithContainerData(blockEntity, beNbt);
@@ -144,128 +149,59 @@ public class ClientChunkSerializer {
             return beNbt;
         } catch (Exception e) {
             WMLogger.warn("Failed to serialize block entity at "
-                    + blockEntity.getPos() + ": " + e.getMessage());
+                    + blockEntity.getBlockPos() + ": " + e.getMessage());
             return null;
         }
     }
 
-    private static NbtCompound serializeBlockStates(PalettedContainer<BlockState> container, RegistryWrapper.WrapperLookup registryLookup) {
-        NbtCompound blockStatesNbt = new NbtCompound();
-        Registry<Block> blockRegistry = (Registry<Block>) registryLookup.getOrThrow(RegistryKeys.BLOCK);
+    private static CompoundTag serializeBlockStates(PalettedContainer<BlockState> container, HolderLookup.Provider registryLookup) {
+        CompoundTag blockStatesNbt = new CompoundTag();
+        Registry<Block> blockRegistry = (Registry<Block>) registryLookup.lookupOrThrow(Registries.BLOCK);
+        PackedData<BlockState> packedData = container.pack(Strategy.createForBlockStates(Block.BLOCK_STATE_REGISTRY));
 
-
-        List<BlockState> palette = new ArrayList<>();
-        Map<BlockState, Integer> paletteIndices = new HashMap<>();
-        List<Integer> rawData = new ArrayList<>();
-
-
-        for (int y = 0; y < 16; y++) {
-            for (int z = 0; z < 16; z++) {
-                for (int x = 0; x < 16; x++) {
-                    int paletteIndex;
-                    BlockState state = container.get(x, y, z);
-
-                    if (!paletteIndices.containsKey(state)) {
-                        paletteIndex = palette.size();
-                        palette.add(state);
-                        paletteIndices.put(state, paletteIndex);
-                    } else {
-                        paletteIndex = paletteIndices.get(state).intValue();
-                    }
-                    rawData.add(paletteIndex);
-                }
-            }
-        }
-
-
-        int bitsPerEntry = Math.max(4, 32 - Integer.numberOfLeadingZeros(Math.max(1, palette.size() - 1)));
-
-
-        long[] packedData = packIntoLongArray(rawData, bitsPerEntry);
-
-
-        NbtList paletteNbt = new NbtList();
-        for (BlockState state : palette) {
-            NbtCompound stateNbt = new NbtCompound();
-            Identifier blockId = blockRegistry.getId(state.getBlock());
+        ListTag paletteNbt = new ListTag();
+        for (BlockState state : packedData.paletteEntries()) {
+            CompoundTag stateNbt = new CompoundTag();
+            Identifier blockId = blockRegistry.getKey(state.getBlock());
             if (blockId != null) {
                 stateNbt.putString("Name", blockId.toString());
             } else {
                 stateNbt.putString("Name", "minecraft:air");
             }
 
-            if (!state.getEntries().isEmpty()) {
-                NbtCompound properties = new NbtCompound();
-                state.getEntries().forEach((property, value) -> properties.putString(property.getName(), value.toString()));
+            List<Property.Value<?>> values = state.getValues().toList();
+            if (!values.isEmpty()) {
+                CompoundTag properties = new CompoundTag();
+                values.forEach(value -> properties.putString(value.property().getName(), value.valueName()));
 
                 stateNbt.put("Properties", properties);
             }
             paletteNbt.add(stateNbt);
         }
         blockStatesNbt.put("palette", paletteNbt);
-        blockStatesNbt.putLongArray("data", packedData);
+        packedData.storage().ifPresent(storage -> blockStatesNbt.putLongArray("data", storage.toArray()));
 
         return blockStatesNbt;
     }
 
-    private static NbtCompound serializeBiomes(ReadableContainer<RegistryEntry<Biome>> container, Registry<Biome> biomeRegistry) {
-        NbtCompound biomesNbt = new NbtCompound();
+    private static CompoundTag serializeBiomes(PalettedContainerRO<Holder<Biome>> container, Registry<Biome> biomeRegistry) {
+        CompoundTag biomesNbt = new CompoundTag();
+        PackedData<Holder<Biome>> packedData = container.pack(Strategy.createForBiomes(biomeRegistry.asHolderIdMap()));
 
-
-        List<RegistryEntry<Biome>> palette = new ArrayList<>();
-        Map<RegistryEntry<Biome>, Integer> paletteIndices = new HashMap<>();
-        List<Integer> rawData = new ArrayList<>();
-
-
-        for (int y = 0; y < 4; y++) {
-            for (int z = 0; z < 4; z++) {
-                for (int x = 0; x < 4; x++) {
-                    int paletteIndex;
-                    RegistryEntry<Biome> biome = container.get(x, y, z);
-
-                    if (!paletteIndices.containsKey(biome)) {
-                        paletteIndex = palette.size();
-                        palette.add(biome);
-                        paletteIndices.put(biome, paletteIndex);
-                    } else {
-                        paletteIndex = paletteIndices.get(biome);
-                    }
-                    rawData.add(paletteIndex);
-                }
-            }
-        }
-
-
-        int bitsPerEntry = Math.max(1, 32 - Integer.numberOfLeadingZeros(Math.max(1, palette.size() - 1)));
-
-
-        long[] packedData = packIntoLongArray(rawData, bitsPerEntry);
-
-
-        NbtList paletteNbt = new NbtList();
-        for (RegistryEntry<Biome> biomeEntry : palette) {
-            biomeEntry.getKey().ifPresent(key -> paletteNbt.add(NbtString.of(key.getValue().toString())));
+        ListTag paletteNbt = new ListTag();
+        for (Holder<Biome> biomeEntry : packedData.paletteEntries()) {
+            String biomeId = biomeEntry.unwrapKey()
+                    .map(key -> key.identifier().toString())
+                    .orElseGet(() -> {
+                        Identifier id = biomeRegistry.getKey(biomeEntry.value());
+                        return id != null ? id.toString() : "minecraft:plains";
+                    });
+            paletteNbt.add(StringTag.valueOf(biomeId));
         }
 
         biomesNbt.put("palette", paletteNbt);
-        biomesNbt.putLongArray("data", packedData);
+        packedData.storage().ifPresent(storage -> biomesNbt.putLongArray("data", storage.toArray()));
 
         return biomesNbt;
-    }
-
-    private static long[] packIntoLongArray(List<Integer> data, int bitsPerEntry) {
-        int valuesPerLong = 64 / bitsPerEntry;
-        int arraySize = (data.size() + valuesPerLong - 1) / valuesPerLong;
-        long[] result = new long[arraySize];
-
-        long mask = (1L << bitsPerEntry) - 1L;
-
-        for (int i = 0; i < data.size(); i++) {
-            int arrayIndex = i / valuesPerLong;
-            int bitIndex = i % valuesPerLong * bitsPerEntry;
-            result[arrayIndex] = result[arrayIndex] | (data.get(i) & mask) << bitIndex;
-        }
-
-        return result;
     }
 }

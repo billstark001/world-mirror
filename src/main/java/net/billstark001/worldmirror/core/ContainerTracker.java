@@ -7,29 +7,29 @@ import java.util.concurrent.ConcurrentHashMap;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.item.ItemStack;
-import net.minecraft.block.ChestBlock;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.hit.HitResult;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtList;
-import net.minecraft.text.Text;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.enums.ChestType;
-import net.minecraft.state.property.Property;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.util.hit.BlockHitResult;
+import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.ChestType;
+import net.minecraft.world.level.block.state.properties.Property;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 
 @Environment(EnvType.CLIENT)
 public class ContainerTracker {
     private static final Map<Integer, ContainerData> openContainers = new ConcurrentHashMap<>();
-    private static final Map<BlockPos, NbtCompound> savedContainerData = new ConcurrentHashMap<>();
+    private static final Map<BlockPos, CompoundTag> savedContainerData = new ConcurrentHashMap<>();
 
-    public static void onContainerOpened(int syncId, Text name) {
-        MinecraftClient client = MinecraftClient.getInstance();
-        HitResult HitResult = client.crosshairTarget;
+    public static void onContainerOpened(int syncId, Component name) {
+        Minecraft client = Minecraft.getInstance();
+        HitResult HitResult = client.hitResult;
         if (HitResult instanceof BlockHitResult blockHit) {
             BlockPos pos = blockHit.getBlockPos();
             openContainers.put(syncId, new ContainerData(pos, name));
@@ -65,7 +65,7 @@ public class ContainerTracker {
 
     private static void handleRegularContainer(ContainerData container, List<ItemStack> contents, int containerSlots) {
         container.setContainerInventory(contents, containerSlots);
-        NbtCompound containerNbt = container.toNbt();
+        CompoundTag containerNbt = container.toNbt();
         savedContainerData.put(container.pos, containerNbt);
 
         int nonEmptySlots = countNonEmptySlots(contents, containerSlots);
@@ -73,14 +73,14 @@ public class ContainerTracker {
     }
 
     private static void handleDoubleChest(ContainerData container, List<ItemStack> contents) {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client.world == null) {
+        Minecraft client = Minecraft.getInstance();
+        if (client.level == null) {
             handleRegularContainer(container, contents, 54);
 
             return;
         }
         BlockPos pos = container.pos;
-        BlockState blockState = client.world.getBlockState(pos);
+        BlockState blockState = client.level.getBlockState(pos);
 
 
         if (!(blockState.getBlock() instanceof ChestBlock)) {
@@ -89,8 +89,8 @@ public class ContainerTracker {
         }
         try {
             BlockPos leftChestPos, rightChestPos;
-            ChestType chestType = (ChestType) blockState.get((Property) ChestBlock.CHEST_TYPE);
-            Direction facing = (Direction) blockState.get((Property) ChestBlock.FACING);
+            ChestType chestType = (ChestType) blockState.getValue((Property) ChestBlock.TYPE);
+            Direction facing = (Direction) blockState.getValue((Property) ChestBlock.FACING);
 
 
             if (chestType == ChestType.SINGLE) {
@@ -117,13 +117,13 @@ public class ContainerTracker {
             ContainerData leftContainer = new ContainerData(leftChestPos, container.name);
             leftContainer.setContainerInventory(leftChestItems, 27);
             leftContainer.setChestType(ChestType.LEFT, facing);
-            NbtCompound leftChestNbt = leftContainer.toNbt();
+            CompoundTag leftChestNbt = leftContainer.toNbt();
             savedContainerData.put(leftChestPos, leftChestNbt);
 
             ContainerData rightContainer = new ContainerData(rightChestPos, container.name);
             rightContainer.setContainerInventory(rightChestItems, 27);
             rightContainer.setChestType(ChestType.RIGHT, facing);
-            NbtCompound rightChestNbt = rightContainer.toNbt();
+            CompoundTag rightChestNbt = rightContainer.toNbt();
             savedContainerData.put(rightChestPos, rightChestNbt);
 
             int leftNonEmpty = countNonEmptySlots(leftChestItems, 27);
@@ -144,21 +144,21 @@ public class ContainerTracker {
         return switch (facing) {
             case NORTH -> {
                 adjacentDirection = isLeft ? Direction.WEST : Direction.EAST;
-                yield pos.offset(adjacentDirection);
+                yield pos.relative(adjacentDirection);
             }
             case SOUTH -> {
                 adjacentDirection = isLeft ? Direction.EAST : Direction.WEST;
-                yield pos.offset(adjacentDirection);
+                yield pos.relative(adjacentDirection);
             }
             case EAST -> {
                 adjacentDirection = isLeft ? Direction.NORTH : Direction.SOUTH;
-                yield pos.offset(adjacentDirection);
+                yield pos.relative(adjacentDirection);
             }
             case WEST -> {
                 adjacentDirection = isLeft ? Direction.SOUTH : Direction.NORTH;
-                yield pos.offset(adjacentDirection);
+                yield pos.relative(adjacentDirection);
             }
-            default -> pos.offset(adjacentDirection);
+            default -> pos.relative(adjacentDirection);
         };
     }
 
@@ -194,7 +194,7 @@ public class ContainerTracker {
         }
     }
 
-    public static NbtCompound getContainerData(BlockPos pos) {
+    public static CompoundTag getContainerData(BlockPos pos) {
         return savedContainerData.get(pos);
     }
 
@@ -213,17 +213,17 @@ public class ContainerTracker {
     }
 
 
-    public static NbtCompound enhanceBlockEntityWithContainerData(BlockEntity blockEntity, NbtCompound originalNbt) {
+    public static CompoundTag enhanceBlockEntityWithContainerData(BlockEntity blockEntity, CompoundTag originalNbt) {
         if (originalNbt == null) {
             return null;
         }
-        BlockPos pos = blockEntity.getPos();
-        NbtCompound containerData = getContainerData(pos);
+        BlockPos pos = blockEntity.getBlockPos();
+        CompoundTag containerData = getContainerData(pos);
 
         if (containerData != null) {
             if (containerData.contains("Items")) {
                 originalNbt.put("Items", containerData.get("Items"));
-                NbtList items = (NbtList) containerData.get("Items");
+                ListTag items = (ListTag) containerData.get("Items");
                 if (items != null) {
                     WMLogger.debug("Enhanced block entity at " + pos + " with " + items.size() + " items");
                 } else {

@@ -13,12 +13,12 @@ import net.minecraft.nbt.*;
 @Environment(EnvType.CLIENT)
 public class WorldExporter {
 
-    public static NbtCompound createFlatGenerator() {
-        NbtCompound generator = new NbtCompound();
+    public static CompoundTag createFlatGenerator() {
+        CompoundTag generator = new CompoundTag();
 
-        NbtCompound settings = new NbtCompound();
-        settings.put("layers", new NbtList());
-        settings.put("structure_overrides", new NbtList());
+        CompoundTag settings = new CompoundTag();
+        settings.put("layers", new ListTag());
+        settings.put("structure_overrides", new ListTag());
         settings.putString("biome", "minecraft:the_void");
         settings.putByte("features", (byte) 1);
         settings.putByte("lakes", (byte) 0);
@@ -28,26 +28,26 @@ public class WorldExporter {
         return generator;
     }
 
-    public static NbtCompound createFlatWorldGenSettings() {
-        NbtCompound worldGenSettings = new NbtCompound();
+    public static CompoundTag createFlatWorldGenSettings() {
+        CompoundTag worldGenSettings = new CompoundTag();
 
         // --- dimensions ---
-        NbtCompound dimensions = new NbtCompound();
+        CompoundTag dimensions = new CompoundTag();
 
         // minecraft:overworld
-        NbtCompound overworld = new NbtCompound();
+        CompoundTag overworld = new CompoundTag();
         overworld.put("generator", createFlatGenerator());
         overworld.putString("type", "minecraft:overworld");
         dimensions.put("minecraft:overworld", overworld);
 
         // minecraft:the_end
-        NbtCompound theEnd = new NbtCompound();
+        CompoundTag theEnd = new CompoundTag();
         theEnd.put("generator", createFlatGenerator());
         theEnd.putString("type", "minecraft:the_end");
         dimensions.put("minecraft:the_end", theEnd);
 
         // minecraft:the_nether
-        NbtCompound theNether = new NbtCompound();
+        CompoundTag theNether = new CompoundTag();
         theNether.put("generator", createFlatGenerator());
         theNether.putString("type", "minecraft:the_nether");
         dimensions.put("minecraft:the_nether", theNether);
@@ -60,21 +60,21 @@ public class WorldExporter {
         return worldGenSettings;
     }
 
-    public static NbtCompound createSpawnSettings(int x, int y, int z) {
-        NbtCompound spawnSettings = new NbtCompound();
+    public static CompoundTag createSpawnSettings(int x, int y, int z) {
+        CompoundTag spawnSettings = new CompoundTag();
         spawnSettings.putString("dimension", "minecraft:overworld");
         spawnSettings.putInt("pitch", 0);
         spawnSettings.putInt("yaw", 0);
-        NbtIntArray pos = new NbtIntArray(new int[] {x, y, z});
+        IntArrayTag pos = new IntArrayTag(new int[] {x, y, z});
         spawnSettings.put("pos", pos);
         return spawnSettings;
     }
 
-    public static NbtCompound createWorldData(String levelName) {
+    public static CompoundTag createWorldData(String levelName) {
 
-        NbtCompound data = new NbtCompound();
+        CompoundTag data = new CompoundTag();
 
-        data.putInt("DataVersion", SharedConstants.getGameVersion().dataVersion().id());
+        data.putInt("DataVersion", SharedConstants.getCurrentVersion().dataVersion().version());
 
         data.putString("LevelName", (levelName != null && !levelName.isEmpty())
                 ? levelName : "Downloaded World");
@@ -93,14 +93,14 @@ public class WorldExporter {
         // encodes a superflat world with a single air layer and no structures.
         data.put("WorldGenSettings", createFlatWorldGenSettings());
 
-        NbtCompound spawnSettings = createSpawnSettings(0, 80, 0);
+        CompoundTag spawnSettings = createSpawnSettings(0, 80, 0);
         data.put("spawn", spawnSettings);
 
         data.putLong("Time", 6000L);
         data.putLong("DayTime", 6000L);
         data.putLong("LastPlayed", System.currentTimeMillis());
 
-        NbtCompound worldBorder = new NbtCompound();
+        CompoundTag worldBorder = new CompoundTag();
         worldBorder.putDouble("BorderCenterX", 0.0D);
         worldBorder.putDouble("BorderCenterZ", 0.0D);
         worldBorder.putDouble("BorderSize", 5.9999968E7D);
@@ -112,7 +112,7 @@ public class WorldExporter {
         worldBorder.putInt("BorderWarningTime", 15);
         data.put("WorldBorder", worldBorder);
 
-        NbtCompound gameRules = new NbtCompound();
+        CompoundTag gameRules = new CompoundTag();
 //                gameRules.putString("keepInventory", "false");
 //                gameRules.putString("mobGriefing", "false");
 //                gameRules.putString("doFireTick", "false");
@@ -128,24 +128,24 @@ public class WorldExporter {
 //                gameRules.putString("sendCommandFeedback", "true");
         data.put("game_rules", gameRules);
 
-        NbtCompound player = new NbtCompound();
+        CompoundTag player = new CompoundTag();
         player.putString("Dimension", "minecraft:overworld");
 
-        NbtList pos = new NbtList();
-        pos.add(NbtDouble.of(0.0D));
-        pos.add(NbtDouble.of(80.0D));
-        pos.add(NbtDouble.of(0.0D));
+        ListTag pos = new ListTag();
+        pos.add(DoubleTag.valueOf(0.0D));
+        pos.add(DoubleTag.valueOf(80.0D));
+        pos.add(DoubleTag.valueOf(0.0D));
         player.put("Pos", pos);
 
-        NbtList rotation = new NbtList();
-        rotation.add(NbtFloat.of(0.0F));
-        rotation.add(NbtFloat.of(0.0F));
+        ListTag rotation = new ListTag();
+        rotation.add(FloatTag.valueOf(0.0F));
+        rotation.add(FloatTag.valueOf(0.0F));
         player.put("Rotation", rotation);
 
-        NbtList motion = new NbtList();
-        motion.add(NbtDouble.of(0.0D));
-        motion.add(NbtDouble.of(0.0D));
-        motion.add(NbtDouble.of(0.0D));
+        ListTag motion = new ListTag();
+        motion.add(DoubleTag.valueOf(0.0D));
+        motion.add(DoubleTag.valueOf(0.0D));
+        motion.add(DoubleTag.valueOf(0.0D));
         player.put("Motion", motion);
 
         player.putFloat("Health", 20.0F);
@@ -155,8 +155,8 @@ public class WorldExporter {
         player.putShort("Air", (short) 300);
         player.putShort("Fire", (short) -20);
 
-        player.put("Inventory", new NbtList());
-        player.put("EnderItems", new NbtList());
+        player.put("Inventory", new ListTag());
+        player.put("EnderItems", new ListTag());
 
         data.put("Player", player);
 
@@ -207,8 +207,8 @@ public class WorldExporter {
             }
             // Only write level.dat on first creation; on subsequent syncs just refresh session.lock.
             if (firstTime) {
-                NbtCompound root = new NbtCompound();
-                NbtCompound data = createWorldData(levelName);
+                CompoundTag root = new CompoundTag();
+                CompoundTag data = createWorldData(levelName);
                 root.put("Data", data);
 
                 File levelDat = new File(worldFolder, "level.dat");

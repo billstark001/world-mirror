@@ -4,11 +4,10 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.world.World;
-
+import net.minecraft.client.Minecraft;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.Reader;
@@ -99,17 +98,17 @@ public class WorldMetadata {
     /**
      * Returns the last time the given chunk was written to disk (0 if never).
      */
-    public long getChunkWriteTime(RegistryKey<World> dimension, ChunkPos pos) {
+    public long getChunkWriteTime(ResourceKey<Level> dimension, ChunkPos pos) {
         return chunkUpdateTimes.getOrDefault(chunkKey(dimension, pos), 0L);
     }
 
     /** Records that the given chunk was written at {@code timeMs}. */
-    public void setChunkWriteTime(RegistryKey<World> dimension, ChunkPos pos, long timeMs) {
+    public void setChunkWriteTime(ResourceKey<Level> dimension, ChunkPos pos, long timeMs) {
         chunkUpdateTimes.put(chunkKey(dimension, pos), timeMs);
     }
 
-    private static String chunkKey(RegistryKey<World> dim, ChunkPos pos) {
-        return dim.getValue().toString() + "|" + pos.x + "," + pos.z;
+    private static String chunkKey(ResourceKey<Level> dim, ChunkPos pos) {
+        return dim.identifier().toString() + "|" + pos.x() + "," + pos.z();
     }
 
     // ── Convenience update ────────────────────────────────────────────────────
@@ -138,7 +137,7 @@ public class WorldMetadata {
     public static void update(Path worldFolder,
                               String sourceId,
                               String sourceType,
-                              Map<RegistryKey<World>, Set<ChunkPos>> writtenByDim) {
+                              Map<ResourceKey<Level>, Set<ChunkPos>> writtenByDim) {
         WorldMetadata meta = loadOrCreate(worldFolder, sourceId, sourceType);
         long now = System.currentTimeMillis();
         meta.lastSyncTime = now;
@@ -146,7 +145,7 @@ public class WorldMetadata {
                 .getModContainer("worldmirror")
                 .map(c -> c.getMetadata().getVersion().getFriendlyString())
                 .orElse("unknown");
-        for (Map.Entry<RegistryKey<World>, Set<ChunkPos>> dimEntry : writtenByDim.entrySet()) {
+        for (Map.Entry<ResourceKey<Level>, Set<ChunkPos>> dimEntry : writtenByDim.entrySet()) {
             for (ChunkPos pos : dimEntry.getValue()) {
                 meta.setChunkWriteTime(dimEntry.getKey(), pos, now);
             }
@@ -156,22 +155,22 @@ public class WorldMetadata {
 
     // ── Source detection (call on game thread) ────────────────────────────────
 
-    public static String detectSourceType(MinecraftClient client) {
+    public static String detectSourceType(Minecraft client) {
         try {
-            if (client.getServer() != null) return "singleplayer";
+            if (client.getSingleplayerServer() != null) return "singleplayer";
         } catch (Exception ignored) {}
         return "server";
     }
 
-    public static String detectSourceId(MinecraftClient client) {
+    public static String detectSourceId(Minecraft client) {
         try {
-            if (client.getCurrentServerEntry() != null) {
-                return "server:" + client.getCurrentServerEntry().address;
+            if (client.getCurrentServer() != null) {
+                return "server:" + client.getCurrentServer().ip;
             }
         } catch (Exception ignored) {}
         try {
-            if (client.getServer() != null) {
-                return "local:" + client.getServer().getSaveProperties().getLevelName();
+            if (client.getSingleplayerServer() != null) {
+                return "local:" + client.getSingleplayerServer().getWorldData().getLevelName();
             }
         } catch (Exception ignored) {}
         return "unknown";

@@ -1,6 +1,6 @@
 package net.billstark001.worldmirror.conflict;
 
-import net.minecraft.util.math.ChunkPos;
+import net.minecraft.world.level.ChunkPos;
 
 /**
  * Data object passed to a {@link ConflictResolver} when a chunk is about to be
