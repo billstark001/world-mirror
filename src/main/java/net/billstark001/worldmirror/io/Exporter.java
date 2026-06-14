@@ -12,6 +12,8 @@ import java.util.Set;
 import io.github.ensgijs.nbt.io.BinaryNbtDeserializer;
 import io.github.ensgijs.nbt.io.CompressionType;
 import io.github.ensgijs.nbt.io.NamedTag;
+import io.github.ensgijs.nbt.mca.EntitiesChunk;
+import io.github.ensgijs.nbt.mca.McaEntitiesFile;
 import io.github.ensgijs.nbt.mca.McaRegionFile;
 import io.github.ensgijs.nbt.mca.TerrainChunk;
 import io.github.ensgijs.nbt.mca.io.McaFileHelpers;
@@ -24,6 +26,7 @@ import net.billstark001.worldmirror.core.EntityTracker;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
+import net.minecraft.nbt.IntArrayTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
@@ -39,10 +42,10 @@ public class Exporter {
      * <p>
      * Each dimension is exported to the appropriate subdirectory:
      * <ul>
-     *   <li>{@code minecraft:overworld}  → {@code <worldFolder>/region/}</li>
-     *   <li>{@code minecraft:the_nether} → {@code <worldFolder>/DIM-1/region/}</li>
-     *   <li>{@code minecraft:the_end}    → {@code <worldFolder>/DIM1/region/}</li>
-     *   <li>any other                    → {@code <worldFolder>/dimensions/<ns>/<path>/region/}</li>
+     *   <li>{@code minecraft:overworld}  → {@code <worldFolder>/dimensions/minecraft/overworld/}</li>
+     *   <li>{@code minecraft:the_nether} → {@code <worldFolder>/dimensions/minecraft/the_nether/}</li>
+     *   <li>{@code minecraft:the_end}    → {@code <worldFolder>/dimensions/minecraft/the_end/}</li>
+     *   <li>any other                    → {@code <worldFolder>/dimensions/<ns>/<path>/}</li>
      * </ul>
      * <p>
      * Only "dirty" chunks are written — i.e. chunks whose {@link ChunkListener.CapturedChunk#capturedAtMs()}
@@ -75,11 +78,15 @@ public class Exporter {
             Map<ChunkPos, List<net.minecraft.nbt.CompoundTag>> dimEntities =
                     entitySnapshot.getOrDefault(dimension, Map.of());
 
-            Path regionDir = regionDirForDimension(worldFolder, dimension);
+            Path dimensionDir = dimensionDirForDimension(worldFolder, dimension);
+            Path regionDir = dimensionDir.resolve("region");
+            Path entitiesDir = dimensionDir.resolve("entities");
             Files.createDirectories(regionDir);
+            Files.createDirectories(entitiesDir);
 
             Set<ChunkPos> written = exportDimensionChunks(
-                    regionDir, dimChunks, dimEntities, resolver, meta, dimension);
+                    regionDir, dimChunks, resolver, meta, dimension);
+            exportDimensionEntities(entitiesDir, dimEntities);
             allWritten.put(dimension, written);
             dimCount++;
 
@@ -96,7 +103,6 @@ public class Exporter {
     private static Set<ChunkPos> exportDimensionChunks(
             Path regionDir,
             Map<ChunkPos, ChunkListener.CapturedChunk> dimChunks,
-            Map<ChunkPos, List<net.minecraft.nbt.CompoundTag>> dimEntities,
             ConflictResolver resolver,
             WorldMetadata meta,
             ResourceKey<Level> dimension) {
@@ -165,15 +171,6 @@ public class Exporter {
                 // ── Work on a copy so we don't mutate the live cache ──────────
                 net.minecraft.nbt.CompoundTag chunkNbt = captured.nbt().copy();
 
-                // ── Merge entities ────────────────────────────────────────────
-                List<net.minecraft.nbt.CompoundTag> entities = EntityTracker.getEntitiesForChunk(dimEntities, chunkPos);
-                if (!entities.isEmpty()) {
-                    ListTag entitiesList = new ListTag();
-                    entitiesList.addAll(entities);
-                    chunkNbt.put("entities", entitiesList);
-                    WMLogger.debug("Added " + entities.size() + " entities to " + chunkPos);
-                }
-
                 // ── Write ─────────────────────────────────────────────────────
                 CompoundTag querzChunk = convertToQuerz(chunkNbt);
                 TerrainChunk chunk = new TerrainChunk(querzChunk);
@@ -207,23 +204,80 @@ public class Exporter {
 
     // ── Dimension → directory mapping ────────────────────────────────────────
 
-    private static final Identifier OVERWORLD_ID = Identifier.fromNamespaceAndPath("minecraft", "overworld");
-    private static final Identifier NETHER_ID    = Identifier.fromNamespaceAndPath("minecraft", "the_nether");
-    private static final Identifier END_ID       = Identifier.fromNamespaceAndPath("minecraft", "the_end");
+    public static Path dimensionDirForDimension(Path worldFolder, ResourceKey<Level> dimension) {
+        Identifier id = dimension.identifier();
+        return worldFolder.resolve("dimensions")
+                .resolve(id.getNamespace())
+                .resolve(id.getPath());
+    }
 
     public static Path regionDirForDimension(Path worldFolder, ResourceKey<Level> dimension) {
-        Identifier id = dimension.identifier();
-        if (id.equals(OVERWORLD_ID)) {
-            return worldFolder.resolve("region");
-        } else if (id.equals(NETHER_ID)) {
-            return worldFolder.resolve("DIM-1").resolve("region");
-        } else if (id.equals(END_ID)) {
-            return worldFolder.resolve("DIM1").resolve("region");
-        } else {
-            return worldFolder.resolve("dimensions")
-                    .resolve(id.getNamespace())
-                    .resolve(id.getPath())
-                    .resolve("region");
+        return dimensionDirForDimension(worldFolder, dimension).resolve("region");
+    }
+
+    // ── Entity MCA export ────────────────────────────────────────────────────
+
+    private static void exportDimensionEntities(
+            Path entitiesDir,
+            Map<ChunkPos, List<net.minecraft.nbt.CompoundTag>> dimEntities) {
+        if (dimEntities.isEmpty()) return;
+
+        Map<String, McaEntitiesFile> entityFiles = new HashMap<>();
+
+        for (Map.Entry<ChunkPos, List<net.minecraft.nbt.CompoundTag>> entry : dimEntities.entrySet()) {
+            List<net.minecraft.nbt.CompoundTag> entities = entry.getValue();
+            if (entities == null || entities.isEmpty()) continue;
+
+            ChunkPos chunkPos = entry.getKey();
+            int chunkX = chunkPos.x();
+            int chunkZ = chunkPos.z();
+            int regionX = chunkX >> 5;
+            int regionZ = chunkZ >> 5;
+            int localX = chunkX & 0x1F;
+            int localZ = chunkZ & 0x1F;
+            String key = regionX + "," + regionZ;
+
+            McaEntitiesFile mcaFile = entityFiles.computeIfAbsent(key, ignored -> {
+                Path entityFile = entitiesDir.resolve(String.format("r.%d.%d.mca", regionX, regionZ));
+                if (entityFile.toFile().exists()) {
+                    try {
+                        return McaFileHelpers.readEntities(entityFile);
+                    } catch (Exception e) {
+                        WMLogger.warn("Could not read " + entityFile.getFileName()
+                                + ", creating new entities region: " + e.getMessage());
+                    }
+                }
+                return new McaEntitiesFile(regionX, regionZ);
+            });
+
+            try {
+                net.minecraft.nbt.CompoundTag entityChunkNbt = new net.minecraft.nbt.CompoundTag();
+                entityChunkNbt.putInt("DataVersion", net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version());
+                entityChunkNbt.put("Position", new IntArrayTag(new int[] {chunkX, chunkZ}));
+                ListTag entityList = new ListTag();
+                entityList.addAll(entities);
+                entityChunkNbt.put("Entities", entityList);
+
+                EntitiesChunk entityChunk = new EntitiesChunk(convertToQuerz(entityChunkNbt));
+                mcaFile.setChunk(localX, localZ, entityChunk);
+                WMLogger.debug("Wrote " + entities.size() + " entities to " + chunkPos);
+            } catch (Exception e) {
+                WMLogger.warn("Failed to process entities for " + chunkPos + ": " + e.getMessage());
+            }
+        }
+
+        for (Map.Entry<String, McaEntitiesFile> entry : entityFiles.entrySet()) {
+            String[] coords = entry.getKey().split(",");
+            int regionX = Integer.parseInt(coords[0]);
+            int regionZ = Integer.parseInt(coords[1]);
+            Path entityFile = entitiesDir.resolve(String.format("r.%d.%d.mca", regionX, regionZ));
+            try {
+                McaFileHelpers.write(entry.getValue(), entityFile.toFile());
+                WMLogger.debug("Wrote entities file " + entityFile.getFileName());
+            } catch (Exception e) {
+                WMLogger.warn("Failed to write entities region " + entityFile.getFileName()
+                        + ": " + e.getMessage());
+            }
         }
     }
 

@@ -16,8 +16,8 @@ region-file save that you can open immediately in singleplayer.
 | **Persistent download session** | Press **P** to start or stop a download session. Chunks received from the server are recorded automatically while the session is active. |
 | **Periodic background sync** | The mod exports to disk on a configurable timer (default 10 s) without freezing the game. |
 | **Dirty-chunk tracking** | Only chunks that have changed since the last export are written, keeping sync fast even for large worlds. |
-| **Multi-dimension support** | Overworld, Nether, End, and any custom dimension are captured and stored in the correct sub-directory (`region/`, `DIM-1/region/`, `DIM1/region/`, `dimensions/<ns>/<path>/region/`). |
-| **Entity capture** | All non-player entities in captured chunks — mobs, animals, paintings, item frames, armour stands, dropped items, vehicles, etc. — are serialized using Minecraft's own `saveWithoutId` and merged into the exported chunk data. |
+| **Multi-dimension support** | Overworld, Nether, End, and any custom dimension are captured under `dimensions/<ns>/<path>/` with separate `region/`, `entities/`, `poi/`, and `data/` subdirectories. |
+| **Entity capture** | All non-player entities in captured chunks — mobs, animals, paintings, item frames, armour stands, dropped items, vehicles, etc. — are serialized using Minecraft's own `saveWithoutId` and written to the dimension's `entities/` region files. |
 | **Container tracking** | The mod intercepts inventory packets when you open a chest, barrel, hopper, furnace, or any other container and saves the item stacks. They are merged into the block entity NBT on export. Double chests are handled correctly (each half is saved to its own position). |
 | **Block entity data** | Signs (text), beacons (effects), banners (patterns), player heads (owner), lecterns (stored book), and all other block entities whose data the server sends to the client are persisted via `saveWithFullMetadata`. |
 | **World–mirror mapping** | Every server address or singleplayer world name is mapped to a sanitised local folder name, stored in `config/worldmirror/mirrors.json`.  The same server always exports to the same folder. |
@@ -97,19 +97,35 @@ The exported world is a standard Minecraft save directory:
 
 ```
 downloaded_worlds/<mirror-name>/
-├── region/                   ← Overworld chunk and entity data
-│   └── r.X.Z.mca
-├── DIM-1/region/             ← Nether
-├── DIM1/region/              ← The End
-├── dimensions/<ns>/<path>/   ← Custom dimensions
-│   └── region/
+├── dimensions/
+│   └── minecraft/
+│       ├── overworld/
+│       │   ├── region/
+│       │   ├── entities/
+│       │   ├── poi/
+│       │   └── data/minecraft/
+│       ├── the_nether/
+│       │   ├── region/
+│       │   ├── entities/
+│       │   ├── poi/
+│       │   └── data/minecraft/
+│       └── the_end/
+│           ├── region/
+│           ├── entities/
+│           ├── poi/
+│           └── data/minecraft/
+├── dimensions/<ns>/<path>/   ← Custom dimensions use the same layout
 ├── level.dat                 ← Default world properties (created on first export)
-├── playerdata/
-├── advancements/
-├── stats/
-├── data/
-├── poi/
-├── entities/
+├── players/
+│   ├── advancements/
+│   ├── data/
+│   └── stats/
+├── data/minecraft/
+│   ├── game_rules.dat
+│   ├── weather.dat
+│   ├── world_clocks.dat
+│   └── world_gen_settings.dat
+├── resourcepacks/
 └── worldmirror_meta.json             ← World Mirror metadata
 ```
 
@@ -127,9 +143,9 @@ downloaded_worlds/<mirror-name>/
 
 ## Entity Serialization
 
-Entities are captured on the game thread before each export and serialized using
-Minecraft's own `Entity.saveWithoutId()` method.  All data the client has received via
-tracking packets is included:
+Entities are captured on the game thread before each export, serialized using
+Minecraft's own `Entity.saveWithoutId()` method, and written to modern per-dimension
+`entities/r.X.Z.mca` files.  All data the client has received via tracking packets is included:
 
 - **Paintings** — painting variant (motive), facing direction, attachment block position
 - **Item frames & Glow item frames** — held item (full component NBT), item rotation, fixed flag

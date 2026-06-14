@@ -3,6 +3,8 @@ package net.billstark001.worldmirror.io;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
@@ -54,7 +56,7 @@ public class WorldExporter {
 
         worldGenSettings.put("dimensions", dimensions);
         worldGenSettings.putByte("bonus_chest", (byte) 0);
-        worldGenSettings.putByte("generate_features", (byte) 0);
+        worldGenSettings.putByte("generate_structures", (byte) 0);
         worldGenSettings.putLong("seed", 0L);
 
         return worldGenSettings;
@@ -70,7 +72,7 @@ public class WorldExporter {
         return spawnSettings;
     }
 
-    public static CompoundTag createWorldData(String levelName) {
+    public static CompoundTag createWorldData(String levelName, UUID singleplayerUuid) {
 
         CompoundTag data = new CompoundTag();
 
@@ -85,19 +87,17 @@ public class WorldExporter {
         data.putInt("GameType", 1);
         data.putBoolean("allowCommands", true);
         data.putBoolean("hardcore", false);
-        data.putInt("Difficulty", 0);
-        data.putBoolean("DifficultyLocked", false);
 
-        // Void superflat — prevents the game from generating any terrain for
-        // chunks that have not been downloaded.  The generator settings string
-        // encodes a superflat world with a single air layer and no structures.
-        data.put("WorldGenSettings", createFlatWorldGenSettings());
+        CompoundTag difficultySettings = new CompoundTag();
+        difficultySettings.putString("difficulty", "peaceful");
+        difficultySettings.putBoolean("locked", false);
+        data.put("difficulty_settings", difficultySettings);
+
+        data.putString("singleplayer_uuid", singleplayerUuid.toString());
 
         CompoundTag spawnSettings = createSpawnSettings(0, 80, 0);
         data.put("spawn", spawnSettings);
 
-        data.putLong("Time", 6000L);
-        data.putLong("DayTime", 6000L);
         data.putLong("LastPlayed", System.currentTimeMillis());
 
         CompoundTag worldBorder = new CompoundTag();
@@ -112,23 +112,12 @@ public class WorldExporter {
         worldBorder.putInt("BorderWarningTime", 15);
         data.put("WorldBorder", worldBorder);
 
-        CompoundTag gameRules = new CompoundTag();
-//                gameRules.putString("keepInventory", "false");
-//                gameRules.putString("mobGriefing", "false");
-//                gameRules.putString("doFireTick", "false");
-//                gameRules.putString("doMobSpawning", "false");
-//                gameRules.putString("doMobLoot", "true");
-//                gameRules.putString("doTileDrops", "true");
-//                gameRules.putString("commandBlockOutput", "true");
-//                gameRules.putString("naturalRegeneration", "true");
-//                gameRules.putString("doDaylightCycle", "false");
-//                gameRules.putString("logAdminCommands", "true");
-//                gameRules.putString("showDeathMessages", "true");
-//                gameRules.putString("randomTickSpeed", "0");
-//                gameRules.putString("sendCommandFeedback", "true");
-        data.put("game_rules", gameRules);
+        return data;
+    }
 
+    private static CompoundTag createPlayerData() {
         CompoundTag player = new CompoundTag();
+        player.putInt("DataVersion", SharedConstants.getCurrentVersion().dataVersion().version());
         player.putString("Dimension", "minecraft:overworld");
 
         ListTag pos = new ListTag();
@@ -158,9 +147,44 @@ public class WorldExporter {
         player.put("Inventory", new ListTag());
         player.put("EnderItems", new ListTag());
 
-        data.put("Player", player);
+        return player;
+    }
 
-        return data;
+    private static CompoundTag createGameRules() {
+        CompoundTag gameRules = new CompoundTag();
+        gameRules.putString("doDaylightCycle", "false");
+        gameRules.putString("doMobSpawning", "false");
+        gameRules.putString("keepInventory", "false");
+        gameRules.putString("randomTickSpeed", "0");
+        return gameRules;
+    }
+
+    private static CompoundTag createWeatherData() {
+        CompoundTag weather = new CompoundTag();
+        weather.putInt("clear_weather_time", 0);
+        weather.putInt("rain_time", 0);
+        weather.putInt("thunder_time", 0);
+        weather.putBoolean("raining", false);
+        weather.putBoolean("thundering", false);
+        return weather;
+    }
+
+    private static CompoundTag createWorldClocksData() {
+        CompoundTag clocks = new CompoundTag();
+        CompoundTag clockStates = new CompoundTag();
+        clockStates.put("minecraft:overworld", createClockState(6000L));
+        clockStates.put("minecraft:the_end", createClockState(6000L));
+        clocks.put("clocks", clockStates);
+        return clocks;
+    }
+
+    private static CompoundTag createClockState(long totalTicks) {
+        CompoundTag state = new CompoundTag();
+        state.putLong("total_ticks", totalTicks);
+        state.putFloat("partial_tick", 0.0F);
+        state.putFloat("rate", 1.0F);
+        state.putBoolean("paused", false);
+        return state;
     }
 
     /**
@@ -183,13 +207,23 @@ public class WorldExporter {
                 worldFolder.mkdirs();
             }
 
-            (new File(worldFolder, "region")).mkdirs();
-            (new File(worldFolder, "playerdata")).mkdirs();
-            (new File(worldFolder, "advancements")).mkdirs();
-            (new File(worldFolder, "stats")).mkdirs();
-            (new File(worldFolder, "data")).mkdirs();
-            (new File(worldFolder, "poi")).mkdirs();
-            (new File(worldFolder, "entities")).mkdirs();
+            mkdirs(worldFolder, "dimensions/minecraft/overworld/region");
+            mkdirs(worldFolder, "dimensions/minecraft/overworld/entities");
+            mkdirs(worldFolder, "dimensions/minecraft/overworld/poi");
+            mkdirs(worldFolder, "dimensions/minecraft/overworld/data/minecraft");
+            mkdirs(worldFolder, "dimensions/minecraft/the_nether/region");
+            mkdirs(worldFolder, "dimensions/minecraft/the_nether/entities");
+            mkdirs(worldFolder, "dimensions/minecraft/the_nether/poi");
+            mkdirs(worldFolder, "dimensions/minecraft/the_nether/data/minecraft");
+            mkdirs(worldFolder, "dimensions/minecraft/the_end/region");
+            mkdirs(worldFolder, "dimensions/minecraft/the_end/entities");
+            mkdirs(worldFolder, "dimensions/minecraft/the_end/poi");
+            mkdirs(worldFolder, "dimensions/minecraft/the_end/data/minecraft");
+            mkdirs(worldFolder, "players/advancements");
+            mkdirs(worldFolder, "players/data");
+            mkdirs(worldFolder, "players/stats");
+            mkdirs(worldFolder, "data/minecraft");
+            mkdirs(worldFolder, "resourcepacks");
 
 
             File sessionLock = new File(worldFolder, "session.lock");
@@ -207,23 +241,18 @@ public class WorldExporter {
             }
             // Only write level.dat on first creation; on subsequent syncs just refresh session.lock.
             if (firstTime) {
+                UUID singleplayerUuid = UUID.nameUUIDFromBytes(
+                        ("worldmirror:" + levelName).getBytes(StandardCharsets.UTF_8));
                 CompoundTag root = new CompoundTag();
-                CompoundTag data = createWorldData(levelName);
+                CompoundTag data = createWorldData(levelName, singleplayerUuid);
                 root.put("Data", data);
 
-                File levelDat = new File(worldFolder, "level.dat");
-                FileOutputStream fos = new FileOutputStream(levelDat);
-                try {
-                    NbtIo.writeCompressed(root, fos);
-                    fos.close();
-                } catch (Throwable throwable) {
-                    try {
-                        fos.close();
-                    } catch (Throwable throwable1) {
-                        throwable.addSuppressed(throwable1);
-                    }
-                    throw throwable;
-                }
+                writeCompressed(new File(worldFolder, "level.dat"), root);
+                writeCompressed(new File(worldFolder, "players/data/" + singleplayerUuid + ".dat"), createPlayerData());
+                writeCompressed(new File(worldFolder, "data/minecraft/world_gen_settings.dat"), createFlatWorldGenSettings());
+                writeCompressed(new File(worldFolder, "data/minecraft/game_rules.dat"), createGameRules());
+                writeCompressed(new File(worldFolder, "data/minecraft/weather.dat"), createWeatherData());
+                writeCompressed(new File(worldFolder, "data/minecraft/world_clocks.dat"), createWorldClocksData());
                 WMLogger.info("World structure created at: " + worldFolder.getAbsolutePath()
                         + " (name: " + data.getString("LevelName") + ")");
             } else {
@@ -231,6 +260,16 @@ public class WorldExporter {
             }
         } catch (Exception e) {
             WMLogger.warn("Failed to create loadable world: " + e.getMessage());
+        }
+    }
+
+    private static void mkdirs(File worldFolder, String relativePath) {
+        (new File(worldFolder, relativePath)).mkdirs();
+    }
+
+    private static void writeCompressed(File file, CompoundTag tag) throws Exception {
+        try (FileOutputStream fos = new FileOutputStream(file)) {
+            NbtIo.writeCompressed(tag, fos);
         }
     }
 }
