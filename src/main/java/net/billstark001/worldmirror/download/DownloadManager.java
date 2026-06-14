@@ -15,6 +15,7 @@ import net.billstark001.worldmirror.io.WorldStructureCreator;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
@@ -540,6 +541,7 @@ public final class DownloadManager {
 
         final String finalSourceId = sourceId;
         final String finalSourceType = sourceType;
+        final RegistryAccess finalRegistryAccess = client.level != null ? client.level.registryAccess() : null;
 
         Path worldFolder;
         try {
@@ -581,7 +583,7 @@ public final class DownloadManager {
                         ChunkExporter.exportChunks(finalWorldFolder, snapshot, entitySnapshot,
                                 resolver, db);
 
-                WorldStructureCreator.createLoadableWorld(finalWorldFolder, finalSourceId);
+                WorldStructureCreator.createLoadableWorld(finalWorldFolder, finalSourceId, finalRegistryAccess);
                 WorldMetadata.update(finalWorldFolder, finalSourceId, finalSourceType);
 
                 for (Map.Entry<ResourceKey<Level>, Set<ChunkPos>> dimEntry : written.entrySet()) {
