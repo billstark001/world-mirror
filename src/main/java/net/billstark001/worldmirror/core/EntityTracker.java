@@ -114,6 +114,38 @@ public class EntityTracker {
                 .sum();
     }
 
+    public static void pruneToMatchCapturedChunks() {
+        int removedChunks = 0;
+        List<ResourceKey<Level>> emptyDims = new ArrayList<>();
+
+        for (Map.Entry<ResourceKey<Level>, Map<ChunkPos, List<CompoundTag>>> dimEntry
+                : dimChunkEntities.entrySet()) {
+            ResourceKey<Level> dimension = dimEntry.getKey();
+            Map<ChunkPos, ChunkListener.CapturedChunk> liveChunks =
+                    ChunkListener.getDimension(dimension);
+            Map<ChunkPos, List<CompoundTag>> entitiesByChunk = dimEntry.getValue();
+
+            java.util.Iterator<ChunkPos> it = entitiesByChunk.keySet().iterator();
+            while (it.hasNext()) {
+                ChunkPos pos = it.next();
+                if (!liveChunks.containsKey(pos)) {
+                    it.remove();
+                    removedChunks++;
+                }
+            }
+            if (entitiesByChunk.isEmpty()) {
+                emptyDims.add(dimension);
+            }
+        }
+
+        for (ResourceKey<Level> dim : emptyDims) {
+            dimChunkEntities.remove(dim);
+        }
+        if (removedChunks > 0) {
+            WMLogger.debug("Pruned entity cache for " + removedChunks + " chunk(s).");
+        }
+    }
+
     // ── Entity serialisation ──────────────────────────────────────────────────
 
     /**

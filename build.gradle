@@ -58,6 +58,9 @@ dependencies {
     api include("me.shedaniel.cloth:cloth-config-fabric:${project.clothconfig_version}") {
         exclude(group: "net.fabricmc.fabric-api")
     }
+
+    // SQLite JDBC — embedded database for chunk tracking
+    implementation include("org.xerial:sqlite-jdbc:${project.sqlite_version}")
 }
 
 processResources {

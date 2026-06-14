@@ -13,7 +13,10 @@ import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
@@ -24,8 +27,10 @@ import net.minecraft.world.phys.HitResult;
 
 @Environment(EnvType.CLIENT)
 public class ContainerTracker {
+    private record ContainerKey(ResourceKey<Level> dimension, BlockPos pos) { }
+
     private static final Map<Integer, ContainerData> openContainers = new ConcurrentHashMap<>();
-    private static final Map<BlockPos, CompoundTag> savedContainerData = new ConcurrentHashMap<>();
+    private static final Map<ContainerKey, CompoundTag> savedContainerData = new ConcurrentHashMap<>();
 
     public static void onContainerOpened(int syncId, Component name) {
         Minecraft client = Minecraft.getInstance();
@@ -64,9 +69,13 @@ public class ContainerTracker {
     }
 
     private static void handleRegularContainer(ContainerData container, List<ItemStack> contents, int containerSlots) {
+        ResourceKey<Level> dimension = currentDimension();
+        if (dimension == null) {
+            return;
+        }
         container.setContainerInventory(contents, containerSlots);
         CompoundTag containerNbt = container.toNbt();
-        savedContainerData.put(container.pos, containerNbt);
+        savedContainerData.put(new ContainerKey(dimension, container.pos), containerNbt);
 
         int nonEmptySlots = countNonEmptySlots(contents, containerSlots);
         WMLogger.debug("Saved regular container at " + container.pos + " with " + nonEmptySlots + "/" + containerSlots + " filled slots");
@@ -91,6 +100,7 @@ public class ContainerTracker {
             BlockPos leftChestPos, rightChestPos;
             ChestType chestType = (ChestType) blockState.getValue((Property) ChestBlock.TYPE);
             Direction facing = (Direction) blockState.getValue((Property) ChestBlock.FACING);
+            ResourceKey<Level> dimension = client.level.dimension();
 
 
             if (chestType == ChestType.SINGLE) {
@@ -118,13 +128,13 @@ public class ContainerTracker {
             leftContainer.setContainerInventory(leftChestItems, 27);
             leftContainer.setChestType(ChestType.LEFT, facing);
             CompoundTag leftChestNbt = leftContainer.toNbt();
-            savedContainerData.put(leftChestPos, leftChestNbt);
+            savedContainerData.put(new ContainerKey(dimension, leftChestPos), leftChestNbt);
 
             ContainerData rightContainer = new ContainerData(rightChestPos, container.name);
             rightContainer.setContainerInventory(rightChestItems, 27);
             rightContainer.setChestType(ChestType.RIGHT, facing);
             CompoundTag rightChestNbt = rightContainer.toNbt();
-            savedContainerData.put(rightChestPos, rightChestNbt);
+            savedContainerData.put(new ContainerKey(dimension, rightChestPos), rightChestNbt);
 
             int leftNonEmpty = countNonEmptySlots(leftChestItems, 27);
             int rightNonEmpty = countNonEmptySlots(rightChestItems, 27);
@@ -194,12 +204,14 @@ public class ContainerTracker {
         }
     }
 
-    public static CompoundTag getContainerData(BlockPos pos) {
-        return savedContainerData.get(pos);
+    public static CompoundTag getContainerData(ResourceKey<Level> dimension, BlockPos pos) {
+        if (dimension == null || pos == null) return null;
+        return savedContainerData.get(new ContainerKey(dimension, pos));
     }
 
-    public static boolean hasContainerData(BlockPos pos) {
-        return savedContainerData.containsKey(pos);
+    public static boolean hasContainerData(ResourceKey<Level> dimension, BlockPos pos) {
+        if (dimension == null || pos == null) return false;
+        return savedContainerData.containsKey(new ContainerKey(dimension, pos));
     }
 
     public static void clear() {
@@ -212,13 +224,44 @@ public class ContainerTracker {
         return savedContainerData.size();
     }
 
+    public static void evictForChunks(Map<ResourceKey<Level>, ? extends java.util.Collection<ChunkPos>> evictedByDim) {
+        if (evictedByDim == null || evictedByDim.isEmpty()) return;
+
+        Map<ResourceKey<Level>, java.util.Set<ChunkPos>> normalized = new java.util.HashMap<>();
+        for (Map.Entry<ResourceKey<Level>, ? extends java.util.Collection<ChunkPos>> entry : evictedByDim.entrySet()) {
+            java.util.Collection<ChunkPos> chunks = entry.getValue();
+            if (chunks == null || chunks.isEmpty()) continue;
+            normalized.put(entry.getKey(), chunks instanceof java.util.Set<?>
+                    ? (java.util.Set<ChunkPos>) chunks
+                    : new java.util.HashSet<>(chunks));
+        }
+        if (normalized.isEmpty()) return;
+
+        int removed = 0;
+        java.util.Iterator<ContainerKey> it = savedContainerData.keySet().iterator();
+        while (it.hasNext()) {
+            ContainerKey key = it.next();
+            java.util.Set<ChunkPos> chunkSet = normalized.get(key.dimension());
+            if (chunkSet != null && chunkSet.contains(new ChunkPos(key.pos().getX() >> 4, key.pos().getZ() >> 4))) {
+                it.remove();
+                removed++;
+            }
+        }
+        if (removed > 0) {
+            WMLogger.debug("Evicted " + removed + " container entries across " + normalized.size() + " dimension(s).");
+        }
+    }
+
 
     public static CompoundTag enhanceBlockEntityWithContainerData(BlockEntity blockEntity, CompoundTag originalNbt) {
         if (originalNbt == null) {
             return null;
         }
         BlockPos pos = blockEntity.getBlockPos();
-        CompoundTag containerData = getContainerData(pos);
+        ResourceKey<Level> dimension = blockEntity.getLevel() != null
+                ? blockEntity.getLevel().dimension()
+                : currentDimension();
+        CompoundTag containerData = getContainerData(dimension, pos);
 
         if (containerData != null) {
             if (containerData.contains("Items")) {
@@ -236,5 +279,10 @@ public class ContainerTracker {
         }
 
         return originalNbt;
+    }
+
+    private static ResourceKey<Level> currentDimension() {
+        Minecraft client = Minecraft.getInstance();
+        return client.level != null ? client.level.dimension() : null;
     }
 }

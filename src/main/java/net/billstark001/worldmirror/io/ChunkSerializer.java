@@ -32,7 +32,7 @@ import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.levelgen.Heightmap;
 
 @Environment(EnvType.CLIENT)
-public class ClientChunkSerializer {
+public class ChunkSerializer {
 
     /**
      * Returns {@code true} if the chunk has no non-air blocks and no block entities,

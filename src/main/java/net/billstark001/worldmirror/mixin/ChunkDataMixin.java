@@ -2,7 +2,7 @@ package net.billstark001.worldmirror.mixin;
 
 import net.billstark001.worldmirror.download.DownloadManager;
 import net.billstark001.worldmirror.core.ChunkListener;
-import net.billstark001.worldmirror.io.ClientChunkSerializer;
+import net.billstark001.worldmirror.io.ChunkSerializer;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
@@ -42,11 +42,11 @@ public abstract class ChunkDataMixin {
 
         if (worldChunk != null) {
             try {
-                if (ClientChunkSerializer.isChunkEmpty(worldChunk)) {
+                if (ChunkSerializer.isChunkEmpty(worldChunk)) {
                     WMLogger.debug("Skipping empty chunk at " + pos);
                     return;
                 }
-                CompoundTag chunkNbt = ClientChunkSerializer.serialize(world, worldChunk);
+                CompoundTag chunkNbt = ChunkSerializer.serialize(world, worldChunk);
                 // Pass the dimension key so ChunkListener can store chunks per dimension
                 ChunkListener.addChunkNbt(world.dimension(), pos, chunkNbt);
             } catch (Exception e) {

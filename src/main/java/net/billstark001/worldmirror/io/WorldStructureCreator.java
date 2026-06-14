@@ -13,7 +13,7 @@ import net.minecraft.SharedConstants;
 import net.minecraft.nbt.*;
 
 @Environment(EnvType.CLIENT)
-public class WorldExporter {
+public class WorldStructureCreator {
 
     public static CompoundTag createFlatGenerator() {
         CompoundTag generator = new CompoundTag();
@@ -199,7 +199,8 @@ public class WorldExporter {
      * @param worldFolder  root directory of the mirror world
      * @param levelName    human-readable name to embed in {@code level.dat}
      */
-    public static void createLoadableWorld(File worldFolder, String levelName) {
+    public static void createLoadableWorld(java.nio.file.Path worldFolderPath, String levelName) {
+        File worldFolder = worldFolderPath.toFile();
         try {
             boolean firstTime = !(new File(worldFolder, "level.dat")).exists();
 
