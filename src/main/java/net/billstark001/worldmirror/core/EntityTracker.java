@@ -31,7 +31,7 @@ public class EntityTracker {
      * Captures all non-player entities in the given world and stores them under
      * that world's dimension key.  Must be called on the game thread.
      * <p>
-     * Each entity is serialized via {@link Entity#saveWithoutId(ValueOutput)}}, which
+     * Each entity is serialized via {@link Entity#saveWithoutId(ValueOutput)}, which
      * covers every entity type — including paintings (motive / facing / attachment
      * position), item frames (held item, rotation), armour stands (pose, equipment,
      * flags), dropped items, mobs, animals, and more.  The entity type identifier
@@ -40,7 +40,7 @@ public class EntityTracker {
      */
     public static void captureEntitiesForWorld(ClientLevel world) {
         if (world == null) {
-            WMLogger.warn("ClientWorld is null, cannot capture entities.");
+            WMLogger.warn("ClientLevel is null, cannot capture entities.");
             return;
         }
 

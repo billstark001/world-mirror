@@ -30,7 +30,7 @@ public class ManualResolver implements ConflictResolver {
                     context.chunkNbt(),
                     context.dimension());
             WMLogger.warn("Conflict saved for chunk " + context.pos()
-                    + " [" + context.dimension().getValue() + "]"
+                    + " [" + context.dimension().identifier() + "]"
                     + " — keeping local copy until resolved.");
             return false;
         }

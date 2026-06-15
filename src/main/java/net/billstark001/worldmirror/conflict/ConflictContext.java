@@ -21,8 +21,8 @@ import java.nio.file.Path;
 public record ConflictContext(
         ChunkPos pos,
         boolean existsLocally,
-        NbtCompound chunkNbt,
-        RegistryKey<World> dimension,
+        CompoundTag chunkNbt,
+        ResourceKey<Level> dimension,
         Path worldFolder
 ) {
 }

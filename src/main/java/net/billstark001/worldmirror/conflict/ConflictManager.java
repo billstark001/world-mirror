@@ -6,11 +6,10 @@ import io.github.ensgijs.nbt.mca.io.McaFileHelpers;
 import io.github.ensgijs.nbt.tag.CompoundTag;
 import net.billstark001.worldmirror.io.ChunkExporter;
 import net.billstark001.worldmirror.util.WMLogger;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.world.World;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 
 import java.io.File;
 import java.io.IOException;
@@ -47,11 +46,11 @@ public final class ConflictManager {
      * Returns the region directory for conflict files of the given dimension,
      * mirroring the layout used by {@link ChunkExporter#regionDirForDimension}.
      */
-    public static Path getConflictDir(Path worldFolder, RegistryKey<World> dimension) {
-        Identifier id = dimension.getValue();
-        Identifier OVERWORLD = Identifier.of("minecraft", "overworld");
-        Identifier NETHER    = Identifier.of("minecraft", "the_nether");
-        Identifier END       = Identifier.of("minecraft", "the_end");
+    public static Path getConflictDir(Path worldFolder, ResourceKey<Level> dimension) {
+        Identifier id = dimension.identifier();
+        Identifier OVERWORLD = Identifier.fromNamespaceAndPath("minecraft", "overworld");
+        Identifier NETHER    = Identifier.fromNamespaceAndPath("minecraft", "the_nether");
+        Identifier END       = Identifier.fromNamespaceAndPath("minecraft", "the_end");
         Path root = worldFolder.resolve(CONFLICT_ROOT);
         if (id.equals(OVERWORLD)) {
             return root.resolve("region");
@@ -74,12 +73,12 @@ public final class ConflictManager {
      * entry in the appropriate MCA file under {@code conflict_chunks/}.
      */
     public static void saveConflict(Path worldFolder, ChunkPos pos,
-                                    NbtCompound chunkNbt, RegistryKey<World> dimension) {
+                                    net.minecraft.nbt.CompoundTag chunkNbt, ResourceKey<Level> dimension) {
         Path conflictDir = getConflictDir(worldFolder, dimension);
         try {
             Files.createDirectories(conflictDir);
-            int regionX = pos.x >> 5;
-            int regionZ = pos.z >> 5;
+            int regionX = pos.x() >> 5;
+            int regionZ = pos.z() >> 5;
             Path regionFile = conflictDir.resolve(
                     String.format("r.%d.%d.mca", regionX, regionZ));
 
@@ -87,14 +86,14 @@ public final class ConflictManager {
                     ? McaFileHelpers.readAuto(regionFile.toFile())
                     : new McaRegionFile(regionX, regionZ);
 
-            int localX = pos.x & 0x1F;
-            int localZ = pos.z & 0x1F;
+            int localX = pos.x() & 0x1F;
+            int localZ = pos.z() & 0x1F;
             CompoundTag tag = ChunkExporter.convertToQuerz(chunkNbt);
             mca.setChunk(localX, localZ, new TerrainChunk(tag));
             McaFileHelpers.write(mca, regionFile.toFile());
         } catch (Exception e) {
             WMLogger.warn("ConflictManager.saveConflict failed for " + pos
-                    + " [" + dimension.getValue() + "]: " + e.getMessage());
+                    + " [" + dimension.identifier() + "]: " + e.getMessage());
         }
     }
 
@@ -102,15 +101,15 @@ public final class ConflictManager {
 
     /** Returns {@code true} if a conflict entry exists for the given chunk. */
     public static boolean hasConflict(Path worldFolder, ChunkPos pos,
-                                      RegistryKey<World> dimension) {
+                                      ResourceKey<Level> dimension) {
         Path conflictDir = getConflictDir(worldFolder, dimension);
-        int regionX = pos.x >> 5;
-        int regionZ = pos.z >> 5;
+        int regionX = pos.x() >> 5;
+        int regionZ = pos.z() >> 5;
         Path regionFile = conflictDir.resolve(String.format("r.%d.%d.mca", regionX, regionZ));
         if (!regionFile.toFile().exists()) return false;
         try {
             McaRegionFile mca = McaFileHelpers.readAuto(regionFile.toFile());
-            return mca.getChunk(pos.x & 0x1F, pos.z & 0x1F) != null;
+            return mca.getChunk(pos.x() & 0x1F, pos.z() & 0x1F) != null;
         } catch (Exception e) {
             return false;
         }
@@ -120,7 +119,7 @@ public final class ConflictManager {
      * Returns all chunk positions that have a conflict entry for the given dimension.
      */
     public static Set<ChunkPos> listConflicts(Path worldFolder,
-                                              RegistryKey<World> dimension) {
+                                              ResourceKey<Level> dimension) {
         Path conflictDir = getConflictDir(worldFolder, dimension);
         Set<ChunkPos> result = new HashSet<>();
         File dir = conflictDir.toFile();
@@ -181,18 +180,18 @@ public final class ConflictManager {
      *                  entry is simply removed (keeping the existing local chunk).
      */
     public static void resolveConflict(Path worldFolder, ChunkPos pos,
-                                       RegistryKey<World> dimension, boolean overwrite) {
+                                       ResourceKey<Level> dimension, boolean overwrite) {
         Path conflictDir = getConflictDir(worldFolder, dimension);
-        int regionX = pos.x >> 5;
-        int regionZ = pos.z >> 5;
+        int regionX = pos.x() >> 5;
+        int regionZ = pos.z() >> 5;
         Path conflictFile = conflictDir.resolve(
                 String.format("r.%d.%d.mca", regionX, regionZ));
         if (!conflictFile.toFile().exists()) return;
 
         try {
             McaRegionFile conflictMca = McaFileHelpers.readAuto(conflictFile.toFile());
-            int localX = pos.x & 0x1F;
-            int localZ = pos.z & 0x1F;
+            int localX = pos.x() & 0x1F;
+            int localZ = pos.z() & 0x1F;
             TerrainChunk conflictChunk = conflictMca.getChunk(localX, localZ);
 
             if (overwrite && conflictChunk != null) {

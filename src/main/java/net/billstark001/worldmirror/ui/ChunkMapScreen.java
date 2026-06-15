@@ -6,14 +6,15 @@ import net.billstark001.worldmirror.download.DownloadManager;
 import net.billstark001.worldmirror.download.WorldMetadata;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.text.Text;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.world.World;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 
 import java.nio.file.Path;
 import java.util.*;
@@ -69,7 +70,7 @@ public class ChunkMapScreen extends Screen {
     private final Map<Long, ChunkDatabase.ChunkRecord> recordMap = new HashMap<>();
     private final Set<ChunkPos> conflictChunks = new HashSet<>();
     private Path worldFolder;
-    private RegistryKey<World> currentDimension;
+    private ResourceKey<Level> currentDimension;
     private String sourceId;
 
     // ── Dialog ────────────────────────────────────────────────────────────────
@@ -77,41 +78,41 @@ public class ChunkMapScreen extends Screen {
     private ChunkPos dialogChunk;
 
     // Permanent dialog buttons (toggled visible/invisible)
-    private ButtonWidget dialogCancelBtn;
-    private ButtonWidget dialogOverwriteBtn;
-    private ButtonWidget dialogDiscardBtn;
+    private Button dialogCancelBtn;
+    private Button dialogOverwriteBtn;
+    private Button dialogDiscardBtn;
 
     // ── Construction ─────────────────────────────────────────────────────────
 
     public ChunkMapScreen() {
-        super(Text.translatable("screen.worldmirror.chunkmap.title"));
+        super(Component.translatable("screen.worldmirror.chunkmap.title"));
     }
 
     @Override
     protected void init() {
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
 
         // Centre on player
         if (client.player != null) {
-            viewCX = client.player.getChunkPos().x;
-            viewCZ = client.player.getChunkPos().z;
+            viewCX = client.player.chunkPosition().x();
+            viewCZ = client.player.chunkPosition().z();
         }
-        if (client.world != null) {
-            currentDimension = client.world.getRegistryKey();
+        if (client.level != null) {
+            currentDimension = client.level.dimension();
         }
-        if (currentDimension == null) currentDimension = World.OVERWORLD;
+        if (currentDimension == null) currentDimension = Level.OVERWORLD;
 
         loadData(client);
 
         // Permanent bottom buttons
-        addDrawableChild(ButtonWidget.builder(
-                Text.translatable("gui.done"), btn -> close()
-        ).dimensions(this.width - 60, this.height - 24, 54, 20).build());
+        addRenderableWidget(Button.builder(
+                Component.translatable("gui.done"), btn -> onClose()
+        ).bounds(this.width - 60, this.height - 24, 54, 20).build());
 
-        addDrawableChild(ButtonWidget.builder(
-                Text.translatable("screen.worldmirror.chunkmap.refresh"),
-                btn -> loadData(MinecraftClient.getInstance())
-        ).dimensions(this.width - 120, this.height - 24, 54, 20).build());
+        addRenderableWidget(Button.builder(
+                Component.translatable("screen.worldmirror.chunkmap.refresh"),
+                btn -> loadData(Minecraft.getInstance())
+        ).bounds(this.width - 120, this.height - 24, 54, 20).build());
 
         // Dialog buttons (hidden initially)
         int dw = 220, dh = 90;
@@ -122,12 +123,12 @@ public class ChunkMapScreen extends Screen {
         int totalW = 3 * btnW + 2 * gap;
         int bx = (this.width - totalW) / 2;
 
-        dialogCancelBtn = addDrawableChild(ButtonWidget.builder(
-                Text.translatable("gui.cancel"), btn -> closeDialog()
-        ).dimensions(bx, btnY, btnW, 20).build());
+        dialogCancelBtn = addRenderableWidget(Button.builder(
+                Component.translatable("gui.cancel"), btn -> closeDialog()
+        ).bounds(bx, btnY, btnW, 20).build());
 
-        dialogOverwriteBtn = addDrawableChild(ButtonWidget.builder(
-                Text.translatable("screen.worldmirror.chunkmap.dialog.overwrite"),
+        dialogOverwriteBtn = addRenderableWidget(Button.builder(
+                Component.translatable("screen.worldmirror.chunkmap.dialog.overwrite"),
                 btn -> {
                     if (dialogChunk != null && worldFolder != null && currentDimension != null) {
                         ConflictManager.resolveConflict(worldFolder, dialogChunk, currentDimension, true);
@@ -135,10 +136,10 @@ public class ChunkMapScreen extends Screen {
                     }
                     closeDialog();
                 }
-        ).dimensions(bx + btnW + gap, btnY, btnW, 20).build());
+        ).bounds(bx + btnW + gap, btnY, btnW, 20).build());
 
-        dialogDiscardBtn = addDrawableChild(ButtonWidget.builder(
-                Text.translatable("screen.worldmirror.chunkmap.dialog.discard"),
+        dialogDiscardBtn = addRenderableWidget(Button.builder(
+                Component.translatable("screen.worldmirror.chunkmap.dialog.discard"),
                 btn -> {
                     if (dialogChunk != null && worldFolder != null && currentDimension != null) {
                         ConflictManager.resolveConflict(worldFolder, dialogChunk, currentDimension, false);
@@ -146,19 +147,19 @@ public class ChunkMapScreen extends Screen {
                     }
                     closeDialog();
                 }
-        ).dimensions(bx + 2 * (btnW + gap), btnY, btnW, 20).build());
+        ).bounds(bx + 2 * (btnW + gap), btnY, btnW, 20).build());
 
         setDialogButtonsVisible(false);
     }
 
     // ── Data loading ──────────────────────────────────────────────────────────
 
-    private void loadData(MinecraftClient client) {
+    private void loadData(Minecraft client) {
         sourceId = WorldMetadata.detectSourceId(client);
         worldFolder = DownloadManager.getOutputPath(client);
-        if (currentDimension == null) currentDimension = World.OVERWORLD;
+        if (currentDimension == null) currentDimension = Level.OVERWORLD;
 
-        String dimStr = currentDimension.getValue().toString();
+        String dimStr = currentDimension.identifier().toString();
 
         recordMap.clear();
         for (ChunkDatabase.ChunkRecord r :
@@ -173,7 +174,7 @@ public class ChunkMapScreen extends Screen {
     // ── Rendering ─────────────────────────────────────────────────────────────
 
     @Override
-    public void render(DrawContext ctx, int mx, int my, float delta) {
+    public void extractRenderState(GuiGraphicsExtractor ctx, int mx, int my, float delta) {
         this.mouseX = mx;
         this.mouseY = my;
 
@@ -217,7 +218,7 @@ public class ChunkMapScreen extends Screen {
         }
 
         // Player marker
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         if (client.player != null) {
             double px = client.player.getX() / 16.0;
             double pz = client.player.getZ() / 16.0;
@@ -229,7 +230,7 @@ public class ChunkMapScreen extends Screen {
         // Dialog overlay
         if (dialogChunk != null) drawConflictDialog(ctx);
 
-        super.render(ctx, mx, my, delta);
+        super.extractRenderState(ctx, mx, my, delta);
 
         // Tooltip
         if (hoveredChunk != null && dialogChunk == null) {
@@ -256,7 +257,7 @@ public class ChunkMapScreen extends Screen {
         return 0xFF000000 | (g << 8) | b;
     }
 
-    private static void drawConflictBorder(DrawContext ctx, int x, int z, int size) {
+    private static void drawConflictBorder(GuiGraphicsExtractor ctx, int x, int z, int size) {
         int c = COLOR_CONFLICT_BORDER;
         if (size < 3) { ctx.fill(x, z, x + size, z + size, c); return; }
         ctx.fill(x + 1, z + 1, x + size - 1, z + 2,           c);
@@ -265,28 +266,28 @@ public class ChunkMapScreen extends Screen {
         ctx.fill(x + size - 2, z + 1, x + size - 1, z + size - 1, c);
     }
 
-    private void drawTooltipForChunk(DrawContext ctx, ChunkPos pos, int mx, int my, long now) {
-        ChunkDatabase.ChunkRecord rec = recordMap.get(chunkKey(pos.x, pos.z));
+    private void drawTooltipForChunk(GuiGraphicsExtractor ctx, ChunkPos pos, int mx, int my, long now) {
+        ChunkDatabase.ChunkRecord rec = recordMap.get(chunkKey(pos.x(), pos.z()));
         boolean hasConflict = conflictChunks.contains(pos);
-        List<Text> lines = new ArrayList<>();
-        lines.add(Text.literal("§eChunk (" + pos.x + ", " + pos.z + ")"));
-        lines.add(Text.literal("§7Block: (" + (pos.x * 16) + ", " + (pos.z * 16) + ")"));
+        List<Component> lines = new ArrayList<>();
+        lines.add(Component.literal("§eChunk (" + pos.x() + ", " + pos.z() + ")"));
+        lines.add(Component.literal("§7Block: (" + (pos.x() * 16) + ", " + (pos.z() * 16) + ")"));
         if (rec != null) {
-            lines.add(Text.literal("§7Updated: §f" + formatAge((now - rec.updateTime()) / 1000)));
-            lines.add(Text.literal("§7Source: §f" + rec.updateSource()));
+            lines.add(Component.literal("§7Updated: §f" + formatAge((now - rec.updateTime()) / 1000)));
+            lines.add(Component.literal("§7Source: §f" + rec.updateSource()));
         } else {
-            lines.add(Text.translatable("screen.worldmirror.chunkmap.notDownloaded"));
+            lines.add(Component.translatable("screen.worldmirror.chunkmap.notDownloaded"));
         }
         if (hasConflict) {
-            lines.add(Text.translatable("screen.worldmirror.chunkmap.conflict"));
-            lines.add(Text.translatable("screen.worldmirror.chunkmap.clickResolve"));
+            lines.add(Component.translatable("screen.worldmirror.chunkmap.conflict"));
+            lines.add(Component.translatable("screen.worldmirror.chunkmap.clickResolve"));
         }
-        ctx.drawTooltip(this.textRenderer, lines, mx, my);
+        ctx.setComponentTooltipForNextFrame(this.font, lines, mx, my);
     }
 
     // ── Dialog ────────────────────────────────────────────────────────────────
 
-    private void drawConflictDialog(DrawContext ctx) {
+    private void drawConflictDialog(GuiGraphicsExtractor ctx) {
         int dw = 220, dh = 90;
         int dx = (this.width - dw) / 2, dy = (this.height - dh) / 2;
         ctx.fill(dx, dy, dx + dw, dy + dh, 0xFF202020);
@@ -295,16 +296,16 @@ public class ChunkMapScreen extends Screen {
         ctx.fill(dx, dy, dx + 1, dy + dh, b);
         ctx.fill(dx + dw - 1, dy, dx + dw, dy + dh, b);
         ctx.fill(dx, dy + dh - 1, dx + dw, dy + dh, b);
-        ctx.drawCenteredTextWithShadow(this.textRenderer,
-                Text.translatable("screen.worldmirror.chunkmap.dialog.title"),
+        ctx.centeredText(this.font,
+                Component.translatable("screen.worldmirror.chunkmap.dialog.title"),
                 this.width / 2, dy + 8, 0xFFFFFFFF);
         if (dialogChunk != null) {
-            ctx.drawCenteredTextWithShadow(this.textRenderer,
-                    Text.literal("(" + dialogChunk.x + ", " + dialogChunk.z + ")"),
+            ctx.centeredText(this.font,
+                    Component.literal("(" + dialogChunk.x() + ", " + dialogChunk.z() + ")"),
                     this.width / 2, dy + 22, 0xFFAAAAAA);
         }
-        ctx.drawCenteredTextWithShadow(this.textRenderer,
-                Text.translatable("screen.worldmirror.chunkmap.dialog.prompt"),
+        ctx.centeredText(this.font,
+                Component.translatable("screen.worldmirror.chunkmap.dialog.prompt"),
                 this.width / 2, dy + 36, 0xFFCCCCCC);
     }
 
@@ -327,8 +328,11 @@ public class ChunkMapScreen extends Screen {
     // ── Input handling ────────────────────────────────────────────────────────
 
     @Override
-    public boolean mouseClicked(double mx, double my, int button) {
-        if (super.mouseClicked(mx, my, button)) return true;
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        double mx = event.x();
+        double my = event.y();
+        int button = event.button();
+        if (super.mouseClicked(event, doubleClick)) return true;
 
         if (dialogChunk != null) {
             int dw = 220, dh = 90;
@@ -350,18 +354,20 @@ public class ChunkMapScreen extends Screen {
     }
 
     @Override
-    public boolean mouseReleased(double mx, double my, int button) {
-        if (button == 0) isDragging = false;
-        return super.mouseReleased(mx, my, button);
+    public boolean mouseReleased(MouseButtonEvent event) {
+        if (event.button() == 0) isDragging = false;
+        return super.mouseReleased(event);
     }
 
     @Override
-    public boolean mouseDragged(double mx, double my, int button, double dx, double dy) {
+    public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
         if (isDragging && dialogChunk == null) {
+            double mx = event.x();
+            double my = event.y();
             viewCX = viewCXOnDrag + (dragStartX - mx) / cellSize;
             viewCZ = viewCZOnDrag + (dragStartY - my) / cellSize;
         }
-        return super.mouseDragged(mx, my, button, dx, dy);
+        return super.mouseDragged(event, dx, dy);
     }
 
     @Override
@@ -374,7 +380,7 @@ public class ChunkMapScreen extends Screen {
     }
 
     @Override
-    public boolean shouldPause() { return false; }
+    public boolean isPauseScreen() { return false; }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -392,7 +398,7 @@ public class ChunkMapScreen extends Screen {
 
     /** Opens a fresh ChunkMapScreen on the game thread. */
     public static void open() {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
         mc.execute(() -> mc.setScreen(new ChunkMapScreen()));
     }
 }

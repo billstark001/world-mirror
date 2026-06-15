@@ -794,17 +794,17 @@ public final class DownloadManager {
      * @param worldName    the name for the new singleplayer save
      * @param radiusChunks capture radius in chunks (e.g. 16 = a 33×33 chunk area)
      */
-    public static void exportNearbyToNewSave(MinecraftClient client,
+    public static void exportNearbyToNewSave(Minecraft client,
                                              String worldName, int radiusChunks) {
-        ClientWorld world = client.world;
+        ClientLevel world = client.level;
         if (world == null || client.player == null) {
             if (client.player != null)
-                client.player.sendMessage(
-                        Text.literal("§cCannot export: no world loaded."), false);
+                client.player.sendSystemMessage(
+                        Component.literal("§cCannot export: no world loaded."));
             return;
         }
 
-        RegistryKey<World> dimension = world.getRegistryKey();
+        ResourceKey<Level> dimension = world.dimension();
         int playerCX = client.player.getBlockX() >> 4;
         int playerCZ = client.player.getBlockZ() >> 4;
         int playerBX = client.player.getBlockX();
@@ -815,11 +815,11 @@ public final class DownloadManager {
         Map<ChunkPos, ChunkListener.CapturedChunk> nearbyChunks = new HashMap<>();
         for (int cx = playerCX - radiusChunks; cx <= playerCX + radiusChunks; cx++) {
             for (int cz = playerCZ - radiusChunks; cz <= playerCZ + radiusChunks; cz++) {
-                Chunk chunk = world.getChunk(cx, cz);
-                if (!(chunk instanceof WorldChunk wc)) continue;
+                ChunkAccess chunk = world.getChunk(cx, cz);
+                if (!(chunk instanceof LevelChunk wc)) continue;
                 try {
                     if (ChunkSerializer.isChunkEmpty(wc)) continue;
-                    NbtCompound nbt = ChunkSerializer.serialize(world, wc);
+                    CompoundTag nbt = ChunkSerializer.serialize(world, wc);
                     nearbyChunks.put(wc.getPos(),
                             new ChunkListener.CapturedChunk(nbt, System.currentTimeMillis()));
                 } catch (Exception e) {
@@ -831,14 +831,14 @@ public final class DownloadManager {
 
         if (nearbyChunks.isEmpty()) {
             if (client.player != null)
-                client.player.sendMessage(
-                        Text.literal("§cNo chunks captured in radius " + radiusChunks + "."), false);
+                client.player.sendSystemMessage(
+                        Component.literal("§cNo chunks captured in radius " + radiusChunks + "."));
             return;
         }
 
-        Map<RegistryKey<World>, Map<ChunkPos, ChunkListener.CapturedChunk>> snapshot =
+        Map<ResourceKey<Level>, Map<ChunkPos, ChunkListener.CapturedChunk>> snapshot =
                 Map.of(dimension, nearbyChunks);
-        Map<RegistryKey<World>, Map<ChunkPos, List<NbtCompound>>> entitySnapshot = Map.of();
+        Map<ResourceKey<Level>, Map<ChunkPos, List<CompoundTag>>> entitySnapshot = Map.of();
 
         // Determine output path — always in the saves folder for easy play
         String safeName = worldName.isBlank() ? "NearbyExport" : worldName;
@@ -873,16 +873,15 @@ public final class DownloadManager {
                 WMLogger.info("Nearby export complete: " + finalOut.toAbsolutePath());
                 client.execute(() -> {
                     if (client.player != null)
-                        client.player.sendMessage(
-                                Text.literal("§aExported to saves/" + finalOut.getFileName()),
-                                false);
+                        client.player.sendSystemMessage(
+                                Component.literal("§aExported to saves/" + finalOut.getFileName()));
                 });
             } catch (Exception e) {
                 WMLogger.warn("exportNearbyToNewSave failed: " + e.getMessage());
                 client.execute(() -> {
                     if (client.player != null)
-                        client.player.sendMessage(
-                                Text.literal("§cExport failed: " + e.getMessage()), false);
+                        client.player.sendSystemMessage(
+                                Component.literal("§cExport failed: " + e.getMessage()));
                 });
             }
         }, "WM-NearbyExport");

@@ -3,6 +3,7 @@ package net.billstark001.worldmirror.io;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
@@ -184,21 +185,18 @@ public class WorldStructureCreator {
     public static void createLoadableWorldWithSpawn(Path worldFolderPath, String levelName,
                                                     int spawnX, int spawnY, int spawnZ) {
         try {
-            DataOutputStream out = getOutputStream(worldFolderPath);
-            out.writeLong(System.currentTimeMillis());
-            out.close();
+            createLoadableWorld(worldFolderPath, levelName, null);
 
-            NbtCompound data = createWorldDataFromLevelProperties(levelName);
-            data.put("WorldGenSettings", createFlatWorldGenSettings());
-            data.put("spawn", createSpawnSettings(spawnX, spawnY, spawnZ));
-            data.putLong("RandomSeed", DEFAULT_SEED);
+            PrimaryLevelData data = createWorldData(levelName);
+            data.setSpawn(LevelData.RespawnData.of(
+                    Level.OVERWORLD, new BlockPos(spawnX, spawnY, spawnZ), 0.0F, 0.0F));
 
-            NbtCompound root = new NbtCompound();
-            root.put("Data", data);
-            File levelDat = worldFolderPath.resolve("level.dat").toFile();
-            FileOutputStream fos = new FileOutputStream(levelDat);
-            NbtIo.writeCompressed(root, fos);
-            fos.close();
+            UUID singleplayerUuid = UUID.nameUUIDFromBytes(
+                    ("worldmirror:" + levelName).getBytes(StandardCharsets.UTF_8));
+            writeLevelDat(worldFolderPath.resolve("level.dat").toFile(), data, singleplayerUuid);
+            writeCompressed(
+                    worldFolderPath.resolve("players/data/" + singleplayerUuid + ".dat").toFile(),
+                    createPlayerData());
             WMLogger.info("Nearby-export world created at: " + worldFolderPath.toAbsolutePath());
         } catch (Exception e) {
             WMLogger.warn("createLoadableWorldWithSpawn failed: " + e.getMessage());

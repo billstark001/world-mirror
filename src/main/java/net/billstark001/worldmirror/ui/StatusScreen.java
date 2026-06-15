@@ -15,9 +15,7 @@ import net.billstark001.worldmirror.core.ChunkListener;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.network.chat.Component;
-import net.minecraft.text.Text;
 import net.minecraft.world.level.ChunkPos;
 import java.nio.file.Path;
 
