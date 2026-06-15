@@ -3,6 +3,7 @@ package net.billstark001.worldmirror.io;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
@@ -169,6 +170,37 @@ public class WorldStructureCreator {
         state.putFloat("rate", 1.0F);
         state.putBoolean("paused", false);
         return state;
+    }
+
+    /**
+     * Creates the {@code level.dat} for a new nearby-export world, setting the
+     * spawn point to the player's current block position.
+     *
+     * @param worldFolderPath root directory of the new world
+     * @param levelName       human-readable name for the save
+     * @param spawnX          spawn block X coordinate
+     * @param spawnY          spawn block Y coordinate
+     * @param spawnZ          spawn block Z coordinate
+     */
+    public static void createLoadableWorldWithSpawn(Path worldFolderPath, String levelName,
+                                                    int spawnX, int spawnY, int spawnZ) {
+        try {
+            createLoadableWorld(worldFolderPath, levelName, null);
+
+            PrimaryLevelData data = createWorldData(levelName);
+            data.setSpawn(LevelData.RespawnData.of(
+                    Level.OVERWORLD, new BlockPos(spawnX, spawnY, spawnZ), 0.0F, 0.0F));
+
+            UUID singleplayerUuid = UUID.nameUUIDFromBytes(
+                    ("worldmirror:" + levelName).getBytes(StandardCharsets.UTF_8));
+            writeLevelDat(worldFolderPath.resolve("level.dat").toFile(), data, singleplayerUuid);
+            writeCompressed(
+                    worldFolderPath.resolve("players/data/" + singleplayerUuid + ".dat").toFile(),
+                    createPlayerData());
+            WMLogger.info("Nearby-export world created at: " + worldFolderPath.toAbsolutePath());
+        } catch (Exception e) {
+            WMLogger.warn("createLoadableWorldWithSpawn failed: " + e.getMessage());
+        }
     }
 
     /**

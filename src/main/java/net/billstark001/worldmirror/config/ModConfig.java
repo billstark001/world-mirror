@@ -49,6 +49,11 @@ public class ModConfig implements ConfigData {
         KEEP
     }
 
+    public enum ChunkMapBackground {
+        BLACK,
+        TRANSPARENT
+    }
+
     // ── Fields ───────────────────────────────────────────────────────────────
 
     @ConfigEntry.Gui.Tooltip
@@ -72,6 +77,24 @@ public class ModConfig implements ConfigData {
 
     @ConfigEntry.Gui.CollapsibleObject
     public CacheConfig cache = new CacheConfig();
+
+    @ConfigEntry.Gui.CollapsibleObject
+    public ChunkMapConfig chunkMap = new ChunkMapConfig();
+
+    public static class ChunkMapConfig {
+
+        /**
+         * At or below this cell size, the chunk map skips grid drawing and only
+         * renders known records/conflicts. This keeps highly zoomed-out views cheap.
+         */
+        @ConfigEntry.Gui.Tooltip
+        @ConfigEntry.BoundedDiscrete(min = 4, max = 16)
+        public int sparseRenderCellThreshold = 8;
+
+        @ConfigEntry.Gui.Tooltip
+        @ConfigEntry.Gui.EnumHandler(option = ConfigEntry.Gui.EnumHandler.EnumDisplayOption.DROPDOWN)
+        public ChunkMapBackground background = ChunkMapBackground.BLACK;
+    }
 
     public static class CacheConfig {
 

@@ -1,6 +1,6 @@
 # World Mirror
 
-**Version:** 0.2.0 · **Minecraft:** 26.1.2 · **Loader:** Fabric
+**Version:** 0.2.1 · **Minecraft:** 1.21.11 · **Loader:** Fabric
 
 A client-side Fabric mod that silently mirrors the world you are playing on a multiplayer
 server — or even a singleplayer world — into a fully loadable local copy.  As you explore,
@@ -22,8 +22,10 @@ region-file save that you can open immediately in singleplayer.
 | **Block entity data** | Signs (text), beacons (effects), banners (patterns), player heads (owner), lecterns (stored book), and all other block entities whose data the server sends to the client are persisted via `saveWithFullMetadata`. |
 | **World–mirror mapping** | Every server address or singleplayer world name is mapped to a sanitised local folder name, stored in `config/worldmirror/mirrors.json`.  The same server always exports to the same folder. |
 | **Per-world settings** | Save location and conflict strategy can be overridden per world from the status screen without touching the global config. |
-| **Conflict resolution** | Three built-in strategies for chunks that already exist on disk: *Overwrite* (default), *Ignore* (keep local), and *Manual* (queue for later resolution). |
-| **In-game status screen** | Press **I** to open a LibGUI status panel showing source info, sync statistics, download state, a conflict-resolution queue, and per-world setting overrides. |
+| **Conflict resolution** | Three built-in strategies for chunks that already exist on disk: *Overwrite* (default), *Ignore* (keep local), and *Manual* (save the server chunk to `conflict_chunks/` in MCA format for later review). |
+| **Chunk Map (Window 1)** | Full-screen draggable grid map showing every recorded chunk's download status. Color-coded: green (fresh) → blue (old, logarithmic), orange (third-party source), red border (unresolved conflict). Per-chunk conflict resolution dialog (Overwrite / Discard / Cancel). |
+| **Export Nearby Region** | Snapshot all loaded chunks within a configurable radius (1–50 chunks) into a fresh singleplayer save with the spawn point set to your current position. |
+| **In-game status screen** | Press **I** to open a LibGUI status panel showing source info, sync statistics, download state, conflict counts with bulk resolution buttons, and per-world setting overrides. |
 | **In-game logging** | Important events are echoed to the player's chat at a configurable level (Debug / Info / Warning). |
 | **Mod Menu settings** | All global settings are accessible from the Mod Menu settings screen. |
 | **Internationalisation** | UI strings are translated into English (`en_us`), Simplified Chinese (`zh_cn`), Traditional Chinese (`zh_tw`), and Japanese (`ja_jp`). |
@@ -38,6 +40,7 @@ region-file save that you can open immediately in singleplayer.
 | **O** | Export cached data to disk immediately |
 | **L** | Clear all cached chunks, entities, and containers |
 | **I** | Open the in-game status screen |
+| **M** | Open the chunk map directly |
 
 All keybindings are rebindable in *Options → Controls → World Mirror*.
 
@@ -52,8 +55,8 @@ The status screen shows:
 - **Source info** — type (singleplayer / server), source ID, local mirror folder name
 - **Statistics** — total chunks cached across all dimensions, time since last sync
 - **Live status** — download active/inactive, export running/idle
-- **Action buttons** — Start/Stop Download, Export Now, Clear Data
-- **Conflict queue** — count of pending manual-resolution conflicts, with *Overwrite All* and *Ignore All* buttons
+- **Action buttons** — Start/Stop Download, Export Now, Clear Data, **Export Nearby Region**
+- **Conflicts tab** — count of stored conflict chunks, with *Overwrite All* and *Discard All* buttons, plus **Open Chunk Map** to review conflicts per-chunk
 - **Per-world settings** — cycle buttons to override the save location and conflict strategy for the current world (stored in `mirrors.json`, takes precedence over global config)
 - **Global Settings** — shortcut to the Mod Menu settings screen
 
@@ -87,7 +90,7 @@ Configuration is persisted in `<.minecraft>/config/worldmirror.json`.
 |----------|-----------|
 | `Overwrite` | Server chunk always replaces the local copy |
 | `Ignore` | Local copy is kept; only new chunks are written |
-| `Manual` | Local copy is kept; the chunk is queued for resolution in the status screen |
+| `Manual` | Local copy is kept; the incoming server chunk is saved to `conflict_chunks/<dim>/r.X.Z.mca` for review. Use the Chunk Map or the Conflicts tab bulk buttons to resolve. |
 
 ---
 

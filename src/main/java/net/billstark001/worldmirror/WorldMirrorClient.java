@@ -3,6 +3,7 @@ package net.billstark001.worldmirror;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.billstark001.worldmirror.config.ModConfig;
 import net.billstark001.worldmirror.download.DownloadManager;
+import net.billstark001.worldmirror.ui.ChunkMapScreen;
 import net.billstark001.worldmirror.ui.StatusScreen;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.api.EnvType;
@@ -12,6 +13,7 @@ import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.resources.Identifier;
+import org.lwjgl.glfw.GLFW;
 
 @Environment(EnvType.CLIENT)
 public class WorldMirrorClient implements ClientModInitializer {
@@ -27,6 +29,7 @@ public class WorldMirrorClient implements ClientModInitializer {
     private static KeyMapping exportKey;
     private static KeyMapping clearKey;
     private static KeyMapping statusKey;
+    private static KeyMapping chunkMapKey;
 
     @Override
     public void onInitializeClient() {
@@ -39,17 +42,22 @@ public class WorldMirrorClient implements ClientModInitializer {
 
         exportKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.worldmirror.export",
-                InputConstants.Type.SCANCODE, 0x18 /* O */,
+                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_O,
                 CATEGORY));
 
         clearKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.worldmirror.clear",
-                InputConstants.Type.SCANCODE, 0x26 /* L */,
+                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_L,
                 CATEGORY));
 
         statusKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.worldmirror.status",
-                InputConstants.Type.SCANCODE, 0x17 /* I */,
+                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_I,
+                CATEGORY));
+
+        chunkMapKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+                "key.worldmirror.chunkMap",
+                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_M,
                 CATEGORY));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -64,6 +72,9 @@ public class WorldMirrorClient implements ClientModInitializer {
             }
             while (statusKey.consumeClick()) {
                 StatusScreen.open();
+            }
+            while (chunkMapKey.consumeClick()) {
+                ChunkMapScreen.open();
             }
             DownloadManager.onClientTick(client);
         });
