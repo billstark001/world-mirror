@@ -40,6 +40,7 @@ region-file save that you can open immediately in singleplayer.
 | **O** | Export cached data to disk immediately |
 | **L** | Clear all cached chunks, entities, and containers |
 | **I** | Open the in-game status screen |
+| **M** | Open the chunk map directly |
 
 All keybindings are rebindable in *Options → Controls → World Mirror*.
 

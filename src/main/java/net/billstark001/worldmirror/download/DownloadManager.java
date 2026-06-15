@@ -139,7 +139,8 @@ public final class DownloadManager {
         if (exportInProgress.get()) {
             Component msg = Component.translatable("msg.worldmirror.exportBusy");
             if (client.player != null) client.player.sendSystemMessage(msg);
-            WMLogger.warn("Export already in progress.");
+            deferExport(true, null, null);
+            WMLogger.warn("Export already in progress; queued another export pass.");
             return;
         }
         startBackgroundSync(client, true);
@@ -217,7 +218,7 @@ public final class DownloadManager {
         // Must be checked BEFORE dimension change, as a world change also implies
         // a dimension change.
         if (lastSourceId != null && !lastSourceId.equals(currentSourceId)) {
-            WMLogger.info("Server world change detected: '" + lastSourceId
+            WMLogger.debug("Server world change detected: '" + lastSourceId
                     + "' → '" + currentSourceId + "'");
             clearPendingCaptureState();
             applyTransition(client, ModConfig.get().lifecycle.onServerWorldChange,
@@ -232,7 +233,7 @@ public final class DownloadManager {
 
         // ── Detect dimension change (Overworld ↔ Nether ↔ End, etc.) ──────────
         if (lastDimension != null && !lastDimension.equals(currentDim)) {
-            WMLogger.info("Dimension change detected: '" + lastDimension.identifier()
+            WMLogger.debug("Dimension change detected: '" + lastDimension.identifier()
                     + "' → '" + currentDim.identifier() + "'");
             lastDimension = currentDim;
             clearPendingCaptureState();
@@ -287,8 +288,13 @@ public final class DownloadManager {
                 desired ? "msg.worldmirror.downloadStart"
                        : "msg.worldmirror.downloadStop");
         if (client.player != null) client.player.sendOverlayMessage(msg);
-        WMLogger.info("Download " + (desired ? "activated" : "deactivated")
-                + " by lifecycle event: " + eventName);
+        String transitionMessage = "Download " + (desired ? "activated" : "deactivated")
+                + " by lifecycle event: " + eventName;
+        if ("dimension-change".equals(eventName)) {
+            WMLogger.debug(transitionMessage);
+        } else {
+            WMLogger.info(transitionMessage);
+        }
     }
 
     // ── Output path ───────────────────────────────────────────────────────────
@@ -483,7 +489,8 @@ public final class DownloadManager {
                                             String preferredSourceId,
                                             String preferredSourceType) {
         if (exportInProgress.get()) {
-            WMLogger.warn("Export already in progress — skipping.");
+            deferExport(notify, preferredSourceId, preferredSourceType);
+            WMLogger.debug("Export already in progress; queued another export pass.");
             return;
         }
 
@@ -613,9 +620,11 @@ public final class DownloadManager {
             } finally {
                 if (db != null) db.close();
                 exportInProgress.set(false);
+                Minecraft.getInstance().execute(() ->
+                        tryStartDeferredExport(Minecraft.getInstance()));
             }
         }, "WM-Export");
-        worker.setDaemon(true);
+        worker.setDaemon(false);
         worker.start();
     }
 
@@ -885,7 +894,7 @@ public final class DownloadManager {
                 });
             }
         }, "WM-NearbyExport");
-        worker.setDaemon(true);
+        worker.setDaemon(false);
         worker.start();
     }
 

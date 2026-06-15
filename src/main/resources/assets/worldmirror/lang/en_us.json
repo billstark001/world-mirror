@@ -5,6 +5,7 @@
   "key.worldmirror.clear":  "Clear Cached Data",
   "key.worldmirror.toggle": "Toggle Download",
   "key.worldmirror.status": "Open Status Screen",
+  "key.worldmirror.chunkMap": "Open Chunk Map",
 
   "config.worldmirror.saveLoc": "Save Location",
   "config.worldmirror.saveLoc.downloaded": "Downloaded Folder",
@@ -105,6 +106,16 @@
 
   "text.autoconfig.worldmirror.option.cache.invalidateAfterExport": "Invalidate After Export",
   "text.autoconfig.worldmirror.option.cache.invalidateAfterExport.@Tooltip": "If enabled, a chunk is removed from memory immediately after being written to disk.",
+
+  "text.autoconfig.worldmirror.option.chunkMap": "Chunk Map",
+
+  "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold": "Sparse Render Threshold",
+  "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold.@Tooltip": "When the map cell size is at or below this value, draw only known chunks and conflicts instead of the full grid.",
+
+  "text.autoconfig.worldmirror.option.chunkMap.background": "Map Background",
+  "text.autoconfig.worldmirror.option.chunkMap.background.@Tooltip": "Background style used by the chunk map.",
+  "text.autoconfig.worldmirror.option.chunkMap.background.black": "Black",
+  "text.autoconfig.worldmirror.option.chunkMap.background.transparent": "Transparent",
 
   "text.autoconfig.worldmirror.option.lifecycle": "Lifecycle Behaviour",
 

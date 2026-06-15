@@ -5,6 +5,7 @@ import io.github.ensgijs.nbt.mca.TerrainChunk;
 import io.github.ensgijs.nbt.mca.io.McaFileHelpers;
 import io.github.ensgijs.nbt.tag.CompoundTag;
 import net.billstark001.worldmirror.io.ChunkExporter;
+import net.billstark001.worldmirror.io.McaWriteSupport;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
@@ -82,15 +83,17 @@ public final class ConflictManager {
             Path regionFile = conflictDir.resolve(
                     String.format("r.%d.%d.mca", regionX, regionZ));
 
-            McaRegionFile mca = regionFile.toFile().exists()
-                    ? McaFileHelpers.readAuto(regionFile.toFile())
-                    : new McaRegionFile(regionX, regionZ);
+            synchronized (McaWriteSupport.lockFor(regionFile)) {
+                McaRegionFile mca = regionFile.toFile().exists()
+                        ? McaFileHelpers.readAuto(regionFile.toFile())
+                        : new McaRegionFile(regionX, regionZ);
 
-            int localX = pos.x() & 0x1F;
-            int localZ = pos.z() & 0x1F;
-            CompoundTag tag = ChunkExporter.convertToQuerz(chunkNbt);
-            mca.setChunk(localX, localZ, new TerrainChunk(tag));
-            McaFileHelpers.write(mca, regionFile.toFile());
+                int localX = pos.x() & 0x1F;
+                int localZ = pos.z() & 0x1F;
+                CompoundTag tag = ChunkExporter.convertToQuerz(chunkNbt);
+                mca.setChunk(localX, localZ, new TerrainChunk(tag));
+                McaWriteSupport.writeAtomicallyLocked(mca, regionFile);
+            }
         } catch (Exception e) {
             WMLogger.warn("ConflictManager.saveConflict failed for " + pos
                     + " [" + dimension.identifier() + "]: " + e.getMessage());
@@ -189,34 +192,38 @@ public final class ConflictManager {
         if (!conflictFile.toFile().exists()) return;
 
         try {
-            McaRegionFile conflictMca = McaFileHelpers.readAuto(conflictFile.toFile());
-            int localX = pos.x() & 0x1F;
-            int localZ = pos.z() & 0x1F;
-            TerrainChunk conflictChunk = conflictMca.getChunk(localX, localZ);
+            synchronized (McaWriteSupport.lockFor(conflictFile)) {
+                McaRegionFile conflictMca = McaFileHelpers.readAuto(conflictFile.toFile());
+                int localX = pos.x() & 0x1F;
+                int localZ = pos.z() & 0x1F;
+                TerrainChunk conflictChunk = conflictMca.getChunk(localX, localZ);
 
-            if (overwrite && conflictChunk != null) {
-                // Apply conflict chunk to the live world region file
-                Path worldRegionDir = ChunkExporter.regionDirForDimension(worldFolder, dimension);
-                Path worldRegionFile = worldRegionDir.resolve(
-                        String.format("r.%d.%d.mca", regionX, regionZ));
-                McaRegionFile worldMca;
-                if (worldRegionFile.toFile().exists()) {
-                    worldMca = McaFileHelpers.readAuto(worldRegionFile.toFile());
-                } else {
-                    Files.createDirectories(worldRegionDir);
-                    worldMca = new McaRegionFile(regionX, regionZ);
+                if (overwrite && conflictChunk != null) {
+                    // Apply conflict chunk to the live world region file
+                    Path worldRegionDir = ChunkExporter.regionDirForDimension(worldFolder, dimension);
+                    Path worldRegionFile = worldRegionDir.resolve(
+                            String.format("r.%d.%d.mca", regionX, regionZ));
+                    synchronized (McaWriteSupport.lockFor(worldRegionFile)) {
+                        McaRegionFile worldMca;
+                        if (worldRegionFile.toFile().exists()) {
+                            worldMca = McaFileHelpers.readAuto(worldRegionFile.toFile());
+                        } else {
+                            Files.createDirectories(worldRegionDir);
+                            worldMca = new McaRegionFile(regionX, regionZ);
+                        }
+                        worldMca.setChunk(localX, localZ, conflictChunk);
+                        McaWriteSupport.writeAtomicallyLocked(worldMca, worldRegionFile);
+                    }
                 }
-                worldMca.setChunk(localX, localZ, conflictChunk);
-                McaFileHelpers.write(worldMca, worldRegionFile.toFile());
-            }
 
-            // Remove the conflict entry
-            conflictMca.setChunk(localX, localZ, null);
-            boolean empty = isRegionEmpty(conflictMca);
-            if (empty) {
-                Files.deleteIfExists(conflictFile);
-            } else {
-                McaFileHelpers.write(conflictMca, conflictFile.toFile());
+                // Remove the conflict entry
+                conflictMca.setChunk(localX, localZ, null);
+                boolean empty = isRegionEmpty(conflictMca);
+                if (empty) {
+                    Files.deleteIfExists(conflictFile);
+                } else {
+                    McaWriteSupport.writeAtomicallyLocked(conflictMca, conflictFile);
+                }
             }
         } catch (Exception e) {
             WMLogger.warn("ConflictManager.resolveConflict error for " + pos
@@ -241,13 +248,14 @@ public final class ConflictManager {
                     .toList();
 
             for (Path conflictMcaPath : mcaFiles) {
-                if (overwrite) {
-                    // Relative path within conflict_chunks/ → same relative path in world
-                    Path relPath = conflictRoot.relativize(conflictMcaPath);
-                    Path worldMcaPath = worldFolder.resolve(relPath);
-                    applyConflictRegionToWorld(conflictMcaPath, worldMcaPath);
+                synchronized (McaWriteSupport.lockFor(conflictMcaPath)) {
+                    if (overwrite) {
+                        Path worldMcaPath = worldFileForConflictFile(
+                                worldFolder, conflictRoot, conflictMcaPath);
+                        applyConflictRegionToWorld(conflictMcaPath, worldMcaPath);
+                    }
+                    Files.deleteIfExists(conflictMcaPath);
                 }
-                Files.deleteIfExists(conflictMcaPath);
             }
         } catch (IOException e) {
             WMLogger.warn("ConflictManager.clearAllConflicts error: " + e.getMessage());
@@ -262,30 +270,51 @@ public final class ConflictManager {
     private static void applyConflictRegionToWorld(Path conflictFile, Path worldFile) {
         try {
             McaRegionFile conflictMca = McaFileHelpers.readAuto(conflictFile.toFile());
-            McaRegionFile worldMca;
-            if (worldFile.toFile().exists()) {
-                worldMca = McaFileHelpers.readAuto(worldFile.toFile());
-            } else {
-                Files.createDirectories(worldFile.getParent());
-                // Derive region coords from file name
-                String name = worldFile.getFileName().toString();
-                String[] parts = name.substring(2, name.length() - 4).split("\\.");
-                int rx = Integer.parseInt(parts[0]);
-                int rz = Integer.parseInt(parts[1]);
-                worldMca = new McaRegionFile(rx, rz);
-            }
-            for (int lx = 0; lx < 32; lx++) {
-                for (int lz = 0; lz < 32; lz++) {
-                    TerrainChunk chunk = conflictMca.getChunk(lx, lz);
-                    if (chunk != null) {
-                        worldMca.setChunk(lx, lz, chunk);
+            synchronized (McaWriteSupport.lockFor(worldFile)) {
+                McaRegionFile worldMca;
+                if (worldFile.toFile().exists()) {
+                    worldMca = McaFileHelpers.readAuto(worldFile.toFile());
+                } else {
+                    Files.createDirectories(worldFile.getParent());
+                    // Derive region coords from file name
+                    String name = worldFile.getFileName().toString();
+                    String[] parts = name.substring(2, name.length() - 4).split("\\.");
+                    int rx = Integer.parseInt(parts[0]);
+                    int rz = Integer.parseInt(parts[1]);
+                    worldMca = new McaRegionFile(rx, rz);
+                }
+                for (int lx = 0; lx < 32; lx++) {
+                    for (int lz = 0; lz < 32; lz++) {
+                        TerrainChunk chunk = conflictMca.getChunk(lx, lz);
+                        if (chunk != null) {
+                            worldMca.setChunk(lx, lz, chunk);
+                        }
                     }
                 }
+                McaWriteSupport.writeAtomicallyLocked(worldMca, worldFile);
             }
-            McaFileHelpers.write(worldMca, worldFile.toFile());
         } catch (Exception e) {
             WMLogger.warn("ConflictManager.applyConflictRegionToWorld error: " + e.getMessage());
         }
+    }
+
+    private static Path worldFileForConflictFile(Path worldFolder, Path conflictRoot, Path conflictFile) {
+        Path relPath = conflictRoot.relativize(conflictFile);
+        if (relPath.getNameCount() >= 2) {
+            String first = relPath.getName(0).toString();
+            String second = relPath.getName(1).toString();
+            String fileName = conflictFile.getFileName().toString();
+            if ("region".equals(first)) {
+                return ChunkExporter.regionDirForDimension(worldFolder, Level.OVERWORLD).resolve(fileName);
+            }
+            if ("DIM-1".equals(first) && "region".equals(second)) {
+                return ChunkExporter.regionDirForDimension(worldFolder, Level.NETHER).resolve(fileName);
+            }
+            if ("DIM1".equals(first) && "region".equals(second)) {
+                return ChunkExporter.regionDirForDimension(worldFolder, Level.END).resolve(fileName);
+            }
+        }
+        return worldFolder.resolve(relPath);
     }
 
     private static boolean isRegionEmpty(McaRegionFile mca) {

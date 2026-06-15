@@ -1,6 +1,7 @@
 package net.billstark001.worldmirror.ui;
 
 import net.billstark001.worldmirror.conflict.ConflictManager;
+import net.billstark001.worldmirror.config.ModConfig;
 import net.billstark001.worldmirror.download.ChunkDatabase;
 import net.billstark001.worldmirror.download.DownloadManager;
 import net.billstark001.worldmirror.download.WorldMetadata;
@@ -44,7 +45,6 @@ public class ChunkMapScreen extends Screen {
     private static final int CELL_SIZE_MIN     = 2;
     private static final int CELL_SIZE_MAX     = 16;
     private static final int CELL_SIZE_DEFAULT = 6;
-
     private static final int COLOR_FRESH_GREEN     = 0xFF00C800;
     private static final int COLOR_OLD_BLUE        = 0xFF0000C8;
     private static final int COLOR_EXTERNAL        = 0xFFFF9000;
@@ -69,6 +69,7 @@ public class ChunkMapScreen extends Screen {
 
     private final Map<Long, ChunkDatabase.ChunkRecord> recordMap = new HashMap<>();
     private final Set<ChunkPos> conflictChunks = new HashSet<>();
+    private final Set<Long> conflictKeys = new HashSet<>();
     private Path worldFolder;
     private ResourceKey<Level> currentDimension;
     private String sourceId;
@@ -133,6 +134,7 @@ public class ChunkMapScreen extends Screen {
                     if (dialogChunk != null && worldFolder != null && currentDimension != null) {
                         ConflictManager.resolveConflict(worldFolder, dialogChunk, currentDimension, true);
                         conflictChunks.remove(dialogChunk);
+                        conflictKeys.remove(chunkKey(dialogChunk.x(), dialogChunk.z()));
                     }
                     closeDialog();
                 }
@@ -144,6 +146,7 @@ public class ChunkMapScreen extends Screen {
                     if (dialogChunk != null && worldFolder != null && currentDimension != null) {
                         ConflictManager.resolveConflict(worldFolder, dialogChunk, currentDimension, false);
                         conflictChunks.remove(dialogChunk);
+                        conflictKeys.remove(chunkKey(dialogChunk.x(), dialogChunk.z()));
                     }
                     closeDialog();
                 }
@@ -169,6 +172,10 @@ public class ChunkMapScreen extends Screen {
 
         conflictChunks.clear();
         conflictChunks.addAll(ConflictManager.listConflicts(worldFolder, currentDimension));
+        conflictKeys.clear();
+        for (ChunkPos pos : conflictChunks) {
+            conflictKeys.add(chunkKey(pos.x(), pos.z()));
+        }
     }
 
     // ── Rendering ─────────────────────────────────────────────────────────────
@@ -178,7 +185,10 @@ public class ChunkMapScreen extends Screen {
         this.mouseX = mx;
         this.mouseY = my;
 
-        ctx.fill(0, 0, this.width, this.height, 0xFF101010);
+        ModConfig.ChunkMapConfig mapConfig = ModConfig.get().chunkMap;
+        if (mapConfig.background == ModConfig.ChunkMapBackground.BLACK) {
+            ctx.fill(0, 0, this.width, this.height, 0xFF101010);
+        }
 
         int halfW = this.width  / 2;
         int halfH = this.height / 2;
@@ -193,29 +203,13 @@ public class ChunkMapScreen extends Screen {
         long now = System.currentTimeMillis();
         hoveredChunk = null;
 
-        for (int cx = cxMin; cx <= cxMax; cx++) {
-            for (int cz = czMin; cz <= czMax; cz++) {
-                int sx = halfW + (int) Math.round((cx - viewCX) * cellSize);
-                int sz = halfH + (int) Math.round((cz - viewCZ) * cellSize);
-
-                ChunkDatabase.ChunkRecord rec = recordMap.get(chunkKey(cx, cz));
-                int fill = computeColor(rec, now);
-                if (fill != 0) ctx.fill(sx, sz, sx + cellSize, sz + cellSize, fill);
-
-                // Grid lines
-                ctx.fill(sx, sz, sx + cellSize, sz + 1, COLOR_GRID);
-                ctx.fill(sx, sz, sx + 1, sz + cellSize, COLOR_GRID);
-
-                // Conflict border
-                ChunkPos cPos = new ChunkPos(cx, cz);
-                if (conflictChunks.contains(cPos)) drawConflictBorder(ctx, sx, sz, cellSize);
-
-                // Hover detection
-                if (mx >= sx && mx < sx + cellSize && my >= sz && my < sz + cellSize) {
-                    hoveredChunk = cPos;
-                }
-            }
+        int sparseThreshold = clampedSparseRenderCellThreshold();
+        if (cellSize <= sparseThreshold) {
+            renderSparse(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax, now);
+        } else {
+            renderDense(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax, now);
         }
+        hoveredChunk = screenToChunk(mx, my, halfW, halfH);
 
         // Player marker
         Minecraft client = Minecraft.getInstance();
@@ -283,6 +277,47 @@ public class ChunkMapScreen extends Screen {
             lines.add(Component.translatable("screen.worldmirror.chunkmap.clickResolve"));
         }
         ctx.setComponentTooltipForNextFrame(this.font, lines, mx, my);
+    }
+
+    private void renderDense(GuiGraphicsExtractor ctx, int halfW, int halfH,
+                             int cxMin, int cxMax, int czMin, int czMax, long now) {
+        for (int cx = cxMin; cx <= cxMax; cx++) {
+            for (int cz = czMin; cz <= czMax; cz++) {
+                int sx = halfW + (int) Math.round((cx - viewCX) * cellSize);
+                int sz = halfH + (int) Math.round((cz - viewCZ) * cellSize);
+                long key = chunkKey(cx, cz);
+
+                int fill = computeColor(recordMap.get(key), now);
+                if (fill != 0) ctx.fill(sx, sz, sx + cellSize, sz + cellSize, fill);
+
+                ctx.fill(sx, sz, sx + cellSize, sz + 1, COLOR_GRID);
+                ctx.fill(sx, sz, sx + 1, sz + cellSize, COLOR_GRID);
+
+                if (conflictKeys.contains(key)) drawConflictBorder(ctx, sx, sz, cellSize);
+            }
+        }
+    }
+
+    private void renderSparse(GuiGraphicsExtractor ctx, int halfW, int halfH,
+                              int cxMin, int cxMax, int czMin, int czMax, long now) {
+        for (ChunkDatabase.ChunkRecord rec : recordMap.values()) {
+            int cx = rec.x();
+            int cz = rec.z();
+            if (cx < cxMin || cx > cxMax || cz < czMin || cz > czMax) continue;
+            int sx = halfW + (int) Math.round((cx - viewCX) * cellSize);
+            int sz = halfH + (int) Math.round((cz - viewCZ) * cellSize);
+            int fill = computeColor(rec, now);
+            if (fill != 0) ctx.fill(sx, sz, sx + cellSize, sz + cellSize, fill);
+        }
+
+        for (ChunkPos pos : conflictChunks) {
+            int cx = pos.x();
+            int cz = pos.z();
+            if (cx < cxMin || cx > cxMax || cz < czMin || cz > czMax) continue;
+            int sx = halfW + (int) Math.round((cx - viewCX) * cellSize);
+            int sz = halfH + (int) Math.round((cz - viewCZ) * cellSize);
+            drawConflictBorder(ctx, sx, sz, cellSize);
+        }
     }
 
     // ── Dialog ────────────────────────────────────────────────────────────────
@@ -386,6 +421,16 @@ public class ChunkMapScreen extends Screen {
 
     private static long chunkKey(int x, int z) {
         return ((long) x << 32) | (z & 0xFFFFFFFFL);
+    }
+
+    private ChunkPos screenToChunk(int sx, int sz, int halfW, int halfH) {
+        int cx = (int) Math.floor(viewCX + ((double) sx - halfW) / cellSize + 0.5D);
+        int cz = (int) Math.floor(viewCZ + ((double) sz - halfH) / cellSize + 0.5D);
+        return new ChunkPos(cx, cz);
+    }
+
+    private static int clampedSparseRenderCellThreshold() {
+        return Math.max(4, Math.min(16, ModConfig.get().chunkMap.sparseRenderCellThreshold));
     }
 
     private static String formatAge(long secs) {

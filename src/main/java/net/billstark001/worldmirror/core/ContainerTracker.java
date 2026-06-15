@@ -21,7 +21,6 @@ import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.ChestType;
-import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 
@@ -34,8 +33,8 @@ public class ContainerTracker {
 
     public static void onContainerOpened(int syncId, Component name) {
         Minecraft client = Minecraft.getInstance();
-        HitResult HitResult = client.hitResult;
-        if (HitResult instanceof BlockHitResult blockHit) {
+        HitResult hitResult = client.hitResult;
+        if (hitResult instanceof BlockHitResult blockHit) {
             BlockPos pos = blockHit.getBlockPos();
             openContainers.put(syncId, new ContainerData(pos, name));
             WMLogger.debug("Container opened at " + pos + ": " + name.getString());
@@ -98,8 +97,8 @@ public class ContainerTracker {
         }
         try {
             BlockPos leftChestPos, rightChestPos;
-            ChestType chestType = (ChestType) blockState.getValue((Property) ChestBlock.TYPE);
-            Direction facing = (Direction) blockState.getValue((Property) ChestBlock.FACING);
+            ChestType chestType = blockState.getValue(ChestBlock.TYPE);
+            Direction facing = blockState.getValue(ChestBlock.FACING);
             ResourceKey<Level> dimension = client.level.dimension();
 
 
@@ -173,17 +172,7 @@ public class ContainerTracker {
     }
 
     private static int determineContainerSlots(int totalSlots) {
-        switch (totalSlots) {
-            case 63:
-            case 90:
-            case 45:
-            case 41:
-            case 36:
-        }
-        return
-
-
-                Math.max(0, totalSlots - 36);
+        return Math.max(0, totalSlots - 36);
     }
 
 

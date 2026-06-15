@@ -154,6 +154,7 @@ public class ChunkSerializer {
         }
     }
 
+    @SuppressWarnings("unchecked")
     private static CompoundTag serializeBlockStates(PalettedContainer<BlockState> container, HolderLookup.Provider registryLookup) {
         CompoundTag blockStatesNbt = new CompoundTag();
         Registry<Block> blockRegistry = (Registry<Block>) registryLookup.lookupOrThrow(Registries.BLOCK);

@@ -5,6 +5,7 @@
   "key.worldmirror.clear":  "清除快取資料",
   "key.worldmirror.toggle": "切換下載",
   "key.worldmirror.status": "開啟狀態介面",
+  "key.worldmirror.chunkMap": "開啟區塊地圖",
 
   "config.worldmirror.saveLoc": "儲存位置",
   "config.worldmirror.saveLoc.downloaded": "下載資料夾",
@@ -105,6 +106,16 @@
 
   "text.autoconfig.worldmirror.option.cache.invalidateAfterExport": "匯出後清除快取",
   "text.autoconfig.worldmirror.option.cache.invalidateAfterExport.@Tooltip": "啟用後，區塊寫入磁碟後立即從記憶體中移除。",
+
+  "text.autoconfig.worldmirror.option.chunkMap": "區塊地圖",
+
+  "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold": "稀疏渲染閾值",
+  "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold.@Tooltip": "當地圖單元格尺寸小於或等於此值時，僅繪製已知區塊和衝突，不繪製完整網格。",
+
+  "text.autoconfig.worldmirror.option.chunkMap.background": "地圖背景",
+  "text.autoconfig.worldmirror.option.chunkMap.background.@Tooltip": "區塊地圖使用的背景樣式。",
+  "text.autoconfig.worldmirror.option.chunkMap.background.black": "黑色",
+  "text.autoconfig.worldmirror.option.chunkMap.background.transparent": "透明",
 
   "text.autoconfig.worldmirror.option.lifecycle": "生命週期行為",
 

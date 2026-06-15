@@ -26,12 +26,12 @@ public class DebugContainerMixin {
         Minecraft client = Minecraft.getInstance();
         String targetInfo = "unknown";
 
-        HitResult HitResult = client.hitResult;
-        if (HitResult instanceof BlockHitResult blockHit) {
+        HitResult hitResult = client.hitResult;
+        if (hitResult instanceof BlockHitResult blockHit) {
             BlockPos pos = blockHit.getBlockPos();
             if (client.level != null) {
                 String blockName = client.level.getBlockState(pos).getBlock().toString();
-                targetInfo = blockName + " at " + blockName;
+                targetInfo = blockName + " at " + pos;
             }
         }
 
@@ -60,32 +60,14 @@ public class DebugContainerMixin {
     private void debugOnInventory(ClientboundContainerSetContentPacket packet, CallbackInfo ci) {
         int totalSlots = packet.items().size();
         int nonEmptySlots = 0;
-        int containerSlots = 0;
-        int playerSlots = 0;
-
-
-        switch (totalSlots) {
-            case 63:
-                containerSlots = 27;
-                playerSlots = 36;
-                break;
-            case 90:
-                containerSlots = 54;
-                playerSlots = 36;
-                break;
-            case 45:
-                containerSlots = 9;
-                playerSlots = 36;
-                break;
-            case 41:
-                containerSlots = 5;
-                playerSlots = 36;
-                break;
-            default:
-                containerSlots = Math.max(0, totalSlots - 36);
-                playerSlots = 36;
-                break;
-        }
+        int playerSlots = 36;
+        int containerSlots = switch (totalSlots) {
+            case 63 -> 27;
+            case 90 -> 54;
+            case 45 -> 9;
+            case 41 -> 5;
+            default -> Math.max(0, totalSlots - playerSlots);
+        };
 
 
         int containerNonEmpty = 0;
