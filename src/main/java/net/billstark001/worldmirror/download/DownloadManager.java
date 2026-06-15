@@ -15,6 +15,7 @@ import net.billstark001.worldmirror.io.WorldStructureCreator;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
@@ -22,10 +23,12 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunk;
+
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.SQLException;
 import java.util.ArrayDeque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -116,7 +119,7 @@ public final class DownloadManager {
                 nowActive ? "msg.worldmirror.downloadStart"
                           : "msg.worldmirror.downloadStop");
         if (client.player != null) {
-            client.player.displayClientMessage(msg, true);
+            client.player.sendOverlayMessage(msg);
         }
         WMLogger.info(nowActive ? "Download activated" : "Download deactivated");
     }
@@ -129,14 +132,15 @@ public final class DownloadManager {
                 && client.level != null && client.player != null;
         if (ChunkListener.isEmpty() && !canPreCapture) {
             Component msg = Component.translatable("msg.worldmirror.noChunks");
-            if (client.player != null) client.player.displayClientMessage(msg, false);
+            if (client.player != null) client.player.sendSystemMessage(msg);
             WMLogger.warn("No chunks to export.");
             return;
         }
         if (exportInProgress.get()) {
             Component msg = Component.translatable("msg.worldmirror.exportBusy");
-            if (client.player != null) client.player.displayClientMessage(msg, false);
-            WMLogger.warn("Export already in progress.");
+            if (client.player != null) client.player.sendSystemMessage(msg);
+            deferExport(true, null, null);
+            WMLogger.warn("Export already in progress; queued another export pass.");
             return;
         }
         startBackgroundSync(client, true);
@@ -152,7 +156,7 @@ public final class DownloadManager {
         EntityTracker.clear();
         ContainerTracker.clear();
         Component msg = Component.translatable("msg.worldmirror.cleared");
-        if (client.player != null) client.player.displayClientMessage(msg, false);
+        if (client.player != null) client.player.sendSystemMessage(msg);
         WMLogger.info("Cleared: " + chunks + " chunks, " + entities
                 + " entities, " + containers + " containers.");
     }
@@ -214,7 +218,7 @@ public final class DownloadManager {
         // Must be checked BEFORE dimension change, as a world change also implies
         // a dimension change.
         if (lastSourceId != null && !lastSourceId.equals(currentSourceId)) {
-            WMLogger.info("Server world change detected: '" + lastSourceId
+            WMLogger.debug("Server world change detected: '" + lastSourceId
                     + "' → '" + currentSourceId + "'");
             clearPendingCaptureState();
             applyTransition(client, ModConfig.get().lifecycle.onServerWorldChange,
@@ -229,7 +233,7 @@ public final class DownloadManager {
 
         // ── Detect dimension change (Overworld ↔ Nether ↔ End, etc.) ──────────
         if (lastDimension != null && !lastDimension.equals(currentDim)) {
-            WMLogger.info("Dimension change detected: '" + lastDimension.identifier()
+            WMLogger.debug("Dimension change detected: '" + lastDimension.identifier()
                     + "' → '" + currentDim.identifier() + "'");
             lastDimension = currentDim;
             clearPendingCaptureState();
@@ -283,9 +287,14 @@ public final class DownloadManager {
         Component msg = Component.translatable(
                 desired ? "msg.worldmirror.downloadStart"
                        : "msg.worldmirror.downloadStop");
-        if (client.player != null) client.player.displayClientMessage(msg, true);
-        WMLogger.info("Download " + (desired ? "activated" : "deactivated")
-                + " by lifecycle event: " + eventName);
+        if (client.player != null) client.player.sendOverlayMessage(msg);
+        String transitionMessage = "Download " + (desired ? "activated" : "deactivated")
+                + " by lifecycle event: " + eventName;
+        if ("dimension-change".equals(eventName)) {
+            WMLogger.debug(transitionMessage);
+        } else {
+            WMLogger.info(transitionMessage);
+        }
     }
 
     // ── Output path ───────────────────────────────────────────────────────────
@@ -480,7 +489,8 @@ public final class DownloadManager {
                                             String preferredSourceId,
                                             String preferredSourceType) {
         if (exportInProgress.get()) {
-            WMLogger.warn("Export already in progress — skipping.");
+            deferExport(notify, preferredSourceId, preferredSourceType);
+            WMLogger.debug("Export already in progress; queued another export pass.");
             return;
         }
 
@@ -539,6 +549,7 @@ public final class DownloadManager {
 
         final String finalSourceId = sourceId;
         final String finalSourceType = sourceType;
+        final RegistryAccess finalRegistryAccess = client.level != null ? client.level.registryAccess() : null;
 
         Path worldFolder;
         try {
@@ -580,7 +591,7 @@ public final class DownloadManager {
                         ChunkExporter.exportChunks(finalWorldFolder, snapshot, entitySnapshot,
                                 resolver, db);
 
-                WorldStructureCreator.createLoadableWorld(finalWorldFolder, finalSourceId);
+                WorldStructureCreator.createLoadableWorld(finalWorldFolder, finalSourceId, finalRegistryAccess);
                 WorldMetadata.update(finalWorldFolder, finalSourceId, finalSourceType);
 
                 for (Map.Entry<ResourceKey<Level>, Set<ChunkPos>> dimEntry : written.entrySet()) {
@@ -600,9 +611,7 @@ public final class DownloadManager {
                     Minecraft.getInstance().execute(() -> {
                         Minecraft mc = Minecraft.getInstance();
                         if (mc.player != null) {
-                            mc.player.displayClientMessage(
-                                    Component.translatable("msg.worldmirror.exportDone"),
-                                    false);
+                            mc.player.sendSystemMessage(Component.translatable("msg.worldmirror.exportDone"));
                         }
                     });
                 }
@@ -611,9 +620,11 @@ public final class DownloadManager {
             } finally {
                 if (db != null) db.close();
                 exportInProgress.set(false);
+                Minecraft.getInstance().execute(() ->
+                        tryStartDeferredExport(Minecraft.getInstance()));
             }
         }, "WM-Export");
-        worker.setDaemon(true);
+        worker.setDaemon(false);
         worker.start();
     }
 
@@ -776,4 +787,122 @@ public final class DownloadManager {
 
         ChunkListener.evictStale(maxAgeMs, maxCount, playerDim, playerCX, playerCZ, maxDist);
     }
+
+    // ── Export nearby region ──────────────────────────────────────────────────
+
+    /**
+     * Captures all loaded chunks within {@code radiusChunks} of the player's
+     * current position and exports them to a freshly created save with the given
+     * {@code worldName}.  The spawn point of the new world is set to the player's
+     * current block position.
+     *
+     * <p>This runs the capture synchronously on the calling (game) thread, then
+     * hands off the MCA export and world-creation to a background thread.
+     *
+     * @param client       the Minecraft client instance
+     * @param worldName    the name for the new singleplayer save
+     * @param radiusChunks capture radius in chunks (e.g. 16 = a 33×33 chunk area)
+     */
+    public static void exportNearbyToNewSave(Minecraft client,
+                                             String worldName, int radiusChunks) {
+        ClientLevel world = client.level;
+        if (world == null || client.player == null) {
+            if (client.player != null)
+                client.player.sendSystemMessage(
+                        Component.literal("§cCannot export: no world loaded."));
+            return;
+        }
+
+        ResourceKey<Level> dimension = world.dimension();
+        int playerCX = client.player.getBlockX() >> 4;
+        int playerCZ = client.player.getBlockZ() >> 4;
+        int playerBX = client.player.getBlockX();
+        int playerBY = client.player.getBlockY();
+        int playerBZ = client.player.getBlockZ();
+
+        // Capture nearby chunks synchronously on the game thread
+        Map<ChunkPos, ChunkListener.CapturedChunk> nearbyChunks = new HashMap<>();
+        for (int cx = playerCX - radiusChunks; cx <= playerCX + radiusChunks; cx++) {
+            for (int cz = playerCZ - radiusChunks; cz <= playerCZ + radiusChunks; cz++) {
+                ChunkAccess chunk = world.getChunk(cx, cz);
+                if (!(chunk instanceof LevelChunk wc)) continue;
+                try {
+                    if (ChunkSerializer.isChunkEmpty(wc)) continue;
+                    CompoundTag nbt = ChunkSerializer.serialize(world, wc);
+                    nearbyChunks.put(wc.getPos(),
+                            new ChunkListener.CapturedChunk(nbt, System.currentTimeMillis()));
+                } catch (Exception e) {
+                    WMLogger.warn("exportNearbyToNewSave: failed to capture " + wc.getPos()
+                            + ": " + e.getMessage());
+                }
+            }
+        }
+
+        if (nearbyChunks.isEmpty()) {
+            if (client.player != null)
+                client.player.sendSystemMessage(
+                        Component.literal("§cNo chunks captured in radius " + radiusChunks + "."));
+            return;
+        }
+
+        Map<ResourceKey<Level>, Map<ChunkPos, ChunkListener.CapturedChunk>> snapshot =
+                Map.of(dimension, nearbyChunks);
+        Map<ResourceKey<Level>, Map<ChunkPos, List<CompoundTag>>> entitySnapshot = Map.of();
+
+        // Determine output path — always in the saves folder for easy play
+        String safeName = worldName.isBlank() ? "NearbyExport" : worldName;
+        Path base = FabricLoader.getInstance().getGameDir().resolve("saves");
+        Path outFolder = base.resolve(sanitiseFolderName(safeName));
+        // Avoid overwriting an existing save
+        int suffix = 1;
+        while (outFolder.toFile().exists()) {
+            outFolder = base.resolve(sanitiseFolderName(safeName) + "_" + suffix++);
+        }
+        final Path finalOut = outFolder;
+        final int finalBX = playerBX, finalBY = playerBY, finalBZ = playerBZ;
+        final String sourceId = WorldMetadata.detectSourceId(client);
+        final String sourceType = WorldMetadata.detectSourceType(client);
+
+        WMLogger.info("Exporting " + nearbyChunks.size() + " nearby chunk(s) to '"
+                + finalOut.getFileName() + "'...");
+
+        Thread worker = new Thread(() -> {
+            try {
+                Files.createDirectories(finalOut);
+                ChunkDatabase db = ChunkDatabase.open(finalOut, sourceId);
+                try {
+                    ChunkExporter.exportChunks(
+                            finalOut, snapshot, entitySnapshot,
+                            new OverwriteResolver(), db);
+                } finally {
+                    db.close();
+                }
+                WorldStructureCreator.createLoadableWorldWithSpawn(
+                        finalOut, safeName, finalBX, finalBY, finalBZ);
+                WMLogger.info("Nearby export complete: " + finalOut.toAbsolutePath());
+                client.execute(() -> {
+                    if (client.player != null)
+                        client.player.sendSystemMessage(
+                                Component.literal("§aExported to saves/" + finalOut.getFileName()));
+                });
+            } catch (Exception e) {
+                WMLogger.warn("exportNearbyToNewSave failed: " + e.getMessage());
+                client.execute(() -> {
+                    if (client.player != null)
+                        client.player.sendSystemMessage(
+                                Component.literal("§cExport failed: " + e.getMessage()));
+                });
+            }
+        }, "WM-NearbyExport");
+        worker.setDaemon(false);
+        worker.start();
+    }
+
+    private static String sanitiseFolderName(String name) {
+        // Remove path separators, control characters, and any ".." sequences
+        return name.replaceAll("[\\\\/:*?\"<>|]", "_")
+                   .replaceAll("\\.\\.", "_")
+                   .strip();
+    }
 }
+

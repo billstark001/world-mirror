@@ -1,55 +1,47 @@
 package net.billstark001.worldmirror.io;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
+import java.util.UUID;
+
 import com.mojang.serialization.Lifecycle;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.SharedConstants;
-import net.minecraft.core.MappedRegistry;
-import net.minecraft.core.Registry;
-import net.minecraft.core.UUIDUtil;
-import net.minecraft.core.registries.Registries;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.*;
-import net.minecraft.resources.ResourceKey;
-import net.minecraft.util.Util;
 import net.minecraft.world.Difficulty;
-import net.minecraft.world.flag.FeatureFlagSet;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelSettings;
 import net.minecraft.world.level.WorldDataConfiguration;
-import net.minecraft.world.level.border.WorldBorder;
-import net.minecraft.world.level.dimension.LevelStem;
-import net.minecraft.world.level.dimension.end.EndDragonFight;
 import net.minecraft.world.level.gamerules.GameRules;
+import net.minecraft.world.level.levelgen.WorldGenSettings;
 import net.minecraft.world.level.levelgen.WorldOptions;
+import net.minecraft.world.level.levelgen.presets.WorldPresets;
 import net.minecraft.world.level.storage.LevelData;
+import net.minecraft.world.level.storage.LevelStorageSource;
 import net.minecraft.world.level.storage.PrimaryLevelData;
-import org.jspecify.annotations.NonNull;
-import org.jspecify.annotations.Nullable;
-
-import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Objects;
-import java.util.Set;
-import java.util.stream.Stream;
 
 @Environment(EnvType.CLIENT)
 public class WorldStructureCreator {
-
-    private static final String DEFAULT_WORLD_NAME = "Downloaded World";
-    private static final long DEFAULT_SEED = 0L;
-    private static final long DEFAULT_DAYTIME = 6000L;
 
     public static CompoundTag createFlatGenerator() {
         CompoundTag generator = new CompoundTag();
 
         CompoundTag settings = new CompoundTag();
-        settings.put("layers", new ListTag());
+        ListTag layers = new ListTag();
+        CompoundTag airLayer = new CompoundTag();
+        airLayer.putString("block", "minecraft:air");
+        airLayer.putInt("height", 1);
+        layers.add(airLayer);
+        settings.put("layers", layers);
         settings.put("structure_overrides", new ListTag());
         settings.putString("biome", "minecraft:the_void");
-        settings.putByte("features", (byte) 1);
-        settings.putByte("lakes", (byte) 0);
         generator.put("settings", settings);
         generator.putString("type", "minecraft:flat");
 
@@ -58,7 +50,6 @@ public class WorldStructureCreator {
 
     public static CompoundTag createFlatWorldGenSettings() {
         CompoundTag worldGenSettings = new CompoundTag();
-
         // --- dimensions ---
         CompoundTag dimensions = new CompoundTag();
 
@@ -82,24 +73,37 @@ public class WorldStructureCreator {
 
         worldGenSettings.put("dimensions", dimensions);
         worldGenSettings.putByte("bonus_chest", (byte) 0);
-        worldGenSettings.putByte("generate_features", (byte) 0);
+        worldGenSettings.putByte("generate_structures", (byte) 0);
         worldGenSettings.putLong("seed", 0L);
 
         return worldGenSettings;
     }
 
-    public static CompoundTag createSpawnSettings(int x, int y, int z) {
-        CompoundTag spawnSettings = new CompoundTag();
-        spawnSettings.putString("dimension", "minecraft:overworld");
-        spawnSettings.putInt("pitch", 0);
-        spawnSettings.putInt("yaw", 0);
-        IntArrayTag pos = new IntArrayTag(new int[] {x, y, z});
-        spawnSettings.put("pos", pos);
-        return spawnSettings;
+    public static PrimaryLevelData createWorldData(String levelName) {
+        String resolvedName = (levelName != null && !levelName.isEmpty())
+                ? levelName
+                : "Downloaded World";
+        LevelSettings settings = new LevelSettings(
+                resolvedName,
+                GameType.CREATIVE,
+                new LevelSettings.DifficultySettings(Difficulty.PEACEFUL, false, false),
+                true,
+                WorldDataConfiguration.DEFAULT
+        );
+        PrimaryLevelData data = new PrimaryLevelData(
+                settings,
+                PrimaryLevelData.SpecialWorldProperty.FLAT,
+                Lifecycle.stable()
+        );
+        data.setInitialized(true);
+        data.setGameTime(6000L);
+        data.setSpawn(LevelData.RespawnData.of(Level.OVERWORLD, new BlockPos(0, 80, 0), 0.0F, 0.0F));
+        return data;
     }
 
-    public static CompoundTag createPlayerData() {
+    private static CompoundTag createPlayerData() {
         CompoundTag player = new CompoundTag();
+        NbtUtils.addCurrentDataVersion(player);
         player.putString("Dimension", "minecraft:overworld");
 
         ListTag pos = new ListTag();
@@ -132,139 +136,71 @@ public class WorldStructureCreator {
         return player;
     }
 
-    private static String normalizeLevelName(String levelName) {
-        return (levelName != null && !levelName.isEmpty()) ? levelName : DEFAULT_WORLD_NAME;
+    private static GameRules createGameRules(WorldDataConfiguration dataConfiguration) {
+        GameRules gameRules = new GameRules(dataConfiguration.enabledFeatures());
+        gameRules.set(GameRules.ADVANCE_TIME, false, null);
+        gameRules.set(GameRules.SPAWN_MOBS, false, null);
+        gameRules.set(GameRules.RANDOM_TICK_SPEED, 0, null);
+        return gameRules;
     }
 
-    @SuppressWarnings({"deprecated"})
-    private static PrimaryLevelData instantiateLevelProperties(String levelName) {
-        LevelSettings levelInfo = new LevelSettings(
-                levelName,
-                GameType.CREATIVE,
-                false,
-                Difficulty.PEACEFUL,
-                true,
-                new GameRules(FeatureFlagSet.of()),
-                WorldDataConfiguration.DEFAULT
-        );
-        WorldOptions generatorOptions = new WorldOptions(DEFAULT_SEED, false, false);
-        @SuppressWarnings("deprecation") PrimaryLevelData properties = new PrimaryLevelData(
-                levelInfo,
-                generatorOptions,
-                PrimaryLevelData.SpecialWorldProperty.FLAT,
-                Lifecycle.stable()
-        );
-
-        properties.setDifficultyLocked(false);
-        properties.setInitialized(true);
-        properties.setRaining(false);
-        properties.setRainTime(0);
-        properties.setThundering(false);
-        properties.setThunderTime(0);
-        properties.setClearWeatherTime(0);
-        properties.setGameTime(DEFAULT_DAYTIME);
-        properties.setDayTime(DEFAULT_DAYTIME);
-
-        return properties;
+    private static CompoundTag createWeatherData() {
+        CompoundTag weather = new CompoundTag();
+        weather.putInt("clear_weather_time", 0);
+        weather.putInt("rain_time", 0);
+        weather.putInt("thunder_time", 0);
+        weather.putBoolean("raining", false);
+        weather.putBoolean("thundering", false);
+        return weather;
     }
 
-    private static ListTag createStringList(Set<String> strings) {
-        ListTag nbtList = new ListTag();
-        Stream<StringTag> var10000 = strings.stream().map(StringTag::valueOf);
-        Objects.requireNonNull(nbtList);
-        var10000.forEach(nbtList::add);
-        return nbtList;
+    private static CompoundTag createWorldClocksData() {
+        CompoundTag clocks = new CompoundTag();
+        CompoundTag clockStates = new CompoundTag();
+        clockStates.put("minecraft:overworld", createClockState(6000L));
+        clockStates.put("minecraft:the_end", createClockState(6000L));
+        clocks.put("clocks", clockStates);
+        return clocks;
+    }
+
+    private static CompoundTag createClockState(long totalTicks) {
+        CompoundTag state = new CompoundTag();
+        state.putLong("total_ticks", totalTicks);
+        state.putFloat("partial_tick", 0.0F);
+        state.putFloat("rate", 1.0F);
+        state.putBoolean("paused", false);
+        return state;
     }
 
     /**
-     * Matches the implementation of the corresponding method in {@link PrimaryLevelData}
-     * as of Minecraft version 1.21.11.
-     * * <p>This implementation substitutes or omits world gen information, as {@code ClientWorld}
-     * does not provide such data.</p>
-     * * <p><b>Maintenance Note:</b> During future mod updates, it is critical to ensure this
-     * implementation maintains parity with the latest upstream logic in {@code LevelProperties}.</p>
+     * Creates the {@code level.dat} for a new nearby-export world, setting the
+     * spawn point to the player's current block position.
+     *
+     * @param worldFolderPath root directory of the new world
+     * @param levelName       human-readable name for the save
+     * @param spawnX          spawn block X coordinate
+     * @param spawnY          spawn block Y coordinate
+     * @param spawnZ          spawn block Z coordinate
      */
-    private static CompoundTag serializeLevelProperties(PrimaryLevelData properties, @Nullable CompoundTag playerNbt) {
+    public static void createLoadableWorldWithSpawn(Path worldFolderPath, String levelName,
+                                                    int spawnX, int spawnY, int spawnZ) {
+        try {
+            createLoadableWorld(worldFolderPath, levelName, null);
 
-        CompoundTag levelNbt = new CompoundTag();
+            PrimaryLevelData data = createWorldData(levelName);
+            data.setSpawn(LevelData.RespawnData.of(
+                    Level.OVERWORLD, new BlockPos(spawnX, spawnY, spawnZ), 0.0F, 0.0F));
 
-        levelNbt.put("ServerBrands", createStringList(properties.getKnownServerBrands()));
-        levelNbt.putBoolean("WasModded", properties.wasModded());
-
-        CompoundTag nbtCompound = new CompoundTag();
-        nbtCompound.putString("Name", SharedConstants.getCurrentVersion().name());
-        nbtCompound.putInt("Id", SharedConstants.getCurrentVersion().dataVersion().version());
-        nbtCompound.putBoolean("Snapshot", !SharedConstants.getCurrentVersion().stable());
-        nbtCompound.putString("Series", SharedConstants.getCurrentVersion().dataVersion().series());
-        levelNbt.put("Version", nbtCompound);
-        NbtUtils.addCurrentDataVersion(levelNbt);
-
-        // world gen settings removed
-
-        levelNbt.putInt("GameType", properties.getLevelSettings().gameType().getId());
-        levelNbt.store("spawn", LevelData.RespawnData.CODEC, properties.getRespawnData());
-        levelNbt.putLong("Time", properties.getGameTime());
-        levelNbt.putLong("DayTime", properties.getDayTime());
-        levelNbt.putLong("LastPlayed", Util.getEpochMillis());
-        levelNbt.putString("LevelName", properties.getLevelSettings().levelName());
-        levelNbt.putInt("version", 19133);
-        levelNbt.putInt("clearWeatherTime", properties.getClearWeatherTime());
-        levelNbt.putInt("rainTime", properties.getRainTime());
-        levelNbt.putBoolean("raining", properties.isRaining());
-        levelNbt.putInt("thunderTime", properties.getThunderTime());
-        levelNbt.putBoolean("thundering", properties.isThundering());
-        levelNbt.putBoolean("hardcore", properties.getLevelSettings().hardcore());
-        levelNbt.putBoolean("allowCommands", properties.getLevelSettings().allowCommands());
-        levelNbt.putBoolean("initialized", properties.isInitialized());
-        properties.getLegacyWorldBorderSettings().ifPresent((worldBorder) -> levelNbt.store("world_border", WorldBorder.Settings.CODEC, worldBorder));
-        levelNbt.putByte("Difficulty", (byte) properties.getLevelSettings().difficulty().getId());
-        levelNbt.putBoolean("DifficultyLocked", properties.isDifficultyLocked());
-        levelNbt.store("game_rules", GameRules.codec(properties.enabledFeatures()), properties.getLevelSettings().gameRules());
-        levelNbt.store("DragonFight", EndDragonFight.Data.CODEC, properties.endDragonFightData());
-
-        if (playerNbt != null) {
-            levelNbt.put("Player", playerNbt);
+            UUID singleplayerUuid = UUID.nameUUIDFromBytes(
+                    ("worldmirror:" + levelName).getBytes(StandardCharsets.UTF_8));
+            writeLevelDat(worldFolderPath.resolve("level.dat").toFile(), data, singleplayerUuid);
+            writeCompressed(
+                    worldFolderPath.resolve("players/data/" + singleplayerUuid + ".dat").toFile(),
+                    createPlayerData());
+            WMLogger.info("Nearby-export world created at: " + worldFolderPath.toAbsolutePath());
+        } catch (Exception e) {
+            WMLogger.warn("createLoadableWorldWithSpawn failed: " + e.getMessage());
         }
-
-        levelNbt.store(WorldDataConfiguration.MAP_CODEC, properties.getLevelSettings().getDataConfiguration());
-        if (properties.getCustomBossEvents() != null) {
-            levelNbt.put("CustomBossEvents", properties.getCustomBossEvents());
-        }
-
-        levelNbt.put("ScheduledEvents", properties.getScheduledEvents().store());
-        levelNbt.putInt("WanderingTraderSpawnDelay", properties.getWanderingTraderSpawnDelay());
-        levelNbt.putInt("WanderingTraderSpawnChance", properties.getWanderingTraderSpawnChance());
-        levelNbt.storeNullable("WanderingTraderId", UUIDUtil.CODEC, properties.getWanderingTraderId());
-
-        return levelNbt;
-    }
-
-    /**
-     * New preferred path: build world data through LevelProperties and then patch
-     * fields that must stay equivalent to our historical mirror world output.
-     */
-    public static CompoundTag createWorldDataFromLevelProperties(String levelName) {
-        String resolvedLevelName = normalizeLevelName(levelName);
-
-        MappedRegistry<Registry<?>> registries = new MappedRegistry<>(
-                ResourceKey.createRegistryKey(Registries.ROOT_REGISTRY_NAME),
-                Lifecycle.stable(),
-                true
-        );
-        MappedRegistry<LevelStem> dimensionOptions = new MappedRegistry<>(Registries.LEVEL_STEM, Lifecycle.stable(), true);
-        registries.createIntrusiveHolder(dimensionOptions);
-
-        CompoundTag player = createPlayerData();
-
-        PrimaryLevelData properties = instantiateLevelProperties(resolvedLevelName);
-        CompoundTag data = serializeLevelProperties(properties, player);
-
-        // Preserve the existing mirror-world generation profile and spawn shape.
-        data.put("WorldGenSettings", createFlatWorldGenSettings());
-        data.put("spawn", createSpawnSettings(0, 80, 0));
-        data.putLong("RandomSeed", DEFAULT_SEED);
-
-        return data;
     }
 
     /**
@@ -276,75 +212,140 @@ public class WorldStructureCreator {
      * {@code session.lock} timestamp is refreshed and "World structure updated" is logged
      * to distinguish incremental sync from initial creation.
      *
-     * @param worldFolderPath  root directory of the mirror world
+     * @param worldFolder  root directory of the mirror world
+
+    private static CompoundTag createWeatherData() {
+        CompoundTag weather = new CompoundTag();
+        weather.putInt("clear_weather_time", 0);
+        weather.putInt("rain_time", 0);
+        weather.putInt("thunder_time", 0);
+        weather.putBoolean("raining", false);
+        weather.putBoolean("thundering", false);
+        return weather;
+    }
+
+    private static CompoundTag createWorldClocksData() {
+        CompoundTag clocks = new CompoundTag();
+        CompoundTag clockStates = new CompoundTag();
+        clockStates.put("minecraft:overworld", createClockState(6000L));
+        clockStates.put("minecraft:the_end", createClockState(6000L));
+        clocks.put("clocks", clockStates);
+        return clocks;
+    }
+
+    private static CompoundTag createClockState(long totalTicks) {
+        CompoundTag state = new CompoundTag();
+        state.putLong("total_ticks", totalTicks);
+        state.putFloat("partial_tick", 0.0F);
+        state.putFloat("rate", 1.0F);
+        state.putBoolean("paused", false);
+        return state;
+    }
+
+    /**
+     * Creates or updates the {@code level.dat} and supporting directory structure
+     * for a mirror world.
+     *
+     * <p>On the <em>first</em> call (no {@code level.dat} yet), a full {@code level.dat}
+     * is written and "World structure created" is logged.  On subsequent calls the
+     * {@code session.lock} timestamp is refreshed and "World structure updated" is logged
+     * to distinguish incremental sync from initial creation.
+     *
+     * @param worldFolder  root directory of the mirror world
      * @param levelName    human-readable name to embed in {@code level.dat}
      */
-    public static void createLoadableWorld(Path worldFolderPath, String levelName) {
+    public static void createLoadableWorld(java.nio.file.Path worldFolderPath, String levelName, RegistryAccess registryAccess) {
+        File worldFolder = worldFolderPath.toFile();
         try {
-            boolean firstTime = !(worldFolderPath.resolve("level.dat").toFile()).exists();
+            boolean firstTime = !(new File(worldFolder, "level.dat")).exists();
 
-            DataOutputStream out = getOutputStream(worldFolderPath);
-            try {
-                out.writeLong(System.currentTimeMillis());
-                out.close();
-            } catch (Throwable throwable) {
-                try {
-                    out.close();
-                } catch (Throwable throwable1) {
-                    throwable.addSuppressed(throwable1);
-                }
-                throw throwable;
+            if (!worldFolder.exists()) {
+                worldFolder.mkdirs();
             }
-            // Only write level.dat on first creation; on subsequent syncs just refresh session.lock.
-            if (firstTime) {
-                CompoundTag root = new CompoundTag();
-                CompoundTag data = createWorldDataFromLevelProperties(levelName);
-                root.put("Data", data);
 
-                File levelDat = worldFolderPath.resolve("level.dat").toFile();
-                FileOutputStream fos = new FileOutputStream(levelDat);
-                try {
-                    NbtIo.writeCompressed(root, fos);
-                    fos.close();
-                } catch (Throwable throwable) {
-                    try {
-                        fos.close();
-                    } catch (Throwable throwable1) {
-                        throwable.addSuppressed(throwable1);
-                    }
-                    throw throwable;
-                }
-                WMLogger.info("World structure created at: " + worldFolderPath.toAbsolutePath()
-                        + " (name: " + data.getString("LevelName") + ")");
+            String[] subDirs = {
+                "dimensions/minecraft/overworld/region",
+                "dimensions/minecraft/overworld/entities",
+                "dimensions/minecraft/overworld/poi",
+                "dimensions/minecraft/overworld/data/minecraft",
+                "dimensions/minecraft/the_nether/region",
+                "dimensions/minecraft/the_nether/entities",
+                "dimensions/minecraft/the_nether/poi",
+                "dimensions/minecraft/the_nether/data/minecraft",
+                "dimensions/minecraft/the_end/region",
+                "dimensions/minecraft/the_end/entities",
+                "dimensions/minecraft/the_end/poi",
+                "dimensions/minecraft/the_end/data/minecraft",
+                "players/advancements",
+                "players/data",
+                "players/stats",
+                "data/minecraft",
+                "datapacks",
+                "resourcepacks"
+            };
+            for (String dir : subDirs) {
+                mkdirs(worldFolder, dir);
+            }
+
+            Files.writeString(worldFolderPath.resolve("session.lock"), "\u2603", StandardCharsets.UTF_8);
+
+            if (firstTime) {
+                UUID singleplayerUuid = UUID.nameUUIDFromBytes(
+                        ("worldmirror:" + levelName).getBytes(StandardCharsets.UTF_8));
+                PrimaryLevelData data = createWorldData(levelName);
+                writeLevelDat(new File(worldFolder, "level.dat"), data, singleplayerUuid);
+                writeCompressed(new File(worldFolder, "players/data/" + singleplayerUuid + ".dat"), createPlayerData());
+                writeWorldGenSettings(worldFolderPath, registryAccess);
+                LevelStorageSource.writeGameRules(data, worldFolderPath, createGameRules(data.getDataConfiguration()));
+                writeSavedData(new File(worldFolder, "data/minecraft/weather.dat"), createWeatherData());
+                writeSavedData(new File(worldFolder, "data/minecraft/world_clocks.dat"), createWorldClocksData());
+                WMLogger.info("World structure created at: " + worldFolder.getAbsolutePath()
+                        + " (name: " + data.getLevelName() + ")");
             } else {
-                WMLogger.info("World structure updated (incremental sync): " + worldFolderPath.toAbsolutePath());
+                WMLogger.info("World structure updated (incremental sync): " + worldFolder.getAbsolutePath());
             }
         } catch (Exception e) {
             WMLogger.warn("Failed to create loadable world: " + e.getMessage());
         }
     }
 
-    private static final String[] worldFolderSubPaths;
-    static {
-        worldFolderSubPaths = new String[] {
-                "region",
-                "playerdata",
-                "advancements",
-                "stats",
-                "data",
-                "poi",
-                "entities"
-        };
+    private static void mkdirs(File worldFolder, String relativePath) {
+        (new File(worldFolder, relativePath)).mkdirs();
     }
 
-    private static @NonNull DataOutputStream getOutputStream(Path worldFolderPath) throws IOException {
-        Files.createDirectories(worldFolderPath);
+    private static void writeLevelDat(File file, PrimaryLevelData data, UUID singleplayerUuid) throws Exception {
+        CompoundTag root = new CompoundTag();
+        root.put("Data", data.createTag(singleplayerUuid));
+        writeCompressed(file, root);
+    }
 
-        for (String subPath : worldFolderSubPaths) {
-            Files.createDirectories(worldFolderPath.resolve(subPath));
+    private static void writeWorldGenSettings(java.nio.file.Path worldFolderPath, RegistryAccess registryAccess) throws Exception {
+        if (registryAccess != null) {
+            try {
+                WorldGenSettings settings = new WorldGenSettings(
+                        new WorldOptions(0L, false, false),
+                        WorldPresets.createFlatWorldDimensions(registryAccess)
+                );
+                LevelStorageSource.writeWorldGenSettings(registryAccess, worldFolderPath, settings);
+                return;
+            } catch (Exception e) {
+                WMLogger.warn("Failed to write WorldGenSettings with registry: " + e.getMessage() + ". Falling back to manual NBT.");
+            }
         }
+        writeSavedData(worldFolderPath.resolve("data/minecraft/world_gen_settings.dat").toFile(),
+                createFlatWorldGenSettings());
+    }
 
-        File sessionLock = worldFolderPath.resolve("session.lock").toFile();
-        return new DataOutputStream(new FileOutputStream(sessionLock));
+    private static void writeSavedData(File file, CompoundTag data) throws Exception {
+        CompoundTag root = new CompoundTag();
+        root.put("data", data);
+        NbtUtils.addCurrentDataVersion(root);
+        writeCompressed(file, root);
+    }
+
+    private static void writeCompressed(File file, CompoundTag tag) throws Exception {
+        try (FileOutputStream fos = new FileOutputStream(file)) {
+            NbtIo.writeCompressed(tag, fos);
+        }
     }
 }

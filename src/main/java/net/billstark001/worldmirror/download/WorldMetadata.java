@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
+
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.Reader;

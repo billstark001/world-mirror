@@ -1,6 +1,6 @@
 # World Mirror
 
-**Version:** 0.2.0 · **Minecraft:** 1.21.11 · **Loader:** Fabric
+**Version:** 0.2.1 · **Minecraft:** 1.21.11 · **Loader:** Fabric
 
 A client-side Fabric mod that silently mirrors the world you are playing on a multiplayer
 server — or even a singleplayer world — into a fully loadable local copy.  As you explore,
@@ -16,14 +16,16 @@ region-file save that you can open immediately in singleplayer.
 | **Persistent download session** | Press **P** to start or stop a download session. Chunks received from the server are recorded automatically while the session is active. |
 | **Periodic background sync** | The mod exports to disk on a configurable timer (default 10 s) without freezing the game. |
 | **Dirty-chunk tracking** | Only chunks that have changed since the last export are written, keeping sync fast even for large worlds. |
-| **Multi-dimension support** | Overworld, Nether, End, and any custom dimension are captured and stored in the correct sub-directory (`region/`, `DIM-1/region/`, `DIM1/region/`, `dimensions/<ns>/<path>/region/`). |
-| **Entity capture** | All non-player entities in captured chunks — mobs, animals, paintings, item frames, armour stands, dropped items, vehicles, etc. — are serialized using Minecraft's own `writeNbt` and merged into the exported chunk data. |
+| **Multi-dimension support** | Overworld, Nether, End, and any custom dimension are captured under `dimensions/<ns>/<path>/` with separate `region/`, `entities/`, `poi/`, and `data/` subdirectories. |
+| **Entity capture** | All non-player entities in captured chunks — mobs, animals, paintings, item frames, armour stands, dropped items, vehicles, etc. — are serialized using Minecraft's own `saveWithoutId` and written to the dimension's `entities/` region files. |
 | **Container tracking** | The mod intercepts inventory packets when you open a chest, barrel, hopper, furnace, or any other container and saves the item stacks. They are merged into the block entity NBT on export. Double chests are handled correctly (each half is saved to its own position). |
-| **Block entity data** | Signs (text), beacons (effects), banners (patterns), player heads (owner), lecterns (stored book), and all other block entities whose data the server sends to the client are persisted via `createNbtWithIdentifyingData`. |
+| **Block entity data** | Signs (text), beacons (effects), banners (patterns), player heads (owner), lecterns (stored book), and all other block entities whose data the server sends to the client are persisted via `saveWithFullMetadata`. |
 | **World–mirror mapping** | Every server address or singleplayer world name is mapped to a sanitised local folder name, stored in `config/worldmirror/mirrors.json`.  The same server always exports to the same folder. |
 | **Per-world settings** | Save location and conflict strategy can be overridden per world from the status screen without touching the global config. |
-| **Conflict resolution** | Three built-in strategies for chunks that already exist on disk: *Overwrite* (default), *Ignore* (keep local), and *Manual* (queue for later resolution). |
-| **In-game status screen** | Press **I** to open a LibGUI status panel showing source info, sync statistics, download state, a conflict-resolution queue, and per-world setting overrides. |
+| **Conflict resolution** | Three built-in strategies for chunks that already exist on disk: *Overwrite* (default), *Ignore* (keep local), and *Manual* (save the server chunk to `conflict_chunks/` in MCA format for later review). |
+| **Chunk Map (Window 1)** | Full-screen draggable grid map showing every recorded chunk's download status. Color-coded: green (fresh) → blue (old, logarithmic), orange (third-party source), red border (unresolved conflict). Per-chunk conflict resolution dialog (Overwrite / Discard / Cancel). |
+| **Export Nearby Region** | Snapshot all loaded chunks within a configurable radius (1–50 chunks) into a fresh singleplayer save with the spawn point set to your current position. |
+| **In-game status screen** | Press **I** to open a LibGUI status panel showing source info, sync statistics, download state, conflict counts with bulk resolution buttons, and per-world setting overrides. |
 | **In-game logging** | Important events are echoed to the player's chat at a configurable level (Debug / Info / Warning). |
 | **Mod Menu settings** | All global settings are accessible from the Mod Menu settings screen. |
 | **Internationalisation** | UI strings are translated into English (`en_us`), Simplified Chinese (`zh_cn`), Traditional Chinese (`zh_tw`), and Japanese (`ja_jp`). |
@@ -38,6 +40,7 @@ region-file save that you can open immediately in singleplayer.
 | **O** | Export cached data to disk immediately |
 | **L** | Clear all cached chunks, entities, and containers |
 | **I** | Open the in-game status screen |
+| **M** | Open the chunk map directly |
 
 All keybindings are rebindable in *Options → Controls → World Mirror*.
 
@@ -52,8 +55,8 @@ The status screen shows:
 - **Source info** — type (singleplayer / server), source ID, local mirror folder name
 - **Statistics** — total chunks cached across all dimensions, time since last sync
 - **Live status** — download active/inactive, export running/idle
-- **Action buttons** — Start/Stop Download, Export Now, Clear Data
-- **Conflict queue** — count of pending manual-resolution conflicts, with *Overwrite All* and *Ignore All* buttons
+- **Action buttons** — Start/Stop Download, Export Now, Clear Data, **Export Nearby Region**
+- **Conflicts tab** — count of stored conflict chunks, with *Overwrite All* and *Discard All* buttons, plus **Open Chunk Map** to review conflicts per-chunk
 - **Per-world settings** — cycle buttons to override the save location and conflict strategy for the current world (stored in `mirrors.json`, takes precedence over global config)
 - **Global Settings** — shortcut to the Mod Menu settings screen
 
@@ -87,7 +90,7 @@ Configuration is persisted in `<.minecraft>/config/worldmirror.json`.
 |----------|-----------|
 | `Overwrite` | Server chunk always replaces the local copy |
 | `Ignore` | Local copy is kept; only new chunks are written |
-| `Manual` | Local copy is kept; the chunk is queued for resolution in the status screen |
+| `Manual` | Local copy is kept; the incoming server chunk is saved to `conflict_chunks/<dim>/r.X.Z.mca` for review. Use the Chunk Map or the Conflicts tab bulk buttons to resolve. |
 
 ---
 
@@ -97,19 +100,35 @@ The exported world is a standard Minecraft save directory:
 
 ```
 downloaded_worlds/<mirror-name>/
-├── region/                   ← Overworld chunk and entity data
-│   └── r.X.Z.mca
-├── DIM-1/region/             ← Nether
-├── DIM1/region/              ← The End
-├── dimensions/<ns>/<path>/   ← Custom dimensions
-│   └── region/
+├── dimensions/
+│   └── minecraft/
+│       ├── overworld/
+│       │   ├── region/
+│       │   ├── entities/
+│       │   ├── poi/
+│       │   └── data/minecraft/
+│       ├── the_nether/
+│       │   ├── region/
+│       │   ├── entities/
+│       │   ├── poi/
+│       │   └── data/minecraft/
+│       └── the_end/
+│           ├── region/
+│           ├── entities/
+│           ├── poi/
+│           └── data/minecraft/
+├── dimensions/<ns>/<path>/   ← Custom dimensions use the same layout
 ├── level.dat                 ← Default world properties (created on first export)
-├── playerdata/
-├── advancements/
-├── stats/
-├── data/
-├── poi/
-├── entities/
+├── players/
+│   ├── advancements/
+│   ├── data/
+│   └── stats/
+├── data/minecraft/
+│   ├── game_rules.dat
+│   ├── weather.dat
+│   ├── world_clocks.dat
+│   └── world_gen_settings.dat
+├── resourcepacks/
 └── worldmirror_meta.json             ← World Mirror metadata
 ```
 
@@ -127,9 +146,9 @@ downloaded_worlds/<mirror-name>/
 
 ## Entity Serialization
 
-Entities are captured on the game thread before each export and serialized using
-Minecraft's own `Entity.writeNbt()` method.  All data the client has received via
-tracking packets is included:
+Entities are captured on the game thread before each export, serialized using
+Minecraft's own `Entity.saveWithoutId()` method, and written to modern per-dimension
+`entities/r.X.Z.mca` files.  All data the client has received via tracking packets is included:
 
 - **Paintings** — painting variant (motive), facing direction, attachment block position
 - **Item frames & Glow item frames** — held item (full component NBT), item rotation, fixed flag
@@ -146,7 +165,7 @@ tracking packets is included:
 
 ## Block Entity Serialization
 
-Block entities are serialized via `BlockEntity.createNbtWithIdentifyingData()`:
+Block entities are serialized via `BlockEntity.saveWithFullMetadata()`:
 
 - **Signs / Hanging signs** — front and back text, waxed and glow-ink flags
 - **Beacons** — primary and secondary effect IDs
@@ -163,9 +182,9 @@ container during the session.
 
 ## Installation
 
-1. Install [Fabric Loader](https://fabricmc.net/use/) ≥ 0.18.2 for Minecraft 1.21.11
+1. Install [Fabric Loader](https://fabricmc.net/use/) ≥ 0.19.3 for Minecraft 26.1.2
 2. Install [Fabric API](https://modrinth.com/mod/fabric-api)
-3. Install [LibGUI](https://github.com/CottonMC/LibGui) ≥ 15.1.0 (required)
+3. Install [LibGUI](https://github.com/CottonMC/LibGui) ≥ 16.0.1+26.1 (required)
 4. *(Optional)* Install [ModMenu](https://modrinth.com/mod/modmenu) for the in-game mod list
 5. Drop the compiled JAR file into your `mods/` folder
 
@@ -207,7 +226,7 @@ Output: `build/libs/world-mirror-<version>.jar`
 ## Architecture Notes
 
 - All chunk data is captured on the game thread in `ChunkDataMixin` and stored in
-  `ChunkListener` (dimension-aware: `Map<RegistryKey<World>, Map<ChunkPos, CapturedChunk>>`).
+  `ChunkListener` (dimension-aware: `Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>>`).
 - Container data is captured in `ContainerMixin` and stored in `ContainerTracker`.
 - Entities are snapshot-serialized on the game thread by `EntityTracker` before each export.
 - The actual disk I/O runs on a background daemon thread (`WM-Export`) to avoid freezing

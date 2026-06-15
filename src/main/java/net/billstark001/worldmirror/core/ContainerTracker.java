@@ -33,8 +33,8 @@ public class ContainerTracker {
 
     public static void onContainerOpened(int syncId, Component name) {
         Minecraft client = Minecraft.getInstance();
-        HitResult HitResult = client.hitResult;
-        if (HitResult instanceof BlockHitResult blockHit) {
+        HitResult hitResult = client.hitResult;
+        if (hitResult instanceof BlockHitResult blockHit) {
             BlockPos pos = blockHit.getBlockPos();
             openContainers.put(syncId, new ContainerData(pos, name));
             WMLogger.debug("Container opened at " + pos + ": " + name.getString());
@@ -172,17 +172,7 @@ public class ContainerTracker {
     }
 
     private static int determineContainerSlots(int totalSlots) {
-        switch (totalSlots) {
-            case 63:
-            case 90:
-            case 45:
-            case 41:
-            case 36:
-        }
-        return
-
-
-                Math.max(0, totalSlots - 36);
+        return Math.max(0, totalSlots - 36);
     }
 
 
@@ -219,15 +209,10 @@ public class ContainerTracker {
         WMLogger.info("Cleared all container data");
     }
 
-    /**
-     * Removes saved container data for all block positions that fall inside any of
-     * the given chunk positions.  Called by {@link ChunkListener} whenever chunks
-     * are evicted from the cache so that container data does not accumulate
-     * indefinitely in long-running sessions.
-     *
-     * @param evictedChunks the set of chunk positions whose container data should
-     *                      be discarded
-     */
+    public static int getTotalSavedContainers() {
+        return savedContainerData.size();
+    }
+
     public static void evictForChunks(Map<ResourceKey<Level>, ? extends java.util.Collection<ChunkPos>> evictedByDim) {
         if (evictedByDim == null || evictedByDim.isEmpty()) return;
 
@@ -246,7 +231,7 @@ public class ContainerTracker {
         while (it.hasNext()) {
             ContainerKey key = it.next();
             java.util.Set<ChunkPos> chunkSet = normalized.get(key.dimension());
-            if (chunkSet != null && chunkSet.contains(new ChunkPos(key.pos()))) {
+            if (chunkSet != null && chunkSet.contains(new ChunkPos(key.pos().getX() >> 4, key.pos().getZ() >> 4))) {
                 it.remove();
                 removed++;
             }
@@ -254,10 +239,6 @@ public class ContainerTracker {
         if (removed > 0) {
             WMLogger.debug("Evicted " + removed + " container entries across " + normalized.size() + " dimension(s).");
         }
-    }
-
-    public static int getTotalSavedContainers() {
-        return savedContainerData.size();
     }
 
 

@@ -2,10 +2,13 @@ package net.billstark001.worldmirror.download;
 
 import net.billstark001.worldmirror.util.WMLogger;
 import net.minecraft.world.level.ChunkPos;
+
 import java.io.Closeable;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -183,8 +186,8 @@ public class ChunkDatabase implements Closeable {
                 for (ChunkPos pos : positions) {
                     ps.setString(1, sourceId);
                     ps.setString(2, dimension);
-                    ps.setInt(3, pos.x);
-                    ps.setInt(4, pos.z);
+                    ps.setInt(3, pos.x());
+                    ps.setInt(4, pos.z());
                     ps.setLong(5, now);
                     ps.setString(6, updateSource);
                     ps.addBatch();
@@ -259,6 +262,69 @@ public class ChunkDatabase implements Closeable {
             }
         } catch (SQLException e) {
             WMLogger.warn("ChunkDatabase.close error: " + e.getMessage());
+        }
+    }
+
+    // ── Chunk map queries ─────────────────────────────────────────────────────
+
+    /**
+     * A snapshot of a single chunk row from the {@code chunks} table.
+     *
+     * @param x            chunk X coordinate
+     * @param z            chunk Z coordinate (stored as {@code y} in the DB for
+     *                     external-tool compatibility)
+     * @param updateTime   Unix timestamp (ms) of the last write
+     * @param updateSource name of the update source, e.g. {@code "world_mirror"}
+     */
+    public record ChunkRecord(int x, int z, long updateTime, String updateSource) {}
+
+    /**
+     * Returns all chunk records for the given dimension, ordered by {@code x, y}.
+     *
+     * @param dimension dimension key string, e.g. {@code "minecraft:overworld"}
+     */
+    public List<ChunkRecord> queryAll(String dimension) {
+        List<ChunkRecord> result = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT x, y, update_time, update_source FROM chunks " +
+                "WHERE source=? AND dimension=? ORDER BY x, y")) {
+            ps.setString(1, sourceId);
+            ps.setString(2, dimension);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    result.add(new ChunkRecord(
+                            rs.getInt("x"),
+                            rs.getInt("y"),
+                            rs.getLong("update_time"),
+                            rs.getString("update_source")));
+                }
+            }
+        } catch (SQLException e) {
+            WMLogger.warn("ChunkDatabase.queryAll error: " + e.getMessage());
+        }
+        return result;
+    }
+
+    /**
+     * Opens the database at {@code worldFolder/data/world_mirror.sqlite} in
+     * read-only mode and returns all chunk records for the given dimension.
+     * The database is opened and closed within this call.
+     *
+     * @param worldFolder root directory of the mirror world
+     * @param sourceId    world/server identifier
+     * @param dimension   dimension key string
+     */
+    public static List<ChunkRecord> queryAllReadOnly(
+            Path worldFolder, String sourceId, String dimension) {
+        Path dbFile = worldFolder.resolve("data").resolve("world_mirror.sqlite");
+        if (!dbFile.toFile().exists()) return List.of();
+        String url = "jdbc:sqlite:" + dbFile.toAbsolutePath();
+        try (Connection conn = DriverManager.getConnection(url)) {
+            ChunkDatabase db = new ChunkDatabase(conn, sourceId);
+            return db.queryAll(dimension);
+        } catch (SQLException e) {
+            WMLogger.warn("ChunkDatabase.queryAllReadOnly error: " + e.getMessage());
+            return List.of();
         }
     }
 

@@ -127,7 +127,7 @@ public class ContainerData {
 
 
             try {
-                putItemStack(client, itemNbt, stack);
+                test1(client, itemNbt, stack);
             } catch (Exception e) {
                 WMLogger.warn("Failed to encode item components for " + itemId + ": " + e.getMessage());
             }
@@ -144,7 +144,7 @@ public class ContainerData {
         }
     }
 
-    static void putItemStack(Minecraft client, CompoundTag itemNbt, ItemStack stack) {
+    static void test1(Minecraft client, CompoundTag itemNbt, ItemStack stack) {
         DataResult<Tag> result = DataComponentPatch.CODEC.encodeStart(
                 client.level.registryAccess().createSerializationContext((DynamicOps) NbtOps.INSTANCE),
                 stack.getComponentsPatch()

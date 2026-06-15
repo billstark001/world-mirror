@@ -60,7 +60,7 @@ public final class WMLogger {
         // Always dispatch onto the main (render) thread to avoid thread-safety issues.
         client.execute(() -> {
             if (client.player != null) {
-                client.player.displayClientMessage(text, false);
+                client.player.sendSystemMessage(text);
             }
         });
     }

@@ -119,8 +119,8 @@ public class ChunkListener {
             if (dimMap != null) {
                 List<ChunkPos> toRemove = new ArrayList<>();
                 for (ChunkPos pos : dimMap.keySet()) {
-                    int dx = pos.x - playerCX;
-                    int dz = pos.z - playerCZ;
+                    int dx = pos.x() - playerCX;
+                    int dz = pos.z() - playerCZ;
                     if (Math.abs(dx) > maxDistChunks || Math.abs(dz) > maxDistChunks) {
                         toRemove.add(pos);
                     }
@@ -138,22 +138,16 @@ public class ChunkListener {
 
         // ── Count-based eviction (evict oldest first) ─────────────────────────
         if (maxCount > 0) {
-            // Pre-snapshot (dim, pos, timestamp) triples so the sort comparator
-            // makes no live ConcurrentHashMap lookups (avoids O(n log n) map
-            // accesses on the game thread and eliminates a potential race with
-            // background writers).
             record Entry(ResourceKey<Level> dim, ChunkPos pos, long ts) {}
             List<Entry> allEntries = new ArrayList<>();
             for (Map.Entry<ResourceKey<Level>, ConcurrentHashMap<ChunkPos, CapturedChunk>> dimEntry
                     : dimChunks.entrySet()) {
                 for (Map.Entry<ChunkPos, CapturedChunk> e : dimEntry.getValue().entrySet()) {
-                    allEntries.add(new Entry(dimEntry.getKey(), e.getKey(),
-                            e.getValue().capturedAtMs()));
+                    allEntries.add(new Entry(dimEntry.getKey(), e.getKey(), e.getValue().capturedAtMs()));
                 }
             }
             int total = allEntries.size();
             if (total > maxCount) {
-                // Sort ascending by pre-captured timestamp — no live map access.
                 allEntries.sort(java.util.Comparator.comparingLong(Entry::ts));
                 int toEvict = total - maxCount;
                 for (int i = 0; i < toEvict; i++) {
@@ -185,9 +179,7 @@ public class ChunkListener {
             ConcurrentHashMap<ChunkPos, CapturedChunk> dimMap = dimChunks.get(dimEntry.getKey());
             if (dimMap == null) continue;
             for (ChunkPos pos : dimEntry.getValue()) {
-                if (dimMap.remove(pos) != null) {
-                    removed++;
-                }
+                if (dimMap.remove(pos) != null) removed++;
             }
         }
         if (removed > 0) {
@@ -196,6 +188,5 @@ public class ChunkListener {
             EntityTracker.pruneToMatchCapturedChunks();
         }
     }
-
 }
 

@@ -11,7 +11,7 @@ import net.minecraft.world.level.storage.ValueOutput;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Implementation class that bridges ValueOutput operations to CompoundTag.
+ * Implementation class that bridges WriteView operations to CompoundTag.
  */
 public class NbtWriteView implements ValueOutput {
     private final CompoundTag compound;
