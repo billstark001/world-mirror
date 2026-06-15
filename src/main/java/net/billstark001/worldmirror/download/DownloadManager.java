@@ -13,15 +13,16 @@ import net.billstark001.worldmirror.core.EntityTracker;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.billstark001.worldmirror.io.WorldStructureCreator;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.text.Text;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.world.World;
-import net.minecraft.world.chunk.Chunk;
-import net.minecraft.world.chunk.WorldChunk;
-import net.minecraft.client.world.ClientWorld;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.RegistryAccess;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.LevelChunk;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -64,7 +65,7 @@ public final class DownloadManager {
     private static final Set<CaptureKey> pendingCaptureSet = new HashSet<>();
     private static PendingExportRequest pendingExport = null;
 
-    private record CaptureKey(RegistryKey<World> dimension, int chunkX, int chunkZ) { }
+    private record CaptureKey(ResourceKey<Level> dimension, int chunkX, int chunkZ) { }
     private record PendingChunkCapture(CaptureKey key, String reason) { }
     private record PendingExportRequest(boolean shouldNotify, String preferredSourceId, String preferredSourceType) { }
 
@@ -74,7 +75,7 @@ public final class DownloadManager {
      * The dimension registry key observed on the previous client tick.
      * Used to detect dimension changes (e.g. Overworld → Nether).
      */
-    private static volatile RegistryKey<World> lastDimension = null;
+    private static volatile ResourceKey<Level> lastDimension = null;
 
     /**
      * The sourceId observed on the previous client tick.
@@ -99,7 +100,7 @@ public final class DownloadManager {
      * When enabling, all currently loaded chunks in the active dimension are
      * immediately captured so that the player does not need to reload them.
      */
-    public static void toggle(MinecraftClient client) {
+    public static void toggle(Minecraft client) {
         boolean wasActive = currentActive.get();
         boolean nowActive = !wasActive;
         currentActive.set(nowActive);
@@ -107,18 +108,18 @@ public final class DownloadManager {
             lastPeriodicSyncMs = System.currentTimeMillis();
             // Capture chunks that are already loaded so the player does not need
             // to walk through the area again after enabling download.
-            if (client.world != null) {
+            if (client.level != null) {
                 captureLoadedChunksAsync(client);
             }
         } else {
             clearPendingCaptureState();
             finalizeCaptureOnStop(client, "manual-toggle");
         }
-        Text msg = Text.translatable(
+        Component msg = Component.translatable(
                 nowActive ? "msg.worldmirror.downloadStart"
                           : "msg.worldmirror.downloadStop");
         if (client.player != null) {
-            client.player.sendMessage(msg, true);
+            client.player.sendOverlayMessage(msg);
         }
         WMLogger.info(nowActive ? "Download activated" : "Download deactivated");
     }
@@ -126,18 +127,18 @@ public final class DownloadManager {
     /**
      * Performs an immediate one-shot export regardless of the toggle state.
      */
-    public static void exportNow(MinecraftClient client) {
+    public static void exportNow(Minecraft client) {
         boolean canPreCapture = ModConfig.get().lifecycle.captureNearbyBeforeExport
-                && client.world != null && client.player != null;
+                && client.level != null && client.player != null;
         if (ChunkListener.isEmpty() && !canPreCapture) {
-            Text msg = Text.translatable("msg.worldmirror.noChunks");
-            if (client.player != null) client.player.sendMessage(msg, false);
+            Component msg = Component.translatable("msg.worldmirror.noChunks");
+            if (client.player != null) client.player.sendSystemMessage(msg);
             WMLogger.warn("No chunks to export.");
             return;
         }
         if (exportInProgress.get()) {
-            Text msg = Text.translatable("msg.worldmirror.exportBusy");
-            if (client.player != null) client.player.sendMessage(msg, false);
+            Component msg = Component.translatable("msg.worldmirror.exportBusy");
+            if (client.player != null) client.player.sendSystemMessage(msg);
             WMLogger.warn("Export already in progress.");
             return;
         }
@@ -145,7 +146,7 @@ public final class DownloadManager {
     }
 
     /** Clears all in-memory caches. */
-    public static void clearAll(MinecraftClient client) {
+    public static void clearAll(Minecraft client) {
         clearPendingCaptureState();
         int chunks     = ChunkListener.getTotalCount();
         int entities   = EntityTracker.getTotalTrackedEntities();
@@ -153,8 +154,8 @@ public final class DownloadManager {
         ChunkListener.clear();
         EntityTracker.clear();
         ContainerTracker.clear();
-        Text msg = Text.translatable("msg.worldmirror.cleared");
-        if (client.player != null) client.player.sendMessage(msg, false);
+        Component msg = Component.translatable("msg.worldmirror.cleared");
+        if (client.player != null) client.player.sendSystemMessage(msg);
         WMLogger.info("Cleared: " + chunks + " chunks, " + entities
                 + " entities, " + containers + " containers.");
     }
@@ -166,12 +167,12 @@ public final class DownloadManager {
      * Resets lifecycle tracking state and applies the configured
      * {@link ModConfig.LifecycleConfig#onJoinWorld} behaviour.
      */
-    public static void onJoinWorld(MinecraftClient client) {
+    public static void onJoinWorld(Minecraft client) {
         clearPendingCaptureState();
         applyTransition(client, ModConfig.get().lifecycle.onJoinWorld, "join-world");
 
         // Reset tracking so subsequent change-detection starts fresh.
-        lastDimension = (client.world != null) ? client.world.getRegistryKey() : null;
+        lastDimension = (client.level != null) ? client.level.dimension() : null;
         lastSourceId  = WorldMetadata.detectSourceId(client);
         lastSourceType = WorldMetadata.detectSourceType(client);
     }
@@ -182,7 +183,7 @@ public final class DownloadManager {
      * If download was active, runs stop-time finalisation (optional capture/export)
      * before clearing lifecycle tracking state.
      */
-    public static void onLeaveWorld(MinecraftClient client) {
+    public static void onLeaveWorld(Minecraft client) {
         if (currentActive.get()) {
             currentActive.set(false);
             clearPendingCaptureState();
@@ -202,13 +203,13 @@ public final class DownloadManager {
      * Triggers a periodic background sync when the configured interval elapses,
      * applies cache-eviction rules, and detects dimension / server-world changes.
      */
-    public static void onClientTick(MinecraftClient client) {
-        if (client.world == null) return;
+    public static void onClientTick(Minecraft client) {
+        if (client.level == null) return;
 
         processPendingCaptures(client);
         tryStartDeferredExport(client);
 
-        RegistryKey<World> currentDim = client.world.getRegistryKey();
+        ResourceKey<Level> currentDim = client.level.dimension();
         String currentSourceId = WorldMetadata.detectSourceId(client);
         String currentSourceType = WorldMetadata.detectSourceType(client);
 
@@ -231,8 +232,8 @@ public final class DownloadManager {
 
         // ── Detect dimension change (Overworld ↔ Nether ↔ End, etc.) ──────────
         if (lastDimension != null && !lastDimension.equals(currentDim)) {
-            WMLogger.info("Dimension change detected: '" + lastDimension.getValue()
-                    + "' → '" + currentDim.getValue() + "'");
+            WMLogger.info("Dimension change detected: '" + lastDimension.identifier()
+                    + "' → '" + currentDim.identifier() + "'");
             lastDimension = currentDim;
             clearPendingCaptureState();
             applyTransition(client, ModConfig.get().lifecycle.onDimensionChange,
@@ -263,7 +264,7 @@ public final class DownloadManager {
      *
      * @param eventName human-readable event name used only for logging
      */
-    private static void applyTransition(MinecraftClient client,
+    private static void applyTransition(Minecraft client,
                                         ModConfig.TransitionBehavior behavior,
                                         String eventName) {
         boolean wasActive = currentActive.get();
@@ -282,10 +283,10 @@ public final class DownloadManager {
             finalizeCaptureOnStop(client, eventName);
         }
 
-        Text msg = Text.translatable(
+        Component msg = Component.translatable(
                 desired ? "msg.worldmirror.downloadStart"
                        : "msg.worldmirror.downloadStop");
-        if (client.player != null) client.player.sendMessage(msg, true);
+        if (client.player != null) client.player.sendOverlayMessage(msg);
         WMLogger.info("Download " + (desired ? "activated" : "deactivated")
                 + " by lifecycle event: " + eventName);
     }
@@ -309,7 +310,7 @@ public final class DownloadManager {
      *       (the base name in {@code entries} is never touched).</li>
      * </ol>
      */
-    public static Path getOutputPath(MinecraftClient client) {
+    public static Path getOutputPath(Minecraft client) {
         String sourceId   = WorldMetadata.detectSourceId(client);
         return getOutputPathForSource(sourceId);
     }
@@ -399,18 +400,18 @@ public final class DownloadManager {
      * game thread. Capturing is spread across subsequent ticks to avoid long render
      * thread stalls while still keeping all chunk/world access on the correct thread.
      */
-    private static void captureLoadedChunksAsync(MinecraftClient client) {
-        ClientWorld world = client.world;
+    private static void captureLoadedChunksAsync(Minecraft client) {
+        ClientLevel world = client.level;
         if (world == null || client.player == null) return;
 
-        RegistryKey<World> dimension = world.getRegistryKey();
+        ResourceKey<Level> dimension = world.dimension();
         int playerCX = client.player.getBlockX() >> 4;
         int playerCZ = client.player.getBlockZ() >> 4;
         int queued = queueLoadedChunks(world, playerCX, playerCZ, INITIAL_CAPTURE_RANGE,
                 "initial-capture");
         if (queued > 0) {
             WMLogger.info("Queued " + queued + " loaded chunks for incremental capture in ["
-                    + dimension.getValue() + "]...");
+                    + dimension.identifier() + "]...");
         }
     }
 
@@ -423,22 +424,22 @@ public final class DownloadManager {
      * chunk capture across subsequent client ticks so large nearby refreshes do not
      * block a single render frame.</p>
      */
-    private static void captureNearbyLoadedChunksSync(MinecraftClient client, String reason) {
-        ClientWorld world = client.world;
+    private static void captureNearbyLoadedChunksSync(Minecraft client, String reason) {
+        ClientLevel world = client.level;
         if (world == null || client.player == null) return;
 
-        RegistryKey<World> dimension = world.getRegistryKey();
+        ResourceKey<Level> dimension = world.dimension();
         int playerCX = client.player.getBlockX() >> 4;
         int playerCZ = client.player.getBlockZ() >> 4;
         int captured = 0;
 
         for (int cx = playerCX - STOP_CAPTURE_RANGE; cx <= playerCX + STOP_CAPTURE_RANGE; cx++) {
             for (int cz = playerCZ - STOP_CAPTURE_RANGE; cz <= playerCZ + STOP_CAPTURE_RANGE; cz++) {
-                Chunk chunk = world.getChunk(cx, cz);
-                if (!(chunk instanceof WorldChunk wc)) continue;
+                ChunkAccess chunk = world.getChunk(cx, cz);
+                if (!(chunk instanceof LevelChunk wc)) continue;
                 try {
                     if (ChunkSerializer.isChunkEmpty(wc)) continue;
-                    NbtCompound nbt = ChunkSerializer.serialize(world, wc);
+                    CompoundTag nbt = ChunkSerializer.serialize(world, wc);
                     ChunkListener.addChunkNbt(dimension, wc.getPos(), nbt);
                     captured++;
                 } catch (Exception e) {
@@ -458,7 +459,7 @@ public final class DownloadManager {
      * Finalisation path when download is deactivated.
      * Optionally captures nearby chunks and then writes all cached chunks once.
      */
-    private static void finalizeCaptureOnStop(MinecraftClient client, String reason) {
+    private static void finalizeCaptureOnStop(Minecraft client, String reason) {
         ModConfig.LifecycleConfig lifecycle = ModConfig.get().lifecycle;
         if (lifecycle.captureNearbyOnStop) {
             captureNearbyLoadedChunksSync(client, "stop-" + reason);
@@ -474,11 +475,11 @@ public final class DownloadManager {
      * Prepares a snapshot on the game thread, then hands it off to a background
      * daemon thread for the actual I/O work.
      */
-    private static void startBackgroundSync(MinecraftClient client, boolean notify) {
+    private static void startBackgroundSync(Minecraft client, boolean notify) {
         startBackgroundSync(client, notify, false, null, null);
     }
 
-    private static void startBackgroundSync(MinecraftClient client, boolean notify, boolean preCaptureAlreadyDone,
+    private static void startBackgroundSync(Minecraft client, boolean notify, boolean preCaptureAlreadyDone,
                                             String preferredSourceId,
                                             String preferredSourceType) {
         if (exportInProgress.get()) {
@@ -490,10 +491,10 @@ public final class DownloadManager {
         // capture has finished. This keeps all chunk/world access on the main
         // thread without blocking it for hundreds of serialisations at once.
         if (!preCaptureAlreadyDone && ModConfig.get().lifecycle.captureNearbyBeforeExport
-                && client.world != null && client.player != null) {
+                && client.level != null && client.player != null) {
             int playerCX = client.player.getBlockX() >> 4;
             int playerCZ = client.player.getBlockZ() >> 4;
-            int queued = queueLoadedChunks(client.world, playerCX, playerCZ,
+            int queued = queueLoadedChunks(client.level, playerCX, playerCZ,
                     PRE_EXPORT_CAPTURE_RANGE, "pre-export");
             if (queued > 0 || captureInProgress.get()) {
                 deferExport(notify, preferredSourceId, preferredSourceType);
@@ -502,7 +503,7 @@ public final class DownloadManager {
         }
 
         // ── Game-thread preparations ──────────────────────────────────────────
-        Map<RegistryKey<World>, Map<ChunkPos, ChunkListener.CapturedChunk>> snapshot =
+        Map<ResourceKey<Level>, Map<ChunkPos, ChunkListener.CapturedChunk>> snapshot =
                 ChunkListener.snapshot();
         if (snapshot.isEmpty() || snapshot.values().stream().allMatch(Map::isEmpty)) {
             return;
@@ -511,11 +512,11 @@ public final class DownloadManager {
         EntityTracker.pruneToMatchCapturedChunks();
 
         // Capture entities for the current dimension (must happen on game thread)
-        if (client.world != null) {
-            EntityTracker.captureEntitiesForWorld(client.world);
+        if (client.level != null) {
+            EntityTracker.captureEntitiesForWorld(client.level);
             EntityTracker.pruneToMatchCapturedChunks();
         }
-        Map<RegistryKey<World>, Map<ChunkPos, List<NbtCompound>>> entitySnapshot =
+        Map<ResourceKey<Level>, Map<ChunkPos, List<CompoundTag>>> entitySnapshot =
                 EntityTracker.snapshot();
 
         // Collect source info while on the game thread
@@ -541,6 +542,7 @@ public final class DownloadManager {
 
         final String finalSourceId = sourceId;
         final String finalSourceType = sourceType;
+        final RegistryAccess finalRegistryAccess = client.level != null ? client.level.registryAccess() : null;
 
         Path worldFolder;
         try {
@@ -578,15 +580,15 @@ public final class DownloadManager {
 
                 ConflictResolver resolver = buildResolverForSource(finalSourceId);
 
-                Map<RegistryKey<World>, Set<ChunkPos>> written =
+                Map<ResourceKey<Level>, Set<ChunkPos>> written =
                         ChunkExporter.exportChunks(finalWorldFolder, snapshot, entitySnapshot,
                                 resolver, db);
 
-                WorldStructureCreator.createLoadableWorld(finalWorldFolder, finalSourceId);
+                WorldStructureCreator.createLoadableWorld(finalWorldFolder, finalSourceId, finalRegistryAccess);
                 WorldMetadata.update(finalWorldFolder, finalSourceId, finalSourceType);
 
-                for (Map.Entry<RegistryKey<World>, Set<ChunkPos>> dimEntry : written.entrySet()) {
-                    String dimStr = dimEntry.getKey().getValue().toString();
+                for (Map.Entry<ResourceKey<Level>, Set<ChunkPos>> dimEntry : written.entrySet()) {
+                    String dimStr = dimEntry.getKey().identifier().toString();
                     db.recordUpdates(dimStr, dimEntry.getValue(), "world_mirror");
                 }
 
@@ -599,12 +601,10 @@ public final class DownloadManager {
                         + totalChunks + " chunks written.");
 
                 if (notify && totalWritten > 0) {
-                    MinecraftClient.getInstance().execute(() -> {
-                        MinecraftClient mc = MinecraftClient.getInstance();
+                    Minecraft.getInstance().execute(() -> {
+                        Minecraft mc = Minecraft.getInstance();
                         if (mc.player != null) {
-                            mc.player.sendMessage(
-                                    Text.translatable("msg.worldmirror.exportDone"),
-                                    false);
+                            mc.player.sendSystemMessage(Component.translatable("msg.worldmirror.exportDone"));
                         }
                     });
                 }
@@ -619,17 +619,17 @@ public final class DownloadManager {
         worker.start();
     }
 
-    private static int queueLoadedChunks(ClientWorld world, int playerCX, int playerCZ,
+    private static int queueLoadedChunks(ClientLevel world, int playerCX, int playerCZ,
                                          int range, String reason) {
         if (world == null || range <= 0) return 0;
 
-        RegistryKey<World> dimension = world.getRegistryKey();
+        ResourceKey<Level> dimension = world.dimension();
         int queued = 0;
         synchronized (captureQueueLock) {
             for (int cx = playerCX - range; cx <= playerCX + range; cx++) {
                 for (int cz = playerCZ - range; cz <= playerCZ + range; cz++) {
-                    Chunk chunk = world.getChunk(cx, cz);
-                    if (!(chunk instanceof WorldChunk)) continue;
+                    ChunkAccess chunk = world.getChunk(cx, cz);
+                    if (!(chunk instanceof LevelChunk)) continue;
                     CaptureKey key = new CaptureKey(dimension, cx, cz);
                     if (pendingCaptureSet.add(key)) {
                         PendingChunkCapture request = new PendingChunkCapture(key, reason);
@@ -643,11 +643,11 @@ public final class DownloadManager {
         return queued;
     }
 
-    private static void processPendingCaptures(MinecraftClient client) {
-        ClientWorld world = client.world;
+    private static void processPendingCaptures(Minecraft client) {
+        ClientLevel world = client.level;
         if (world == null) return;
 
-        RegistryKey<World> currentDimension = world.getRegistryKey();
+        ResourceKey<Level> currentDimension = world.dimension();
         int processed = 0;
         int captured = 0;
 
@@ -670,14 +670,14 @@ public final class DownloadManager {
                 continue;
             }
 
-            Chunk chunk = world.getChunk(request.key().chunkX(), request.key().chunkZ());
-            if (!(chunk instanceof WorldChunk wc)) {
+            ChunkAccess chunk = world.getChunk(request.key().chunkX(), request.key().chunkZ());
+            if (!(chunk instanceof LevelChunk wc)) {
                 continue;
             }
 
             try {
                 if (ChunkSerializer.isChunkEmpty(wc)) continue;
-                NbtCompound nbt = ChunkSerializer.serialize(world, wc);
+                CompoundTag nbt = ChunkSerializer.serialize(world, wc);
                 ChunkListener.addChunkNbt(request.key().dimension(), wc.getPos(), nbt);
                 captured++;
             } catch (Exception e) {
@@ -704,7 +704,7 @@ public final class DownloadManager {
         }
     }
 
-    private static void tryStartDeferredExport(MinecraftClient client) {
+    private static void tryStartDeferredExport(Minecraft client) {
         PendingExportRequest request;
         synchronized (captureQueueLock) {
             if (!pendingCaptures.isEmpty() || exportInProgress.get() || pendingExport == null) {
@@ -763,7 +763,7 @@ public final class DownloadManager {
      * Applies cache-eviction rules from {@link ModConfig} to the chunk cache.
      * Safe to call on the game thread.
      */
-    private static void applyCacheEviction(MinecraftClient client) {
+    private static void applyCacheEviction(Minecraft client) {
         ModConfig cfg = ModConfig.get();
         long maxAgeMs = (long) cfg.cache.maxCacheAgeSeconds * 1000L;
         int maxCount = cfg.cache.maxCachedChunks;
@@ -771,8 +771,8 @@ public final class DownloadManager {
 
         if (maxAgeMs <= 0 && maxCount <= 0 && maxDist <= 0) return;
 
-        RegistryKey<World> playerDim = (client.world != null)
-                ? client.world.getRegistryKey() : null;
+        ResourceKey<Level> playerDim = (client.level != null)
+                ? client.level.dimension() : null;
         int playerCX = (client.player != null) ? (client.player.getBlockX() >> 4) : 0;
         int playerCZ = (client.player != null) ? (client.player.getBlockZ() >> 4) : 0;
 

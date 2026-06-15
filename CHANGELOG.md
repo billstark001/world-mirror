@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to World Mirror are documented here.  
+All notable changes to World Mirror are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
@@ -47,7 +47,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - Container items now export correctly. (BUG-1 in `KNOWN_BUGS.md`)
-- Redstone components and other stateful blocks now export with their correct state. 
+- Redstone components and other stateful blocks now export with their correct state.
 - Biome and light data are now included correctly in chunk exports.
 - Performance and memory issues in the caching and serialization processes have been comprehensively addressed:
   - Reduced blocking of the rendering/game threads caused by large-scale block capture before export, preventing noticeable stuttering caused by synchronous serialization.
@@ -57,7 +57,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **SQLite chunk database** (`data/world_mirror.sqlite` inside each mirror world folder).  
+- **SQLite chunk database** (`data/world_mirror.sqlite` inside each mirror world folder).
   Replaces the `chunkUpdateTimes` field in `worldmirror_meta.json` for chunk dirty-tracking.  The database also introduces an `update_sources` priority table that lets World Mirror and third-party tools (map renderers, importers) coexist without overwriting each other's data.  See `DATABASE.md` for the schema and integration guide.
 
 - **Automatic migration** of legacy `chunkUpdateTimes` data from `worldmirror_meta.json` to SQLite on the first export after upgrading.  The JSON field is removed from the file after migration.

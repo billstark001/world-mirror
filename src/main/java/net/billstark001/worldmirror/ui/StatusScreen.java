@@ -14,9 +14,11 @@ import net.billstark001.worldmirror.download.WorldMetadata;
 import net.billstark001.worldmirror.core.ChunkListener;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.network.chat.Component;
 import net.minecraft.text.Text;
-
+import net.minecraft.world.level.ChunkPos;
 import java.nio.file.Path;
 
 /**
@@ -64,7 +66,7 @@ public class StatusScreen extends LightweightGuiDescription {
     // ── Construction ─────────────────────────────────────────────────────────
 
     public StatusScreen() {
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
 
         // ── Gather data (all on game thread, safe) ────────────────────────────
         String sourceType  = WorldMetadata.detectSourceType(client);
@@ -97,9 +99,9 @@ public class StatusScreen extends LightweightGuiDescription {
         for (int i = 0; i < 3; i++) {
             final int tabIndex = i;
             // Highlight the active tab with bold prefix
-            Text tabLabel = (activeTab == tabIndex)
-                    ? Text.literal("§l").append(Text.translatable(tabKeys[i]))
-                    : Text.translatable(tabKeys[i]);
+            Component tabLabel = (activeTab == tabIndex)
+                    ? Component.literal("§l").append(Component.translatable(tabKeys[i]))
+                    : Component.translatable(tabKeys[i]);
             WButton tabBtn = new WButton(tabLabel);
             tabBtn.setOnClick(() -> { activeTab = tabIndex; open(); });
             root.add(tabBtn, MARGIN + tabIndex * (TAB_W + TAB_GAP), y, TAB_W, BTN_H);
@@ -147,51 +149,51 @@ public class StatusScreen extends LightweightGuiDescription {
         y += ROW_GAP;
 
         WLabel dlStatus = new WLabel(
-                Text.translatable(isActive ? "screen.worldmirror.status.downloadActive"
+                Component.translatable(isActive ? "screen.worldmirror.status.downloadActive"
                                            : "screen.worldmirror.status.downloadInactive"));
         root.add(dlStatus, MARGIN, y, HALF_W, LBL_H);
         WLabel expStatus = new WLabel(
-                Text.translatable(isExport ? "screen.worldmirror.status.exportRunning"
+                Component.translatable(isExport ? "screen.worldmirror.status.exportRunning"
                                            : "screen.worldmirror.status.exportIdle"));
         root.add(expStatus, MARGIN + HALF_W + 4, y, HALF_W, LBL_H);
         y += ROW_GAP + SECT_GAP;
 
         // Action buttons
         WButton toggleBtn = new WButton(
-                Text.translatable(isActive ? "screen.worldmirror.status.stopDownload"
+                Component.translatable(isActive ? "screen.worldmirror.status.stopDownload"
                                            : "screen.worldmirror.status.startDownload"));
         toggleBtn.setOnClick(() -> {
-            DownloadManager.toggle(MinecraftClient.getInstance());
+            DownloadManager.toggle(Minecraft.getInstance());
             open();
         });
         root.add(toggleBtn, MARGIN, y, HALF_W, BTN_H);
 
         WButton exportBtn = new WButton(
-                Text.translatable("screen.worldmirror.status.exportNow"));
+                Component.translatable("screen.worldmirror.status.exportNow"));
         exportBtn.setOnClick(() -> {
-            DownloadManager.exportNow(MinecraftClient.getInstance());
+            DownloadManager.exportNow(Minecraft.getInstance());
             open();
         });
         root.add(exportBtn, MARGIN + HALF_W + 4, y, HALF_W, BTN_H);
         y += BTN_H + 4;
 
         WButton clearBtn = new WButton(
-                Text.translatable("screen.worldmirror.status.clearData"));
+                Component.translatable("screen.worldmirror.status.clearData"));
         clearBtn.setOnClick(() -> {
-            DownloadManager.clearAll(MinecraftClient.getInstance());
+            DownloadManager.clearAll(Minecraft.getInstance());
             open();
         });
         root.add(clearBtn, MARGIN, y, INNER_W, BTN_H);
         y += BTN_H + 4;
 
         WButton exportNearbyBtn = new WButton(
-                Text.translatable("screen.worldmirror.status.exportNearby"));
+                Component.translatable("screen.worldmirror.status.exportNearby"));
         exportNearbyBtn.setOnClick(() -> ExportNearbyScreen.open(new StatusClientScreen()));
         root.add(exportNearbyBtn, MARGIN, y, INNER_W, BTN_H);
         y += BTN_H + 4;
 
-        WButton closeBtn = new WButton(Text.translatable("gui.done"));
-        closeBtn.setOnClick(() -> MinecraftClient.getInstance().setScreen(null));
+        WButton closeBtn = new WButton(Component.translatable("gui.done"));
+        closeBtn.setOnClick(() -> Minecraft.getInstance().setScreen(null));
         root.add(closeBtn, MARGIN, y, INNER_W, BTN_H);
         y += BTN_H + MARGIN;
 
@@ -206,15 +208,15 @@ public class StatusScreen extends LightweightGuiDescription {
 
         final String sid = sourceId;
 
-        WLabel header = new WLabel(Text.translatable("screen.worldmirror.tab.settingsHeader"));
+        WLabel header = new WLabel(Component.translatable("screen.worldmirror.tab.settingsHeader"));
         header.setHorizontalAlignment(HorizontalAlignment.CENTER);
         root.add(header, MARGIN, y, INNER_W, LBL_H);
         y += ROW_GAP + SECT_GAP;
 
         WButton saveLocBtn = new WButton(
-                Text.translatable("screen.worldmirror.status.saveLoc")
+                Component.translatable("screen.worldmirror.status.saveLoc")
                         .append(": ")
-                        .append(Text.translatable(
+                        .append(Component.translatable(
                                 "config.worldmirror.saveLoc."
                                         + effectiveSaveLoc.name().toLowerCase())));
         saveLocBtn.setOnClick(() -> {
@@ -227,9 +229,9 @@ public class StatusScreen extends LightweightGuiDescription {
         y += BTN_H + 4;
 
         WButton strategyBtn = new WButton(
-                Text.translatable("screen.worldmirror.status.conflictStrategy")
+                Component.translatable("screen.worldmirror.status.conflictStrategy")
                         .append(": ")
-                        .append(Text.translatable(
+                        .append(Component.translatable(
                                 "config.worldmirror.conflictStrategy."
                                         + effectiveStrategy.name().toLowerCase())));
         strategyBtn.setOnClick(() -> {
@@ -242,9 +244,9 @@ public class StatusScreen extends LightweightGuiDescription {
         y += BTN_H + SECT_GAP;
 
         WButton settingsBtn = new WButton(
-                Text.translatable("screen.worldmirror.status.openSettings"));
+                Component.translatable("screen.worldmirror.status.openSettings"));
         settingsBtn.setOnClick(() -> {
-            MinecraftClient mc = MinecraftClient.getInstance();
+            Minecraft mc = Minecraft.getInstance();
             mc.setScreen(
                     AutoConfigClient.getConfigScreen(ModConfig.class, new StatusClientScreen()).get()
             );
@@ -252,8 +254,8 @@ public class StatusScreen extends LightweightGuiDescription {
         root.add(settingsBtn, MARGIN, y, INNER_W, BTN_H);
         y += BTN_H + 4;
 
-        WButton closeBtn = new WButton(Text.translatable("gui.done"));
-        closeBtn.setOnClick(() -> MinecraftClient.getInstance().setScreen(null));
+        WButton closeBtn = new WButton(Component.translatable("gui.done"));
+        closeBtn.setOnClick(() -> Minecraft.getInstance().setScreen(null));
         root.add(closeBtn, MARGIN, y, INNER_W, BTN_H);
         y += BTN_H + MARGIN;
 
@@ -264,13 +266,13 @@ public class StatusScreen extends LightweightGuiDescription {
     private int buildConflictsTab(WPlainPanel root, int y,
                                   int conflictCount, Path worldFolder) {
 
-        WLabel header = new WLabel(Text.translatable("screen.worldmirror.tab.conflictsHeader"));
+        WLabel header = new WLabel(Component.translatable("screen.worldmirror.tab.conflictsHeader"));
         header.setHorizontalAlignment(HorizontalAlignment.CENTER);
         root.add(header, MARGIN, y, INNER_W, LBL_H);
         y += ROW_GAP + SECT_GAP;
 
         if (conflictCount == 0) {
-            root.add(new WLabel(Text.translatable("screen.worldmirror.status.noConflicts")),
+            root.add(new WLabel(Component.translatable("screen.worldmirror.status.noConflicts")),
                     MARGIN, y, INNER_W, LBL_H);
             y += ROW_GAP + SECT_GAP;
         } else {
@@ -279,7 +281,7 @@ public class StatusScreen extends LightweightGuiDescription {
             y += ROW_GAP;
 
             WButton overwriteAllBtn = new WButton(
-                    Text.translatable("screen.worldmirror.status.overwriteAll"));
+                    Component.translatable("screen.worldmirror.status.overwriteAll"));
             overwriteAllBtn.setOnClick(() -> {
                 ConflictManager.clearAllConflicts(worldFolder, true);
                 open();
@@ -287,7 +289,7 @@ public class StatusScreen extends LightweightGuiDescription {
             root.add(overwriteAllBtn, MARGIN, y, HALF_W, BTN_H);
 
             WButton discardAllBtn = new WButton(
-                    Text.translatable("screen.worldmirror.status.discardAll"));
+                    Component.translatable("screen.worldmirror.status.discardAll"));
             discardAllBtn.setOnClick(() -> {
                 ConflictManager.clearAllConflicts(worldFolder, false);
                 open();
@@ -298,13 +300,13 @@ public class StatusScreen extends LightweightGuiDescription {
 
         // Chunk map button
         WButton chunkMapBtn = new WButton(
-                Text.translatable("screen.worldmirror.status.openChunkMap"));
+                Component.translatable("screen.worldmirror.status.openChunkMap"));
         chunkMapBtn.setOnClick(() -> ChunkMapScreen.open());
         root.add(chunkMapBtn, MARGIN, y, INNER_W, BTN_H);
         y += BTN_H + 4;
 
-        WButton closeBtn = new WButton(Text.translatable("gui.done"));
-        closeBtn.setOnClick(() -> MinecraftClient.getInstance().setScreen(null));
+        WButton closeBtn = new WButton(Component.translatable("gui.done"));
+        closeBtn.setOnClick(() -> Minecraft.getInstance().setScreen(null));
         root.add(closeBtn, MARGIN, y, INNER_W, BTN_H);
         y += BTN_H + MARGIN;
 
@@ -315,7 +317,7 @@ public class StatusScreen extends LightweightGuiDescription {
 
     /** Opens a fresh status screen on the game thread. */
     public static void open() {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
         mc.execute(() -> mc.setScreen(new StatusClientScreen()));
     }
 
@@ -324,17 +326,17 @@ public class StatusScreen extends LightweightGuiDescription {
     /** Builds a "{label}: {value}" label widget. */
     private static WLabel rowLabel(String translationKey, String value) {
         return new WLabel(
-                Text.translatable(translationKey).append(": " + value));
+                Component.translatable(translationKey).append(": " + value));
     }
 
     /** Reads WorldMetadata from disk to find the last sync time. */
-    private static String computeLastSyncStr(MinecraftClient client,
+    private static String computeLastSyncStr(Minecraft client,
                                              String sourceId, String sourceType) {
         try {
             Path worldFolder = DownloadManager.getOutputPath(client);
             WorldMetadata meta = WorldMetadata.loadOrCreate(worldFolder, sourceId, sourceType);
             if (meta.lastSyncTime == 0) {
-                return Text.translatable("screen.worldmirror.status.lastSyncNever").getString();
+                return Component.translatable("screen.worldmirror.status.lastSyncNever").getString();
             }
             long secsAgo = (System.currentTimeMillis() - meta.lastSyncTime) / 1000;
             return formatAge(secsAgo);

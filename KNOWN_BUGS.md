@@ -1,6 +1,6 @@
 # World Mirror — Known Bugs
 
-This document tracks confirmed bugs in the mod.  
+This document tracks confirmed bugs in the mod.
 Items marked **Fixed** were resolved and the fix is described.
 
 ---
@@ -13,7 +13,7 @@ Items marked **Fixed** were resolved and the fix is described.
 
 ## BUG-2: Villager and entity data not persisted correctly
 
-**Status:** Known, not yet fixed  
+**Status:** Known, not yet fixed
 **Affected entities:** Villagers (trade offers, XP), zombified villagers, and other non-trivial entities that rely on data not transferred to the client by default.
 
 ### Root cause

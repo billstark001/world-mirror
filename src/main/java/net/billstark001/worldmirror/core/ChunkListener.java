@@ -10,10 +10,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.world.World;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 
 
 @Environment(EnvType.CLIENT)
@@ -23,27 +23,27 @@ public class ChunkListener {
      * A single captured chunk: the serialised NBT and the time it was received.
      */
     public record CapturedChunk(
-            NbtCompound nbt,
+            CompoundTag nbt,
             long capturedAtMs
     ) { }
 
     // dimension → (chunkPos → capturedChunk)
-    private static final ConcurrentHashMap<RegistryKey<World>, ConcurrentHashMap<ChunkPos, CapturedChunk>>
+    private static final ConcurrentHashMap<ResourceKey<Level>, ConcurrentHashMap<ChunkPos, CapturedChunk>>
             dimChunks = new ConcurrentHashMap<>();
 
-    public static void addChunkNbt(RegistryKey<World> dimension, ChunkPos pos, NbtCompound chunkNbt) {
+    public static void addChunkNbt(ResourceKey<Level> dimension, ChunkPos pos, CompoundTag chunkNbt) {
         dimChunks.computeIfAbsent(dimension, k -> new ConcurrentHashMap<>())
                  .put(pos, new CapturedChunk(chunkNbt, System.currentTimeMillis()));
-        WMLogger.debug("Captured chunk [" + dimension.getValue() + "] " + pos);
+        WMLogger.debug("Captured chunk [" + dimension.identifier() + "] " + pos);
     }
 
     /**
      * Returns an immutable snapshot of all captured chunks, safe to read from any thread.
      * The inner maps are shallow copies — the {@link CapturedChunk} records are immutable.
      */
-    public static Map<RegistryKey<World>, Map<ChunkPos, CapturedChunk>> snapshot() {
-        Map<RegistryKey<World>, Map<ChunkPos, CapturedChunk>> result = new HashMap<>();
-        for (Map.Entry<RegistryKey<World>, ConcurrentHashMap<ChunkPos, CapturedChunk>> dimEntry
+    public static Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> snapshot() {
+        Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> result = new HashMap<>();
+        for (Map.Entry<ResourceKey<Level>, ConcurrentHashMap<ChunkPos, CapturedChunk>> dimEntry
                 : dimChunks.entrySet()) {
             result.put(dimEntry.getKey(), new HashMap<>(dimEntry.getValue()));
         }
@@ -51,12 +51,12 @@ public class ChunkListener {
     }
 
     /** All dimension keys that currently have captured chunks. */
-    public static Set<RegistryKey<World>> getDimensions() {
+    public static Set<ResourceKey<Level>> getDimensions() {
         return dimChunks.keySet();
     }
 
     /** Live map for a single dimension (used for existence checks on the game thread). */
-    public static ConcurrentHashMap<ChunkPos, CapturedChunk> getDimension(RegistryKey<World> dim) {
+    public static ConcurrentHashMap<ChunkPos, CapturedChunk> getDimension(ResourceKey<Level> dim) {
         return dimChunks.getOrDefault(dim, new ConcurrentHashMap<>());
     }
 
@@ -85,15 +85,15 @@ public class ChunkListener {
      * @param maxDistChunks evict chunks farther than this radius; 0 = disabled
      */
     public static void evictStale(long maxAgeMs, int maxCount,
-                                  RegistryKey<World> playerDimension,
+                                  ResourceKey<Level> playerDimension,
                                   int playerCX, int playerCZ, int maxDistChunks) {
         long now = System.currentTimeMillis();
         int evicted = 0;
-        Map<RegistryKey<World>, Set<ChunkPos>> evictedByDim = new HashMap<>();
+        Map<ResourceKey<Level>, Set<ChunkPos>> evictedByDim = new HashMap<>();
 
         // ── Age-based eviction ────────────────────────────────────────────────
         if (maxAgeMs > 0) {
-            for (Map.Entry<RegistryKey<World>, ConcurrentHashMap<ChunkPos, CapturedChunk>> dimEntry
+            for (Map.Entry<ResourceKey<Level>, ConcurrentHashMap<ChunkPos, CapturedChunk>> dimEntry
                     : dimChunks.entrySet()) {
                 ConcurrentHashMap<ChunkPos, CapturedChunk> dimMap = dimEntry.getValue();
                 List<ChunkPos> toRemove = new ArrayList<>();
@@ -119,8 +119,8 @@ public class ChunkListener {
             if (dimMap != null) {
                 List<ChunkPos> toRemove = new ArrayList<>();
                 for (ChunkPos pos : dimMap.keySet()) {
-                    int dx = pos.x - playerCX;
-                    int dz = pos.z - playerCZ;
+                    int dx = pos.x() - playerCX;
+                    int dz = pos.z() - playerCZ;
                     if (Math.abs(dx) > maxDistChunks || Math.abs(dz) > maxDistChunks) {
                         toRemove.add(pos);
                     }
@@ -138,22 +138,16 @@ public class ChunkListener {
 
         // ── Count-based eviction (evict oldest first) ─────────────────────────
         if (maxCount > 0) {
-            // Pre-snapshot (dim, pos, timestamp) triples so the sort comparator
-            // makes no live ConcurrentHashMap lookups (avoids O(n log n) map
-            // accesses on the game thread and eliminates a potential race with
-            // background writers).
-            record Entry(RegistryKey<World> dim, ChunkPos pos, long ts) {}
+            record Entry(ResourceKey<Level> dim, ChunkPos pos, long ts) {}
             List<Entry> allEntries = new ArrayList<>();
-            for (Map.Entry<RegistryKey<World>, ConcurrentHashMap<ChunkPos, CapturedChunk>> dimEntry
+            for (Map.Entry<ResourceKey<Level>, ConcurrentHashMap<ChunkPos, CapturedChunk>> dimEntry
                     : dimChunks.entrySet()) {
                 for (Map.Entry<ChunkPos, CapturedChunk> e : dimEntry.getValue().entrySet()) {
-                    allEntries.add(new Entry(dimEntry.getKey(), e.getKey(),
-                            e.getValue().capturedAtMs()));
+                    allEntries.add(new Entry(dimEntry.getKey(), e.getKey(), e.getValue().capturedAtMs()));
                 }
             }
             int total = allEntries.size();
             if (total > maxCount) {
-                // Sort ascending by pre-captured timestamp — no live map access.
                 allEntries.sort(java.util.Comparator.comparingLong(Entry::ts));
                 int toEvict = total - maxCount;
                 for (int i = 0; i < toEvict; i++) {
@@ -179,15 +173,13 @@ public class ChunkListener {
     /**
      * Removes the specified chunks from the cache (used for invalidate-after-export).
      */
-    public static void invalidateChunks(Map<RegistryKey<World>, Set<ChunkPos>> writtenByDim) {
+    public static void invalidateChunks(Map<ResourceKey<Level>, Set<ChunkPos>> writtenByDim) {
         int removed = 0;
-        for (Map.Entry<RegistryKey<World>, Set<ChunkPos>> dimEntry : writtenByDim.entrySet()) {
+        for (Map.Entry<ResourceKey<Level>, Set<ChunkPos>> dimEntry : writtenByDim.entrySet()) {
             ConcurrentHashMap<ChunkPos, CapturedChunk> dimMap = dimChunks.get(dimEntry.getKey());
             if (dimMap == null) continue;
             for (ChunkPos pos : dimEntry.getValue()) {
-                if (dimMap.remove(pos) != null) {
-                    removed++;
-                }
+                if (dimMap.remove(pos) != null) removed++;
             }
         }
         if (removed > 0) {
@@ -196,6 +188,5 @@ public class ChunkListener {
             EntityTracker.pruneToMatchCapturedChunks();
         }
     }
-
 }
 

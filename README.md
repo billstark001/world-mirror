@@ -16,10 +16,10 @@ region-file save that you can open immediately in singleplayer.
 | **Persistent download session** | Press **P** to start or stop a download session. Chunks received from the server are recorded automatically while the session is active. |
 | **Periodic background sync** | The mod exports to disk on a configurable timer (default 10 s) without freezing the game. |
 | **Dirty-chunk tracking** | Only chunks that have changed since the last export are written, keeping sync fast even for large worlds. |
-| **Multi-dimension support** | Overworld, Nether, End, and any custom dimension are captured and stored in the correct sub-directory (`region/`, `DIM-1/region/`, `DIM1/region/`, `dimensions/<ns>/<path>/region/`). |
-| **Entity capture** | All non-player entities in captured chunks — mobs, animals, paintings, item frames, armour stands, dropped items, vehicles, etc. — are serialized using Minecraft's own `writeNbt` and merged into the exported chunk data. |
+| **Multi-dimension support** | Overworld, Nether, End, and any custom dimension are captured under `dimensions/<ns>/<path>/` with separate `region/`, `entities/`, `poi/`, and `data/` subdirectories. |
+| **Entity capture** | All non-player entities in captured chunks — mobs, animals, paintings, item frames, armour stands, dropped items, vehicles, etc. — are serialized using Minecraft's own `saveWithoutId` and written to the dimension's `entities/` region files. |
 | **Container tracking** | The mod intercepts inventory packets when you open a chest, barrel, hopper, furnace, or any other container and saves the item stacks. They are merged into the block entity NBT on export. Double chests are handled correctly (each half is saved to its own position). |
-| **Block entity data** | Signs (text), beacons (effects), banners (patterns), player heads (owner), lecterns (stored book), and all other block entities whose data the server sends to the client are persisted via `createNbtWithIdentifyingData`. |
+| **Block entity data** | Signs (text), beacons (effects), banners (patterns), player heads (owner), lecterns (stored book), and all other block entities whose data the server sends to the client are persisted via `saveWithFullMetadata`. |
 | **World–mirror mapping** | Every server address or singleplayer world name is mapped to a sanitised local folder name, stored in `config/worldmirror/mirrors.json`.  The same server always exports to the same folder. |
 | **Per-world settings** | Save location and conflict strategy can be overridden per world from the status screen without touching the global config. |
 | **Conflict resolution** | Three built-in strategies for chunks that already exist on disk: *Overwrite* (default), *Ignore* (keep local), and *Manual* (save the server chunk to `conflict_chunks/` in MCA format for later review). |
@@ -99,19 +99,35 @@ The exported world is a standard Minecraft save directory:
 
 ```
 downloaded_worlds/<mirror-name>/
-├── region/                   ← Overworld chunk and entity data
-│   └── r.X.Z.mca
-├── DIM-1/region/             ← Nether
-├── DIM1/region/              ← The End
-├── dimensions/<ns>/<path>/   ← Custom dimensions
-│   └── region/
+├── dimensions/
+│   └── minecraft/
+│       ├── overworld/
+│       │   ├── region/
+│       │   ├── entities/
+│       │   ├── poi/
+│       │   └── data/minecraft/
+│       ├── the_nether/
+│       │   ├── region/
+│       │   ├── entities/
+│       │   ├── poi/
+│       │   └── data/minecraft/
+│       └── the_end/
+│           ├── region/
+│           ├── entities/
+│           ├── poi/
+│           └── data/minecraft/
+├── dimensions/<ns>/<path>/   ← Custom dimensions use the same layout
 ├── level.dat                 ← Default world properties (created on first export)
-├── playerdata/
-├── advancements/
-├── stats/
-├── data/
-├── poi/
-├── entities/
+├── players/
+│   ├── advancements/
+│   ├── data/
+│   └── stats/
+├── data/minecraft/
+│   ├── game_rules.dat
+│   ├── weather.dat
+│   ├── world_clocks.dat
+│   └── world_gen_settings.dat
+├── resourcepacks/
 └── worldmirror_meta.json             ← World Mirror metadata
 ```
 
@@ -129,9 +145,9 @@ downloaded_worlds/<mirror-name>/
 
 ## Entity Serialization
 
-Entities are captured on the game thread before each export and serialized using
-Minecraft's own `Entity.writeNbt()` method.  All data the client has received via
-tracking packets is included:
+Entities are captured on the game thread before each export, serialized using
+Minecraft's own `Entity.saveWithoutId()` method, and written to modern per-dimension
+`entities/r.X.Z.mca` files.  All data the client has received via tracking packets is included:
 
 - **Paintings** — painting variant (motive), facing direction, attachment block position
 - **Item frames & Glow item frames** — held item (full component NBT), item rotation, fixed flag
@@ -148,7 +164,7 @@ tracking packets is included:
 
 ## Block Entity Serialization
 
-Block entities are serialized via `BlockEntity.createNbtWithIdentifyingData()`:
+Block entities are serialized via `BlockEntity.saveWithFullMetadata()`:
 
 - **Signs / Hanging signs** — front and back text, waxed and glow-ink flags
 - **Beacons** — primary and secondary effect IDs
@@ -165,9 +181,9 @@ container during the session.
 
 ## Installation
 
-1. Install [Fabric Loader](https://fabricmc.net/use/) ≥ 0.18.2 for Minecraft 1.21.11
+1. Install [Fabric Loader](https://fabricmc.net/use/) ≥ 0.19.3 for Minecraft 26.1.2
 2. Install [Fabric API](https://modrinth.com/mod/fabric-api)
-3. Install [LibGUI](https://github.com/CottonMC/LibGui) ≥ 15.1.0 (required)
+3. Install [LibGUI](https://github.com/CottonMC/LibGui) ≥ 16.0.1+26.1 (required)
 4. *(Optional)* Install [ModMenu](https://modrinth.com/mod/modmenu) for the in-game mod list
 5. Drop the compiled JAR file into your `mods/` folder
 
@@ -209,7 +225,7 @@ Output: `build/libs/world-mirror-<version>.jar`
 ## Architecture Notes
 
 - All chunk data is captured on the game thread in `ChunkDataMixin` and stored in
-  `ChunkListener` (dimension-aware: `Map<RegistryKey<World>, Map<ChunkPos, CapturedChunk>>`).
+  `ChunkListener` (dimension-aware: `Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>>`).
 - Container data is captured in `ContainerMixin` and stored in `ContainerTracker`.
 - Entities are snapshot-serialized on the game thread by `EntityTracker` before each export.
 - The actual disk I/O runs on a background daemon thread (`WM-Export`) to avoid freezing

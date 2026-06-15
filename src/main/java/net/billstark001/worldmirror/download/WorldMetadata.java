@@ -4,7 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.Minecraft;
 
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -164,22 +164,22 @@ public class WorldMetadata {
 
     // ── Source detection (call on game thread) ────────────────────────────────
 
-    public static String detectSourceType(MinecraftClient client) {
+    public static String detectSourceType(Minecraft client) {
         try {
-            if (client.getServer() != null) return "singleplayer";
+            if (client.getSingleplayerServer() != null) return "singleplayer";
         } catch (Exception ignored) {}
         return "server";
     }
 
-    public static String detectSourceId(MinecraftClient client) {
+    public static String detectSourceId(Minecraft client) {
         try {
-            if (client.getCurrentServerEntry() != null) {
-                return "server:" + client.getCurrentServerEntry().address;
+            if (client.getCurrentServer() != null) {
+                return "server:" + client.getCurrentServer().ip;
             }
         } catch (Exception ignored) {}
         try {
-            if (client.getServer() != null) {
-                return "local:" + client.getServer().getSaveProperties().getLevelName();
+            if (client.getSingleplayerServer() != null) {
+                return "local:" + client.getSingleplayerServer().getWorldData().getLevelName();
             }
         } catch (Exception ignored) {}
         return "unknown";

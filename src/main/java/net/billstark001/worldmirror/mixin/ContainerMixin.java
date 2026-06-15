@@ -2,40 +2,40 @@ package net.billstark001.worldmirror.mixin;
 
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
+import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.network.protocol.game.ClientboundContainerClosePacket;
+import net.minecraft.network.protocol.game.ClientboundContainerSetContentPacket;
+import net.minecraft.network.protocol.game.ClientboundContainerSetSlotPacket;
+import net.minecraft.network.protocol.game.ClientboundOpenScreenPacket;
 import net.billstark001.worldmirror.core.ContainerTracker;
-import net.minecraft.network.packet.s2c.play.CloseScreenS2CPacket;
-import net.minecraft.network.packet.s2c.play.InventoryS2CPacket;
-import net.minecraft.network.packet.s2c.play.ScreenHandlerSlotUpdateS2CPacket;
-import net.minecraft.network.packet.s2c.play.OpenScreenS2CPacket;
-import net.minecraft.client.network.ClientPlayNetworkHandler;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Environment(EnvType.CLIENT)
-@Mixin({ClientPlayNetworkHandler.class})
+@Mixin({ClientPacketListener.class})
 public class ContainerMixin {
-    @Inject(method = {"onOpenScreen"}, at = {@At("TAIL")})
-    private void onOpenScreen(OpenScreenS2CPacket packet, CallbackInfo ci) {
-        ContainerTracker.onContainerOpened(packet.getSyncId(), packet.getName());
+    @Inject(method = {"handleOpenScreen"}, at = {@At("TAIL")})
+    private void onOpenScreen(ClientboundOpenScreenPacket packet, CallbackInfo ci) {
+        ContainerTracker.onContainerOpened(packet.getContainerId(), packet.getTitle());
     }
 
 
-    @Inject(method = {"onScreenHandlerSlotUpdate"}, at = {@At("TAIL")})
-    private void onSlotUpdate(ScreenHandlerSlotUpdateS2CPacket packet, CallbackInfo ci) {
-        ContainerTracker.onSlotUpdate(packet.getSyncId(), packet.getSlot(), packet.getStack());
+    @Inject(method = {"handleContainerSetSlot"}, at = {@At("TAIL")})
+    private void onSlotUpdate(ClientboundContainerSetSlotPacket packet, CallbackInfo ci) {
+        ContainerTracker.onSlotUpdate(packet.getContainerId(), packet.getSlot(), packet.getItem());
     }
 
 
-    @Inject(method = {"onInventory"}, at = {@At("TAIL")})
-    private void onInventory(InventoryS2CPacket packet, CallbackInfo ci) {
-        ContainerTracker.onInventoryUpdate(packet.syncId(), packet.contents());
+    @Inject(method = {"handleContainerContent"}, at = {@At("TAIL")})
+    private void onInventory(ClientboundContainerSetContentPacket packet, CallbackInfo ci) {
+        ContainerTracker.onInventoryUpdate(packet.containerId(), packet.items());
     }
 
 
-    @Inject(method = {"onCloseScreen"}, at = {@At("TAIL")})
-    private void onCloseScreen(CloseScreenS2CPacket packet, CallbackInfo ci) {
-        ContainerTracker.onContainerClosed(packet.getSyncId());
+    @Inject(method = {"handleContainerClose"}, at = {@At("TAIL")})
+    private void onCloseScreen(ClientboundContainerClosePacket packet, CallbackInfo ci) {
+        ContainerTracker.onContainerClosed(packet.getContainerId());
     }
 }

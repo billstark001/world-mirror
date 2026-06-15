@@ -4,7 +4,7 @@ import io.github.cottonmc.cotton.gui.client.CottonClientScreen;
 import net.billstark001.worldmirror.download.DownloadManager;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.Minecraft;
 
 /**
  * Wraps {@link CottonClientScreen} around {@link StatusScreen} and
@@ -37,7 +37,7 @@ public class StatusClientScreen extends CottonClientScreen {
         if (currentExport != lastExportState || currentActive != lastActiveState) {
             lastExportState = currentExport;
             lastActiveState = currentActive;
-            MinecraftClient.getInstance().setScreen(new StatusClientScreen());
+            Minecraft.getInstance().setScreen(new StatusClientScreen());
         }
     }
 }

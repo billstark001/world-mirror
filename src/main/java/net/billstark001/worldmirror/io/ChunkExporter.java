@@ -8,6 +8,8 @@ import java.util.*;
 import io.github.ensgijs.nbt.io.BinaryNbtDeserializer;
 import io.github.ensgijs.nbt.io.CompressionType;
 import io.github.ensgijs.nbt.io.NamedTag;
+import io.github.ensgijs.nbt.mca.EntitiesChunk;
+import io.github.ensgijs.nbt.mca.McaEntitiesFile;
 import io.github.ensgijs.nbt.mca.McaRegionFile;
 import io.github.ensgijs.nbt.mca.TerrainChunk;
 import io.github.ensgijs.nbt.mca.io.McaFileHelpers;
@@ -21,13 +23,13 @@ import net.billstark001.worldmirror.download.ChunkDatabase;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtList;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.world.World;
+import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.IntArrayTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 
 
 @Environment(EnvType.CLIENT)
@@ -38,10 +40,10 @@ public class ChunkExporter {
      * <p>
      * Each dimension is exported to the appropriate subdirectory:
      * <ul>
-     *   <li>{@code minecraft:overworld}  → {@code <worldFolder>/region/}</li>
-     *   <li>{@code minecraft:the_nether} → {@code <worldFolder>/DIM-1/region/}</li>
-     *   <li>{@code minecraft:the_end}    → {@code <worldFolder>/DIM1/region/}</li>
-     *   <li>any other                    → {@code <worldFolder>/dimensions/<ns>/<path>/region/}</li>
+     *   <li>{@code minecraft:overworld}  → {@code <worldFolder>/dimensions/minecraft/overworld/}</li>
+     *   <li>{@code minecraft:the_nether} → {@code <worldFolder>/dimensions/minecraft/the_nether/}</li>
+     *   <li>{@code minecraft:the_end}    → {@code <worldFolder>/dimensions/minecraft/the_end/}</li>
+     *   <li>any other                    → {@code <worldFolder>/dimensions/<ns>/<path>/}</li>
      * </ul>
      * <p>
      * Only "dirty" chunks are written — i.e. chunks whose {@link ChunkListener.CapturedChunk#capturedAtMs()}
@@ -61,32 +63,36 @@ public class ChunkExporter {
      * @param db             Chunk database for dirty-check and priority enforcement.
      * @return Map from dimension → set of chunk positions actually written.
      */
-    public static Map<RegistryKey<World>, Set<ChunkPos>> exportChunks(
+    public static Map<ResourceKey<Level>, Set<ChunkPos>> exportChunks(
             Path worldFolder,
-            Map<RegistryKey<World>, Map<ChunkPos, ChunkListener.CapturedChunk>> snapshot,
-            Map<RegistryKey<World>, Map<ChunkPos, List<NbtCompound>>> entitySnapshot,
+            Map<ResourceKey<Level>, Map<ChunkPos, ChunkListener.CapturedChunk>> snapshot,
+            Map<ResourceKey<Level>, Map<ChunkPos, List<net.minecraft.nbt.CompoundTag>>> entitySnapshot,
             ConflictResolver resolver,
             ChunkDatabase db) throws Exception {
 
-        Map<RegistryKey<World>, Set<ChunkPos>> allWritten = new HashMap<>();
+        Map<ResourceKey<Level>, Set<ChunkPos>> allWritten = new HashMap<>();
         int dimCount = 0;
 
-        for (Map.Entry<RegistryKey<World>, Map<ChunkPos, ChunkListener.CapturedChunk>> dimEntry
+        for (Map.Entry<ResourceKey<Level>, Map<ChunkPos, ChunkListener.CapturedChunk>> dimEntry
                 : snapshot.entrySet()) {
-            RegistryKey<World> dimension = dimEntry.getKey();
+            ResourceKey<Level> dimension = dimEntry.getKey();
             Map<ChunkPos, ChunkListener.CapturedChunk> dimChunks = dimEntry.getValue();
-            Map<ChunkPos, List<NbtCompound>> dimEntities =
+            Map<ChunkPos, List<net.minecraft.nbt.CompoundTag>> dimEntities =
                     entitySnapshot.getOrDefault(dimension, Map.of());
 
-            Path regionDir = regionDirForDimension(worldFolder, dimension);
+            Path dimensionDir = dimensionDirForDimension(worldFolder, dimension);
+            Path regionDir = dimensionDir.resolve("region");
+            Path entitiesDir = dimensionDir.resolve("entities");
             Files.createDirectories(regionDir);
+            Files.createDirectories(entitiesDir);
 
             Set<ChunkPos> written = exportDimensionChunks(
                     regionDir, dimChunks, dimEntities, resolver, db, dimension, worldFolder);
+            exportDimensionEntities(entitiesDir, dimEntities);
             allWritten.put(dimension, written);
             dimCount++;
 
-            WMLogger.info("[" + dimension.getValue() + "] "
+            WMLogger.info("[" + dimension.identifier() + "] "
                     + written.size() + "/" + dimChunks.size() + " chunks exported.");
         }
 
@@ -99,10 +105,10 @@ public class ChunkExporter {
     private static Set<ChunkPos> exportDimensionChunks(
             Path regionDir,
             Map<ChunkPos, ChunkListener.CapturedChunk> dimChunks,
-            Map<ChunkPos, List<NbtCompound>> dimEntities,
+            Map<ChunkPos, List<net.minecraft.nbt.CompoundTag>> dimEntities,
             ConflictResolver resolver,
             ChunkDatabase db,
-            RegistryKey<World> dimension,
+            ResourceKey<Level> dimension,
             Path worldFolder) {
 
         // ── Load / create region file handles ─────────────────────────────────
@@ -110,8 +116,8 @@ public class ChunkExporter {
         Set<String> preExistingRegionKeys = new HashSet<>();
 
         for (ChunkPos pos : dimChunks.keySet()) {
-            int regionX = pos.x >> 5;
-            int regionZ = pos.z >> 5;
+            int regionX = pos.x() >> 5;
+            int regionZ = pos.z() >> 5;
             String key  = regionX + "," + regionZ;
             if (regionFiles.containsKey(key)) continue;
 
@@ -140,16 +146,16 @@ public class ChunkExporter {
             ChunkListener.CapturedChunk captured = entry.getValue();
 
             // ── Dirty / priority check ────────────────────────────────────────
-            String dimStr = dimension.getValue().toString();
-            if (db.shouldSkipUpdate(dimStr, chunkPos.x, chunkPos.z,
+            String dimStr = dimension.identifier().toString();
+            if (db.shouldSkipUpdate(dimStr, chunkPos.x(), chunkPos.z(),
                     "world_mirror", captured.capturedAtMs())) {
-                WMLogger.debug("Skipping chunk [" + dimension.getValue()
+                WMLogger.debug("Skipping chunk [" + dimension.identifier()
                         + "] " + chunkPos + " (not dirty or higher-priority source)");
                 continue;
             }
 
-            int chunkX      = chunkPos.x;
-            int chunkZ      = chunkPos.z;
+            int chunkX      = chunkPos.x();
+            int chunkZ      = chunkPos.z();
             int regionX     = chunkX >> 5;
             int regionZ     = chunkZ >> 5;
             int localX      = chunkX & 0x1F;
@@ -159,7 +165,7 @@ public class ChunkExporter {
 
             try {
                 // ── Work on a copy so we don't mutate the live cache ──────────
-                NbtCompound chunkNbt = captured.nbt().copy();
+                net.minecraft.nbt.CompoundTag chunkNbt = captured.nbt().copy();
 
                 // ── Conflict check ────────────────────────────────────────────
                 boolean existsLocally = preExistingRegionKeys.contains(key)
@@ -167,25 +173,15 @@ public class ChunkExporter {
                 if (!resolver.shouldWriteChunk(new ConflictContext(
                         chunkPos, existsLocally, chunkNbt, dimension, worldFolder))) {
                     WMLogger.debug("Conflict resolver kept local chunk "
-                            + chunkPos + " [" + dimension.getValue() + "]");
+                            + chunkPos + " [" + dimension.identifier() + "]");
                     continue;
                 }
-
                 // ── Merge latest container data (items not present at capture) ─
                 // Container items are captured lazily when the player opens a
                 // container; applying them here ensures the export always uses
                 // the most up-to-date inventory state regardless of when the
                 // chunk was first serialised.
                 mergeContainerData(dimension, chunkNbt);
-
-                // ── Merge entities ────────────────────────────────────────────
-                List<NbtCompound> entities = EntityTracker.getEntitiesForChunk(dimEntities, chunkPos);
-                if (!entities.isEmpty()) {
-                    NbtList entitiesList = new NbtList();
-                    entitiesList.addAll(entities);
-                    chunkNbt.put("entities", entitiesList);
-                    WMLogger.debug("Added " + entities.size() + " entities to " + chunkPos);
-                }
 
                 // ── Write ─────────────────────────────────────────────────────
                 CompoundTag querzChunk = convertToQuerz(chunkNbt);
@@ -229,24 +225,24 @@ public class ChunkExporter {
      * time ensures that any container opened during the session is saved with its
      * correct inventory, regardless of when the chunk was first serialised.
      */
-    private static void mergeContainerData(RegistryKey<World> dimension, NbtCompound chunkNbt) {
-        Optional<NbtList> _blockEntities = chunkNbt.getList("block_entities");
+    private static void mergeContainerData(ResourceKey<Level> dimension, net.minecraft.nbt.CompoundTag chunkNbt) {
+        Optional<ListTag> _blockEntities = chunkNbt.getList("block_entities");
         if (_blockEntities.isEmpty()) {
             return;
         }
-        NbtList blockEntities = _blockEntities.get();
+        ListTag blockEntities = _blockEntities.get();
         for (int i = 0; i < blockEntities.size(); i++) {
-            Optional<NbtCompound> _beNbt = blockEntities.getCompound(i);
+            Optional<net.minecraft.nbt.CompoundTag> _beNbt = blockEntities.getCompound(i);
             if (_beNbt.isEmpty()) {
                 continue;
             }
-            NbtCompound beNbt = _beNbt.get();
+            net.minecraft.nbt.CompoundTag beNbt = _beNbt.get();
             BlockPos bePos    = new BlockPos(
                     beNbt.getInt("x").orElse(0),
                     beNbt.getInt("y").orElse(0),
                     beNbt.getInt("z").orElse(0)
             );
-            NbtCompound containerData = ContainerTracker.getContainerData(dimension, bePos);
+            net.minecraft.nbt.CompoundTag containerData = ContainerTracker.getContainerData(dimension, bePos);
             if (containerData == null) continue;
 
             if (containerData.contains("Items")) {
@@ -260,33 +256,88 @@ public class ChunkExporter {
 
     // ── Dimension → directory mapping ────────────────────────────────────────
 
-    private static final Identifier OVERWORLD_ID = Identifier.of("minecraft", "overworld");
-    private static final Identifier NETHER_ID    = Identifier.of("minecraft", "the_nether");
-    private static final Identifier END_ID       = Identifier.of("minecraft", "the_end");
+    public static Path dimensionDirForDimension(Path worldFolder, ResourceKey<Level> dimension) {
+        Identifier id = dimension.identifier();
+        return worldFolder.resolve("dimensions")
+                .resolve(id.getNamespace())
+                .resolve(id.getPath());
+    }
 
-    public static Path regionDirForDimension(Path worldFolder, RegistryKey<World> dimension) {
-        Identifier id = dimension.getValue();
-        if (id.equals(OVERWORLD_ID)) {
-            return worldFolder.resolve("region");
-        } else if (id.equals(NETHER_ID)) {
-            return worldFolder.resolve("DIM-1").resolve("region");
-        } else if (id.equals(END_ID)) {
-            return worldFolder.resolve("DIM1").resolve("region");
-        } else {
-            return worldFolder.resolve("dimensions")
-                    .resolve(id.getNamespace())
-                    .resolve(id.getPath())
-                    .resolve("region");
+    public static Path regionDirForDimension(Path worldFolder, ResourceKey<Level> dimension) {
+        return dimensionDirForDimension(worldFolder, dimension).resolve("region");
+    }
+
+    private static void exportDimensionEntities(
+            Path entitiesDir,
+            Map<ChunkPos, List<net.minecraft.nbt.CompoundTag>> dimEntities) {
+        if (dimEntities.isEmpty()) return;
+
+        Map<String, McaEntitiesFile> entityFiles = new HashMap<>();
+
+        for (Map.Entry<ChunkPos, List<net.minecraft.nbt.CompoundTag>> entry : dimEntities.entrySet()) {
+            List<net.minecraft.nbt.CompoundTag> entities = entry.getValue();
+            if (entities == null || entities.isEmpty()) continue;
+
+            ChunkPos chunkPos = entry.getKey();
+            int chunkX = chunkPos.x();
+            int chunkZ = chunkPos.z();
+            int regionX = chunkX >> 5;
+            int regionZ = chunkZ >> 5;
+            int localX = chunkX & 0x1F;
+            int localZ = chunkZ & 0x1F;
+            String key = regionX + "," + regionZ;
+
+            McaEntitiesFile mcaFile = entityFiles.computeIfAbsent(key, ignored -> {
+                Path entityFile = entitiesDir.resolve(String.format("r.%d.%d.mca", regionX, regionZ));
+                if (entityFile.toFile().exists()) {
+                    try {
+                        return McaFileHelpers.readEntities(entityFile);
+                    } catch (Exception e) {
+                        WMLogger.warn("Could not read " + entityFile.getFileName()
+                                + ", creating new entities region: " + e.getMessage());
+                    }
+                }
+                return new McaEntitiesFile(regionX, regionZ);
+            });
+
+            try {
+                net.minecraft.nbt.CompoundTag entityChunkNbt = new net.minecraft.nbt.CompoundTag();
+                entityChunkNbt.putInt("DataVersion", net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version());
+                entityChunkNbt.put("Position", new IntArrayTag(new int[] {chunkX, chunkZ}));
+                ListTag entityList = new ListTag();
+                entityList.addAll(entities);
+                entityChunkNbt.put("Entities", entityList);
+
+                EntitiesChunk entityChunk = new EntitiesChunk(convertToQuerz(entityChunkNbt));
+                mcaFile.setChunk(localX, localZ, entityChunk);
+                WMLogger.debug("Wrote " + entities.size() + " entities to " + chunkPos);
+            } catch (Exception e) {
+                WMLogger.warn("Failed to process entities for " + chunkPos + ": " + e.getMessage());
+            }
+        }
+
+        for (Map.Entry<String, McaEntitiesFile> entry : entityFiles.entrySet()) {
+            String[] coords = entry.getKey().split(",");
+            int regionX = Integer.parseInt(coords[0]);
+            int regionZ = Integer.parseInt(coords[1]);
+            Path entityFile = entitiesDir.resolve(String.format("r.%d.%d.mca", regionX, regionZ));
+            try {
+                McaFileHelpers.write(entry.getValue(), entityFile.toFile());
+                WMLogger.debug("Wrote entities file " + entityFile.getFileName());
+            } catch (Exception e) {
+                WMLogger.warn("Failed to write entities region " + entityFile.getFileName()
+                        + ": " + e.getMessage());
+            }
         }
     }
 
     // ── NBT conversion ────────────────────────────────────────────────────────
 
-    public static CompoundTag convertToQuerz(NbtCompound mcNbt) {
+    public static CompoundTag convertToQuerz(net.minecraft.nbt.CompoundTag mcNbt) {
         try {
             ByteArrayOutputStream mcNbtStream = new ByteArrayOutputStream();
             DataOutputStream dos = new DataOutputStream(mcNbtStream);
-            net.minecraft.nbt.NbtIo.write(mcNbt, dos);
+            net.minecraft.nbt.NbtIo.writeUnnamedTagWithFallback(mcNbt, dos);
             dos.close();
 
             ByteArrayInputStream bis = new ByteArrayInputStream(mcNbtStream.toByteArray());
@@ -297,7 +348,7 @@ public class ChunkExporter {
 
             return (CompoundTag) namedTag.getTag();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to convert NbtCompound to Querz CompoundTag", e);
+            throw new RuntimeException("Failed to convert CompoundTag to Querz CompoundTag", e);
         }
     }
 }

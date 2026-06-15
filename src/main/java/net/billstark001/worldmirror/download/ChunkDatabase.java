@@ -1,7 +1,7 @@
 package net.billstark001.worldmirror.download;
 
 import net.billstark001.worldmirror.util.WMLogger;
-import net.minecraft.util.math.ChunkPos;
+import net.minecraft.world.level.ChunkPos;
 
 import java.io.Closeable;
 import java.nio.file.Files;
@@ -186,8 +186,8 @@ public class ChunkDatabase implements Closeable {
                 for (ChunkPos pos : positions) {
                     ps.setString(1, sourceId);
                     ps.setString(2, dimension);
-                    ps.setInt(3, pos.x);
-                    ps.setInt(4, pos.z);
+                    ps.setInt(3, pos.x());
+                    ps.setInt(4, pos.z());
                     ps.setLong(5, now);
                     ps.setString(6, updateSource);
                     ps.addBatch();

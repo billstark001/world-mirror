@@ -1,9 +1,9 @@
 package net.billstark001.worldmirror.conflict;
 
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.world.World;
-import net.minecraft.nbt.NbtCompound;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
+import net.minecraft.nbt.CompoundTag;
 
 import java.nio.file.Path;
 
