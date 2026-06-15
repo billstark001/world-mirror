@@ -5,6 +5,68 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.1] — 2026-03-29
+
+### Added
+
+- **Chunk Map (Window 1):** Full-screen draggable grid map accessible from the status screen
+  (Conflicts tab → Open Chunk Map).  Each cell is color-coded:
+  - Transparent — never downloaded.
+  - Green → Blue (logarithmic, based on age) — downloaded via `world_mirror`.
+  - Orange — written by a third-party source (e.g. `player`, `map_hp`).
+  - Red inset border — chunk has an unresolved conflict stored on disk.
+  Hovering shows a tooltip with chunk coordinates, last-update time, and source.
+  Clicking a conflicted chunk opens a per-chunk dialog: **Overwrite** / **Discard** / **Cancel**.
+- **File-based conflict storage:** When the `Manual` conflict strategy is active, incoming
+  server chunks that collide with existing local chunks are now written to
+  `conflict_chunks/<dim>/r.X.Z.mca` inside the mirror-world folder (MCA format) rather than
+  being lost on restart.
+- **Conflicts tab — bulk resolution:** *Overwrite All* (apply all stored server chunks) and
+  *Discard All* (delete all stored server chunks, keep local) buttons in the status screen.
+- **Export Nearby Region (Feature 2.1):** New screen (Status tab → Export Nearby Region…)
+  lets you choose a world name and radius (1–50 chunks) to snapshot all loaded chunks in
+  that area into a fresh singleplayer save.  Spawn point is set to the player's current
+  block position.
+- **Direct Chunk Map keybinding:** Press **M** to open the chunk map without going through
+  the status screen.  The binding is configurable in *Options → Controls → World Mirror*.
+- **Chunk map settings:** Added configurable sparse-render threshold (4–16, default 8)
+  and map background style (black or transparent, default black).
+- **MCA write support:** Added shared per-file locking and same-directory temporary-file
+  replacement for terrain, entity, and conflict MCA writes.
+- **Known-bugs research notes:** Re-enabled and expanded `KNOWN_BUGS.md` with current
+  entity, block entity, world-generation/noise, heightmap, and lighting persistence gaps,
+  plus pointers into Minecraft format docs and local mod source.
+- Language file additions for all new UI strings (en_us, zh_cn, zh_tw, ja_jp).
+
+### Changed
+
+- Status screen Conflicts tab redesigned: shows stored-conflict count instead of in-memory
+  queue, with Overwrite All / Discard All / Open Chunk Map buttons.
+- Status screen Status tab: added *Export Nearby Region…* button.
+- Dimension and server-world transition detection logs now use debug level instead of
+  info level.
+- Chunk map rendering switches to sparse drawing when zoomed far out, avoiding full-grid
+  per-cell drawing at tiny cell sizes.
+- Background exports are no longer daemon threads, reducing the chance of JVM shutdown
+  cutting off an in-progress save write.
+
+### Fixed
+
+- CI/CD: Added `-Djsse.enableSNIExtension=false` JVM argument to `gradle.properties` to fix
+  TLS SNI handshake failures with `server.bbkr.space` in the GitHub Actions environment.
+- Export requests made while another export is running are queued and coalesced instead of
+  being dropped.
+- Chunks are only marked written after their region file has been flushed successfully, so
+  failed region writes stay cached for a later retry.
+- Region and conflict writes now share per-file locks, reducing races between normal export,
+  manual conflict storage, and conflict resolution.
+- Bulk conflict overwrite now maps legacy conflict folders (`region`, `DIM-1`, `DIM1`) back
+  to the mod's current per-dimension world folder layout.
+- Cleaned up several definite IDE warnings in mod-owned code without changing mixin method
+  signatures or Minecraft mapping-sensitive casts.
+
+---
+
 ## [0.2.0] — 2026-03-25
 
 ### Fixed

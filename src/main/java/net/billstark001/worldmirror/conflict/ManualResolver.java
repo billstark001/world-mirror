@@ -1,47 +1,36 @@
 package net.billstark001.worldmirror.conflict;
 
 import net.billstark001.worldmirror.util.WMLogger;
-import net.minecraft.world.level.ChunkPos;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 
 /**
  * {@link ConflictResolver} that defers decisions on conflicting chunks.
  * <p>
- * When the in-game UI (roadmap §6) is implemented it will read
- * {@link #getPendingConflicts()} and present the player with per-chunk options
- * (overwrite / ignore / decide later).
+ * When a conflict is detected, the incoming (server-side) chunk is persisted to
+ * {@code conflict_chunks/<dim>/r.X.Z.mca} inside the mirror world folder via
+ * {@link ConflictManager#saveConflict}.  The player can then resolve conflicts
+ * per-chunk or in bulk using the chunk-map screen (Window 1) or the in-game
+ * status screen buttons.
  * <p>
- * Until the UI is available, conflicts are queued and the local copy is kept
- * (same as {@link IgnoreResolver}).
+ * Until explicitly resolved, the existing local copy is kept (same behaviour as
+ * {@link IgnoreResolver}).
  */
 public class ManualResolver implements ConflictResolver {
-
-    private static final List<ChunkPos> pendingConflicts =
-            Collections.synchronizedList(new ArrayList<>());
 
     @Override
     public boolean shouldWriteChunk(ConflictContext context) {
         if (context.existsLocally()) {
-            pendingConflicts.add(context.pos());
-            WMLogger.warn("Conflict queued for chunk " + context.pos()
+            // Persist the incoming server chunk so the player can review it later.
+            ConflictManager.saveConflict(
+                    context.worldFolder(),
+                    context.pos(),
+                    context.chunkNbt(),
+                    context.dimension());
+            WMLogger.warn("Conflict saved for chunk " + context.pos()
+                    + " [" + context.dimension().identifier() + "]"
                     + " — keeping local copy until resolved.");
             return false;
         }
         return true;
     }
-
-    /**
-     * Returns an unmodifiable view of all chunks that are waiting for manual
-     * resolution.
-     */
-    public static List<ChunkPos> getPendingConflicts() {
-        return Collections.unmodifiableList(pendingConflicts);
-    }
-
-    /** Clears all queued conflicts (e.g. after the user bulk-resolves them). */
-    public static void clearPendingConflicts() {
-        pendingConflicts.clear();
-    }
 }
+

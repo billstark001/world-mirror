@@ -87,7 +87,7 @@ public class ChunkExporter {
             Files.createDirectories(entitiesDir);
 
             Set<ChunkPos> written = exportDimensionChunks(
-                    regionDir, dimChunks, dimEntities, resolver, db, dimension);
+                    regionDir, dimChunks, dimEntities, resolver, db, dimension, worldFolder);
             exportDimensionEntities(entitiesDir, dimEntities);
             allWritten.put(dimension, written);
             dimCount++;
@@ -108,105 +108,96 @@ public class ChunkExporter {
             Map<ChunkPos, List<net.minecraft.nbt.CompoundTag>> dimEntities,
             ConflictResolver resolver,
             ChunkDatabase db,
-            ResourceKey<Level> dimension) {
+            ResourceKey<Level> dimension,
+            Path worldFolder) {
 
-        // ── Load / create region file handles ─────────────────────────────────
-        Map<String, McaRegionFile> regionFiles = new HashMap<>();
-        Set<String> preExistingRegionKeys = new HashSet<>();
-
-        for (ChunkPos pos : dimChunks.keySet()) {
-            int regionX = pos.x() >> 5;
-            int regionZ = pos.z() >> 5;
-            String key  = regionX + "," + regionZ;
-            if (regionFiles.containsKey(key)) continue;
-
-            Path regionFile = regionDir.resolve(String.format("r.%d.%d.mca", regionX, regionZ));
-            McaRegionFile mcaFile;
-            if (regionFile.toFile().exists()) {
-                try {
-                    mcaFile = McaFileHelpers.readAuto(regionFile.toFile());
-                    preExistingRegionKeys.add(key);
-                } catch (Exception e) {
-                    WMLogger.warn("Could not read " + regionFile.getFileName()
-                            + ", creating new: " + e.getMessage());
-                    mcaFile = new McaRegionFile(regionX, regionZ);
-                }
-            } else {
-                mcaFile = new McaRegionFile(regionX, regionZ);
-            }
-            regionFiles.put(key, mcaFile);
-        }
-
-        // ── Process each chunk ────────────────────────────────────────────────
-        Set<ChunkPos> written = new HashSet<>();
-
+        Map<String, List<Map.Entry<ChunkPos, ChunkListener.CapturedChunk>>> chunksByRegion =
+                new HashMap<>();
         for (Map.Entry<ChunkPos, ChunkListener.CapturedChunk> entry : dimChunks.entrySet()) {
-            ChunkPos chunkPos  = entry.getKey();
-            ChunkListener.CapturedChunk captured = entry.getValue();
-
-            // ── Dirty / priority check ────────────────────────────────────────
-            String dimStr = dimension.identifier().toString();
-            if (db.shouldSkipUpdate(dimStr, chunkPos.x(), chunkPos.z(),
-                    "world_mirror", captured.capturedAtMs())) {
-                WMLogger.debug("Skipping chunk [" + dimension.identifier()
-                        + "] " + chunkPos + " (not dirty or higher-priority source)");
-                continue;
-            }
-
-            int chunkX      = chunkPos.x();
-            int chunkZ      = chunkPos.z();
-            int regionX     = chunkX >> 5;
-            int regionZ     = chunkZ >> 5;
-            int localX      = chunkX & 0x1F;
-            int localZ      = chunkZ & 0x1F;
-            String key      = regionX + "," + regionZ;
-            McaRegionFile mcaFile = regionFiles.get(key);
-
-            try {
-                // ── Conflict check ────────────────────────────────────────────
-                boolean existsLocally = preExistingRegionKeys.contains(key)
-                        && mcaFile.getChunk(localX, localZ) != null;
-                if (!resolver.shouldWriteChunk(new ConflictContext(chunkPos, existsLocally))) {
-                    WMLogger.debug("Conflict resolver kept local chunk "
-                            + chunkPos + " [" + dimension.identifier() + "]");
-                    continue;
-                }
-
-                // ── Work on a copy so we don't mutate the live cache ──────────
-                net.minecraft.nbt.CompoundTag chunkNbt = captured.nbt().copy();
-
-                // ── Merge latest container data (items not present at capture) ─
-                // Container items are captured lazily when the player opens a
-                // container; applying them here ensures the export always uses
-                // the most up-to-date inventory state regardless of when the
-                // chunk was first serialised.
-                mergeContainerData(dimension, chunkNbt);
-
-                // ── Write ─────────────────────────────────────────────────────
-                CompoundTag querzChunk = convertToQuerz(chunkNbt);
-                TerrainChunk chunk = new TerrainChunk(querzChunk);
-                mcaFile.setChunk(localX, localZ, chunk);
-                written.add(chunkPos);
-
-            } catch (Exception e) {
-                WMLogger.warn("Failed to process chunk " + chunkPos + ": " + e.getMessage());
-            }
+            ChunkPos pos = entry.getKey();
+            chunksByRegion.computeIfAbsent(regionKey(pos.x() >> 5, pos.z() >> 5),
+                    ignored -> new ArrayList<>()).add(entry);
         }
 
-        // ── Flush region files ────────────────────────────────────────────────
-        for (Map.Entry<String, McaRegionFile> regionEntry : regionFiles.entrySet()) {
+        Set<ChunkPos> written = new HashSet<>();
+        String dimStr = dimension.identifier().toString();
+
+        for (Map.Entry<String, List<Map.Entry<ChunkPos, ChunkListener.CapturedChunk>>> regionEntry
+                : chunksByRegion.entrySet()) {
             String regionKey = regionEntry.getKey();
-            McaRegionFile mcaFile = regionEntry.getValue();
             String[] coords = regionKey.split(",");
             int regionX = Integer.parseInt(coords[0]);
             int regionZ = Integer.parseInt(coords[1]);
             Path regionFile = regionDir.resolve(String.format("r.%d.%d.mca", regionX, regionZ));
-            try {
-                McaFileHelpers.write(mcaFile, regionFile.toFile());
-                WMLogger.debug("Wrote region file " + regionFile.getFileName());
-            } catch (Exception e) {
-                WMLogger.warn("Failed to write region " + regionFile.getFileName()
-                        + ": " + e.getMessage());
+
+            synchronized (McaWriteSupport.lockFor(regionFile)) {
+                McaRegionFile mcaFile;
+                boolean preExisting = regionFile.toFile().exists();
+                if (preExisting) {
+                    try {
+                        mcaFile = McaFileHelpers.readAuto(regionFile.toFile());
+                    } catch (Exception e) {
+                        WMLogger.warn("Could not read " + regionFile.getFileName()
+                                + ", creating new: " + e.getMessage());
+                        mcaFile = new McaRegionFile(regionX, regionZ);
+                        preExisting = false;
+                    }
+                } else {
+                    mcaFile = new McaRegionFile(regionX, regionZ);
+                }
+
+                Set<ChunkPos> staged = new HashSet<>();
+                for (Map.Entry<ChunkPos, ChunkListener.CapturedChunk> entry : regionEntry.getValue()) {
+                    ChunkPos chunkPos = entry.getKey();
+                    ChunkListener.CapturedChunk captured = entry.getValue();
+
+                    if (db.shouldSkipUpdate(dimStr, chunkPos.x(), chunkPos.z(),
+                            "world_mirror", captured.capturedAtMs())) {
+                        WMLogger.debug("Skipping chunk [" + dimension.identifier()
+                                + "] " + chunkPos + " (not dirty or higher-priority source)");
+                        continue;
+                    }
+
+                    int localX = chunkPos.x() & 0x1F;
+                    int localZ = chunkPos.z() & 0x1F;
+                    try {
+                        net.minecraft.nbt.CompoundTag chunkNbt = captured.nbt().copy();
+                        boolean existsLocally = preExisting && mcaFile.getChunk(localX, localZ) != null;
+                        if (!resolver.shouldWriteChunk(new ConflictContext(
+                                chunkPos, existsLocally, chunkNbt, dimension, worldFolder))) {
+                            WMLogger.debug("Conflict resolver kept local chunk "
+                                    + chunkPos + " [" + dimension.identifier() + "]");
+                            continue;
+                        }
+
+                        mergeContainerData(dimension, chunkNbt);
+                        CompoundTag querzChunk = convertToQuerz(chunkNbt);
+                        mcaFile.setChunk(localX, localZ, new TerrainChunk(querzChunk));
+                        staged.add(chunkPos);
+                    } catch (Exception e) {
+                        WMLogger.warn("Failed to process chunk " + chunkPos + ": " + e.getMessage());
+                    }
+                }
+
+                if (staged.isEmpty()) {
+                    continue;
+                }
+
+                try {
+                    int chunksFlushed = McaWriteSupport.writeAtomicallyLocked(mcaFile, regionFile);
+                    if (chunksFlushed > 0) {
+                        written.addAll(staged);
+                        WMLogger.debug("Wrote region file " + regionFile.getFileName()
+                                + " with " + staged.size() + " staged chunk(s).");
+                    } else {
+                        WMLogger.warn("Region " + regionFile.getFileName()
+                                + " wrote no chunks; keeping staged chunks cached for retry.");
+                    }
+                } catch (Exception e) {
+                    WMLogger.warn("Failed to write region " + regionFile.getFileName()
+                            + "; keeping " + staged.size() + " chunk(s) cached for retry: "
+                            + e.getMessage());
+                }
             }
         }
 
@@ -321,7 +312,7 @@ public class ChunkExporter {
             int regionZ = Integer.parseInt(coords[1]);
             Path entityFile = entitiesDir.resolve(String.format("r.%d.%d.mca", regionX, regionZ));
             try {
-                McaFileHelpers.write(entry.getValue(), entityFile.toFile());
+                McaWriteSupport.writeAtomically(entry.getValue(), entityFile);
                 WMLogger.debug("Wrote entities file " + entityFile.getFileName());
             } catch (Exception e) {
                 WMLogger.warn("Failed to write entities region " + entityFile.getFileName()
@@ -349,5 +340,9 @@ public class ChunkExporter {
         } catch (Exception e) {
             throw new RuntimeException("Failed to convert CompoundTag to Querz CompoundTag", e);
         }
+    }
+
+    private static String regionKey(int regionX, int regionZ) {
+        return regionX + "," + regionZ;
     }
 }

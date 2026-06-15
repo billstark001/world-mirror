@@ -5,6 +5,7 @@
   "key.worldmirror.clear":  "清除缓存数据",
   "key.worldmirror.toggle": "切换下载",
   "key.worldmirror.status": "打开状态界面",
+  "key.worldmirror.chunkMap": "打开区块地图",
 
   "config.worldmirror.saveLoc": "保存位置",
   "config.worldmirror.saveLoc.downloaded": "下载文件夹",
@@ -38,9 +39,12 @@
   "screen.worldmirror.status.exportNow":        "立即导出",
   "screen.worldmirror.status.clearData":        "清除缓存",
   "screen.worldmirror.status.noConflicts":      "无待解决冲突",
-  "screen.worldmirror.status.conflicts":        "待解决冲突",
+  "screen.worldmirror.status.conflicts":        "冲突区块数",
   "screen.worldmirror.status.overwriteAll":     "全部覆盖",
+  "screen.worldmirror.status.discardAll":       "全部丢弃",
   "screen.worldmirror.status.ignoreAll":        "全部忽略",
+  "screen.worldmirror.status.openChunkMap":     "打开区块地图",
+  "screen.worldmirror.status.exportNearby":     "导出附近区域…",
   "screen.worldmirror.status.saveLoc":          "保存位置",
   "screen.worldmirror.status.conflictStrategy": "冲突策略",
   "screen.worldmirror.status.openSettings":     "全局设置",
@@ -50,7 +54,22 @@
   "screen.worldmirror.tab.settings":        "设置",
   "screen.worldmirror.tab.conflicts":       "冲突",
   "screen.worldmirror.tab.settingsHeader":  "每世界设置",
-  "screen.worldmirror.tab.conflictsHeader": "冲突队列",
+  "screen.worldmirror.tab.conflictsHeader": "冲突区块",
+
+  "screen.worldmirror.chunkmap.title":          "区块地图",
+  "screen.worldmirror.chunkmap.refresh":        "刷新",
+  "screen.worldmirror.chunkmap.notDownloaded":  "§7未下载",
+  "screen.worldmirror.chunkmap.conflict":       "§c⚠ 冲突——服务器版本已暂存",
+  "screen.worldmirror.chunkmap.clickResolve":   "§7点击解决",
+  "screen.worldmirror.chunkmap.dialog.title":   "解决冲突",
+  "screen.worldmirror.chunkmap.dialog.prompt":  "应用服务器区块还是丢弃？",
+  "screen.worldmirror.chunkmap.dialog.overwrite": "覆盖",
+  "screen.worldmirror.chunkmap.dialog.discard": "丢弃",
+
+  "screen.worldmirror.exportNearby.title":      "导出附近区域",
+  "screen.worldmirror.exportNearby.worldName":  "世界名称",
+  "screen.worldmirror.exportNearby.radius":     "半径（区块）",
+  "screen.worldmirror.exportNearby.export":     "导出",
 
   "text.autoconfig.worldmirror.title": "World Mirror 设置",
 
@@ -87,6 +106,16 @@
 
   "text.autoconfig.worldmirror.option.cache.invalidateAfterExport": "导出后清除缓存",
   "text.autoconfig.worldmirror.option.cache.invalidateAfterExport.@Tooltip": "启用后，区块写入磁盘后立即从内存中移除。",
+
+  "text.autoconfig.worldmirror.option.chunkMap": "区块地图",
+
+  "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold": "稀疏渲染阈值",
+  "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold.@Tooltip": "当地图单元格尺寸小于或等于此值时，仅绘制已知区块和冲突，不绘制完整网格。",
+
+  "text.autoconfig.worldmirror.option.chunkMap.background": "地图背景",
+  "text.autoconfig.worldmirror.option.chunkMap.background.@Tooltip": "区块地图使用的背景样式。",
+  "text.autoconfig.worldmirror.option.chunkMap.background.black": "黑色",
+  "text.autoconfig.worldmirror.option.chunkMap.background.transparent": "透明",
 
   "text.autoconfig.worldmirror.option.lifecycle": "生命周期行为",
 
