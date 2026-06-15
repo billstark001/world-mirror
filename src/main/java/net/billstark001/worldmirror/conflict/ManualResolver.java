@@ -1,8 +1,7 @@
 package net.billstark001.worldmirror.conflict;
 
 import net.billstark001.worldmirror.util.WMLogger;
-import net.minecraft.util.math.ChunkPos;
-
+import net.minecraft.world.level.ChunkPos;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;

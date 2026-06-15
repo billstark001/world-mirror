@@ -5,18 +5,18 @@ import com.mojang.serialization.DynamicOps;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.block.enums.ChestType;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.component.ComponentChanges;
-import net.minecraft.item.ItemStack;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtElement;
-import net.minecraft.nbt.NbtList;
+import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.component.DataComponentPatch;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtOps;
-import net.minecraft.registry.Registries;
-import net.minecraft.text.Text;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
+import net.minecraft.nbt.Tag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.state.properties.ChestType;
 import org.jspecify.annotations.NonNull;
 
 import java.util.List;
@@ -26,13 +26,13 @@ import java.util.concurrent.ConcurrentHashMap;
 @Environment(EnvType.CLIENT)
 public class ContainerData {
     final BlockPos pos;
-    final Text name;
+    final Component name;
     final Map<Integer, ItemStack> containerSlots = new ConcurrentHashMap<>();
     int containerSize = 27;
     private ChestType chestType = null;
     private Direction facing = null;
 
-    ContainerData(BlockPos pos, Text name) {
+    ContainerData(BlockPos pos, Component name) {
         this.pos = pos;
         this.name = name;
     }
@@ -62,16 +62,16 @@ public class ContainerData {
         this.facing = facing;
     }
 
-    NbtCompound toNbt() {
-        NbtCompound containerNbt = getContainerNbtCompound();
+    CompoundTag toNbt() {
+        CompoundTag containerNbt = getContainerNbtCompound();
 
-        NbtList itemsList = new NbtList();
+        ListTag itemsList = new ListTag();
         for (Map.Entry<Integer, ItemStack> entry : this.containerSlots.entrySet()) {
             ItemStack stack = entry.getValue();
             if (stack.isEmpty())
                 continue;
             try {
-                NbtCompound itemNbt = serializeItemStack(stack, entry.getKey());
+                CompoundTag itemNbt = serializeItemStack(stack, entry.getKey());
                 if (itemNbt != null) {
                     itemsList.add(itemNbt);
                 }
@@ -84,8 +84,8 @@ public class ContainerData {
         return containerNbt;
     }
 
-    private @NonNull NbtCompound getContainerNbtCompound() {
-        NbtCompound containerNbt = new NbtCompound();
+    private @NonNull CompoundTag getContainerNbtCompound() {
+        CompoundTag containerNbt = new CompoundTag();
 
 
         containerNbt.putInt("x", this.pos.getX());
@@ -98,8 +98,8 @@ public class ContainerData {
 
         if (this.name != null && !this.name.getString().isEmpty() && !this.name.getString().equals("Chest")) {
             try {
-                MinecraftClient client = MinecraftClient.getInstance();
-                if (client.world != null) {
+                Minecraft client = Minecraft.getInstance();
+                if (client.level != null) {
                     String jsonName = this.name.getString();
                     containerNbt.putString("CustomName", jsonName);
                 } else {
@@ -112,15 +112,15 @@ public class ContainerData {
         return containerNbt;
     }
 
-    private NbtCompound serializeItemStack(ItemStack stack, int slot) {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client.world == null) return null;
+    private CompoundTag serializeItemStack(ItemStack stack, int slot) {
+        Minecraft client = Minecraft.getInstance();
+        if (client.level == null) return null;
 
         try {
-            NbtCompound itemNbt = new NbtCompound();
+            CompoundTag itemNbt = new CompoundTag();
 
 
-            String itemId = Registries.ITEM.getId(stack.getItem()).toString();
+            String itemId = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
             itemNbt.putString("id", itemId);
             itemNbt.putInt("count", stack.getCount());
             itemNbt.putByte("Slot", (byte) slot);
@@ -136,23 +136,23 @@ public class ContainerData {
         } catch (Exception e) {
             WMLogger.warn("Item serialization failed: " + e.getMessage());
 
-            NbtCompound basicItem = new NbtCompound();
-            basicItem.putString("id", Registries.ITEM.getId(stack.getItem()).toString());
+            CompoundTag basicItem = new CompoundTag();
+            basicItem.putString("id", BuiltInRegistries.ITEM.getKey(stack.getItem()).toString());
             basicItem.putInt("count", stack.getCount());
             basicItem.putByte("Slot", (byte) slot);
             return basicItem;
         }
     }
 
-    static void putItemStack(MinecraftClient client, NbtCompound itemNbt, ItemStack stack) {
-        DataResult<NbtElement> result = ComponentChanges.CODEC.encodeStart(
-                client.world.getRegistryManager().getOps((DynamicOps) NbtOps.INSTANCE),
-                stack.getComponentChanges()
+    static void putItemStack(Minecraft client, CompoundTag itemNbt, ItemStack stack) {
+        DataResult<Tag> result = DataComponentPatch.CODEC.encodeStart(
+                client.level.registryAccess().createSerializationContext((DynamicOps) NbtOps.INSTANCE),
+                stack.getComponentsPatch()
         );
 
         if (result.result().isPresent()) {
-            NbtElement componentsNbt = result.result().get();
-            if (componentsNbt instanceof NbtCompound components) {
+            Tag componentsNbt = result.result().get();
+            if (componentsNbt instanceof CompoundTag components) {
                 if (!components.isEmpty())
                     itemNbt.put("components", components);
             }

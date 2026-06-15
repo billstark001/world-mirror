@@ -3,7 +3,7 @@ package net.billstark001.worldmirror.mixin;
 import net.billstark001.worldmirror.io.ChunkSerializer;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.block.entity.ChestBlockEntity;
+import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import org.spongepowered.asm.mixin.Mixin;
 
 /**

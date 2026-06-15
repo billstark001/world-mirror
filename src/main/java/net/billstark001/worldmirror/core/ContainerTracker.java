@@ -7,34 +7,33 @@ import java.util.concurrent.ConcurrentHashMap;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.item.ItemStack;
-import net.minecraft.block.ChestBlock;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.hit.HitResult;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtList;
-import net.minecraft.text.Text;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.enums.ChestType;
-import net.minecraft.state.property.Property;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.world.World;
+import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.ChestType;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 
 @Environment(EnvType.CLIENT)
 public class ContainerTracker {
-    private record ContainerKey(RegistryKey<World> dimension, BlockPos pos) { }
+    private record ContainerKey(ResourceKey<Level> dimension, BlockPos pos) { }
 
     private static final Map<Integer, ContainerData> openContainers = new ConcurrentHashMap<>();
-    private static final Map<ContainerKey, NbtCompound> savedContainerData = new ConcurrentHashMap<>();
+    private static final Map<ContainerKey, CompoundTag> savedContainerData = new ConcurrentHashMap<>();
 
-    public static void onContainerOpened(int syncId, Text name) {
-        MinecraftClient client = MinecraftClient.getInstance();
-        HitResult HitResult = client.crosshairTarget;
+    public static void onContainerOpened(int syncId, Component name) {
+        Minecraft client = Minecraft.getInstance();
+        HitResult HitResult = client.hitResult;
         if (HitResult instanceof BlockHitResult blockHit) {
             BlockPos pos = blockHit.getBlockPos();
             openContainers.put(syncId, new ContainerData(pos, name));
@@ -69,12 +68,12 @@ public class ContainerTracker {
     }
 
     private static void handleRegularContainer(ContainerData container, List<ItemStack> contents, int containerSlots) {
-        RegistryKey<World> dimension = currentDimension();
+        ResourceKey<Level> dimension = currentDimension();
         if (dimension == null) {
             return;
         }
         container.setContainerInventory(contents, containerSlots);
-        NbtCompound containerNbt = container.toNbt();
+        CompoundTag containerNbt = container.toNbt();
         savedContainerData.put(new ContainerKey(dimension, container.pos), containerNbt);
 
         int nonEmptySlots = countNonEmptySlots(contents, containerSlots);
@@ -82,14 +81,14 @@ public class ContainerTracker {
     }
 
     private static void handleDoubleChest(ContainerData container, List<ItemStack> contents) {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client.world == null) {
+        Minecraft client = Minecraft.getInstance();
+        if (client.level == null) {
             handleRegularContainer(container, contents, 54);
 
             return;
         }
         BlockPos pos = container.pos;
-        BlockState blockState = client.world.getBlockState(pos);
+        BlockState blockState = client.level.getBlockState(pos);
 
 
         if (!(blockState.getBlock() instanceof ChestBlock)) {
@@ -98,9 +97,9 @@ public class ContainerTracker {
         }
         try {
             BlockPos leftChestPos, rightChestPos;
-            ChestType chestType = blockState.get(ChestBlock.CHEST_TYPE);
-            Direction facing = blockState.get(ChestBlock.FACING);
-            RegistryKey<World> dimension = client.world.getRegistryKey();
+            ChestType chestType = blockState.getValue(ChestBlock.TYPE);
+            Direction facing = blockState.getValue(ChestBlock.FACING);
+            ResourceKey<Level> dimension = client.level.dimension();
 
 
             if (chestType == ChestType.SINGLE) {
@@ -127,13 +126,13 @@ public class ContainerTracker {
             ContainerData leftContainer = new ContainerData(leftChestPos, container.name);
             leftContainer.setContainerInventory(leftChestItems, 27);
             leftContainer.setChestType(ChestType.LEFT, facing);
-            NbtCompound leftChestNbt = leftContainer.toNbt();
+            CompoundTag leftChestNbt = leftContainer.toNbt();
             savedContainerData.put(new ContainerKey(dimension, leftChestPos), leftChestNbt);
 
             ContainerData rightContainer = new ContainerData(rightChestPos, container.name);
             rightContainer.setContainerInventory(rightChestItems, 27);
             rightContainer.setChestType(ChestType.RIGHT, facing);
-            NbtCompound rightChestNbt = rightContainer.toNbt();
+            CompoundTag rightChestNbt = rightContainer.toNbt();
             savedContainerData.put(new ContainerKey(dimension, rightChestPos), rightChestNbt);
 
             int leftNonEmpty = countNonEmptySlots(leftChestItems, 27);
@@ -154,21 +153,21 @@ public class ContainerTracker {
         return switch (facing) {
             case NORTH -> {
                 adjacentDirection = isLeft ? Direction.WEST : Direction.EAST;
-                yield pos.offset(adjacentDirection);
+                yield pos.relative(adjacentDirection);
             }
             case SOUTH -> {
                 adjacentDirection = isLeft ? Direction.EAST : Direction.WEST;
-                yield pos.offset(adjacentDirection);
+                yield pos.relative(adjacentDirection);
             }
             case EAST -> {
                 adjacentDirection = isLeft ? Direction.NORTH : Direction.SOUTH;
-                yield pos.offset(adjacentDirection);
+                yield pos.relative(adjacentDirection);
             }
             case WEST -> {
                 adjacentDirection = isLeft ? Direction.SOUTH : Direction.NORTH;
-                yield pos.offset(adjacentDirection);
+                yield pos.relative(adjacentDirection);
             }
-            default -> pos.offset(adjacentDirection);
+            default -> pos.relative(adjacentDirection);
         };
     }
 
@@ -204,12 +203,12 @@ public class ContainerTracker {
         }
     }
 
-    public static NbtCompound getContainerData(RegistryKey<World> dimension, BlockPos pos) {
+    public static CompoundTag getContainerData(ResourceKey<Level> dimension, BlockPos pos) {
         if (dimension == null || pos == null) return null;
         return savedContainerData.get(new ContainerKey(dimension, pos));
     }
 
-    public static boolean hasContainerData(RegistryKey<World> dimension, BlockPos pos) {
+    public static boolean hasContainerData(ResourceKey<Level> dimension, BlockPos pos) {
         if (dimension == null || pos == null) return false;
         return savedContainerData.containsKey(new ContainerKey(dimension, pos));
     }
@@ -229,11 +228,11 @@ public class ContainerTracker {
      * @param evictedChunks the set of chunk positions whose container data should
      *                      be discarded
      */
-    public static void evictForChunks(Map<RegistryKey<World>, ? extends java.util.Collection<ChunkPos>> evictedByDim) {
+    public static void evictForChunks(Map<ResourceKey<Level>, ? extends java.util.Collection<ChunkPos>> evictedByDim) {
         if (evictedByDim == null || evictedByDim.isEmpty()) return;
 
-        Map<RegistryKey<World>, java.util.Set<ChunkPos>> normalized = new java.util.HashMap<>();
-        for (Map.Entry<RegistryKey<World>, ? extends java.util.Collection<ChunkPos>> entry : evictedByDim.entrySet()) {
+        Map<ResourceKey<Level>, java.util.Set<ChunkPos>> normalized = new java.util.HashMap<>();
+        for (Map.Entry<ResourceKey<Level>, ? extends java.util.Collection<ChunkPos>> entry : evictedByDim.entrySet()) {
             java.util.Collection<ChunkPos> chunks = entry.getValue();
             if (chunks == null || chunks.isEmpty()) continue;
             normalized.put(entry.getKey(), chunks instanceof java.util.Set<?>
@@ -262,20 +261,20 @@ public class ContainerTracker {
     }
 
 
-    public static NbtCompound enhanceBlockEntityWithContainerData(BlockEntity blockEntity, NbtCompound originalNbt) {
+    public static CompoundTag enhanceBlockEntityWithContainerData(BlockEntity blockEntity, CompoundTag originalNbt) {
         if (originalNbt == null) {
             return null;
         }
-        BlockPos pos = blockEntity.getPos();
-        RegistryKey<World> dimension = blockEntity.getWorld() != null
-                ? blockEntity.getWorld().getRegistryKey()
+        BlockPos pos = blockEntity.getBlockPos();
+        ResourceKey<Level> dimension = blockEntity.getLevel() != null
+                ? blockEntity.getLevel().dimension()
                 : currentDimension();
-        NbtCompound containerData = getContainerData(dimension, pos);
+        CompoundTag containerData = getContainerData(dimension, pos);
 
         if (containerData != null) {
             if (containerData.contains("Items")) {
                 originalNbt.put("Items", containerData.get("Items"));
-                NbtList items = (NbtList) containerData.get("Items");
+                ListTag items = (ListTag) containerData.get("Items");
                 if (items != null) {
                     WMLogger.debug("Enhanced block entity at " + pos + " with " + items.size() + " items");
                 } else {
@@ -290,8 +289,8 @@ public class ContainerTracker {
         return originalNbt;
     }
 
-    private static RegistryKey<World> currentDimension() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        return client.world != null ? client.world.getRegistryKey() : null;
+    private static ResourceKey<Level> currentDimension() {
+        Minecraft client = Minecraft.getInstance();
+        return client.level != null ? client.level.dimension() : null;
     }
 }

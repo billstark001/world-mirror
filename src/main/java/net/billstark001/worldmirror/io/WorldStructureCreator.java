@@ -5,22 +5,25 @@ import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.SharedConstants;
-import net.minecraft.entity.boss.dragon.EnderDragonFight;
+import net.minecraft.core.MappedRegistry;
+import net.minecraft.core.Registry;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.*;
-import net.minecraft.registry.*;
-import net.minecraft.resource.DataConfiguration;
-import net.minecraft.resource.featuretoggle.FeatureSet;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.util.Util;
-import net.minecraft.util.Uuids;
 import net.minecraft.world.Difficulty;
-import net.minecraft.world.GameMode;
-import net.minecraft.world.WorldProperties;
-import net.minecraft.world.border.WorldBorder;
-import net.minecraft.world.dimension.DimensionOptions;
-import net.minecraft.world.gen.GeneratorOptions;
-import net.minecraft.world.level.LevelInfo;
-import net.minecraft.world.level.LevelProperties;
-import net.minecraft.world.rule.GameRules;
+import net.minecraft.world.flag.FeatureFlagSet;
+import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.LevelSettings;
+import net.minecraft.world.level.WorldDataConfiguration;
+import net.minecraft.world.level.border.WorldBorder;
+import net.minecraft.world.level.dimension.LevelStem;
+import net.minecraft.world.level.dimension.end.EndDragonFight;
+import net.minecraft.world.level.gamerules.GameRules;
+import net.minecraft.world.level.levelgen.WorldOptions;
+import net.minecraft.world.level.storage.LevelData;
+import net.minecraft.world.level.storage.PrimaryLevelData;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
@@ -38,12 +41,12 @@ public class WorldStructureCreator {
     private static final long DEFAULT_SEED = 0L;
     private static final long DEFAULT_DAYTIME = 6000L;
 
-    public static NbtCompound createFlatGenerator() {
-        NbtCompound generator = new NbtCompound();
+    public static CompoundTag createFlatGenerator() {
+        CompoundTag generator = new CompoundTag();
 
-        NbtCompound settings = new NbtCompound();
-        settings.put("layers", new NbtList());
-        settings.put("structure_overrides", new NbtList());
+        CompoundTag settings = new CompoundTag();
+        settings.put("layers", new ListTag());
+        settings.put("structure_overrides", new ListTag());
         settings.putString("biome", "minecraft:the_void");
         settings.putByte("features", (byte) 1);
         settings.putByte("lakes", (byte) 0);
@@ -53,26 +56,26 @@ public class WorldStructureCreator {
         return generator;
     }
 
-    public static NbtCompound createFlatWorldGenSettings() {
-        NbtCompound worldGenSettings = new NbtCompound();
+    public static CompoundTag createFlatWorldGenSettings() {
+        CompoundTag worldGenSettings = new CompoundTag();
 
         // --- dimensions ---
-        NbtCompound dimensions = new NbtCompound();
+        CompoundTag dimensions = new CompoundTag();
 
         // minecraft:overworld
-        NbtCompound overworld = new NbtCompound();
+        CompoundTag overworld = new CompoundTag();
         overworld.put("generator", createFlatGenerator());
         overworld.putString("type", "minecraft:overworld");
         dimensions.put("minecraft:overworld", overworld);
 
         // minecraft:the_end
-        NbtCompound theEnd = new NbtCompound();
+        CompoundTag theEnd = new CompoundTag();
         theEnd.put("generator", createFlatGenerator());
         theEnd.putString("type", "minecraft:the_end");
         dimensions.put("minecraft:the_end", theEnd);
 
         // minecraft:the_nether
-        NbtCompound theNether = new NbtCompound();
+        CompoundTag theNether = new CompoundTag();
         theNether.put("generator", createFlatGenerator());
         theNether.putString("type", "minecraft:the_nether");
         dimensions.put("minecraft:the_nether", theNether);
@@ -85,35 +88,35 @@ public class WorldStructureCreator {
         return worldGenSettings;
     }
 
-    public static NbtCompound createSpawnSettings(int x, int y, int z) {
-        NbtCompound spawnSettings = new NbtCompound();
+    public static CompoundTag createSpawnSettings(int x, int y, int z) {
+        CompoundTag spawnSettings = new CompoundTag();
         spawnSettings.putString("dimension", "minecraft:overworld");
         spawnSettings.putInt("pitch", 0);
         spawnSettings.putInt("yaw", 0);
-        NbtIntArray pos = new NbtIntArray(new int[] {x, y, z});
+        IntArrayTag pos = new IntArrayTag(new int[] {x, y, z});
         spawnSettings.put("pos", pos);
         return spawnSettings;
     }
 
-    public static NbtCompound createPlayerData() {
-        NbtCompound player = new NbtCompound();
+    public static CompoundTag createPlayerData() {
+        CompoundTag player = new CompoundTag();
         player.putString("Dimension", "minecraft:overworld");
 
-        NbtList pos = new NbtList();
-        pos.add(NbtDouble.of(0.0D));
-        pos.add(NbtDouble.of(80.0D));
-        pos.add(NbtDouble.of(0.0D));
+        ListTag pos = new ListTag();
+        pos.add(DoubleTag.valueOf(0.0D));
+        pos.add(DoubleTag.valueOf(80.0D));
+        pos.add(DoubleTag.valueOf(0.0D));
         player.put("Pos", pos);
 
-        NbtList rotation = new NbtList();
-        rotation.add(NbtFloat.of(0.0F));
-        rotation.add(NbtFloat.of(0.0F));
+        ListTag rotation = new ListTag();
+        rotation.add(FloatTag.valueOf(0.0F));
+        rotation.add(FloatTag.valueOf(0.0F));
         player.put("Rotation", rotation);
 
-        NbtList motion = new NbtList();
-        motion.add(NbtDouble.of(0.0D));
-        motion.add(NbtDouble.of(0.0D));
-        motion.add(NbtDouble.of(0.0D));
+        ListTag motion = new ListTag();
+        motion.add(DoubleTag.valueOf(0.0D));
+        motion.add(DoubleTag.valueOf(0.0D));
+        motion.add(DoubleTag.valueOf(0.0D));
         player.put("Motion", motion);
 
         player.putFloat("Health", 20.0F);
@@ -123,8 +126,8 @@ public class WorldStructureCreator {
         player.putShort("Air", (short) 300);
         player.putShort("Fire", (short) -20);
 
-        player.put("Inventory", new NbtList());
-        player.put("EnderItems", new NbtList());
+        player.put("Inventory", new ListTag());
+        player.put("EnderItems", new ListTag());
 
         return player;
     }
@@ -134,21 +137,21 @@ public class WorldStructureCreator {
     }
 
     @SuppressWarnings({"deprecated"})
-    private static LevelProperties instantiateLevelProperties(String levelName) {
-        LevelInfo levelInfo = new LevelInfo(
+    private static PrimaryLevelData instantiateLevelProperties(String levelName) {
+        LevelSettings levelInfo = new LevelSettings(
                 levelName,
-                GameMode.CREATIVE,
+                GameType.CREATIVE,
                 false,
                 Difficulty.PEACEFUL,
                 true,
-                new GameRules(FeatureSet.empty()),
-                DataConfiguration.SAFE_MODE
+                new GameRules(FeatureFlagSet.of()),
+                WorldDataConfiguration.DEFAULT
         );
-        GeneratorOptions generatorOptions = new GeneratorOptions(DEFAULT_SEED, false, false);
-        @SuppressWarnings("deprecation") LevelProperties properties = new LevelProperties(
+        WorldOptions generatorOptions = new WorldOptions(DEFAULT_SEED, false, false);
+        @SuppressWarnings("deprecation") PrimaryLevelData properties = new PrimaryLevelData(
                 levelInfo,
                 generatorOptions,
-                LevelProperties.SpecialProperty.FLAT,
+                PrimaryLevelData.SpecialWorldProperty.FLAT,
                 Lifecycle.stable()
         );
 
@@ -159,79 +162,79 @@ public class WorldStructureCreator {
         properties.setThundering(false);
         properties.setThunderTime(0);
         properties.setClearWeatherTime(0);
-        properties.setTime(DEFAULT_DAYTIME);
-        properties.setTimeOfDay(DEFAULT_DAYTIME);
+        properties.setGameTime(DEFAULT_DAYTIME);
+        properties.setDayTime(DEFAULT_DAYTIME);
 
         return properties;
     }
 
-    private static NbtList createStringList(Set<String> strings) {
-        NbtList nbtList = new NbtList();
-        Stream<NbtString> var10000 = strings.stream().map(NbtString::of);
+    private static ListTag createStringList(Set<String> strings) {
+        ListTag nbtList = new ListTag();
+        Stream<StringTag> var10000 = strings.stream().map(StringTag::valueOf);
         Objects.requireNonNull(nbtList);
         var10000.forEach(nbtList::add);
         return nbtList;
     }
 
     /**
-     * Matches the implementation of the corresponding method in {@link LevelProperties}
+     * Matches the implementation of the corresponding method in {@link PrimaryLevelData}
      * as of Minecraft version 1.21.11.
      * * <p>This implementation substitutes or omits world gen information, as {@code ClientWorld}
      * does not provide such data.</p>
      * * <p><b>Maintenance Note:</b> During future mod updates, it is critical to ensure this
      * implementation maintains parity with the latest upstream logic in {@code LevelProperties}.</p>
      */
-    private static NbtCompound serializeLevelProperties(LevelProperties properties, @Nullable NbtCompound playerNbt) {
+    private static CompoundTag serializeLevelProperties(PrimaryLevelData properties, @Nullable CompoundTag playerNbt) {
 
-        NbtCompound levelNbt = new NbtCompound();
+        CompoundTag levelNbt = new CompoundTag();
 
-        levelNbt.put("ServerBrands", createStringList(properties.getServerBrands()));
-        levelNbt.putBoolean("WasModded", properties.isModded());
+        levelNbt.put("ServerBrands", createStringList(properties.getKnownServerBrands()));
+        levelNbt.putBoolean("WasModded", properties.wasModded());
 
-        NbtCompound nbtCompound = new NbtCompound();
-        nbtCompound.putString("Name", SharedConstants.getGameVersion().name());
-        nbtCompound.putInt("Id", SharedConstants.getGameVersion().dataVersion().id());
-        nbtCompound.putBoolean("Snapshot", !SharedConstants.getGameVersion().stable());
-        nbtCompound.putString("Series", SharedConstants.getGameVersion().dataVersion().series());
+        CompoundTag nbtCompound = new CompoundTag();
+        nbtCompound.putString("Name", SharedConstants.getCurrentVersion().name());
+        nbtCompound.putInt("Id", SharedConstants.getCurrentVersion().dataVersion().version());
+        nbtCompound.putBoolean("Snapshot", !SharedConstants.getCurrentVersion().stable());
+        nbtCompound.putString("Series", SharedConstants.getCurrentVersion().dataVersion().series());
         levelNbt.put("Version", nbtCompound);
-        NbtHelper.putDataVersion(levelNbt);
+        NbtUtils.addCurrentDataVersion(levelNbt);
 
         // world gen settings removed
 
-        levelNbt.putInt("GameType", properties.getLevelInfo().getGameMode().getIndex());
-        levelNbt.put("spawn", WorldProperties.SpawnPoint.CODEC, properties.getSpawnPoint());
-        levelNbt.putLong("Time", properties.getTime());
-        levelNbt.putLong("DayTime", properties.getTimeOfDay());
-        levelNbt.putLong("LastPlayed", Util.getEpochTimeMs());
-        levelNbt.putString("LevelName", properties.getLevelInfo().getLevelName());
+        levelNbt.putInt("GameType", properties.getLevelSettings().gameType().getId());
+        levelNbt.store("spawn", LevelData.RespawnData.CODEC, properties.getRespawnData());
+        levelNbt.putLong("Time", properties.getGameTime());
+        levelNbt.putLong("DayTime", properties.getDayTime());
+        levelNbt.putLong("LastPlayed", Util.getEpochMillis());
+        levelNbt.putString("LevelName", properties.getLevelSettings().levelName());
         levelNbt.putInt("version", 19133);
         levelNbt.putInt("clearWeatherTime", properties.getClearWeatherTime());
         levelNbt.putInt("rainTime", properties.getRainTime());
         levelNbt.putBoolean("raining", properties.isRaining());
         levelNbt.putInt("thunderTime", properties.getThunderTime());
         levelNbt.putBoolean("thundering", properties.isThundering());
-        levelNbt.putBoolean("hardcore", properties.getLevelInfo().isHardcore());
-        levelNbt.putBoolean("allowCommands", properties.getLevelInfo().areCommandsAllowed());
+        levelNbt.putBoolean("hardcore", properties.getLevelSettings().hardcore());
+        levelNbt.putBoolean("allowCommands", properties.getLevelSettings().allowCommands());
         levelNbt.putBoolean("initialized", properties.isInitialized());
-        properties.getWorldBorder().ifPresent((worldBorder) -> levelNbt.put("world_border", WorldBorder.Properties.CODEC, worldBorder));
-        levelNbt.putByte("Difficulty", (byte) properties.getLevelInfo().getDifficulty().getId());
+        properties.getLegacyWorldBorderSettings().ifPresent((worldBorder) -> levelNbt.store("world_border", WorldBorder.Settings.CODEC, worldBorder));
+        levelNbt.putByte("Difficulty", (byte) properties.getLevelSettings().difficulty().getId());
         levelNbt.putBoolean("DifficultyLocked", properties.isDifficultyLocked());
-        levelNbt.put("game_rules", GameRules.createCodec(properties.getEnabledFeatures()), properties.getLevelInfo().getGameRules());
-        levelNbt.put("DragonFight", EnderDragonFight.Data.CODEC, properties.getDragonFight());
+        levelNbt.store("game_rules", GameRules.codec(properties.enabledFeatures()), properties.getLevelSettings().gameRules());
+        levelNbt.store("DragonFight", EndDragonFight.Data.CODEC, properties.endDragonFightData());
 
         if (playerNbt != null) {
             levelNbt.put("Player", playerNbt);
         }
 
-        levelNbt.copyFromCodec(DataConfiguration.MAP_CODEC, properties.getLevelInfo().getDataConfiguration());
+        levelNbt.store(WorldDataConfiguration.MAP_CODEC, properties.getLevelSettings().getDataConfiguration());
         if (properties.getCustomBossEvents() != null) {
             levelNbt.put("CustomBossEvents", properties.getCustomBossEvents());
         }
 
-        levelNbt.put("ScheduledEvents", properties.getScheduledEvents().toNbt());
+        levelNbt.put("ScheduledEvents", properties.getScheduledEvents().store());
         levelNbt.putInt("WanderingTraderSpawnDelay", properties.getWanderingTraderSpawnDelay());
         levelNbt.putInt("WanderingTraderSpawnChance", properties.getWanderingTraderSpawnChance());
-        levelNbt.putNullable("WanderingTraderId", Uuids.INT_STREAM_CODEC, properties.getWanderingTraderId());
+        levelNbt.storeNullable("WanderingTraderId", UUIDUtil.CODEC, properties.getWanderingTraderId());
 
         return levelNbt;
     }
@@ -240,21 +243,21 @@ public class WorldStructureCreator {
      * New preferred path: build world data through LevelProperties and then patch
      * fields that must stay equivalent to our historical mirror world output.
      */
-    public static NbtCompound createWorldDataFromLevelProperties(String levelName) {
+    public static CompoundTag createWorldDataFromLevelProperties(String levelName) {
         String resolvedLevelName = normalizeLevelName(levelName);
 
-        SimpleRegistry<Registry<?>> registries = new SimpleRegistry<>(
-                RegistryKey.ofRegistry(RegistryKeys.ROOT),
+        MappedRegistry<Registry<?>> registries = new MappedRegistry<>(
+                ResourceKey.createRegistryKey(Registries.ROOT_REGISTRY_NAME),
                 Lifecycle.stable(),
                 true
         );
-        SimpleRegistry<DimensionOptions> dimensionOptions = new SimpleRegistry<>(RegistryKeys.DIMENSION, Lifecycle.stable(), true);
-        registries.createEntry(dimensionOptions);
+        MappedRegistry<LevelStem> dimensionOptions = new MappedRegistry<>(Registries.LEVEL_STEM, Lifecycle.stable(), true);
+        registries.createIntrusiveHolder(dimensionOptions);
 
-        NbtCompound player = createPlayerData();
+        CompoundTag player = createPlayerData();
 
-        LevelProperties properties = instantiateLevelProperties(resolvedLevelName);
-        NbtCompound data = serializeLevelProperties(properties, player);
+        PrimaryLevelData properties = instantiateLevelProperties(resolvedLevelName);
+        CompoundTag data = serializeLevelProperties(properties, player);
 
         // Preserve the existing mirror-world generation profile and spawn shape.
         data.put("WorldGenSettings", createFlatWorldGenSettings());
@@ -294,8 +297,8 @@ public class WorldStructureCreator {
             }
             // Only write level.dat on first creation; on subsequent syncs just refresh session.lock.
             if (firstTime) {
-                NbtCompound root = new NbtCompound();
-                NbtCompound data = createWorldDataFromLevelProperties(levelName);
+                CompoundTag root = new CompoundTag();
+                CompoundTag data = createWorldDataFromLevelProperties(levelName);
                 root.put("Data", data);
 
                 File levelDat = worldFolderPath.resolve("level.dat").toFile();

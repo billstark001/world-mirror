@@ -20,7 +20,7 @@ import java.util.regex.Pattern;
  * <p>
  * Stored in {@code config/worldmirror/mirrors.json}.
  * Keys are the {@code sourceId} strings produced by
- * {@link WorldMetadata#detectSourceId(net.minecraft.client.MinecraftClient)},
+ * {@link WorldMetadata#detectSourceId(net.minecraft.client.Minecraft)},
  * e.g. {@code "server:play.example.com"} or {@code "local:MyWorld"}.
  * Values are sanitised folder names.
  * <p>

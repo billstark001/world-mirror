@@ -10,62 +10,62 @@ import net.billstark001.worldmirror.io.NbtWriteView;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.entity.Entity;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.registry.Registries;
-import net.minecraft.storage.WriteView;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.world.World;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.storage.ValueOutput;
+import net.minecraft.world.phys.Vec3;
 
 @Environment(EnvType.CLIENT)
 public class EntityTracker {
 
     // dimension → (chunkPos → entity list)
-    private static final ConcurrentHashMap<RegistryKey<World>, Map<ChunkPos, List<NbtCompound>>>
+    private static final ConcurrentHashMap<ResourceKey<Level>, Map<ChunkPos, List<CompoundTag>>>
             dimChunkEntities = new ConcurrentHashMap<>();
 
     /**
      * Captures all non-player entities in the given world and stores them under
      * that world's dimension key.  Must be called on the game thread.
      * <p>
-     * Each entity is serialized via {@link Entity#writeData(WriteView)}}, which
+     * Each entity is serialized via {@link Entity#saveWithoutId(ValueOutput)}}, which
      * covers every entity type — including paintings (motive / facing / attachment
      * position), item frames (held item, rotation), armour stands (pose, equipment,
      * flags), dropped items, mobs, animals, and more.  The entity type identifier
      * is prepended as the {@code id} key before calling {@code writeData} so the
      * resulting NBT is compatible with Minecraft's region-file format.
      */
-    public static void captureEntitiesForWorld(ClientWorld world) {
+    public static void captureEntitiesForWorld(ClientLevel world) {
         if (world == null) {
             WMLogger.warn("ClientWorld is null, cannot capture entities.");
             return;
         }
 
-        RegistryKey<World> dimension = world.getRegistryKey();
+        ResourceKey<Level> dimension = world.dimension();
         Map<ChunkPos, ChunkListener.CapturedChunk> capturedChunks =
                 ChunkListener.getDimension(dimension);
 
-        Map<ChunkPos, List<NbtCompound>> dimEntities = new ConcurrentHashMap<>();
+        Map<ChunkPos, List<CompoundTag>> dimEntities = new ConcurrentHashMap<>();
         int total = 0;
 
-        for (Entity entity : world.getEntities()) {
-            if (entity == null || entity instanceof net.minecraft.entity.player.PlayerEntity) continue;
+        for (Entity entity : world.entitiesForRendering()) {
+            if (entity == null || entity instanceof net.minecraft.world.entity.player.Player) continue;
 
-            Vec3d pos = entity.getEntityPos();
+            Vec3 pos = entity.position();
             int cx = (int) Math.floor(pos.x) >> 4;
             int cz = (int) Math.floor(pos.z) >> 4;
             ChunkPos chunkPos = new ChunkPos(cx, cz);
 
             if (capturedChunks.containsKey(chunkPos)) {
                 try {
-                    NbtCompound nbt = serializeEntity(entity);
+                    CompoundTag nbt = serializeEntity(entity);
                     if (nbt != null) {
                         dimEntities.computeIfAbsent(chunkPos, k -> new ArrayList<>()).add(nbt);
                         total++;
-                        WMLogger.debug("Captured " + Registries.ENTITY_TYPE.getId(entity.getType())
+                        WMLogger.debug("Captured " + BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType())
                                 + " at " + pos + " in chunk " + chunkPos);
                     }
                 } catch (Exception e) {
@@ -75,18 +75,18 @@ public class EntityTracker {
         }
 
         dimChunkEntities.put(dimension, dimEntities);
-        WMLogger.info("Captured " + total + " entities for [" + dimension.getValue() + "]");
+        WMLogger.info("Captured " + total + " entities for [" + dimension.identifier() + "]");
     }
 
     /**
      * Returns an immutable snapshot of all entity data, safe to read from any thread.
      */
-    public static Map<RegistryKey<World>, Map<ChunkPos, List<NbtCompound>>> snapshot() {
-        Map<RegistryKey<World>, Map<ChunkPos, List<NbtCompound>>> result = new HashMap<>();
-        for (Map.Entry<RegistryKey<World>, Map<ChunkPos, List<NbtCompound>>> dimEntry
+    public static Map<ResourceKey<Level>, Map<ChunkPos, List<CompoundTag>>> snapshot() {
+        Map<ResourceKey<Level>, Map<ChunkPos, List<CompoundTag>>> result = new HashMap<>();
+        for (Map.Entry<ResourceKey<Level>, Map<ChunkPos, List<CompoundTag>>> dimEntry
                 : dimChunkEntities.entrySet()) {
-            Map<ChunkPos, List<NbtCompound>> dimCopy = new HashMap<>();
-            for (Map.Entry<ChunkPos, List<NbtCompound>> chunkEntry : dimEntry.getValue().entrySet()) {
+            Map<ChunkPos, List<CompoundTag>> dimCopy = new HashMap<>();
+            for (Map.Entry<ChunkPos, List<CompoundTag>> chunkEntry : dimEntry.getValue().entrySet()) {
                 dimCopy.put(chunkEntry.getKey(), new ArrayList<>(chunkEntry.getValue()));
             }
             result.put(dimEntry.getKey(), dimCopy);
@@ -95,10 +95,10 @@ public class EntityTracker {
     }
 
     /** Looks up entities in a pre-fetched per-dimension entity map (for use inside ChunkExporter). */
-    public static List<NbtCompound> getEntitiesForChunk(
-            Map<ChunkPos, List<NbtCompound>> dimEntities, ChunkPos pos) {
+    public static List<CompoundTag> getEntitiesForChunk(
+            Map<ChunkPos, List<CompoundTag>> dimEntities, ChunkPos pos) {
         if (dimEntities == null) return List.of();
-        List<NbtCompound> list = dimEntities.get(pos);
+        List<CompoundTag> list = dimEntities.get(pos);
         return (list != null) ? list : List.of();
     }
 
@@ -121,14 +121,14 @@ public class EntityTracker {
     public static void pruneToMatchCapturedChunks() {
         int removedChunks = 0;
         int removedEntities = 0;
-        List<RegistryKey<World>> emptyDims = new ArrayList<>();
+        List<ResourceKey<Level>> emptyDims = new ArrayList<>();
 
-        for (Map.Entry<RegistryKey<World>, Map<ChunkPos, List<NbtCompound>>> dimEntry
+        for (Map.Entry<ResourceKey<Level>, Map<ChunkPos, List<CompoundTag>>> dimEntry
                 : dimChunkEntities.entrySet()) {
-            RegistryKey<World> dimension = dimEntry.getKey();
+            ResourceKey<Level> dimension = dimEntry.getKey();
             Map<ChunkPos, ChunkListener.CapturedChunk> capturedChunks =
                     ChunkListener.getDimension(dimension);
-            Map<ChunkPos, List<NbtCompound>> entitiesByChunk = dimEntry.getValue();
+            Map<ChunkPos, List<CompoundTag>> entitiesByChunk = dimEntry.getValue();
 
             if (capturedChunks.isEmpty()) {
                 removedChunks += entitiesByChunk.size();
@@ -138,7 +138,7 @@ public class EntityTracker {
             }
 
             List<ChunkPos> staleChunks = new ArrayList<>();
-            for (Map.Entry<ChunkPos, List<NbtCompound>> chunkEntry : entitiesByChunk.entrySet()) {
+            for (Map.Entry<ChunkPos, List<CompoundTag>> chunkEntry : entitiesByChunk.entrySet()) {
                 if (!capturedChunks.containsKey(chunkEntry.getKey())) {
                     staleChunks.add(chunkEntry.getKey());
                     removedEntities += chunkEntry.getValue().size();
@@ -153,7 +153,7 @@ public class EntityTracker {
             }
         }
 
-        for (RegistryKey<World> dimension : emptyDims) {
+        for (ResourceKey<Level> dimension : emptyDims) {
             dimChunkEntities.remove(dimension);
         }
 
@@ -168,13 +168,13 @@ public class EntityTracker {
     /**
      * Serializes {@code entity} to NBT for storage in the entities region file.
      * <p>
-     * In Minecraft 1.21 the old {@code Entity.writeNbt(NbtCompound)} method was
-     * replaced by {@code Entity.writeData(net.minecraft.storage.WriteView)}.
+     * In Minecraft 1.21 the old {@code Entity.writeNbt(CompoundTag)} method was
+     * replaced by {@code Entity.writeData(net.minecraft.world.level.storage.ValueOutput)}.
      */
-    private static NbtCompound serializeEntity(Entity entity) {
+    private static CompoundTag serializeEntity(Entity entity) {
         try {
             NbtWriteView view = new NbtWriteView();
-            entity.writeData(view);
+            entity.saveWithoutId(view);
             return view.getCompound();
         } catch (Exception e) {
             WMLogger.warn("Failed to serialize entity " + entity.getType() + ": " + e.getMessage());

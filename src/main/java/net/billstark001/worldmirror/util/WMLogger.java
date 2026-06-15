@@ -1,8 +1,8 @@
 package net.billstark001.worldmirror.util;
 
 import net.billstark001.worldmirror.config.ModConfig;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.text.Text;
+import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,7 +47,7 @@ public final class WMLogger {
         if (level.ordinal() < ModConfig.get().logLevel.ordinal()) {
             return;
         }
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         if (client == null) {
             return;
         }
@@ -56,11 +56,11 @@ public final class WMLogger {
             case INFO    -> "§f[WM] ";
             case WARNING -> "§e[WM WARN] ";
         };
-        Text text = Text.literal(prefix + msg);
+        Component text = Component.literal(prefix + msg);
         // Always dispatch onto the main (render) thread to avoid thread-safety issues.
         client.execute(() -> {
             if (client.player != null) {
-                client.player.sendMessage(text, false);
+                client.player.displayClientMessage(text, false);
             }
         });
     }

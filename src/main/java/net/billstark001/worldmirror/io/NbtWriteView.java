@@ -3,25 +3,25 @@ package net.billstark001.worldmirror.io;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DynamicOps;
 import com.mojang.serialization.MapCodec;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtElement;
-import net.minecraft.nbt.NbtList;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtOps;
-import net.minecraft.storage.WriteView;
+import net.minecraft.nbt.Tag;
+import net.minecraft.world.level.storage.ValueOutput;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Implementation class that bridges WriteView operations to NbtCompound.
+ * Implementation class that bridges ValueOutput operations to CompoundTag.
  */
-public class NbtWriteView implements WriteView {
-    private final NbtCompound compound;
-    private final DynamicOps<NbtElement> ops;
+public class NbtWriteView implements ValueOutput {
+    private final CompoundTag compound;
+    private final DynamicOps<Tag> ops;
 
     /**
      * @param compound Target NBT compound tag
      * @param ops      Dynamic operations' provider. If you need registry context during serialization (e.g., enchantments, items), pass RegistryOps
      */
-    public NbtWriteView(NbtCompound compound, DynamicOps<NbtElement> ops) {
+    public NbtWriteView(CompoundTag compound, DynamicOps<Tag> ops) {
         this.compound = compound;
         this.ops = ops;
     }
@@ -30,39 +30,39 @@ public class NbtWriteView implements WriteView {
      * Default constructor that uses native NbtOps (without registry context).
      */
     public NbtWriteView() {
-        this(new NbtCompound(), NbtOps.INSTANCE);
+        this(new CompoundTag(), NbtOps.INSTANCE);
     }
 
     /**
-     * Gets the final NbtCompound containing the written data.
+     * Gets the final CompoundTag containing the written data.
      */
-    public NbtCompound getCompound() {
+    public CompoundTag getCompound() {
         return this.compound;
     }
 
     @Override
-    public <T> void put(String key, Codec<T> codec, T value) {
+    public <T> void store(String key, Codec<T> codec, T value) {
         codec.encodeStart(this.ops, value)
                 .resultOrPartial(err -> { /* Error logging can be added here */ })
                 .ifPresent(element -> this.compound.put(key, element));
     }
 
     @Override
-    public <T> void putNullable(String key, Codec<T> codec, @Nullable T value) {
+    public <T> void storeNullable(String key, Codec<T> codec, @Nullable T value) {
         if (value != null) {
-            this.put(key, codec, value);
+            this.store(key, codec, value);
         }
     }
 
     @Override
     @Deprecated
-    public <T> void put(MapCodec<T> codec, T value) {
+    public <T> void store(MapCodec<T> codec, T value) {
         // MapCodec generates key-value pairs. We need to build them as a Compound and merge into the current compound
         codec.encode(value, this.ops, this.ops.mapBuilder()).build(this.ops.empty())
                 .resultOrPartial(err -> {})
                 .ifPresent(element -> {
-                    if (element instanceof NbtCompound mapCompound) {
-                        this.compound.copyFrom(mapCompound);
+                    if (element instanceof CompoundTag mapCompound) {
+                        this.compound.merge(mapCompound);
                     }
                 });
     }
@@ -113,28 +113,28 @@ public class NbtWriteView implements WriteView {
     }
 
     @Override
-    public WriteView get(String key) {
-        NbtCompound child = new NbtCompound();
+    public ValueOutput child(String key) {
+        CompoundTag child = new CompoundTag();
         this.compound.put(key, child);
         return new NbtWriteView(child, this.ops);
     }
 
     @Override
-    public ListView getList(String key) {
-        NbtList list = new NbtList();
+    public ValueOutputList childrenList(String key) {
+        ListTag list = new ListTag();
         this.compound.put(key, list);
         return new NbtListView(list, this.ops);
     }
 
     @Override
-    public <T> ListAppender<T> getListAppender(String key, Codec<T> codec) {
-        NbtList list = new NbtList();
+    public <T> TypedOutputList<T> list(String key, Codec<T> codec) {
+        ListTag list = new ListTag();
         this.compound.put(key, list);
         return new NbtListAppender<>(list, codec, this.ops);
     }
 
     @Override
-    public void remove(String key) {
+    public void discard(String key) {
         this.compound.remove(key);
     }
 
@@ -148,19 +148,19 @@ public class NbtWriteView implements WriteView {
     // ==========================================
 
     private record NbtListView(
-            NbtList list,
-            DynamicOps<NbtElement> ops
-    ) implements ListView {
+            ListTag list,
+            DynamicOps<Tag> ops
+    ) implements ValueOutputList {
 
         @Override
-            public WriteView add() {
-                NbtCompound child = new NbtCompound();
+            public ValueOutput addChild() {
+                CompoundTag child = new CompoundTag();
                 this.list.add(child);
                 return new NbtWriteView(child, this.ops);
             }
 
             @Override
-            public void removeLast() {
+            public void discardLast() {
                 if (!this.list.isEmpty()) {
                     this.list.removeLast();
                 }
@@ -173,10 +173,10 @@ public class NbtWriteView implements WriteView {
         }
 
     private record NbtListAppender<T>(
-            NbtList list,
+            ListTag list,
             Codec<T> codec,
-            DynamicOps<NbtElement> ops
-    ) implements ListAppender<T> {
+            DynamicOps<Tag> ops
+    ) implements TypedOutputList<T> {
 
         @Override
             public void add(T value) {
