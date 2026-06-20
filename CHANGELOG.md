@@ -5,6 +5,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.2] — 2026-06-20
+
+### Changed
+
+- Version bump: `0.2.1` → `0.2.2`.
+- Updated the Minecraft/Fabric dependency set to `26.1.2`, Fabric Loader `0.19.3`,
+  Fabric API `0.151.0+26.1.2`, LibGUI `16.0.1+26.1`, and Cloth Config `26.1.154`.
+- Reduced routine lifecycle, capture, export, migration, and world-structure logs from
+  info to debug so normal gameplay chat/log output is quieter.
+- Removed obsolete chest/debug mixins and centralized block-entity/container NBT handling
+  in `BlockEntityNbtSupport`.
+
+### Fixed
+
+- Container block entities are no longer overwritten with empty `Items` data when a
+  chunk is recaptured or exported over an existing local chunk. Previously captured or
+  locally written non-empty item lists are preserved when the latest client-side block
+  entity snapshot is empty.
+- Container overlays are snapshotted when an export is deferred or running in the
+  background, preventing later cache cleanup from dropping item data before the writer
+  reaches the chunk.
+- Default container titles such as `container.chest` and `container.chestDouble` are no
+  longer written as `CustomName`, and old default-name compounds are stripped when chunks
+  are merged.
+- Double chest item ordering now follows vanilla's `ChestType.RIGHT == FIRST` combiner
+  order for both full inventory packets and later single-slot updates, preventing large
+  chest halves from being swapped or partially written.
+- Chunk serialization now uses Minecraft's `SerializableChunkData` path, preserving
+  available section light data (`BlockLight` / `SkyLight`), blending data, retrogen,
+  post-processing, filtered heightmaps, and other vanilla chunk serialization fields
+  that the client currently has.
+- The download toggle keybinding now uses the `P` keysym instead of a raw scancode.
+
+---
+
 ## [0.2.1] — 2026-03-29
 
 ### Added

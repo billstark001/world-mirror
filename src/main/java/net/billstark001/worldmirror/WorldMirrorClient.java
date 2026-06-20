@@ -37,7 +37,7 @@ public class WorldMirrorClient implements ClientModInitializer {
 
         toggleKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.worldmirror.toggle",
-                InputConstants.Type.SCANCODE, 0x19 /* P */,
+                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_P,
                 CATEGORY));
 
         exportKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(

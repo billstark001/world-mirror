@@ -11,7 +11,7 @@ Whether you're backing up a base, archiving a server before a wipe, or saving a 
 * **Comprehensive Capture:**
     * **Multi-Dimension:** Fully supports the Overworld, Nether, End, and any custom dimensions.
     * **Entities:** Captures mobs, animals, dropped items, armor stands (including poses!), paintings, and vehicles exactly as they appear.
-    * **Containers:** Intercepts inventory packets. Just open a chest, barrel, hopper, or furnace while the mod is active, and its contents will be saved to your mirrored world!
+    * **Containers:** Intercepts inventory packets. Just open a chest, barrel, hopper, or furnace while the mod is active, and its contents will be saved to your mirrored world. Previously captured container items are preserved when later chunk snapshots are empty.
     * **Block Entities:** Persists sign text, banner patterns, player heads, beacon effects, and lectern books.
 * **Chunk Map (Window 1):** Press **`I`** → Conflicts tab → **Open Chunk Map** to see a full-screen draggable grid showing every chunk's download status at a glance. Colour-coded green (fresh) → blue (older) for downloaded chunks, orange for third-party sources, with a red border for unresolved conflicts.
 * **Visual Conflict Resolution:** When using the **Manual** conflict strategy, conflicted chunks are saved to disk in MCA format. Open the Chunk Map to review them one by one or resolve all at once from the Conflicts tab.
@@ -41,11 +41,11 @@ You can handle **Chunk Conflicts** (when a chunk already exists on your local di
 
 ## 📥 Installation & Requirements
 
-* **Minecraft:** 1.21.11
-* **Mod Loader:** [Fabric](https://fabricmc.net/use/) (≥ 0.18.2)
+* **Minecraft:** 26.1.2
+* **Mod Loader:** [Fabric](https://fabricmc.net/use/) (≥ 0.19.3)
 * **Dependencies:**
     * [Fabric API](https://modrinth.com/mod/fabric-api)
-    * [LibGUI](https://github.com/CottonMC/LibGui) (≥ 15.1.0) — *Required for the status screen*
+    * [LibGUI](https://github.com/CottonMC/LibGui) (≥ 16.0.1+26.1) — *Required for the status screen*
 * **Optional:** [Mod Menu](https://modrinth.com/mod/modmenu) (Highly recommended for accessing the settings screen)
 
 ---

@@ -245,7 +245,7 @@ public class ChunkDatabase implements Closeable {
                 ps.executeBatch();
             }
             conn.commit();
-            WMLogger.info("Migrated " + migrated + " chunk timestamps from JSON to SQLite.");
+            WMLogger.debug("Migrated " + migrated + " chunk timestamps from JSON to SQLite.");
         } catch (SQLException e) {
             WMLogger.warn("ChunkDatabase migration failed: " + e.getMessage());
             try { conn.rollback(); } catch (SQLException ignored) {}

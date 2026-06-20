@@ -15,6 +15,7 @@ import net.billstark001.worldmirror.io.WorldStructureCreator;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
@@ -41,7 +42,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <ul>
  *   <li>Tracks whether downloading is currently active.</li>
  *   <li>Drives the periodic sync tick (called from the client tick event).</li>
- *   <li>Runs the actual export on a background daemon thread to avoid freezing the game.</li>
+ *   <li>Runs the actual export on a background thread to avoid freezing the game.</li>
  *   <li>Exposes helpers for a one-shot manual export and for cache clearing.</li>
  * </ul>
  */
@@ -67,7 +68,12 @@ public final class DownloadManager {
 
     private record CaptureKey(ResourceKey<Level> dimension, int chunkX, int chunkZ) { }
     private record PendingChunkCapture(CaptureKey key, String reason) { }
-    private record PendingExportRequest(boolean shouldNotify, String preferredSourceId, String preferredSourceType) { }
+    private record PendingExportRequest(
+            boolean shouldNotify,
+            String preferredSourceId,
+            String preferredSourceType,
+            Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> containerSnapshot
+    ) { }
 
     // ── Lifecycle tracking ────────────────────────────────────────────────────
 
@@ -121,7 +127,7 @@ public final class DownloadManager {
         if (client.player != null) {
             client.player.sendOverlayMessage(msg);
         }
-        WMLogger.info(nowActive ? "Download activated" : "Download deactivated");
+        WMLogger.debug(nowActive ? "Download activated" : "Download deactivated");
     }
 
     /**
@@ -139,7 +145,7 @@ public final class DownloadManager {
         if (exportInProgress.get()) {
             Component msg = Component.translatable("msg.worldmirror.exportBusy");
             if (client.player != null) client.player.sendSystemMessage(msg);
-            deferExport(true, null, null);
+            deferExport(true, null, null, ContainerTracker.snapshotSavedData());
             WMLogger.warn("Export already in progress; queued another export pass.");
             return;
         }
@@ -157,7 +163,7 @@ public final class DownloadManager {
         ContainerTracker.clear();
         Component msg = Component.translatable("msg.worldmirror.cleared");
         if (client.player != null) client.player.sendSystemMessage(msg);
-        WMLogger.info("Cleared: " + chunks + " chunks, " + entities
+        WMLogger.debug("Cleared: " + chunks + " chunks, " + entities
                 + " entities, " + containers + " containers.");
     }
 
@@ -170,6 +176,7 @@ public final class DownloadManager {
      */
     public static void onJoinWorld(Minecraft client) {
         clearPendingCaptureState();
+        ContainerTracker.clear();
         applyTransition(client, ModConfig.get().lifecycle.onJoinWorld, "join-world");
 
         // Reset tracking so subsequent change-detection starts fresh.
@@ -196,7 +203,8 @@ public final class DownloadManager {
         lastSourceId  = null;
         lastSourceType = null;
         currentActive.set(false); // no world to download — always stop
-        WMLogger.info("Left world; download deactivated.");
+        ContainerTracker.clear();
+        WMLogger.debug("Left world; download deactivated.");
     }
 
     /**
@@ -293,7 +301,7 @@ public final class DownloadManager {
         if ("dimension-change".equals(eventName)) {
             WMLogger.debug(transitionMessage);
         } else {
-            WMLogger.info(transitionMessage);
+            WMLogger.debug(transitionMessage);
         }
     }
 
@@ -360,7 +368,7 @@ public final class DownloadManager {
         // Persist the winner — keyed by (sourceId, saveLocName) — never touch entries.
         MirrorMapping.getInstance().setResolvedFolderName(sourceId, saveLocName, resolvedName);
         if (!resolvedName.equals(baseName)) {
-            WMLogger.info("Folder name collision resolved: '"
+            WMLogger.debug("Folder name collision resolved: '"
                     + baseName + "' → '" + resolvedName + "'");
         }
         return resolved;
@@ -416,7 +424,7 @@ public final class DownloadManager {
         int queued = queueLoadedChunks(world, playerCX, playerCZ, INITIAL_CAPTURE_RANGE,
                 "initial-capture");
         if (queued > 0) {
-            WMLogger.info("Queued " + queued + " loaded chunks for incremental capture in ["
+            WMLogger.debug("Queued " + queued + " loaded chunks for incremental capture in ["
                     + dimension.identifier() + "]...");
         }
     }
@@ -456,7 +464,7 @@ public final class DownloadManager {
         }
 
         if (captured > 0) {
-            WMLogger.info("Captured " + captured + " nearby chunks (range=" + STOP_CAPTURE_RANGE
+            WMLogger.debug("Captured " + captured + " nearby chunks (range=" + STOP_CAPTURE_RANGE
                     + ") for " + reason + ".");
         }
     }
@@ -479,17 +487,27 @@ public final class DownloadManager {
 
     /**
      * Prepares a snapshot on the game thread, then hands it off to a background
-     * daemon thread for the actual I/O work.
+     * background thread for the actual I/O work.
      */
     private static void startBackgroundSync(Minecraft client, boolean notify) {
-        startBackgroundSync(client, notify, false, null, null);
+        startBackgroundSync(client, notify, false, null, null, null);
     }
 
     private static void startBackgroundSync(Minecraft client, boolean notify, boolean preCaptureAlreadyDone,
                                             String preferredSourceId,
                                             String preferredSourceType) {
+        startBackgroundSync(client, notify, preCaptureAlreadyDone, preferredSourceId, preferredSourceType, null);
+    }
+
+    private static void startBackgroundSync(Minecraft client, boolean notify, boolean preCaptureAlreadyDone,
+                                            String preferredSourceId,
+                                            String preferredSourceType,
+                                            Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> preferredContainerSnapshot) {
         if (exportInProgress.get()) {
-            deferExport(notify, preferredSourceId, preferredSourceType);
+            deferExport(notify, preferredSourceId, preferredSourceType,
+                    preferredContainerSnapshot != null
+                            ? preferredContainerSnapshot
+                            : ContainerTracker.snapshotSavedData());
             WMLogger.debug("Export already in progress; queued another export pass.");
             return;
         }
@@ -504,7 +522,7 @@ public final class DownloadManager {
             int queued = queueLoadedChunks(client.level, playerCX, playerCZ,
                     PRE_EXPORT_CAPTURE_RANGE, "pre-export");
             if (queued > 0 || captureInProgress.get()) {
-                deferExport(notify, preferredSourceId, preferredSourceType);
+                deferExport(notify, preferredSourceId, preferredSourceType, preferredContainerSnapshot);
                 return;
             }
         }
@@ -525,6 +543,10 @@ public final class DownloadManager {
         }
         Map<ResourceKey<Level>, Map<ChunkPos, List<CompoundTag>>> entitySnapshot =
                 EntityTracker.snapshot();
+        Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> containerSnapshot =
+                preferredContainerSnapshot != null
+                        ? preferredContainerSnapshot
+                        : ContainerTracker.snapshotSavedData();
 
         // Collect source info while on the game thread
         String sourceId = preferredSourceId;
@@ -589,7 +611,7 @@ public final class DownloadManager {
 
                 Map<ResourceKey<Level>, Set<ChunkPos>> written =
                         ChunkExporter.exportChunks(finalWorldFolder, snapshot, entitySnapshot,
-                                resolver, db);
+                                containerSnapshot, resolver, db);
 
                 WorldStructureCreator.createLoadableWorld(finalWorldFolder, finalSourceId, finalRegistryAccess);
                 WorldMetadata.update(finalWorldFolder, finalSourceId, finalSourceType);
@@ -696,19 +718,25 @@ public final class DownloadManager {
         }
 
         if (captured > 0 && !captureInProgress.get()) {
-            WMLogger.info("Incremental chunk capture finished with " + captured + " chunk(s) on the last tick.");
+            WMLogger.debug("Incremental chunk capture finished with " + captured + " chunk(s) on the last tick.");
         }
     }
 
-    private static void deferExport(boolean notify, String preferredSourceId, String preferredSourceType) {
+    private static void deferExport(
+            boolean notify,
+            String preferredSourceId,
+            String preferredSourceType,
+            Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> containerSnapshot) {
         synchronized (captureQueueLock) {
             if (pendingExport == null) {
-                pendingExport = new PendingExportRequest(notify, preferredSourceId, preferredSourceType);
+                pendingExport = new PendingExportRequest(
+                        notify, preferredSourceId, preferredSourceType, containerSnapshot);
             } else {
                 pendingExport = new PendingExportRequest(
                         pendingExport.shouldNotify() || notify,
                         choosePreferred(preferredSourceId, pendingExport.preferredSourceId()),
-                        choosePreferred(preferredSourceType, pendingExport.preferredSourceType()));
+                        choosePreferred(preferredSourceType, pendingExport.preferredSourceType()),
+                        containerSnapshot != null ? containerSnapshot : pendingExport.containerSnapshot());
             }
         }
     }
@@ -723,7 +751,8 @@ public final class DownloadManager {
             pendingExport = null;
         }
         startBackgroundSync(client, request.shouldNotify(), true,
-                request.preferredSourceId(), request.preferredSourceType());
+                request.preferredSourceId(), request.preferredSourceType(),
+                request.containerSnapshot());
     }
 
     private static void clearPendingCaptureState() {
@@ -848,6 +877,8 @@ public final class DownloadManager {
         Map<ResourceKey<Level>, Map<ChunkPos, ChunkListener.CapturedChunk>> snapshot =
                 Map.of(dimension, nearbyChunks);
         Map<ResourceKey<Level>, Map<ChunkPos, List<CompoundTag>>> entitySnapshot = Map.of();
+        Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> containerSnapshot =
+                ContainerTracker.snapshotSavedData();
 
         // Determine output path — always in the saves folder for easy play
         String safeName = worldName.isBlank() ? "NearbyExport" : worldName;
@@ -872,7 +903,7 @@ public final class DownloadManager {
                 ChunkDatabase db = ChunkDatabase.open(finalOut, sourceId);
                 try {
                     ChunkExporter.exportChunks(
-                            finalOut, snapshot, entitySnapshot,
+                            finalOut, snapshot, entitySnapshot, containerSnapshot,
                             new OverwriteResolver(), db);
                 } finally {
                     db.close();

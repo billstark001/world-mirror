@@ -3,10 +3,8 @@
   "package": "net.billstark001.worldmirror.mixin",
   "compatibilityLevel": "JAVA_25",
   "client": [
-    "ChestBlockEntityMixin",
     "ChunkDataMixin",
-    "ContainerMixin",
-    "DebugContainerMixin"
+    "ContainerMixin"
   ],
   "injectors": {
     "defaultRequire": 1
