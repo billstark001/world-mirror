@@ -1,35 +1,31 @@
 package net.billstark001.worldmirror.io;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
-import net.billstark001.worldmirror.core.ContainerTracker;
-import net.billstark001.worldmirror.util.WMLogger;
+import it.unimi.dsi.fastutil.shorts.ShortArrayList;
+import it.unimi.dsi.fastutil.shorts.ShortList;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.SharedConstants;
+import net.minecraft.Optionull;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Holder;
-import net.minecraft.core.HolderLookup;
-import net.minecraft.core.Registry;
-import net.minecraft.core.registries.Registries;
-import net.minecraft.nbt.*;
-import net.minecraft.resources.Identifier;
+import net.minecraft.core.SectionPos;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.biome.Biome;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.Property;
+import net.minecraft.world.level.LightLayer;
+import net.minecraft.world.level.chunk.CarvingMask;
 import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.DataLayer;
 import net.minecraft.world.level.chunk.LevelChunkSection;
-import net.minecraft.world.level.chunk.PalettedContainer;
-import net.minecraft.world.level.chunk.PalettedContainerRO;
-import net.minecraft.world.level.chunk.PalettedContainerRO.PackedData;
-import net.minecraft.world.level.chunk.Strategy;
-import net.minecraft.world.level.chunk.status.ChunkStatus;
+import net.minecraft.world.level.chunk.ProtoChunk;
+import net.minecraft.world.level.chunk.status.ChunkType;
+import net.minecraft.world.level.chunk.storage.SerializableChunkData;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.lighting.LevelLightEngine;
 
 @Environment(EnvType.CLIENT)
 public class ChunkSerializer {
@@ -37,7 +33,7 @@ public class ChunkSerializer {
     /**
      * Returns {@code true} if the chunk has no non-air blocks and no block entities,
      * which means the server sent an empty placeholder chunk (e.g. beyond its own
-     * render distance).  Such chunks are not worth caching or exporting.
+     * render distance). Such chunks are not worth caching or exporting.
      */
     public static boolean isChunkEmpty(ChunkAccess chunk) {
         for (LevelChunkSection section : chunk.getSections()) {
@@ -49,160 +45,96 @@ public class ChunkSerializer {
     }
 
     public static CompoundTag serialize(ClientLevel world, ChunkAccess chunk) {
-        ChunkPos chunkPos = chunk.getPos();
-        CompoundTag chunkNbt = new CompoundTag();
-
-
-        chunkNbt.putInt("DataVersion", SharedConstants.getCurrentVersion().dataVersion().version());
-
-
-        chunkNbt.putInt("xPos", chunkPos.x());
-        chunkNbt.putInt("zPos", chunkPos.z());
-
-
-        chunkNbt.putLong("InhabitedTime", chunk.getInhabitedTime());
-
-
-        Registry<ChunkStatus> chunkStatusRegistry = world.registryAccess().lookupOrThrow(Registries.CHUNK_STATUS);
-        Identifier statusId = chunkStatusRegistry.getKey(chunk.getPersistedStatus());
-        chunkNbt.putString("Status", (statusId != null) ? statusId.toString() : "minecraft:full");
-
-
-        CompoundTag heightmaps = new CompoundTag();
-        for (Map.Entry<Heightmap.Types, Heightmap> entry : chunk.getHeightmaps()) {
-            heightmaps.put(entry.getKey().getSerializationKey(), new LongArrayTag(entry.getValue().getRawData()));
-        }
-        chunkNbt.put("Heightmaps", heightmaps);
-
-
-        ListTag sections = new ListTag();
-        Registry<Biome> biomeRegistry = world.registryAccess().lookupOrThrow(Registries.BIOME);
-        int minSectionY = world.getMinSectionY();
-
-        for (int y = minSectionY; y < world.getMaxSectionY(); y++) {
-            LevelChunkSection section = chunk.getSections()[world.getSectionIndexFromSectionY(y)];
-            if (section != null && !section.hasOnlyAir()) {
-                CompoundTag sectionNbt = new CompoundTag();
-                sectionNbt.putByte("Y", (byte) y);
-
-
-                PalettedContainer<BlockState> blockContainer = section.getStates();
-                sectionNbt.put("block_states", serializeBlockStates(blockContainer, world.registryAccess()));
-
-
-                PalettedContainerRO<Holder<Biome>> biomeContainer = section.getBiomes();
-                sectionNbt.put("biomes", serializeBiomes(biomeContainer, biomeRegistry));
-
-                sections.add(sectionNbt);
-            }
-        }
-        chunkNbt.put("sections", sections);
-
-
-        ListTag blockEntities = new ListTag();
-        for (BlockPos pos : chunk.getBlockEntitiesPos()) {
-            BlockEntity be = chunk.getBlockEntity(pos);
-            if (be != null) {
-                try {
-                    CompoundTag beNbt = serializeBlockEntityWithItems(be, world.registryAccess());
-                    if (beNbt != null) {
-                        blockEntities.add(beNbt);
-                    }
-                } catch (Exception e) {
-                    WMLogger.warn("Failed to serialize block entity at " + pos + ": " + e.getMessage());
-                }
-            }
-        }
-        chunkNbt.put("block_entities", blockEntities);
-
-
-        chunkNbt.put("structures", new CompoundTag());
-
-
-        chunkNbt.putBoolean("isLightOn", chunk.isLightCorrect());
-
-
-        chunkNbt.putLong("LastUpdate", System.currentTimeMillis() / 1000L);
-
+        CompoundTag chunkNbt = createSerializedChunk(world, chunk).write();
+        BlockEntityNbtSupport.applyContainerOverlays(world.dimension(), chunkNbt);
         return chunkNbt;
     }
 
-
-    /**
-     * Serializes a block entity to NBT.
-     * <p>
-     * {@link BlockEntity#saveWithFullMetadata} writes the entity type id,
-     * coordinates, and all client-side data (sign text, beacon effects, banner
-     * patterns, skull owner, etc.) via {@code writeNbt}.  The only data that is NOT
-     * available on the client is item inventories for containers the player has never
-     * opened; those are supplied by {@link ContainerTracker}, which intercepts the
-     * inventory packets when the player opens a container.
-     */
-    private static CompoundTag serializeBlockEntityWithItems(BlockEntity blockEntity, HolderLookup.Provider registryLookup) {
-        try {
-            // Get full block entity NBT: type id, x/y/z, and all client-tracked state
-            CompoundTag beNbt = blockEntity.saveWithFullMetadata(registryLookup);
-
-            // Merge container item data captured when the player opened this container
-            beNbt = ContainerTracker.enhanceBlockEntityWithContainerData(blockEntity, beNbt);
-
-            return beNbt;
-        } catch (Exception e) {
-            WMLogger.warn("Failed to serialize block entity at "
-                    + blockEntity.getBlockPos() + ": " + e.getMessage());
-            return null;
+    private static SerializableChunkData createSerializedChunk(ClientLevel world, ChunkAccess chunk) {
+        if (!chunk.canBeSerialized()) {
+            throw new IllegalArgumentException("Chunk can't be serialized: " + chunk);
         }
+
+        ChunkPos chunkPos = chunk.getPos();
+        List<SerializableChunkData.SectionData> sections = new ArrayList<>();
+        LevelChunkSection[] chunkSections = chunk.getSections();
+        LevelLightEngine lightEngine = world.getChunkSource().getLightEngine();
+
+        for (int sectionY = lightEngine.getMinLightSection();
+                sectionY < lightEngine.getMaxLightSection();
+                sectionY++) {
+            int sectionIndex = chunk.getSectionIndexFromSectionY(sectionY);
+            boolean hasChunkSection = sectionIndex >= 0 && sectionIndex < chunkSections.length;
+            DataLayer blockLight = lightEngine.getLayerListener(LightLayer.BLOCK)
+                    .getDataLayerData(SectionPos.of(chunkPos, sectionY));
+            DataLayer skyLight = lightEngine.getLayerListener(LightLayer.SKY)
+                    .getDataLayerData(SectionPos.of(chunkPos, sectionY));
+            DataLayer blockLightCopy = blockLight != null && !blockLight.isEmpty() ? blockLight.copy() : null;
+            DataLayer skyLightCopy = skyLight != null && !skyLight.isEmpty() ? skyLight.copy() : null;
+
+            if (hasChunkSection || blockLightCopy != null || skyLightCopy != null) {
+                LevelChunkSection section = hasChunkSection ? chunkSections[sectionIndex].copy() : null;
+                sections.add(new SerializableChunkData.SectionData(
+                        sectionY, section, blockLightCopy, skyLightCopy));
+            }
+        }
+
+        List<CompoundTag> blockEntities = new ArrayList<>(chunk.getBlockEntitiesPos().size());
+        for (BlockPos blockPos : chunk.getBlockEntitiesPos()) {
+            CompoundTag blockEntityNbt = chunk.getBlockEntityNbtForSaving(blockPos, world.registryAccess());
+            if (blockEntityNbt != null) {
+                blockEntities.add(blockEntityNbt);
+            }
+        }
+
+        List<CompoundTag> entities = new ArrayList<>();
+        long[] carvingMask = null;
+        if (chunk.getPersistedStatus().getChunkType() == ChunkType.PROTOCHUNK) {
+            ProtoChunk protoChunk = (ProtoChunk) chunk;
+            entities.addAll(protoChunk.getEntities());
+            CarvingMask mask = protoChunk.getCarvingMask();
+            if (mask != null) {
+                carvingMask = mask.toArray();
+            }
+        }
+
+        Map<Heightmap.Types, long[]> heightmaps = new EnumMap<>(Heightmap.Types.class);
+        for (Map.Entry<Heightmap.Types, Heightmap> entry : chunk.getHeightmaps()) {
+            if (chunk.getPersistedStatus().heightmapsAfter().contains(entry.getKey())) {
+                heightmaps.put(entry.getKey(), entry.getValue().getRawData().clone());
+            }
+        }
+
+        ChunkAccess.PackedTicks ticks = chunk.getTicksForSerialization(world.getGameTime());
+        ShortList[] postProcessing = Arrays.stream(chunk.getPostProcessing())
+                .map(entries -> entries != null && !entries.isEmpty() ? new ShortArrayList(entries) : null)
+                .toArray(ShortList[]::new);
+
+        return new SerializableChunkData(
+                world.palettedContainerFactory(),
+                chunkPos,
+                chunk.getMinSectionY(),
+                world.getGameTime(),
+                chunk.getInhabitedTime(),
+                chunk.getPersistedStatus(),
+                Optionull.map(chunk.getBlendingData(), blendingData -> blendingData != null ? blendingData.pack() : null),
+                chunk.getBelowZeroRetrogen(),
+                chunk.getUpgradeData().copy(),
+                carvingMask,
+                heightmaps,
+                ticks,
+                postProcessing,
+                chunk.isLightCorrect(),
+                sections,
+                entities,
+                blockEntities,
+                createEmptyStructuresCompound());
     }
 
-    @SuppressWarnings("unchecked")
-    private static CompoundTag serializeBlockStates(PalettedContainer<BlockState> container, HolderLookup.Provider registryLookup) {
-        CompoundTag blockStatesNbt = new CompoundTag();
-        Registry<Block> blockRegistry = (Registry<Block>) registryLookup.lookupOrThrow(Registries.BLOCK);
-        PackedData<BlockState> packedData = container.pack(Strategy.createForBlockStates(Block.BLOCK_STATE_REGISTRY));
-
-        ListTag paletteNbt = new ListTag();
-        for (BlockState state : packedData.paletteEntries()) {
-            CompoundTag stateNbt = new CompoundTag();
-            Identifier blockId = blockRegistry.getKey(state.getBlock());
-            if (blockId != null) {
-                stateNbt.putString("Name", blockId.toString());
-            } else {
-                stateNbt.putString("Name", "minecraft:air");
-            }
-
-            List<Property.Value<?>> values = state.getValues().toList();
-            if (!values.isEmpty()) {
-                CompoundTag properties = new CompoundTag();
-                values.forEach(value -> properties.putString(value.property().getName(), value.valueName()));
-
-                stateNbt.put("Properties", properties);
-            }
-            paletteNbt.add(stateNbt);
-        }
-        blockStatesNbt.put("palette", paletteNbt);
-        packedData.storage().ifPresent(storage -> blockStatesNbt.putLongArray("data", storage.toArray()));
-
-        return blockStatesNbt;
-    }
-
-    private static CompoundTag serializeBiomes(PalettedContainerRO<Holder<Biome>> container, Registry<Biome> biomeRegistry) {
-        CompoundTag biomesNbt = new CompoundTag();
-        PackedData<Holder<Biome>> packedData = container.pack(Strategy.createForBiomes(biomeRegistry.asHolderIdMap()));
-
-        ListTag paletteNbt = new ListTag();
-        for (Holder<Biome> biomeEntry : packedData.paletteEntries()) {
-            String biomeId = biomeEntry.unwrapKey()
-                    .map(key -> key.identifier().toString())
-                    .orElseGet(() -> {
-                        Identifier id = biomeRegistry.getKey(biomeEntry.value());
-                        return id != null ? id.toString() : "minecraft:plains";
-                    });
-            paletteNbt.add(StringTag.valueOf(biomeId));
-        }
-
-        biomesNbt.put("palette", paletteNbt);
-        packedData.storage().ifPresent(storage -> biomesNbt.putLongArray("data", storage.toArray()));
-
-        return biomesNbt;
+    private static CompoundTag createEmptyStructuresCompound() {
+        CompoundTag structures = new CompoundTag();
+        structures.put("starts", new CompoundTag());
+        structures.put("References", new CompoundTag());
+        return structures;
     }
 }

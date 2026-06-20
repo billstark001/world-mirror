@@ -75,7 +75,7 @@ public class EntityTracker {
         }
 
         dimChunkEntities.put(dimension, dimEntities);
-        WMLogger.info("Captured " + total + " entities for [" + dimension.identifier() + "]");
+        WMLogger.debug("Captured " + total + " entities for [" + dimension.identifier() + "]");
     }
 
     /**
@@ -105,7 +105,7 @@ public class EntityTracker {
     public static void clear() {
         int total = getTotalTrackedEntities();
         dimChunkEntities.clear();
-        WMLogger.info("Cleared " + total + " tracked entities");
+        WMLogger.debug("Cleared " + total + " tracked entities");
     }
 
     public static int getTotalTrackedEntities() {

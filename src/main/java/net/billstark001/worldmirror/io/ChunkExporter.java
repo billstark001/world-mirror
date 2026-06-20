@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.util.*;
 
 import io.github.ensgijs.nbt.io.BinaryNbtDeserializer;
+import io.github.ensgijs.nbt.io.BinaryNbtSerializer;
 import io.github.ensgijs.nbt.io.CompressionType;
 import io.github.ensgijs.nbt.io.NamedTag;
 import io.github.ensgijs.nbt.mca.EntitiesChunk;
@@ -17,7 +18,6 @@ import io.github.ensgijs.nbt.tag.CompoundTag;
 import net.billstark001.worldmirror.conflict.ConflictContext;
 import net.billstark001.worldmirror.conflict.ConflictResolver;
 import net.billstark001.worldmirror.core.ChunkListener;
-import net.billstark001.worldmirror.core.ContainerTracker;
 import net.billstark001.worldmirror.core.EntityTracker;
 import net.billstark001.worldmirror.download.ChunkDatabase;
 import net.billstark001.worldmirror.util.WMLogger;
@@ -50,15 +50,15 @@ public class ChunkExporter {
      * is newer than their last recorded write time, and whose update source is not
      * outranked by a higher-priority source in {@code db}.
      * <p>
-     * Container item data captured by {@link ContainerTracker} is merged into block
-     * entity NBT at export time, ensuring items are included even when the player
-     * opened containers after the initial chunk capture.
+     * Previously written block-entity data is merged back before overwrite, then
+     * container overlays are applied through {@link BlockEntityNbtSupport}.
      * <p>
      * This method is safe to call from a background thread.
      *
      * @param worldFolder    Root directory of the mirror world.
      * @param snapshot       Immutable snapshot produced by {@link ChunkListener#snapshot()}.
      * @param entitySnapshot Immutable snapshot produced by {@link EntityTracker#snapshot()}.
+     * @param containerSnapshot Immutable snapshot produced by {@code ContainerTracker.snapshotSavedData()}.
      * @param resolver       Conflict resolver for chunks that already exist on disk.
      * @param db             Chunk database for dirty-check and priority enforcement.
      * @return Map from dimension → set of chunk positions actually written.
@@ -67,6 +67,7 @@ public class ChunkExporter {
             Path worldFolder,
             Map<ResourceKey<Level>, Map<ChunkPos, ChunkListener.CapturedChunk>> snapshot,
             Map<ResourceKey<Level>, Map<ChunkPos, List<net.minecraft.nbt.CompoundTag>>> entitySnapshot,
+            Map<ResourceKey<Level>, Map<BlockPos, net.minecraft.nbt.CompoundTag>> containerSnapshot,
             ConflictResolver resolver,
             ChunkDatabase db) throws Exception {
 
@@ -87,16 +88,16 @@ public class ChunkExporter {
             Files.createDirectories(entitiesDir);
 
             Set<ChunkPos> written = exportDimensionChunks(
-                    regionDir, dimChunks, dimEntities, resolver, db, dimension, worldFolder);
+                    regionDir, dimChunks, dimEntities, containerSnapshot, resolver, db, dimension, worldFolder);
             exportDimensionEntities(entitiesDir, dimEntities);
             allWritten.put(dimension, written);
             dimCount++;
 
-            WMLogger.info("[" + dimension.identifier() + "] "
+            WMLogger.debug("[" + dimension.identifier() + "] "
                     + written.size() + "/" + dimChunks.size() + " chunks exported.");
         }
 
-        WMLogger.info("Export pass complete across " + dimCount + " dimension(s).");
+        WMLogger.debug("Export pass complete across " + dimCount + " dimension(s).");
         return allWritten;
     }
 
@@ -106,6 +107,7 @@ public class ChunkExporter {
             Path regionDir,
             Map<ChunkPos, ChunkListener.CapturedChunk> dimChunks,
             Map<ChunkPos, List<net.minecraft.nbt.CompoundTag>> dimEntities,
+            Map<ResourceKey<Level>, Map<BlockPos, net.minecraft.nbt.CompoundTag>> containerSnapshot,
             ConflictResolver resolver,
             ChunkDatabase db,
             ResourceKey<Level> dimension,
@@ -162,7 +164,8 @@ public class ChunkExporter {
                     int localZ = chunkPos.z() & 0x1F;
                     try {
                         net.minecraft.nbt.CompoundTag chunkNbt = captured.nbt().copy();
-                        boolean existsLocally = preExisting && mcaFile.getChunk(localX, localZ) != null;
+                        TerrainChunk localChunk = preExisting ? mcaFile.getChunk(localX, localZ) : null;
+                        boolean existsLocally = localChunk != null;
                         if (!resolver.shouldWriteChunk(new ConflictContext(
                                 chunkPos, existsLocally, chunkNbt, dimension, worldFolder))) {
                             WMLogger.debug("Conflict resolver kept local chunk "
@@ -170,7 +173,10 @@ public class ChunkExporter {
                             continue;
                         }
 
-                        mergeContainerData(dimension, chunkNbt);
+                        if (localChunk != null) {
+                            mergeLocalBlockEntities(chunkNbt, localChunk, chunkPos);
+                        }
+                        BlockEntityNbtSupport.applyContainerOverlays(dimension, chunkNbt, containerSnapshot);
                         CompoundTag querzChunk = convertToQuerz(chunkNbt);
                         mcaFile.setChunk(localX, localZ, new TerrainChunk(querzChunk));
                         staged.add(chunkPos);
@@ -204,43 +210,16 @@ public class ChunkExporter {
         return written;
     }
 
-    // ── Container data merging (bug fix) ─────────────────────────────────────
-
-    /**
-     * Merges container inventory data captured by {@link ContainerTracker} into the
-     * {@code block_entities} list of a chunk NBT compound.
-     *
-     * <p>Container items are not available on the client at chunk-load time; they are
-     * only captured when the player opens a container.  Applying them here at export
-     * time ensures that any container opened during the session is saved with its
-     * correct inventory, regardless of when the chunk was first serialised.
-     */
-    private static void mergeContainerData(ResourceKey<Level> dimension, net.minecraft.nbt.CompoundTag chunkNbt) {
-        Optional<ListTag> _blockEntities = chunkNbt.getList("block_entities");
-        if (_blockEntities.isEmpty()) {
-            return;
-        }
-        ListTag blockEntities = _blockEntities.get();
-        for (int i = 0; i < blockEntities.size(); i++) {
-            Optional<net.minecraft.nbt.CompoundTag> _beNbt = blockEntities.getCompound(i);
-            if (_beNbt.isEmpty()) {
-                continue;
-            }
-            net.minecraft.nbt.CompoundTag beNbt = _beNbt.get();
-            BlockPos bePos    = new BlockPos(
-                    beNbt.getInt("x").orElse(0),
-                    beNbt.getInt("y").orElse(0),
-                    beNbt.getInt("z").orElse(0)
-            );
-            net.minecraft.nbt.CompoundTag containerData = ContainerTracker.getContainerData(dimension, bePos);
-            if (containerData == null) continue;
-
-            if (containerData.contains("Items")) {
-                beNbt.put("Items", Objects.requireNonNull(containerData.get("Items")).copy());
-            }
-            if (containerData.contains("CustomName")) {
-                beNbt.put("CustomName", Objects.requireNonNull(containerData.get("CustomName")).copy());
-            }
+    private static void mergeLocalBlockEntities(
+            net.minecraft.nbt.CompoundTag targetChunk,
+            TerrainChunk localChunk,
+            ChunkPos chunkPos) {
+        try {
+            net.minecraft.nbt.CompoundTag localNbt = convertToMinecraft(localChunk.getHandle());
+            BlockEntityNbtSupport.mergeChunkBlockEntities(targetChunk, localNbt);
+        } catch (Exception e) {
+            WMLogger.warn("Failed to merge local block entities for " + chunkPos
+                    + ": " + e.getMessage());
         }
     }
 
@@ -339,6 +318,22 @@ public class ChunkExporter {
             return (CompoundTag) namedTag.getTag();
         } catch (Exception e) {
             throw new RuntimeException("Failed to convert CompoundTag to Querz CompoundTag", e);
+        }
+    }
+
+    public static net.minecraft.nbt.CompoundTag convertToMinecraft(CompoundTag querzNbt) {
+        try {
+            ByteArrayOutputStream querzNbtStream = new ByteArrayOutputStream();
+            BinaryNbtSerializer serializer = new BinaryNbtSerializer(CompressionType.NONE);
+            serializer.toStream(new NamedTag(null, querzNbt), querzNbtStream);
+
+            ByteArrayInputStream bis = new ByteArrayInputStream(querzNbtStream.toByteArray());
+            DataInputStream dis = new DataInputStream(bis);
+            net.minecraft.nbt.CompoundTag mcNbt = net.minecraft.nbt.NbtIo.read(dis);
+            dis.close();
+            return mcNbt;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to convert Querz CompoundTag to Minecraft CompoundTag", e);
         }
     }
 

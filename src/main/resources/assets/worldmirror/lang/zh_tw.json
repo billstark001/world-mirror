@@ -110,12 +110,21 @@
   "text.autoconfig.worldmirror.option.chunkMap": "區塊地圖",
 
   "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold": "稀疏渲染閾值",
-  "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold.@Tooltip": "當地圖單元格尺寸小於或等於此值時，僅繪製已知區塊和衝突，不繪製完整網格。",
+  "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold.@Tooltip": "當地圖單元格尺寸小於或等於此值時隱藏逐區塊網格；低縮放仍會使用開銷較低的每 16/4 個區塊參考線。",
 
   "text.autoconfig.worldmirror.option.chunkMap.background": "地圖背景",
   "text.autoconfig.worldmirror.option.chunkMap.background.@Tooltip": "區塊地圖使用的背景樣式。",
   "text.autoconfig.worldmirror.option.chunkMap.background.black": "黑色",
   "text.autoconfig.worldmirror.option.chunkMap.background.transparent": "透明",
+
+  "text.autoconfig.worldmirror.option.chunkMap.showXaeroWorldMapOverlay": "Xaero 世界地圖疊加層",
+  "text.autoconfig.worldmirror.option.chunkMap.showXaeroWorldMapOverlay.@Tooltip": "安裝 Xaero's World Map 時，直接在其全螢幕世界地圖上繪製 World Mirror 區塊狀態。",
+
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayRefreshSeconds": "Xaero 疊加層刷新間隔（秒）",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayRefreshSeconds.@Tooltip": "Xaero 世界地圖疊加層在背景從磁碟重新載入區塊狀態的頻率。",
+
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells": "Xaero 疊加層最大繪製單元",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells.@Tooltip": "Xaero 疊加層每幀最多繪製的螢幕單元數量。低縮放時降低此值可提升效能。",
 
   "text.autoconfig.worldmirror.option.lifecycle": "生命週期行為",
 

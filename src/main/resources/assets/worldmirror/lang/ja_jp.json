@@ -110,12 +110,21 @@
   "text.autoconfig.worldmirror.option.chunkMap": "チャンクマップ",
 
   "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold": "疎描画しきい値",
-  "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold.@Tooltip": "マップのセルサイズがこの値以下の場合、グリッド全体ではなく既知のチャンクと競合のみを描画します。",
+  "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold.@Tooltip": "マップのセルサイズがこの値以下の場合、チャンク単位のグリッドを非表示にします。低ズームでは軽量な 16/4 チャンク間隔のガイド線を使用します。",
 
   "text.autoconfig.worldmirror.option.chunkMap.background": "マップ背景",
   "text.autoconfig.worldmirror.option.chunkMap.background.@Tooltip": "チャンクマップで使用する背景スタイル。",
   "text.autoconfig.worldmirror.option.chunkMap.background.black": "黒",
   "text.autoconfig.worldmirror.option.chunkMap.background.transparent": "透明",
+
+  "text.autoconfig.worldmirror.option.chunkMap.showXaeroWorldMapOverlay": "Xaero World Map オーバーレイ",
+  "text.autoconfig.worldmirror.option.chunkMap.showXaeroWorldMapOverlay.@Tooltip": "Xaero's World Map が導入されている場合、World Mirror のチャンク状態を全画面ワールドマップ上に直接描画します。",
+
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayRefreshSeconds": "Xaero オーバーレイ更新間隔（秒）",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayRefreshSeconds.@Tooltip": "Xaero World Map オーバーレイがバックグラウンドでディスクからチャンク状態を再読み込みする頻度です。",
+
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells": "Xaero オーバーレイ最大セル数",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells.@Tooltip": "Xaero オーバーレイで描画する画面セル数の上限です。低ズーム時は値を下げると性能が向上します。",
 
   "text.autoconfig.worldmirror.option.lifecycle": "ライフサイクル動作",
 

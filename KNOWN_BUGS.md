@@ -16,21 +16,35 @@ External references used for the notes below:
 
 ### BUG-1-1: Block entity data may be overridden with empty data on export
 
-**Status:** Known, not fully fixed
+**Status:** Fixed in 0.2.2 for captured/local container inventories; client-only data limits remain
 
-The exporter merges cached container inventories into `block_entities`, but the
-base block entity NBT still comes from the client-side `BlockEntity` instance.
-Some server-only fields may be absent, stale, or overwritten by an empty
-client-side value.
+The exporter now preserves non-empty `Items` lists from previously captured or
+locally written block entities when a chunk is recaptured or overwritten by a
+newer client-side block entity snapshot with empty inventory data. Container
+overlays are snapshotted before deferred/background exports, so normal cache
+cleanup no longer drops item data before the writer reaches the chunk.
+
+Default container GUI titles (`container.chest`, `container.chestDouble`) are
+also filtered so they do not become persisted `CustomName` tags. Existing
+default-name tags are stripped when block entities are merged.
+
+The base block entity NBT still comes from the client-visible chunk/block entity
+state plus packet-derived container overlays, so server-only fields may still be
+absent or stale when the server never sends them to the client.
 
 **Mod source pointers**
 
 - `src/main/java/net/billstark001/worldmirror/io/ChunkSerializer.java`
-  serializes block entities through `BlockEntity.saveWithFullMetadata(...)`.
+  serializes block entities through Minecraft's `SerializableChunkData` path
+  and then applies container overlays.
+- `src/main/java/net/billstark001/worldmirror/io/BlockEntityNbtSupport.java`
+  centralizes block entity serialization, local/cached block entity merging,
+  and container overlay application.
 - `src/main/java/net/billstark001/worldmirror/io/ChunkExporter.java`
-  merges cached container data into the exported `block_entities` list.
+  merges locally written block entity data before overwriting a chunk.
 - `src/main/java/net/billstark001/worldmirror/core/ContainerTracker.java`
-  only learns container contents when the player opens a container UI.
+  stores only packet-derived container inventory overlays; it only learns
+  container contents when the player opens a container UI.
 
 **Minecraft / format pointers**
 
@@ -42,12 +56,15 @@ client-side value.
 
 ### BUG-1-2: Large chest inventory order may be reversed on export
 
-**Status:** Known, not fully fixed
+**Status:** Fixed in 0.2.2 for vanilla double chests; custom server remaps remain possible
 
-Double chest reconstruction is inferred from the block state and the screen
-slot order. This may still be wrong when the client hit result points at the
-opposite half, when the screen contents were opened from unusual interaction
-paths, or when a server/plugin remaps the inventory.
+Double chest reconstruction now follows vanilla's `DoubleBlockCombiner` order:
+`ChestType.RIGHT` is the first half and receives screen slots `0..26`, while the
+second half receives slots `27..53`. The same split is used for full container
+content packets and later single-slot update packets.
+
+This can still be wrong only if a server/plugin deliberately remaps the
+container inventory order away from vanilla semantics.
 
 ---
 
@@ -100,27 +117,29 @@ rely on data not transferred to the client by default.
 
 ## BUG-3: World generation / noise metadata is incomplete
 
-**Status:** Known, not fixed
+**Status:** Mitigated in 0.2.2; full server generation state is still unavailable
 
-Exported chunks are written as terrain NBT assembled from client chunk state.
-The serializer currently writes block states, biomes, heightmaps, a blank
-`structures` compound, and a status string, but it does not preserve all
-generation metadata used by proto-chunks or blending/migration.
+Exported chunks are written from client chunk state. Since 0.2.2, the serializer
+uses Minecraft's `SerializableChunkData` path, which preserves more vanilla
+chunk fields that are available on the client, including blending data,
+below-zero retrogen, upgrade data, carving masks for proto chunks, filtered
+heightmaps, ticks, post-processing data, and section light.
+
+Structure data is still emitted as an empty compound because client worlds do
+not provide authoritative structure starts/references, and server-only
+generation state may still be absent.
 
 Likely missing or unreliable fields include:
 
-- `yPos`
-- `blending_data`
-- `below_zero_retrogen`
-- carving masks and post-processing data
 - structure starts/references
 - generation status for non-full/proto chunks
+- server-only world-generation or noise state not present in client chunks
 
 **Mod source pointers**
 
 - `src/main/java/net/billstark001/worldmirror/io/ChunkSerializer.java`
-  currently creates `structures` as an empty compound and does not write
-  `yPos`, `blending_data`, or `below_zero_retrogen`.
+  uses `SerializableChunkData` but still creates `structures` as an empty
+  compound because the client does not expose authoritative structure data.
 - `src/main/java/io/github/ensgijs/nbt/mca/TerrainChunkBase.java` contains local
   path mappings for `Status`, `blending_data`, and related terrain tags.
 
@@ -136,19 +155,21 @@ Likely missing or unreliable fields include:
 
 ## BUG-4: Heightmaps may be incomplete or invalid
 
-**Status:** Known, not fixed
+**Status:** Mitigated in 0.2.2; client-side completeness is still not guaranteed
 
-`ChunkSerializer` copies every client-side heightmap entry with
-`Heightmap.getRawData()`. This is fragile because the client may not have all
-server-side heightmap types, proto-chunk heightmaps, or correct values after a
-partial load. Heightmaps are packed arrays with strict width/offset rules, so an
-incorrect set can load but still produce bad surface, lighting, spawn, or map
-behavior.
+`ChunkSerializer` now follows vanilla `SerializableChunkData` behavior and only
+writes heightmaps required by the chunk's persisted status. This is less fragile
+than copying every client-side heightmap entry.
+
+The client still may not have every server-side heightmap type or the correct
+values after a partial load, so bad or stale heightmaps remain possible in
+edge cases.
 
 **Mod source pointers**
 
-- `src/main/java/net/billstark001/worldmirror/io/ChunkSerializer.java` writes
-  the chunk root `Heightmaps` compound from `chunk.getHeightmaps()`.
+- `src/main/java/net/billstark001/worldmirror/io/ChunkSerializer.java` gathers
+  heightmaps through the same status-filtered path used by
+  `SerializableChunkData`.
 - `src/main/java/io/github/ensgijs/nbt/mca/TerrainChunkBase.java` maps
   `Heightmaps` paths for modern terrain chunks.
 - `src/main/java/io/github/ensgijs/nbt/mca/util/LongArrayTagPackedIntegers.java`
@@ -164,19 +185,24 @@ behavior.
 
 ## BUG-5: Light data is incomplete
 
-**Status:** Known, not fixed
+**Status:** Mitigated in 0.2.2; limited by client-known light data
 
-The exported chunk currently writes only the root `isLightOn` boolean. It does
-not serialize per-section `BlockLight` and `SkyLight`, nor does it preserve the
-full light update data sent with chunk/light packets. The result may be dark,
-overbright, or recalculated incorrectly when loaded as a singleplayer world.
+Chunk serialization now goes through Minecraft's `SerializableChunkData` path
+and copies the client light engine's available per-section `BlockLight` and
+`SkyLight` data. This is a substantial improvement over writing only the root
+`isLightOn` boolean.
+
+The exporter still cannot reconstruct light sections the client has never
+received or has already discarded, so stale or missing light data may still be
+possible in edge cases.
 
 **Mod source pointers**
 
 - `src/main/java/net/billstark001/worldmirror/mixin/ChunkDataMixin.java`
   listens to `ClientboundLevelChunkWithLightPacket`.
 - `src/main/java/net/billstark001/worldmirror/io/ChunkSerializer.java`
-  writes `isLightOn` but does not write section `BlockLight` or `SkyLight`.
+  uses `SerializableChunkData.SectionData` with client light-engine
+  `DataLayer` copies for `BlockLight` and `SkyLight` when available.
 
 **Minecraft / format pointers**
 
