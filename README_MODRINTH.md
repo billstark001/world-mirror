@@ -13,7 +13,8 @@ Whether you're backing up a base, archiving a server before a wipe, or saving a 
     * **Entities:** Captures mobs, animals, dropped items, armor stands (including poses!), paintings, and vehicles exactly as they appear.
     * **Containers:** Intercepts inventory packets. Just open a chest, barrel, hopper, or furnace while the mod is active, and its contents will be saved to your mirrored world. Previously captured container items are preserved when later chunk snapshots are empty.
     * **Block Entities:** Persists sign text, banner patterns, player heads, beacon effects, and lectern books.
-* **Chunk Map (Window 1):** Press **`I`** → Conflicts tab → **Open Chunk Map** to see a full-screen draggable grid showing every chunk's download status at a glance. Colour-coded green (fresh) → blue (older) for downloaded chunks, orange for third-party sources, with a red border for unresolved conflicts.
+* **Fast Chunk Map (Window 1):** Press **`I`** → Conflicts tab → **Open Chunk Map** to see a full-screen draggable grid showing every chunk's download status at a glance. The map uses a region-indexed renderer, so zoomed-out views no longer scan the entire chunk database every frame. Colour-coded green (fresh) → blue (older) for downloaded chunks, orange for third-party sources, with a red border for unresolved conflicts.
+* **Xaero's World Map Overlay:** If [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map) is installed, World Mirror can draw the same chunk status directly on Xaero's fullscreen world map. Toggle it from **World Mirror Settings → Chunk Map → Xaero World Map Overlay**.
 * **Visual Conflict Resolution:** When using the **Manual** conflict strategy, conflicted chunks are saved to disk in MCA format. Open the Chunk Map to review them one by one or resolve all at once from the Conflicts tab.
 * **Export Nearby Region:** Snapshot all loaded chunks within a configurable radius into a brand-new singleplayer save — ideal for archiving a specific area without touching your full mirror world.
 * **Smart World Mapping:** Automatically maps server IPs to dedicated local folders. The same server will always export to the same folder, so you never accidentally overwrite the wrong save.
@@ -47,6 +48,7 @@ You can handle **Chunk Conflicts** (when a chunk already exists on your local di
     * [Fabric API](https://modrinth.com/mod/fabric-api)
     * [LibGUI](https://github.com/CottonMC/LibGui) (≥ 16.0.1+26.1) — *Required for the status screen*
 * **Optional:** [Mod Menu](https://modrinth.com/mod/modmenu) (Highly recommended for accessing the settings screen)
+* **Optional:** [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map) for fullscreen map overlay integration
 
 ---
 

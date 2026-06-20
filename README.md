@@ -23,7 +23,8 @@ region-file save that you can open immediately in singleplayer.
 | **World–mirror mapping** | Every server address or singleplayer world name is mapped to a sanitised local folder name, stored in `config/worldmirror/mirrors.json`.  The same server always exports to the same folder. |
 | **Per-world settings** | Save location and conflict strategy can be overridden per world from the status screen without touching the global config. |
 | **Conflict resolution** | Three built-in strategies for chunks that already exist on disk: *Overwrite* (default), *Ignore* (keep local), and *Manual* (save the server chunk to `conflict_chunks/` in MCA format for later review). |
-| **Chunk Map (Window 1)** | Full-screen draggable grid map showing every recorded chunk's download status. Color-coded: green (fresh) → blue (old, logarithmic), orange (third-party source), red border (unresolved conflict). Per-chunk conflict resolution dialog (Overwrite / Discard / Cancel). |
+| **Chunk Map (Window 1)** | Full-screen draggable grid map showing every recorded chunk's download status. Color-coded: green (fresh) → blue (logarithmic, based on age) — downloaded via `world_mirror`. Orange — written by a third-party source (e.g. `player`, `map_hp`). Red border — chunk has an unresolved conflict. Built-in map rendering is optimized with status caching and merged boundary rendering to reduce dense UI drawing cost. Per-chunk conflict resolution dialog (Overwrite / Discard / Cancel). |
+| **Xaero's World Map Overlay** | Render World Mirror status fills and merged boundaries directly on Xaero's fullscreen map if Xaero's World Map is installed. |
 | **Export Nearby Region** | Snapshot all loaded chunks within a configurable radius (1–50 chunks) into a fresh singleplayer save with the spawn point set to your current position. |
 | **In-game status screen** | Press **I** to open a LibGUI status panel showing source info, sync statistics, download state, conflict counts with bulk resolution buttons, and per-world setting overrides. |
 | **In-game logging** | Important events are echoed to the player's chat at a configurable level (Debug / Info / Warning). |
@@ -74,6 +75,9 @@ Open *Mod Menu → World Mirror → Settings* (or click **Global Settings** in t
 | Sync interval | 5 / 10 / 30 / 60 / 120 s | 10 s |
 | In-game log level | `Debug` / `Info` / `Warning` | `Info` |
 | Conflict strategy | `Overwrite` / `Ignore` / `Manual` | `Overwrite` |
+| Xaero overlay | `true` / `false` | `true` |
+| Xaero overlay refresh | 1–60 s | 10 s |
+| Xaero overlay max cells | 1000–50000 | 6000 |
 
 Configuration is persisted in `<.minecraft>/config/worldmirror.json`.
 
@@ -193,7 +197,8 @@ as `container.chest` are not persisted as custom names.
 2. Install [Fabric API](https://modrinth.com/mod/fabric-api)
 3. Install [LibGUI](https://github.com/CottonMC/LibGui) ≥ 16.0.1+26.1 (required)
 4. *(Optional)* Install [ModMenu](https://modrinth.com/mod/modmenu) for the in-game mod list
-5. Drop the compiled JAR file into your `mods/` folder
+5. *(Optional)* Install [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map) for fullscreen map overlay support
+6. Drop the compiled JAR file into your `mods/` folder
 
 ---
 
@@ -236,6 +241,8 @@ Output: `build/libs/world-mirror-<version>.jar`
   `ChunkListener` (dimension-aware: `Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>>`).
 - Container data is captured in `ContainerMixin` and stored in `ContainerTracker`.
 - Entities are snapshot-serialized on the game thread by `EntityTracker` before each export.
+- Built-in and Xaero's map rendering are optimized via a status cache (`ChunkStatusCache` / `ChunkStatusSnapshot`) and merged boundary rendering to minimize GPU and database query overhead.
+- Xaero's World Map overlay uses a Mixin to inject World Mirror status rendering directly into Xaero's map GUI.
 - The actual disk I/O runs on a background thread (`WM-Export`) to avoid freezing
   the game.  The game thread only provides immutable snapshots of the cached chunks,
   entities, and container overlays.
@@ -243,12 +250,6 @@ Output: `build/libs/world-mirror-<version>.jar`
   [ens-gijs/NBT](https://github.com/ens-gijs/NBT) (Querz MCA library).
 - The dirty-check (`CapturedChunk.capturedAtMs` vs `data/world_mirror.sqlite`) ensures
   unchanged chunks are not re-written on every periodic sync.
-
----
-
-## Credits
-
-- Original concept inspired by [World Downloader](https://modrinth.com/mod/world-downloader) (MIT license)
 - Uses a bundled fork of [Querz/NBT](https://github.com/Querz/NBT) and [ens-gijs/NBT](https://github.com/ens-gijs/NBT/tree/master) (both MIT license)
 
 ## License

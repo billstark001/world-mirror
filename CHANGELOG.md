@@ -5,7 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.2.2] — 2026-06-20
+## [0.2.2] — 2026-06-21
+
+### Added
+
+- **Xaero's World Map Overlay:** Render World Mirror status fills and merged boundaries directly on Xaero's World Map screen.
+- Added a PowerShell script helper `Get-LatestXaerosWorldMap.ps1` for downloading the latest Xaero's World Map jar for development/testing.
+- Customizable Xaero overlay settings: toggle overlay, configure overlay refresh rate, and maximum visible cells limit.
 
 ### Changed
 
@@ -16,6 +22,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   info to debug so normal gameplay chat/log output is quieter.
 - Removed obsolete chest/debug mixins and centralized block-entity/container NBT handling
   in `BlockEntityNbtSupport`.
+- **Chunk Map Optimizations:** Introduced `ChunkStatusCache` and `ChunkStatusSnapshot` to cache status data, reducing rendering and database query overhead on both the built-in chunk map and Xaero's overlay.
+- Added merged boundary segment rendering to the built-in chunk map, reducing drawing calls when zoomed out.
+- Extracted SQLite native drivers isolation for stable read-only status loading.
 
 ### Fixed
 
