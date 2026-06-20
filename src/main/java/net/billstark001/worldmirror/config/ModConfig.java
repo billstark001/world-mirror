@@ -94,6 +94,17 @@ public class ModConfig implements ConfigData {
         @ConfigEntry.Gui.Tooltip
         @ConfigEntry.Gui.EnumHandler(option = ConfigEntry.Gui.EnumHandler.EnumDisplayOption.DROPDOWN)
         public ChunkMapBackground background = ChunkMapBackground.BLACK;
+
+        @ConfigEntry.Gui.Tooltip
+        public boolean showXaeroWorldMapOverlay = true;
+
+        @ConfigEntry.Gui.Tooltip
+        @ConfigEntry.BoundedDiscrete(min = 1, max = 60)
+        public int xaeroWorldMapOverlayRefreshSeconds = 10;
+
+        @ConfigEntry.Gui.Tooltip
+        @ConfigEntry.BoundedDiscrete(min = 1000, max = 50000)
+        public int xaeroWorldMapOverlayMaxCells = 6000;
     }
 
     public static class CacheConfig {

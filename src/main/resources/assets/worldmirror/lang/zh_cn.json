@@ -117,6 +117,15 @@
   "text.autoconfig.worldmirror.option.chunkMap.background.black": "黑色",
   "text.autoconfig.worldmirror.option.chunkMap.background.transparent": "透明",
 
+  "text.autoconfig.worldmirror.option.chunkMap.showXaeroWorldMapOverlay": "Xaero 世界地图叠加层",
+  "text.autoconfig.worldmirror.option.chunkMap.showXaeroWorldMapOverlay.@Tooltip": "安装 Xaero's World Map 时，直接在其全屏世界地图上绘制 World Mirror 区块状态。",
+
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayRefreshSeconds": "Xaero 叠加层刷新间隔（秒）",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayRefreshSeconds.@Tooltip": "Xaero 世界地图叠加层在后台从磁盘重新加载区块状态的频率。",
+
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells": "Xaero 叠加层最大绘制单元",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells.@Tooltip": "Xaero 叠加层每帧最多绘制的屏幕单元数量。低缩放时降低此值可提升性能。",
+
   "text.autoconfig.worldmirror.option.lifecycle": "生命周期行为",
 
   "text.autoconfig.worldmirror.option.lifecycle.onJoinWorld": "进入世界时",

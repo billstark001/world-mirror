@@ -117,6 +117,15 @@
   "text.autoconfig.worldmirror.option.chunkMap.background.black": "Black",
   "text.autoconfig.worldmirror.option.chunkMap.background.transparent": "Transparent",
 
+  "text.autoconfig.worldmirror.option.chunkMap.showXaeroWorldMapOverlay": "Xaero World Map Overlay",
+  "text.autoconfig.worldmirror.option.chunkMap.showXaeroWorldMapOverlay.@Tooltip": "If Xaero's World Map is installed, draw World Mirror chunk status directly on its fullscreen world map.",
+
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayRefreshSeconds": "Xaero Overlay Refresh (seconds)",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayRefreshSeconds.@Tooltip": "How often the Xaero World Map overlay reloads chunk status from disk in the background.",
+
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells": "Xaero Overlay Max Cells",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells.@Tooltip": "Maximum number of screen cells to draw for the Xaero overlay. Lower values improve performance at very low zoom.",
+
   "text.autoconfig.worldmirror.option.lifecycle": "Lifecycle Behaviour",
 
   "text.autoconfig.worldmirror.option.lifecycle.onJoinWorld": "On Join World",
