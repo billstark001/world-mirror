@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import net.billstark001.worldmirror.io.BlockEntityNbtSupport;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
@@ -33,7 +34,13 @@ public class ChunkListener {
 
     public static void addChunkNbt(ResourceKey<Level> dimension, ChunkPos pos, CompoundTag chunkNbt) {
         dimChunks.computeIfAbsent(dimension, k -> new ConcurrentHashMap<>())
-                 .put(pos, new CapturedChunk(chunkNbt, System.currentTimeMillis()));
+                 .compute(pos, (ignored, previous) -> {
+                     CompoundTag mergedNbt = chunkNbt;
+                     if (previous != null) {
+                         BlockEntityNbtSupport.mergeChunkBlockEntities(mergedNbt, previous.nbt());
+                     }
+                     return new CapturedChunk(mergedNbt, System.currentTimeMillis());
+                 });
         WMLogger.debug("Captured chunk [" + dimension.identifier() + "] " + pos);
     }
 
@@ -165,7 +172,6 @@ public class ChunkListener {
 
         if (evicted > 0) {
             WMLogger.debug("Evicted " + evicted + " stale chunks from cache.");
-            ContainerTracker.evictForChunks(evictedByDim);
             EntityTracker.pruneToMatchCapturedChunks();
         }
     }

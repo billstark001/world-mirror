@@ -75,22 +75,11 @@ Bulk resolution is available from the Conflicts tab of the status screen
 
 ## 4. Integration Investigation — Fullscreen Map Mods
 
-### [RESEARCH] Integrate Chunk Map into major fullscreen map mods
+### ✅ [DONE] Xaero's World Map overlay integration
+`XaeroWorldMapOverlayRenderer`, `XaeroGuiMapMixin`  
+Render World Mirror status fills and merged boundaries on Xaero World Map through an optional mixin. Toggle overlay visibility, adjust refresh rate, and configure maximum cell rendering threshold from World Mirror config.
 
-Several popular Minecraft map mods provide a fullscreen map view that would be a natural
-host for World Mirror's chunk-status overlay.  Below is an investigation into the most
-viable candidates.
-
-#### Xaero's World Map
-- **Modrinth/CurseForge:** very popular, actively maintained for 1.21.x.
-- **Extension API:** Xaero's World Map exposes a `WorldMapSession` and
-  `IWaypointSet` API; however, there is **no public overlay API** for third-party
-  chunk-status layers as of 2026-03.  An overlay would require either:
-  - Mixining into `WorldMapRenderer` to inject custom draw calls after the base
-    terrain tiles (medium complexity, ~200–400 LoC).
-  - Contributing an upstream PR for an overlay hook (uncertain timeline).
-- **Estimated work:** 3–5 days to implement a Mixin-based overlay; an upstream hook
-  would remove the Mixin dependency but relies on maintainer cooperation.
+### [RESEARCH] JourneyMap integration
 
 #### JourneyMap
 - **Modrinth/CurseForge:** widely used, 1.21.x support confirmed.

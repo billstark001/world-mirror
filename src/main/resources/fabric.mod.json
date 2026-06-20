@@ -26,6 +26,10 @@
     {
       "config": "worldmirror.mixins.json",
       "environment": "client"
+    },
+    {
+      "config": "worldmirror.xaero.mixins.json",
+      "environment": "client"
     }
   ],
   "depends": {
@@ -37,6 +41,8 @@
     "cloth-config2": ">=26.1.154"
   },
   "suggests": {
-    "modmenu": "*"
+    "modmenu": "*",
+    "xaerominimap": "*",
+    "xaeroworldmap": "*"
   }
 }

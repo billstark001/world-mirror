@@ -197,7 +197,7 @@ public class WorldStructureCreator {
             writeCompressed(
                     worldFolderPath.resolve("players/data/" + singleplayerUuid + ".dat").toFile(),
                     createPlayerData());
-            WMLogger.info("Nearby-export world created at: " + worldFolderPath.toAbsolutePath());
+            WMLogger.debug("Nearby-export world created at: " + worldFolderPath.toAbsolutePath());
         } catch (Exception e) {
             WMLogger.warn("createLoadableWorldWithSpawn failed: " + e.getMessage());
         }
@@ -299,10 +299,10 @@ public class WorldStructureCreator {
                 LevelStorageSource.writeGameRules(data, worldFolderPath, createGameRules(data.getDataConfiguration()));
                 writeSavedData(new File(worldFolder, "data/minecraft/weather.dat"), createWeatherData());
                 writeSavedData(new File(worldFolder, "data/minecraft/world_clocks.dat"), createWorldClocksData());
-                WMLogger.info("World structure created at: " + worldFolder.getAbsolutePath()
+                WMLogger.debug("World structure created at: " + worldFolder.getAbsolutePath()
                         + " (name: " + data.getLevelName() + ")");
             } else {
-                WMLogger.info("World structure updated (incremental sync): " + worldFolder.getAbsolutePath());
+                WMLogger.debug("World structure updated (incremental sync): " + worldFolder.getAbsolutePath());
             }
         } catch (Exception e) {
             WMLogger.warn("Failed to create loadable world: " + e.getMessage());

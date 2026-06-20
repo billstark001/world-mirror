@@ -4,7 +4,6 @@ import net.billstark001.worldmirror.conflict.ConflictManager;
 import net.billstark001.worldmirror.config.ModConfig;
 import net.billstark001.worldmirror.download.ChunkDatabase;
 import net.billstark001.worldmirror.download.DownloadManager;
-import net.billstark001.worldmirror.download.WorldMetadata;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.Minecraft;
@@ -42,14 +41,16 @@ public class ChunkMapScreen extends Screen {
 
     // ── Constants ─────────────────────────────────────────────────────────────
 
-    private static final int CELL_SIZE_MIN     = 2;
+    private static final int CELL_SIZE_MIN     = 1;
     private static final int CELL_SIZE_MAX     = 16;
     private static final int CELL_SIZE_DEFAULT = 6;
     private static final int COLOR_FRESH_GREEN     = 0xFF00C800;
     private static final int COLOR_OLD_BLUE        = 0xFF0000C8;
     private static final int COLOR_EXTERNAL        = 0xFFFF9000;
     private static final int COLOR_CONFLICT_BORDER = 0xFFFF3030;
-    private static final int COLOR_GRID            = 0x22FFFFFF;
+    private static final int COLOR_GRID            = 0x14FFFFFF;
+    private static final int COLOR_BOUNDARY_ALPHA  = 0xAA;
+    private static final int TRANSPARENT_FILL_ALPHA = 0x7F;
 
     private static final long AGE_MAX_MS = 30L * 24 * 3600 * 1000; // 1 month
     private static final long AGE_MIN_MS = 10L * 60 * 1000;        // 10 min
@@ -67,12 +68,10 @@ public class ChunkMapScreen extends Screen {
 
     // ── Data ─────────────────────────────────────────────────────────────────
 
-    private final Map<Long, ChunkDatabase.ChunkRecord> recordMap = new HashMap<>();
-    private final Set<ChunkPos> conflictChunks = new HashSet<>();
-    private final Set<Long> conflictKeys = new HashSet<>();
+    private ChunkStatusSnapshot statusSnapshot = ChunkStatusSnapshot.EMPTY;
     private Path worldFolder;
     private ResourceKey<Level> currentDimension;
-    private String sourceId;
+    private boolean transparentBackground;
 
     // ── Dialog ────────────────────────────────────────────────────────────────
 
@@ -133,8 +132,8 @@ public class ChunkMapScreen extends Screen {
                 btn -> {
                     if (dialogChunk != null && worldFolder != null && currentDimension != null) {
                         ConflictManager.resolveConflict(worldFolder, dialogChunk, currentDimension, true);
-                        conflictChunks.remove(dialogChunk);
-                        conflictKeys.remove(chunkKey(dialogChunk.x(), dialogChunk.z()));
+                        ChunkStatusCache.invalidate();
+                        loadData(Minecraft.getInstance());
                     }
                     closeDialog();
                 }
@@ -145,8 +144,8 @@ public class ChunkMapScreen extends Screen {
                 btn -> {
                     if (dialogChunk != null && worldFolder != null && currentDimension != null) {
                         ConflictManager.resolveConflict(worldFolder, dialogChunk, currentDimension, false);
-                        conflictChunks.remove(dialogChunk);
-                        conflictKeys.remove(chunkKey(dialogChunk.x(), dialogChunk.z()));
+                        ChunkStatusCache.invalidate();
+                        loadData(Minecraft.getInstance());
                     }
                     closeDialog();
                 }
@@ -158,24 +157,10 @@ public class ChunkMapScreen extends Screen {
     // ── Data loading ──────────────────────────────────────────────────────────
 
     private void loadData(Minecraft client) {
-        sourceId = WorldMetadata.detectSourceId(client);
         worldFolder = DownloadManager.getOutputPath(client);
         if (currentDimension == null) currentDimension = Level.OVERWORLD;
 
-        String dimStr = currentDimension.identifier().toString();
-
-        recordMap.clear();
-        for (ChunkDatabase.ChunkRecord r :
-                ChunkDatabase.queryAllReadOnly(worldFolder, sourceId, dimStr)) {
-            recordMap.put(chunkKey(r.x(), r.z()), r);
-        }
-
-        conflictChunks.clear();
-        conflictChunks.addAll(ConflictManager.listConflicts(worldFolder, currentDimension));
-        conflictKeys.clear();
-        for (ChunkPos pos : conflictChunks) {
-            conflictKeys.add(chunkKey(pos.x(), pos.z()));
-        }
+        statusSnapshot = ChunkStatusCache.loadNow(client, currentDimension);
     }
 
     // ── Rendering ─────────────────────────────────────────────────────────────
@@ -186,7 +171,8 @@ public class ChunkMapScreen extends Screen {
         this.mouseY = my;
 
         ModConfig.ChunkMapConfig mapConfig = ModConfig.get().chunkMap;
-        if (mapConfig.background == ModConfig.ChunkMapBackground.BLACK) {
+        transparentBackground = mapConfig.background == ModConfig.ChunkMapBackground.TRANSPARENT;
+        if (!transparentBackground) {
             ctx.fill(0, 0, this.width, this.height, 0xFF101010);
         }
 
@@ -232,7 +218,7 @@ public class ChunkMapScreen extends Screen {
         }
     }
 
-    private int computeColor(ChunkDatabase.ChunkRecord rec, long now) {
+    public static int computeColor(ChunkDatabase.ChunkRecord rec, long now) {
         if (rec == null) return 0;
         if ("world_mirror".equals(rec.updateSource())) {
             return interpolateGreenBlue(now - rec.updateTime());
@@ -240,7 +226,7 @@ public class ChunkMapScreen extends Screen {
         return COLOR_EXTERNAL;
     }
 
-    private static int interpolateGreenBlue(long ageMs) {
+    public static int interpolateGreenBlue(long ageMs) {
         if (ageMs <= AGE_MIN_MS) return COLOR_FRESH_GREEN;
         if (ageMs >= AGE_MAX_MS) return COLOR_OLD_BLUE;
         double t = Math.log((double) ageMs / AGE_MIN_MS)
@@ -251,7 +237,7 @@ public class ChunkMapScreen extends Screen {
         return 0xFF000000 | (g << 8) | b;
     }
 
-    private static void drawConflictBorder(GuiGraphicsExtractor ctx, int x, int z, int size) {
+    public static void drawConflictBorder(GuiGraphicsExtractor ctx, int x, int z, int size) {
         int c = COLOR_CONFLICT_BORDER;
         if (size < 3) { ctx.fill(x, z, x + size, z + size, c); return; }
         ctx.fill(x + 1, z + 1, x + size - 1, z + 2,           c);
@@ -261,8 +247,8 @@ public class ChunkMapScreen extends Screen {
     }
 
     private void drawTooltipForChunk(GuiGraphicsExtractor ctx, ChunkPos pos, int mx, int my, long now) {
-        ChunkDatabase.ChunkRecord rec = recordMap.get(chunkKey(pos.x(), pos.z()));
-        boolean hasConflict = conflictChunks.contains(pos);
+        ChunkDatabase.ChunkRecord rec = statusSnapshot.getRecord(pos.x(), pos.z());
+        boolean hasConflict = statusSnapshot.hasConflict(pos.x(), pos.z());
         List<Component> lines = new ArrayList<>();
         lines.add(Component.literal("§eChunk (" + pos.x() + ", " + pos.z() + ")"));
         lines.add(Component.literal("§7Block: (" + (pos.x() * 16) + ", " + (pos.z() * 16) + ")"));
@@ -281,42 +267,78 @@ public class ChunkMapScreen extends Screen {
 
     private void renderDense(GuiGraphicsExtractor ctx, int halfW, int halfH,
                              int cxMin, int cxMax, int czMin, int czMax, long now) {
-        for (int cx = cxMin; cx <= cxMax; cx++) {
-            for (int cz = czMin; cz <= czMax; cz++) {
-                int sx = halfW + (int) Math.round((cx - viewCX) * cellSize);
-                int sz = halfH + (int) Math.round((cz - viewCZ) * cellSize);
-                long key = chunkKey(cx, cz);
-
-                int fill = computeColor(recordMap.get(key), now);
-                if (fill != 0) ctx.fill(sx, sz, sx + cellSize, sz + cellSize, fill);
-
-                ctx.fill(sx, sz, sx + cellSize, sz + 1, COLOR_GRID);
-                ctx.fill(sx, sz, sx + 1, sz + cellSize, COLOR_GRID);
-
-                if (conflictKeys.contains(key)) drawConflictBorder(ctx, sx, sz, cellSize);
-            }
-        }
+        renderKnownRecords(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax, now);
+        renderGrid(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax, gridIntervalForCellSize(cellSize));
+        renderBoundaries(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax);
+        renderConflicts(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax);
     }
 
     private void renderSparse(GuiGraphicsExtractor ctx, int halfW, int halfH,
                               int cxMin, int cxMax, int czMin, int czMax, long now) {
-        for (ChunkDatabase.ChunkRecord rec : recordMap.values()) {
+        renderKnownRecords(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax, now);
+        renderGrid(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax, sparseGridIntervalForCellSize(cellSize));
+        renderBoundaries(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax);
+        renderConflicts(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax);
+    }
+
+    private void renderKnownRecords(GuiGraphicsExtractor ctx, int halfW, int halfH,
+                                    int cxMin, int cxMax, int czMin, int czMax, long now) {
+        statusSnapshot.forEachRecordInRange(cxMin, cxMax, czMin, czMax, rec -> {
             int cx = rec.x();
             int cz = rec.z();
-            if (cx < cxMin || cx > cxMax || cz < czMin || cz > czMax) continue;
             int sx = halfW + (int) Math.round((cx - viewCX) * cellSize);
             int sz = halfH + (int) Math.round((cz - viewCZ) * cellSize);
             int fill = computeColor(rec, now);
+            if (transparentBackground) fill = withAlpha(fill, TRANSPARENT_FILL_ALPHA);
             if (fill != 0) ctx.fill(sx, sz, sx + cellSize, sz + cellSize, fill);
-        }
+        });
+    }
 
-        for (ChunkPos pos : conflictChunks) {
+    private void renderConflicts(GuiGraphicsExtractor ctx, int halfW, int halfH,
+                                 int cxMin, int cxMax, int czMin, int czMax) {
+        statusSnapshot.forEachConflictInRange(cxMin, cxMax, czMin, czMax, pos -> {
             int cx = pos.x();
             int cz = pos.z();
-            if (cx < cxMin || cx > cxMax || cz < czMin || cz > czMax) continue;
             int sx = halfW + (int) Math.round((cx - viewCX) * cellSize);
             int sz = halfH + (int) Math.round((cz - viewCZ) * cellSize);
             drawConflictBorder(ctx, sx, sz, cellSize);
+        });
+    }
+
+    private void renderBoundaries(GuiGraphicsExtractor ctx, int halfW, int halfH,
+                                  int cxMin, int cxMax, int czMin, int czMax) {
+        statusSnapshot.forEachBoundaryInRange(cxMin, cxMax, czMin, czMax, segment -> {
+            int color = withAlpha(segment.color(), COLOR_BOUNDARY_ALPHA);
+            if (segment.vertical()) {
+                int x = halfW + (int) Math.round((segment.fixed() - viewCX) * cellSize);
+                int z1 = halfH + (int) Math.round((segment.start() - viewCZ) * cellSize);
+                int z2 = halfH + (int) Math.round((segment.end() - viewCZ) * cellSize);
+                ctx.fill(x, z1, x + 1, z2, color);
+            } else {
+                int x1 = halfW + (int) Math.round((segment.start() - viewCX) * cellSize);
+                int x2 = halfW + (int) Math.round((segment.end() - viewCX) * cellSize);
+                int z = halfH + (int) Math.round((segment.fixed() - viewCZ) * cellSize);
+                ctx.fill(x1, z, x2, z + 1, color);
+            }
+        });
+    }
+
+    private void renderGrid(GuiGraphicsExtractor ctx, int halfW, int halfH,
+                            int cxMin, int cxMax, int czMin, int czMax, int interval) {
+        int top = halfH + (int) Math.round((czMin - viewCZ) * cellSize);
+        int bottom = halfH + (int) Math.round((czMax + 1 - viewCZ) * cellSize);
+        int left = halfW + (int) Math.round((cxMin - viewCX) * cellSize);
+        int right = halfW + (int) Math.round((cxMax + 1 - viewCX) * cellSize);
+
+        int firstCx = firstMultipleAtOrAfter(cxMin, interval);
+        int firstCz = firstMultipleAtOrAfter(czMin, interval);
+        for (int cx = firstCx; cx <= cxMax; cx += interval) {
+            int x = halfW + (int) Math.round((cx - viewCX) * cellSize);
+            ctx.fill(x, top, x + 1, bottom, COLOR_GRID);
+        }
+        for (int cz = firstCz; cz <= czMax; cz += interval) {
+            int z = halfH + (int) Math.round((cz - viewCZ) * cellSize);
+            ctx.fill(left, z, right, z + 1, COLOR_GRID);
         }
     }
 
@@ -377,7 +399,7 @@ public class ChunkMapScreen extends Screen {
         }
 
         if (button == 0) {
-            if (hoveredChunk != null && conflictChunks.contains(hoveredChunk)) {
+            if (hoveredChunk != null && statusSnapshot.hasConflict(hoveredChunk.x(), hoveredChunk.z())) {
                 openDialog(hoveredChunk);
                 return true;
             }
@@ -419,10 +441,6 @@ public class ChunkMapScreen extends Screen {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static long chunkKey(int x, int z) {
-        return ((long) x << 32) | (z & 0xFFFFFFFFL);
-    }
-
     private ChunkPos screenToChunk(int sx, int sz, int halfW, int halfH) {
         int cx = (int) Math.floor(viewCX + ((double) sx - halfW) / cellSize + 0.5D);
         int cz = (int) Math.floor(viewCZ + ((double) sz - halfH) / cellSize + 0.5D);
@@ -430,7 +448,27 @@ public class ChunkMapScreen extends Screen {
     }
 
     private static int clampedSparseRenderCellThreshold() {
-        return Math.max(4, Math.min(16, ModConfig.get().chunkMap.sparseRenderCellThreshold));
+        return Math.max(1, Math.min(16, ModConfig.get().chunkMap.sparseRenderCellThreshold));
+    }
+
+    private static int gridIntervalForCellSize(int size) {
+        if (size >= 8) return 1;
+        if (size >= 4) return 4;
+        return 16;
+    }
+
+    private static int sparseGridIntervalForCellSize(int size) {
+        return Math.max(4, gridIntervalForCellSize(size));
+    }
+
+    private static int firstMultipleAtOrAfter(int value, int interval) {
+        int remainder = Math.floorMod(value, interval);
+        return remainder == 0 ? value : value + interval - remainder;
+    }
+
+    private static int withAlpha(int argb, int alpha) {
+        if (argb == 0) return 0;
+        return (argb & 0x00FFFFFF) | (alpha << 24);
     }
 
     private static String formatAge(long secs) {
