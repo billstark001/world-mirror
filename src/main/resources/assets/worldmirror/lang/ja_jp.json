@@ -110,7 +110,7 @@
   "text.autoconfig.worldmirror.option.chunkMap": "チャンクマップ",
 
   "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold": "疎描画しきい値",
-  "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold.@Tooltip": "マップのセルサイズがこの値以下の場合、グリッド全体ではなく既知のチャンクと競合のみを描画します。",
+  "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold.@Tooltip": "マップのセルサイズがこの値以下の場合、チャンク単位のグリッドを非表示にします。低ズームでは軽量な 16/4 チャンク間隔のガイド線を使用します。",
 
   "text.autoconfig.worldmirror.option.chunkMap.background": "マップ背景",
   "text.autoconfig.worldmirror.option.chunkMap.background.@Tooltip": "チャンクマップで使用する背景スタイル。",

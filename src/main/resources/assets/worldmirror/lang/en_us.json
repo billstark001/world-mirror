@@ -110,7 +110,7 @@
   "text.autoconfig.worldmirror.option.chunkMap": "Chunk Map",
 
   "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold": "Sparse Render Threshold",
-  "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold.@Tooltip": "When the map cell size is at or below this value, draw only known chunks and conflicts instead of the full grid.",
+  "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold.@Tooltip": "When the map cell size is at or below this value, hide the per-chunk grid. Low zoom still uses cheap 16/4-chunk guide lines.",
 
   "text.autoconfig.worldmirror.option.chunkMap.background": "Map Background",
   "text.autoconfig.worldmirror.option.chunkMap.background.@Tooltip": "Background style used by the chunk map.",

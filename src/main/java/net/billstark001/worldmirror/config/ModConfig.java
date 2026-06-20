@@ -84,12 +84,12 @@ public class ModConfig implements ConfigData {
     public static class ChunkMapConfig {
 
         /**
-         * At or below this cell size, the chunk map skips grid drawing and only
-         * renders known records/conflicts. This keeps highly zoomed-out views cheap.
+         * At or below this cell size, the chunk map skips the per-chunk grid.
+         * Low zoom may still draw coarse guide lines because they are cheap.
          */
         @ConfigEntry.Gui.Tooltip
-        @ConfigEntry.BoundedDiscrete(min = 4, max = 16)
-        public int sparseRenderCellThreshold = 8;
+        @ConfigEntry.BoundedDiscrete(min = 1, max = 16)
+        public int sparseRenderCellThreshold = 1;
 
         @ConfigEntry.Gui.Tooltip
         @ConfigEntry.Gui.EnumHandler(option = ConfigEntry.Gui.EnumHandler.EnumDisplayOption.DROPDOWN)

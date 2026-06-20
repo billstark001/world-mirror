@@ -2,11 +2,14 @@ package net.billstark001.worldmirror.download;
 
 import net.billstark001.worldmirror.util.WMLogger;
 import net.minecraft.world.level.ChunkPos;
+import org.sqlite.SQLiteConfig;
 
 import java.io.Closeable;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.sql.*;
+import java.util.Properties;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +43,10 @@ import java.util.Set;
  */
 public class ChunkDatabase implements Closeable {
 
+    private static final Object SQLITE_INIT_LOCK = new Object();
+    private static volatile boolean sqliteNativeDirectoryConfigured;
+    private static volatile boolean sqliteDriverLoaded;
+
     /** Default rows inserted into {@code update_sources} on first creation. */
     private static final String[] DEFAULT_SOURCES = {
             "INSERT OR IGNORE INTO update_sources (update_source, priority, apply_to_source, apply_to_dimension) VALUES ('player',       0,  NULL, NULL)",
@@ -55,6 +62,17 @@ public class ChunkDatabase implements Closeable {
     private ChunkDatabase(Connection conn, String sourceId) {
         this.conn     = conn;
         this.sourceId = sourceId;
+    }
+
+    /**
+     * Configures sqlite-jdbc's native extraction directory before the first
+     * SQLite connection is opened. The default global temp directory can leave
+     * Windows with a locked extracted DLL when multiple dev-client JVMs are used.
+     */
+    public static void configureSqliteNativeDirectory() {
+        synchronized (SQLITE_INIT_LOCK) {
+            configureSqliteNativeDirectoryLocked();
+        }
     }
 
     // ── Factory ───────────────────────────────────────────────────────────────
@@ -77,7 +95,7 @@ public class ChunkDatabase implements Closeable {
 
         Path dbFile = dataDir.resolve("world_mirror.sqlite");
         String url  = "jdbc:sqlite:" + dbFile.toAbsolutePath();
-        Connection conn = DriverManager.getConnection(url);
+        Connection conn = openConnection(url);
 
         try (Statement st = conn.createStatement()) {
             // Use WAL for better concurrent read performance
@@ -279,7 +297,7 @@ public class ChunkDatabase implements Closeable {
     public record ChunkRecord(int x, int z, long updateTime, String updateSource) {}
 
     /**
-     * Returns all chunk records for the given dimension, ordered by {@code x, y}.
+     * Returns all chunk records for the given dimension.
      *
      * @param dimension dimension key string, e.g. {@code "minecraft:overworld"}
      */
@@ -287,7 +305,7 @@ public class ChunkDatabase implements Closeable {
         List<ChunkRecord> result = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT x, y, update_time, update_source FROM chunks " +
-                "WHERE source=? AND dimension=? ORDER BY x, y")) {
+                "WHERE source=? AND dimension=?")) {
             ps.setString(1, sourceId);
             ps.setString(2, dimension);
             try (ResultSet rs = ps.executeQuery()) {
@@ -319,13 +337,61 @@ public class ChunkDatabase implements Closeable {
         Path dbFile = worldFolder.resolve("data").resolve("world_mirror.sqlite");
         if (!dbFile.toFile().exists()) return List.of();
         String url = "jdbc:sqlite:" + dbFile.toAbsolutePath();
-        try (Connection conn = DriverManager.getConnection(url)) {
+        SQLiteConfig config = new SQLiteConfig();
+        config.setReadOnly(true);
+        try (Connection conn = openConnection(url, config.toProperties())) {
+            try (Statement st = conn.createStatement()) {
+                st.execute("PRAGMA query_only=TRUE");
+            }
             ChunkDatabase db = new ChunkDatabase(conn, sourceId);
             return db.queryAll(dimension);
         } catch (SQLException e) {
             WMLogger.warn("ChunkDatabase.queryAllReadOnly error: " + e.getMessage());
             return List.of();
         }
+    }
+
+    private static Connection openConnection(String url) throws SQLException {
+        synchronized (SQLITE_INIT_LOCK) {
+            ensureSqliteDriverReadyLocked();
+            return DriverManager.getConnection(url);
+        }
+    }
+
+    private static Connection openConnection(String url, Properties properties) throws SQLException {
+        synchronized (SQLITE_INIT_LOCK) {
+            ensureSqliteDriverReadyLocked();
+            return DriverManager.getConnection(url, properties);
+        }
+    }
+
+    private static void ensureSqliteDriverReadyLocked() throws SQLException {
+        configureSqliteNativeDirectoryLocked();
+        if (sqliteDriverLoaded) return;
+        try {
+            Class.forName("org.sqlite.JDBC");
+            sqliteDriverLoaded = true;
+        } catch (ClassNotFoundException e) {
+            throw new SQLException("SQLite JDBC driver is not available", e);
+        }
+    }
+
+    private static void configureSqliteNativeDirectoryLocked() {
+        if (sqliteNativeDirectoryConfigured) return;
+        if (System.getProperty("org.sqlite.tmpdir") == null) {
+            Path nativeDir = Paths.get(
+                    System.getProperty("java.io.tmpdir"),
+                    "worldmirror-sqlite-native",
+                    Long.toString(ProcessHandle.current().pid()));
+            try {
+                Files.createDirectories(nativeDir);
+                System.setProperty("org.sqlite.tmpdir", nativeDir.toAbsolutePath().toString());
+                WMLogger.debug("SQLite native temp dir: " + nativeDir.toAbsolutePath());
+            } catch (Exception e) {
+                WMLogger.warn("Could not configure SQLite native temp dir: " + e.getMessage());
+            }
+        }
+        sqliteNativeDirectoryConfigured = true;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@ package net.billstark001.worldmirror;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import net.billstark001.worldmirror.config.ModConfig;
+import net.billstark001.worldmirror.download.ChunkDatabase;
 import net.billstark001.worldmirror.download.DownloadManager;
 import net.billstark001.worldmirror.ui.ChunkMapScreen;
 import net.billstark001.worldmirror.ui.StatusScreen;
@@ -34,6 +35,7 @@ public class WorldMirrorClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         ModConfig.register();
+        ChunkDatabase.configureSqliteNativeDirectory();
 
         toggleKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.worldmirror.toggle",

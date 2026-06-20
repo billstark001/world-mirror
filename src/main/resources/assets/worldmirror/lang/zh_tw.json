@@ -110,7 +110,7 @@
   "text.autoconfig.worldmirror.option.chunkMap": "區塊地圖",
 
   "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold": "稀疏渲染閾值",
-  "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold.@Tooltip": "當地圖單元格尺寸小於或等於此值時，僅繪製已知區塊和衝突，不繪製完整網格。",
+  "text.autoconfig.worldmirror.option.chunkMap.sparseRenderCellThreshold.@Tooltip": "當地圖單元格尺寸小於或等於此值時隱藏逐區塊網格；低縮放仍會使用開銷較低的每 16/4 個區塊參考線。",
 
   "text.autoconfig.worldmirror.option.chunkMap.background": "地圖背景",
   "text.autoconfig.worldmirror.option.chunkMap.background.@Tooltip": "區塊地圖使用的背景樣式。",
