@@ -3,6 +3,13 @@
 All notable changes to World Mirror are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- Restored legacy vanilla-dimension save paths when running on Minecraft 1.21.11:
+  Overworld writes to the world root, Nether to `DIM-1`, and End to `DIM1`.
+
 ---
 
 ## [0.2.2] — 2026-06-21
