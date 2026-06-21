@@ -23,6 +23,7 @@ import net.billstark001.worldmirror.download.ChunkDatabase;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
+import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.IntArrayTag;
 import net.minecraft.nbt.ListTag;
@@ -45,6 +46,8 @@ public class ChunkExporter {
      *   <li>{@code minecraft:the_end}    → {@code <worldFolder>/dimensions/minecraft/the_end/}</li>
      *   <li>any other                    → {@code <worldFolder>/dimensions/<ns>/<path>/}</li>
      * </ul>
+     * For Minecraft 1.21.11, vanilla dimensions use the legacy singleplayer
+     * paths ({@code region/}, {@code DIM-1/}, {@code DIM1/}).
      * <p>
      * Only "dirty" chunks are written — i.e. chunks whose {@link ChunkListener.CapturedChunk#capturedAtMs()}
      * is newer than their last recorded write time, and whose update source is not
@@ -227,6 +230,17 @@ public class ChunkExporter {
 
     public static Path dimensionDirForDimension(Path worldFolder, ResourceKey<Level> dimension) {
         Identifier id = dimension.identifier();
+        if (usesLegacyVanillaDimensionLayout()) {
+            if (id.equals(Level.OVERWORLD.identifier())) {
+                return worldFolder;
+            }
+            if (id.equals(Level.NETHER.identifier())) {
+                return worldFolder.resolve("DIM-1");
+            }
+            if (id.equals(Level.END.identifier())) {
+                return worldFolder.resolve("DIM1");
+            }
+        }
         return worldFolder.resolve("dimensions")
                 .resolve(id.getNamespace())
                 .resolve(id.getPath());
@@ -339,5 +353,9 @@ public class ChunkExporter {
 
     private static String regionKey(int regionX, int regionZ) {
         return regionX + "," + regionZ;
+    }
+
+    private static boolean usesLegacyVanillaDimensionLayout() {
+        return "1.21.11".equals(SharedConstants.getCurrentVersion().id());
     }
 }
