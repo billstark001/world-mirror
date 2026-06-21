@@ -49,7 +49,7 @@ public final class XaeroWorldMapOverlayRenderer {
     public static void extractRenderState(Screen screen, GuiGraphicsExtractor ctx, int width, int height) {
         ModConfig.ChunkMapConfig config = ModConfig.get().chunkMap;
         Minecraft client = Minecraft.getInstance();
-        if (!config.showXaeroWorldMapOverlay || client.options.hideGui) return;
+        if (!config.showXaeroWorldMapOverlay || client.gui.hud.isHidden()) return;
 
         double cameraX = readDouble(screen, "cameraX", Double.NaN);
         double cameraZ = readDouble(screen, "cameraZ", Double.NaN);

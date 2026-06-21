@@ -151,7 +151,7 @@ public class EntityTracker {
     /**
      * Serializes {@code entity} to NBT for storage in the entities region file.
      * <p>
-     * Minecraft 26.1 writes entity data through {@code WriteView}; the local
+     * Minecraft 26.x writes entity data through {@code WriteView}; the local
      * {@link NbtWriteView} adapter captures that output as a {@link CompoundTag}.
      */
     private static CompoundTag serializeEntity(Entity entity) {

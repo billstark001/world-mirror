@@ -481,7 +481,6 @@ public class ChunkMapScreen extends Screen {
 
     /** Opens a fresh ChunkMapScreen on the game thread. */
     public static void open() {
-        Minecraft mc = Minecraft.getInstance();
-        mc.execute(() -> mc.setScreen(new ChunkMapScreen()));
+        ClientScreens.setLater(new ChunkMapScreen());
     }
 }

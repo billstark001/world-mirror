@@ -1,6 +1,6 @@
 # World Mirror
 
-**Version:** 0.2.2 · **Minecraft:** 26.1.2 · **Loader:** Fabric
+**Version:** 0.2.2 · **Minecraft:** 26.2 · **Loader:** Fabric
 
 A client-side Fabric mod that silently mirrors the world you are playing on a multiplayer
 server — or even a singleplayer world — into a fully loadable local copy.  As you explore,
@@ -193,9 +193,9 @@ as `container.chest` are not persisted as custom names.
 
 ## Installation
 
-1. Install [Fabric Loader](https://fabricmc.net/use/) ≥ 0.19.3 for Minecraft 26.1.2
+1. Install [Fabric Loader](https://fabricmc.net/use/) ≥ 0.19.3 for Minecraft 26.2
 2. Install [Fabric API](https://modrinth.com/mod/fabric-api)
-3. Install [LibGUI](https://github.com/CottonMC/LibGui) ≥ 16.0.1+26.1 (required)
+3. Install [LibGUI](https://github.com/CottonMC/LibGui) ≥ 17.0.0+26.2 (required)
 4. *(Optional)* Install [ModMenu](https://modrinth.com/mod/modmenu) for the in-game mod list
 5. *(Optional)* Install [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map) for fullscreen map overlay support
 6. Drop the compiled JAR file into your `mods/` folder

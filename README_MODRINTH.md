@@ -42,11 +42,11 @@ You can handle **Chunk Conflicts** (when a chunk already exists on your local di
 
 ## 📥 Installation & Requirements
 
-* **Minecraft:** 26.1.2
+* **Minecraft:** 26.2
 * **Mod Loader:** [Fabric](https://fabricmc.net/use/) (≥ 0.19.3)
 * **Dependencies:**
     * [Fabric API](https://modrinth.com/mod/fabric-api)
-    * [LibGUI](https://github.com/CottonMC/LibGui) (≥ 16.0.1+26.1) — *Required for the status screen*
+    * [LibGUI](https://github.com/CottonMC/LibGui) (≥ 17.0.0+26.2) — *Required for the status screen*
 * **Optional:** [Mod Menu](https://modrinth.com/mod/modmenu) (Highly recommended for accessing the settings screen)
 * **Optional:** [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map) for fullscreen map overlay integration
 

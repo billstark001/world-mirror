@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- Updated the Minecraft/Fabric dependency set to `26.2`, Fabric API
+  `0.152.2+26.2`, ModMenu `20.0.0-beta.3`, LibGUI `17.0.0+26.2`,
+  and Cloth Config `26.2.155`.
+
+### Fixed
+
+- Ported 26.2 client API usages for screen switching, HUD-hidden checks, and flat
+  world preset lookup.
+
+---
+
 ## [0.2.2] — 2026-06-21
 
 ### Added

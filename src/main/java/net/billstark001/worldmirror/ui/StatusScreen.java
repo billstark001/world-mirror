@@ -191,7 +191,7 @@ public class StatusScreen extends LightweightGuiDescription {
         y += BTN_H + 4;
 
         WButton closeBtn = new WButton(Component.translatable("gui.done"));
-        closeBtn.setOnClick(() -> Minecraft.getInstance().setScreen(null));
+        closeBtn.setOnClick(() -> ClientScreens.set(null));
         root.add(closeBtn, MARGIN, y, INNER_W, BTN_H);
         y += BTN_H + MARGIN;
 
@@ -244,8 +244,7 @@ public class StatusScreen extends LightweightGuiDescription {
         WButton settingsBtn = new WButton(
                 Component.translatable("screen.worldmirror.status.openSettings"));
         settingsBtn.setOnClick(() -> {
-            Minecraft mc = Minecraft.getInstance();
-            mc.setScreen(
+            ClientScreens.set(
                     AutoConfigClient.getConfigScreen(ModConfig.class, new StatusClientScreen()).get()
             );
         });
@@ -253,7 +252,7 @@ public class StatusScreen extends LightweightGuiDescription {
         y += BTN_H + 4;
 
         WButton closeBtn = new WButton(Component.translatable("gui.done"));
-        closeBtn.setOnClick(() -> Minecraft.getInstance().setScreen(null));
+        closeBtn.setOnClick(() -> ClientScreens.set(null));
         root.add(closeBtn, MARGIN, y, INNER_W, BTN_H);
         y += BTN_H + MARGIN;
 
@@ -304,7 +303,7 @@ public class StatusScreen extends LightweightGuiDescription {
         y += BTN_H + 4;
 
         WButton closeBtn = new WButton(Component.translatable("gui.done"));
-        closeBtn.setOnClick(() -> Minecraft.getInstance().setScreen(null));
+        closeBtn.setOnClick(() -> ClientScreens.set(null));
         root.add(closeBtn, MARGIN, y, INNER_W, BTN_H);
         y += BTN_H + MARGIN;
 
@@ -315,8 +314,7 @@ public class StatusScreen extends LightweightGuiDescription {
 
     /** Opens a fresh status screen on the game thread. */
     public static void open() {
-        Minecraft mc = Minecraft.getInstance();
-        mc.execute(() -> mc.setScreen(new StatusClientScreen()));
+        ClientScreens.setLater(new StatusClientScreen());
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

@@ -73,7 +73,7 @@ public class ExportNearbyScreen extends Screen {
                     String name = nameField.getValue().isBlank()
                             ? defaultWorldName() : nameField.getValue();
                     Minecraft mc = Minecraft.getInstance();
-                    mc.setScreen(null);
+                    ClientScreens.set(null);
                     DownloadManager.exportNearbyToNewSave(mc, name, radius);
                 }
         ).bounds(cx - 100, cy + 30, 94, 20).build());
@@ -81,7 +81,7 @@ public class ExportNearbyScreen extends Screen {
         // Cancel
         addRenderableWidget(Button.builder(
                 Component.translatable("gui.cancel"),
-                btn -> Minecraft.getInstance().setScreen(parent)
+                btn -> ClientScreens.set(parent)
         ).bounds(cx + 6, cy + 30, 94, 20).build());
     }
 
@@ -134,7 +134,6 @@ public class ExportNearbyScreen extends Screen {
 
     /** Opens the ExportNearby screen on the game thread. */
     public static void open(Screen parent) {
-        Minecraft mc = Minecraft.getInstance();
-        mc.execute(() -> mc.setScreen(new ExportNearbyScreen(parent)));
+        ClientScreens.setLater(new ExportNearbyScreen(parent));
     }
 }

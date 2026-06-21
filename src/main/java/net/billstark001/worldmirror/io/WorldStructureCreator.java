@@ -13,6 +13,7 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.RegistryAccess;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.*;
 import net.minecraft.world.Difficulty;
 import net.minecraft.world.level.GameType;
@@ -324,7 +325,10 @@ public class WorldStructureCreator {
             try {
                 WorldGenSettings settings = new WorldGenSettings(
                         new WorldOptions(0L, false, false),
-                        WorldPresets.createFlatWorldDimensions(registryAccess)
+                        registryAccess.lookupOrThrow(Registries.WORLD_PRESET)
+                                .getOrThrow(WorldPresets.FLAT_ALL_DIMENSIONS)
+                                .value()
+                                .createWorldDimensions()
                 );
                 LevelStorageSource.writeWorldGenSettings(registryAccess, worldFolderPath, settings);
                 return;
