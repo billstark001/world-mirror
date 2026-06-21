@@ -3,6 +3,37 @@
 All notable changes to World Mirror are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+---
+
+## [0.2.3] — 2026-06-22
+
+### Changed
+
+- Version bump: `0.2.2` → `0.2.3`.
+
+### Fixed
+
+- Fixed the Xaero's World Map overlay mixin for this Minecraft branch by keeping
+  the branch-verified exact injection anchor wrapped in the new guarded mixin
+  structure.
+- Added a configurable Xaero overlay injection mode. `Exact Only` preserves the
+  verified draw order, while `Tail Fallback` can keep the overlay available on
+  unverified Xaero builds at the cost of drawing above Xaero map UI elements.
+- Added runtime Xaero overlay capability status and non-fatal handling so
+  unsupported Xaero builds no longer crash the client at startup.
+- Consolidated Xaero exact and tail fallback injections into one guarded mixin
+  class so multiple exact anchors can be added without duplicate overlay draws.
+- Extended `scripts/Get-LatestXaerosWorldMap.ps1` with release listing, specific
+  Xaero version selection, and automated `GuiMap` disassembly output for future
+  injection-point maintenance.
+- Fixed Xaero jar reuse when the selected version already exists as
+  `.jar.disabled`, avoiding unnecessary repeated downloads.
+- Changed `scripts/Switch-WorldMirrorBranch.ps1` so it no longer deletes
+  `build/libs` by default; full build cleanup and Xaero disassembly-cache cleanup
+  now require explicit switches.
+
+---
+
 ## [0.2.2] — 2026-06-21
 
 ### Added
