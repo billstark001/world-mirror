@@ -10,7 +10,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.resources.Identifier;
@@ -37,27 +37,27 @@ public class WorldMirrorClient implements ClientModInitializer {
         ModConfig.register();
         ChunkDatabase.configureSqliteNativeDirectory();
 
-        toggleKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+        toggleKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.worldmirror.toggle",
                 InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_P,
                 CATEGORY));
 
-        exportKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+        exportKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.worldmirror.export",
                 InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_O,
                 CATEGORY));
 
-        clearKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+        clearKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.worldmirror.clear",
                 InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_L,
                 CATEGORY));
 
-        statusKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+        statusKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.worldmirror.status",
                 InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_I,
                 CATEGORY));
 
-        chunkMapKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+        chunkMapKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.worldmirror.chunkMap",
                 InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_M,
                 CATEGORY));

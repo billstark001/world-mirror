@@ -4,7 +4,7 @@ import net.billstark001.worldmirror.download.DownloadManager;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
@@ -86,30 +86,30 @@ public class ExportNearbyScreen extends Screen {
     }
 
     @Override
-    public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
-        super.extractRenderState(context, mouseX, mouseY, delta);
+    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+        super.render(context, mouseX, mouseY, delta);
 
         int cx = this.width / 2;
         int cy = this.height / 2;
 
         // Title
-        context.centeredText(this.font, this.title,
+        context.drawCenteredString(this.font, this.title,
                 cx, cy - 70, 0xFFFFFFFF);
 
         // World name label
-        context.text(this.font,
+        context.drawString(this.font,
                 Component.translatable("screen.worldmirror.exportNearby.worldName"),
                 cx - 100, cy - 55, 0xFFAAAAAA);
 
         // Radius display
-        context.centeredText(this.font,
+        context.drawCenteredString(this.font,
                 Component.translatable("screen.worldmirror.exportNearby.radius")
                         .append(": " + radius),
                 cx, cy + 5, 0xFFFFFFFF);
 
         // Chunk count hint
         long chunkCount = (long) (2 * radius + 1) * (2 * radius + 1);
-        context.centeredText(this.font,
+        context.drawCenteredString(this.font,
                 Component.literal("§7(" + chunkCount + " chunks max)"),
                 cx, cy + 18, 0xFFAAAAAA);
     }

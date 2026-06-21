@@ -125,7 +125,7 @@ public final class DownloadManager {
                 nowActive ? "msg.worldmirror.downloadStart"
                           : "msg.worldmirror.downloadStop");
         if (client.player != null) {
-            client.player.sendOverlayMessage(msg);
+            client.player.displayClientMessage(msg, true);
         }
         WMLogger.debug(nowActive ? "Download activated" : "Download deactivated");
     }
@@ -138,13 +138,13 @@ public final class DownloadManager {
                 && client.level != null && client.player != null;
         if (ChunkListener.isEmpty() && !canPreCapture) {
             Component msg = Component.translatable("msg.worldmirror.noChunks");
-            if (client.player != null) client.player.sendSystemMessage(msg);
+            if (client.player != null) client.player.displayClientMessage(msg, false);
             WMLogger.warn("No chunks to export.");
             return;
         }
         if (exportInProgress.get()) {
             Component msg = Component.translatable("msg.worldmirror.exportBusy");
-            if (client.player != null) client.player.sendSystemMessage(msg);
+            if (client.player != null) client.player.displayClientMessage(msg, false);
             deferExport(true, null, null, ContainerTracker.snapshotSavedData());
             WMLogger.warn("Export already in progress; queued another export pass.");
             return;
@@ -162,7 +162,7 @@ public final class DownloadManager {
         EntityTracker.clear();
         ContainerTracker.clear();
         Component msg = Component.translatable("msg.worldmirror.cleared");
-        if (client.player != null) client.player.sendSystemMessage(msg);
+        if (client.player != null) client.player.displayClientMessage(msg, false);
         WMLogger.debug("Cleared: " + chunks + " chunks, " + entities
                 + " entities, " + containers + " containers.");
     }
@@ -295,7 +295,7 @@ public final class DownloadManager {
         Component msg = Component.translatable(
                 desired ? "msg.worldmirror.downloadStart"
                        : "msg.worldmirror.downloadStop");
-        if (client.player != null) client.player.sendOverlayMessage(msg);
+        if (client.player != null) client.player.displayClientMessage(msg, true);
         String transitionMessage = "Download " + (desired ? "activated" : "deactivated")
                 + " by lifecycle event: " + eventName;
         if ("dimension-change".equals(eventName)) {
@@ -633,7 +633,7 @@ public final class DownloadManager {
                     Minecraft.getInstance().execute(() -> {
                         Minecraft mc = Minecraft.getInstance();
                         if (mc.player != null) {
-                            mc.player.sendSystemMessage(Component.translatable("msg.worldmirror.exportDone"));
+                            mc.player.displayClientMessage(Component.translatable("msg.worldmirror.exportDone"), false);
                         }
                     });
                 }
@@ -837,8 +837,8 @@ public final class DownloadManager {
         ClientLevel world = client.level;
         if (world == null || client.player == null) {
             if (client.player != null)
-                client.player.sendSystemMessage(
-                        Component.literal("§cCannot export: no world loaded."));
+                client.player.displayClientMessage(
+                        Component.literal("§cCannot export: no world loaded."), false);
             return;
         }
 
@@ -869,8 +869,8 @@ public final class DownloadManager {
 
         if (nearbyChunks.isEmpty()) {
             if (client.player != null)
-                client.player.sendSystemMessage(
-                        Component.literal("§cNo chunks captured in radius " + radiusChunks + "."));
+                client.player.displayClientMessage(
+                        Component.literal("§cNo chunks captured in radius " + radiusChunks + "."), false);
             return;
         }
 
@@ -913,15 +913,15 @@ public final class DownloadManager {
                 WMLogger.info("Nearby export complete: " + finalOut.toAbsolutePath());
                 client.execute(() -> {
                     if (client.player != null)
-                        client.player.sendSystemMessage(
-                                Component.literal("§aExported to saves/" + finalOut.getFileName()));
+                        client.player.displayClientMessage(
+                                Component.literal("§aExported to saves/" + finalOut.getFileName()), false);
                 });
             } catch (Exception e) {
                 WMLogger.warn("exportNearbyToNewSave failed: " + e.getMessage());
                 client.execute(() -> {
                     if (client.player != null)
-                        client.player.sendSystemMessage(
-                                Component.literal("§cExport failed: " + e.getMessage()));
+                        client.player.displayClientMessage(
+                                Component.literal("§cExport failed: " + e.getMessage()), false);
                 });
             }
         }, "WM-NearbyExport");

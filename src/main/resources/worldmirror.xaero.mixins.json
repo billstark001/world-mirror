@@ -2,11 +2,11 @@
   "required": true,
   "package": "net.billstark001.worldmirror.xaero.mixin",
   "plugin": "net.billstark001.worldmirror.xaero.WorldMirrorMixinPlugin",
-  "compatibilityLevel": "JAVA_25",
+  "compatibilityLevel": "JAVA_21",
   "client": [
     "XaeroGuiMapMixin"
   ],
   "injectors": {
-    "defaultRequire": 1
+    "defaultRequire": 0
   }
 }

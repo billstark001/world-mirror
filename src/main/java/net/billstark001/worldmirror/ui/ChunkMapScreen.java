@@ -7,7 +7,7 @@ import net.billstark001.worldmirror.download.DownloadManager;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
@@ -94,8 +94,8 @@ public class ChunkMapScreen extends Screen {
 
         // Centre on player
         if (client.player != null) {
-            viewCX = client.player.chunkPosition().x();
-            viewCZ = client.player.chunkPosition().z();
+            viewCX = client.player.chunkPosition().x;
+            viewCZ = client.player.chunkPosition().z;
         }
         if (client.level != null) {
             currentDimension = client.level.dimension();
@@ -166,7 +166,7 @@ public class ChunkMapScreen extends Screen {
     // ── Rendering ─────────────────────────────────────────────────────────────
 
     @Override
-    public void extractRenderState(GuiGraphicsExtractor ctx, int mx, int my, float delta) {
+    public void render(GuiGraphics ctx, int mx, int my, float delta) {
         this.mouseX = mx;
         this.mouseY = my;
 
@@ -210,7 +210,7 @@ public class ChunkMapScreen extends Screen {
         // Dialog overlay
         if (dialogChunk != null) drawConflictDialog(ctx);
 
-        super.extractRenderState(ctx, mx, my, delta);
+        super.render(ctx, mx, my, delta);
 
         // Tooltip
         if (hoveredChunk != null && dialogChunk == null) {
@@ -237,7 +237,7 @@ public class ChunkMapScreen extends Screen {
         return 0xFF000000 | (g << 8) | b;
     }
 
-    public static void drawConflictBorder(GuiGraphicsExtractor ctx, int x, int z, int size) {
+    public static void drawConflictBorder(GuiGraphics ctx, int x, int z, int size) {
         int c = COLOR_CONFLICT_BORDER;
         if (size < 3) { ctx.fill(x, z, x + size, z + size, c); return; }
         ctx.fill(x + 1, z + 1, x + size - 1, z + 2,           c);
@@ -246,12 +246,12 @@ public class ChunkMapScreen extends Screen {
         ctx.fill(x + size - 2, z + 1, x + size - 1, z + size - 1, c);
     }
 
-    private void drawTooltipForChunk(GuiGraphicsExtractor ctx, ChunkPos pos, int mx, int my, long now) {
-        ChunkDatabase.ChunkRecord rec = statusSnapshot.getRecord(pos.x(), pos.z());
-        boolean hasConflict = statusSnapshot.hasConflict(pos.x(), pos.z());
+    private void drawTooltipForChunk(GuiGraphics ctx, ChunkPos pos, int mx, int my, long now) {
+        ChunkDatabase.ChunkRecord rec = statusSnapshot.getRecord(pos.x, pos.z);
+        boolean hasConflict = statusSnapshot.hasConflict(pos.x, pos.z);
         List<Component> lines = new ArrayList<>();
-        lines.add(Component.literal("§eChunk (" + pos.x() + ", " + pos.z() + ")"));
-        lines.add(Component.literal("§7Block: (" + (pos.x() * 16) + ", " + (pos.z() * 16) + ")"));
+        lines.add(Component.literal("§eChunk (" + pos.x + ", " + pos.z + ")"));
+        lines.add(Component.literal("§7Block: (" + (pos.x * 16) + ", " + (pos.z * 16) + ")"));
         if (rec != null) {
             lines.add(Component.literal("§7Updated: §f" + formatAge((now - rec.updateTime()) / 1000)));
             lines.add(Component.literal("§7Source: §f" + rec.updateSource()));
@@ -265,7 +265,7 @@ public class ChunkMapScreen extends Screen {
         ctx.setComponentTooltipForNextFrame(this.font, lines, mx, my);
     }
 
-    private void renderDense(GuiGraphicsExtractor ctx, int halfW, int halfH,
+    private void renderDense(GuiGraphics ctx, int halfW, int halfH,
                              int cxMin, int cxMax, int czMin, int czMax, long now) {
         renderKnownRecords(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax, now);
         renderGrid(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax, gridIntervalForCellSize(cellSize));
@@ -273,7 +273,7 @@ public class ChunkMapScreen extends Screen {
         renderConflicts(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax);
     }
 
-    private void renderSparse(GuiGraphicsExtractor ctx, int halfW, int halfH,
+    private void renderSparse(GuiGraphics ctx, int halfW, int halfH,
                               int cxMin, int cxMax, int czMin, int czMax, long now) {
         renderKnownRecords(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax, now);
         renderGrid(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax, sparseGridIntervalForCellSize(cellSize));
@@ -281,7 +281,7 @@ public class ChunkMapScreen extends Screen {
         renderConflicts(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax);
     }
 
-    private void renderKnownRecords(GuiGraphicsExtractor ctx, int halfW, int halfH,
+    private void renderKnownRecords(GuiGraphics ctx, int halfW, int halfH,
                                     int cxMin, int cxMax, int czMin, int czMax, long now) {
         statusSnapshot.forEachRecordInRange(cxMin, cxMax, czMin, czMax, rec -> {
             int cx = rec.x();
@@ -294,18 +294,18 @@ public class ChunkMapScreen extends Screen {
         });
     }
 
-    private void renderConflicts(GuiGraphicsExtractor ctx, int halfW, int halfH,
+    private void renderConflicts(GuiGraphics ctx, int halfW, int halfH,
                                  int cxMin, int cxMax, int czMin, int czMax) {
         statusSnapshot.forEachConflictInRange(cxMin, cxMax, czMin, czMax, pos -> {
-            int cx = pos.x();
-            int cz = pos.z();
+            int cx = pos.x;
+            int cz = pos.z;
             int sx = halfW + (int) Math.round((cx - viewCX) * cellSize);
             int sz = halfH + (int) Math.round((cz - viewCZ) * cellSize);
             drawConflictBorder(ctx, sx, sz, cellSize);
         });
     }
 
-    private void renderBoundaries(GuiGraphicsExtractor ctx, int halfW, int halfH,
+    private void renderBoundaries(GuiGraphics ctx, int halfW, int halfH,
                                   int cxMin, int cxMax, int czMin, int czMax) {
         statusSnapshot.forEachBoundaryInRange(cxMin, cxMax, czMin, czMax, segment -> {
             int color = withAlpha(segment.color(), COLOR_BOUNDARY_ALPHA);
@@ -323,7 +323,7 @@ public class ChunkMapScreen extends Screen {
         });
     }
 
-    private void renderGrid(GuiGraphicsExtractor ctx, int halfW, int halfH,
+    private void renderGrid(GuiGraphics ctx, int halfW, int halfH,
                             int cxMin, int cxMax, int czMin, int czMax, int interval) {
         int top = halfH + (int) Math.round((czMin - viewCZ) * cellSize);
         int bottom = halfH + (int) Math.round((czMax + 1 - viewCZ) * cellSize);
@@ -344,7 +344,7 @@ public class ChunkMapScreen extends Screen {
 
     // ── Dialog ────────────────────────────────────────────────────────────────
 
-    private void drawConflictDialog(GuiGraphicsExtractor ctx) {
+    private void drawConflictDialog(GuiGraphics ctx) {
         int dw = 220, dh = 90;
         int dx = (this.width - dw) / 2, dy = (this.height - dh) / 2;
         ctx.fill(dx, dy, dx + dw, dy + dh, 0xFF202020);
@@ -353,15 +353,15 @@ public class ChunkMapScreen extends Screen {
         ctx.fill(dx, dy, dx + 1, dy + dh, b);
         ctx.fill(dx + dw - 1, dy, dx + dw, dy + dh, b);
         ctx.fill(dx, dy + dh - 1, dx + dw, dy + dh, b);
-        ctx.centeredText(this.font,
+        ctx.drawCenteredString(this.font,
                 Component.translatable("screen.worldmirror.chunkmap.dialog.title"),
                 this.width / 2, dy + 8, 0xFFFFFFFF);
         if (dialogChunk != null) {
-            ctx.centeredText(this.font,
-                    Component.literal("(" + dialogChunk.x() + ", " + dialogChunk.z() + ")"),
+            ctx.drawCenteredString(this.font,
+                    Component.literal("(" + dialogChunk.x + ", " + dialogChunk.z + ")"),
                     this.width / 2, dy + 22, 0xFFAAAAAA);
         }
-        ctx.centeredText(this.font,
+        ctx.drawCenteredString(this.font,
                 Component.translatable("screen.worldmirror.chunkmap.dialog.prompt"),
                 this.width / 2, dy + 36, 0xFFCCCCCC);
     }
@@ -399,7 +399,7 @@ public class ChunkMapScreen extends Screen {
         }
 
         if (button == 0) {
-            if (hoveredChunk != null && statusSnapshot.hasConflict(hoveredChunk.x(), hoveredChunk.z())) {
+            if (hoveredChunk != null && statusSnapshot.hasConflict(hoveredChunk.x, hoveredChunk.z)) {
                 openDialog(hoveredChunk);
                 return true;
             }

@@ -78,8 +78,8 @@ public final class ConflictManager {
         Path conflictDir = getConflictDir(worldFolder, dimension);
         try {
             Files.createDirectories(conflictDir);
-            int regionX = pos.x() >> 5;
-            int regionZ = pos.z() >> 5;
+            int regionX = pos.x >> 5;
+            int regionZ = pos.z >> 5;
             Path regionFile = conflictDir.resolve(
                     String.format("r.%d.%d.mca", regionX, regionZ));
 
@@ -88,8 +88,8 @@ public final class ConflictManager {
                         ? McaFileHelpers.readAuto(regionFile.toFile())
                         : new McaRegionFile(regionX, regionZ);
 
-                int localX = pos.x() & 0x1F;
-                int localZ = pos.z() & 0x1F;
+                int localX = pos.x & 0x1F;
+                int localZ = pos.z & 0x1F;
                 CompoundTag tag = ChunkExporter.convertToQuerz(chunkNbt);
                 mca.setChunk(localX, localZ, new TerrainChunk(tag));
                 McaWriteSupport.writeAtomicallyLocked(mca, regionFile);
@@ -106,13 +106,13 @@ public final class ConflictManager {
     public static boolean hasConflict(Path worldFolder, ChunkPos pos,
                                       ResourceKey<Level> dimension) {
         Path conflictDir = getConflictDir(worldFolder, dimension);
-        int regionX = pos.x() >> 5;
-        int regionZ = pos.z() >> 5;
+        int regionX = pos.x >> 5;
+        int regionZ = pos.z >> 5;
         Path regionFile = conflictDir.resolve(String.format("r.%d.%d.mca", regionX, regionZ));
         if (!regionFile.toFile().exists()) return false;
         try {
             McaRegionFile mca = McaFileHelpers.readAuto(regionFile.toFile());
-            return mca.getChunk(pos.x() & 0x1F, pos.z() & 0x1F) != null;
+            return mca.getChunk(pos.x & 0x1F, pos.z & 0x1F) != null;
         } catch (Exception e) {
             return false;
         }
@@ -185,8 +185,8 @@ public final class ConflictManager {
     public static void resolveConflict(Path worldFolder, ChunkPos pos,
                                        ResourceKey<Level> dimension, boolean overwrite) {
         Path conflictDir = getConflictDir(worldFolder, dimension);
-        int regionX = pos.x() >> 5;
-        int regionZ = pos.z() >> 5;
+        int regionX = pos.x >> 5;
+        int regionZ = pos.z >> 5;
         Path conflictFile = conflictDir.resolve(
                 String.format("r.%d.%d.mca", regionX, regionZ));
         if (!conflictFile.toFile().exists()) return;
@@ -194,8 +194,8 @@ public final class ConflictManager {
         try {
             synchronized (McaWriteSupport.lockFor(conflictFile)) {
                 McaRegionFile conflictMca = McaFileHelpers.readAuto(conflictFile.toFile());
-                int localX = pos.x() & 0x1F;
-                int localZ = pos.z() & 0x1F;
+                int localX = pos.x & 0x1F;
+                int localZ = pos.z & 0x1F;
                 TerrainChunk conflictChunk = conflictMca.getChunk(localX, localZ);
 
                 if (overwrite && conflictChunk != null) {

@@ -204,8 +204,8 @@ public class ChunkDatabase implements Closeable {
                 for (ChunkPos pos : positions) {
                     ps.setString(1, sourceId);
                     ps.setString(2, dimension);
-                    ps.setInt(3, pos.x());
-                    ps.setInt(4, pos.z());
+                    ps.setInt(3, pos.x);
+                    ps.setInt(4, pos.z);
                     ps.setLong(5, now);
                     ps.setString(6, updateSource);
                     ps.addBatch();

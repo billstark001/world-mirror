@@ -42,10 +42,10 @@ public final class ChunkStatusSnapshot {
         this.conflictKeys = new HashSet<>(Math.max(16, conflicts.size() * 2));
         this.conflictsByRegion = new HashMap<>();
         for (ChunkPos pos : conflicts) {
-            long chunkKey = chunkKey(pos.x(), pos.z());
+            long chunkKey = chunkKey(pos.x, pos.z);
             conflictKeys.add(chunkKey);
             conflictsByRegion
-                    .computeIfAbsent(regionKeyForChunk(pos.x(), pos.z()), ignored -> new ArrayList<>())
+                    .computeIfAbsent(regionKeyForChunk(pos.x, pos.z), ignored -> new ArrayList<>())
                     .add(pos);
         }
 
@@ -107,8 +107,8 @@ public final class ChunkStatusSnapshot {
                 List<ChunkPos> conflicts = conflictsByRegion.get(regionKey(regionX, regionZ));
                 if (conflicts == null) continue;
                 for (ChunkPos pos : conflicts) {
-                    int x = pos.x();
-                    int z = pos.z();
+                    int x = pos.x;
+                    int z = pos.z;
                     if (x >= minChunkX && x <= maxChunkX && z >= minChunkZ && z <= maxChunkZ) {
                         consumer.accept(pos);
                     }

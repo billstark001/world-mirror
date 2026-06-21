@@ -1,6 +1,6 @@
 # World Mirror
 
-**Version:** 0.2.2 · **Minecraft:** 26.1.2 · **Loader:** Fabric
+**Version:** 0.2.2 · **Minecraft:** 1.21.11 · **Loader:** Fabric
 
 A client-side Fabric mod that silently mirrors the world you are playing on a multiplayer
 server — or even a singleplayer world — into a fully loadable local copy.  As you explore,
@@ -16,7 +16,7 @@ region-file save that you can open immediately in singleplayer.
 | **Persistent download session** | Press **P** to start or stop a download session. Chunks received from the server are recorded automatically while the session is active. |
 | **Periodic background sync** | The mod exports to disk on a configurable timer (default 10 s) without freezing the game. |
 | **Dirty-chunk tracking** | Only chunks that have changed since the last export are written, keeping sync fast even for large worlds. |
-| **Multi-dimension support** | Overworld, Nether, End, and any custom dimension are captured under `dimensions/<ns>/<path>/` with separate `region/`, `entities/`, `poi/`, and `data/` subdirectories. |
+| **Multi-dimension support** | Overworld, Nether, End, and any custom dimension are captured in Minecraft's standard save layout with separate `region/`, `entities/`, and `poi/` subdirectories. |
 | **Entity capture** | All non-player entities in captured chunks — mobs, animals, paintings, item frames, armour stands, dropped items, vehicles, etc. — are serialized using Minecraft's own `saveWithoutId` and written to the dimension's `entities/` region files. |
 | **Container tracking** | The mod intercepts inventory packets when you open a chest, barrel, hopper, furnace, or any other container and saves the item stacks. They are merged into the block entity NBT on export. Double chests are handled correctly (each half is saved to its own position). |
 | **Block entity data** | Signs (text), beacons (effects), banners (patterns), player heads (owner), lecterns (stored book), and all other block entities whose data the server sends to the client are persisted through Minecraft's chunk serialization path. |
@@ -104,24 +104,18 @@ The exported world is a standard Minecraft save directory:
 
 ```
 downloaded_worlds/<mirror-name>/
-├── dimensions/
-│   └── minecraft/
-│       ├── overworld/
-│       │   ├── region/
-│       │   ├── entities/
-│       │   ├── poi/
-│       │   └── data/minecraft/
-│       ├── the_nether/
-│       │   ├── region/
-│       │   ├── entities/
-│       │   ├── poi/
-│       │   └── data/minecraft/
-│       └── the_end/
-│           ├── region/
-│           ├── entities/
-│           ├── poi/
-│           └── data/minecraft/
-├── dimensions/<ns>/<path>/   ← Custom dimensions use the same layout
+├── region/
+├── entities/
+├── poi/
+├── DIM-1/
+│   ├── region/
+│   ├── entities/
+│   └── poi/
+├── DIM1/
+│   ├── region/
+│   ├── entities/
+│   └── poi/
+├── dimensions/<ns>/<path>/   ← Custom dimensions use region/entities/poi
 ├── level.dat                 ← Default world properties (created on first export)
 ├── players/
 │   ├── advancements/
@@ -193,9 +187,9 @@ as `container.chest` are not persisted as custom names.
 
 ## Installation
 
-1. Install [Fabric Loader](https://fabricmc.net/use/) ≥ 0.19.3 for Minecraft 26.1.2
+1. Install [Fabric Loader](https://fabricmc.net/use/) ≥ 0.19.3 for Minecraft 1.21.11
 2. Install [Fabric API](https://modrinth.com/mod/fabric-api)
-3. Install [LibGUI](https://github.com/CottonMC/LibGui) ≥ 16.0.1+26.1 (required)
+3. Install [LibGUI](https://github.com/CottonMC/LibGui) ≥ 15.1.0+1.21.11 (required)
 4. *(Optional)* Install [ModMenu](https://modrinth.com/mod/modmenu) for the in-game mod list
 5. *(Optional)* Install [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map) for fullscreen map overlay support
 6. Drop the compiled JAR file into your `mods/` folder

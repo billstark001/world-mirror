@@ -23,7 +23,6 @@ import net.billstark001.worldmirror.download.ChunkDatabase;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.IntArrayTag;
 import net.minecraft.nbt.ListTag;
@@ -41,13 +40,11 @@ public class ChunkExporter {
      * <p>
      * Each dimension is exported to the appropriate subdirectory:
      * <ul>
-     *   <li>{@code minecraft:overworld}  → {@code <worldFolder>/dimensions/minecraft/overworld/}</li>
-     *   <li>{@code minecraft:the_nether} → {@code <worldFolder>/dimensions/minecraft/the_nether/}</li>
-     *   <li>{@code minecraft:the_end}    → {@code <worldFolder>/dimensions/minecraft/the_end/}</li>
+     *   <li>{@code minecraft:overworld}  → {@code <worldFolder>/}</li>
+     *   <li>{@code minecraft:the_nether} → {@code <worldFolder>/DIM-1/}</li>
+     *   <li>{@code minecraft:the_end}    → {@code <worldFolder>/DIM1/}</li>
      *   <li>any other                    → {@code <worldFolder>/dimensions/<ns>/<path>/}</li>
      * </ul>
-     * For Minecraft 1.21.11, vanilla dimensions use the legacy singleplayer
-     * paths ({@code region/}, {@code DIM-1/}, {@code DIM1/}).
      * <p>
      * Only "dirty" chunks are written — i.e. chunks whose {@link ChunkListener.CapturedChunk#capturedAtMs()}
      * is newer than their last recorded write time, and whose update source is not
@@ -120,7 +117,7 @@ public class ChunkExporter {
                 new HashMap<>();
         for (Map.Entry<ChunkPos, ChunkListener.CapturedChunk> entry : dimChunks.entrySet()) {
             ChunkPos pos = entry.getKey();
-            chunksByRegion.computeIfAbsent(regionKey(pos.x() >> 5, pos.z() >> 5),
+            chunksByRegion.computeIfAbsent(regionKey(pos.x >> 5, pos.z >> 5),
                     ignored -> new ArrayList<>()).add(entry);
         }
 
@@ -156,15 +153,15 @@ public class ChunkExporter {
                     ChunkPos chunkPos = entry.getKey();
                     ChunkListener.CapturedChunk captured = entry.getValue();
 
-                    if (db.shouldSkipUpdate(dimStr, chunkPos.x(), chunkPos.z(),
+                    if (db.shouldSkipUpdate(dimStr, chunkPos.x, chunkPos.z,
                             "world_mirror", captured.capturedAtMs())) {
                         WMLogger.debug("Skipping chunk [" + dimension.identifier()
                                 + "] " + chunkPos + " (not dirty or higher-priority source)");
                         continue;
                     }
 
-                    int localX = chunkPos.x() & 0x1F;
-                    int localZ = chunkPos.z() & 0x1F;
+                    int localX = chunkPos.x & 0x1F;
+                    int localZ = chunkPos.z & 0x1F;
                     try {
                         net.minecraft.nbt.CompoundTag chunkNbt = captured.nbt().copy();
                         TerrainChunk localChunk = preExisting ? mcaFile.getChunk(localX, localZ) : null;
@@ -230,16 +227,14 @@ public class ChunkExporter {
 
     public static Path dimensionDirForDimension(Path worldFolder, ResourceKey<Level> dimension) {
         Identifier id = dimension.identifier();
-        if (usesLegacyVanillaDimensionLayout()) {
-            if (id.equals(Level.OVERWORLD.identifier())) {
-                return worldFolder;
-            }
-            if (id.equals(Level.NETHER.identifier())) {
-                return worldFolder.resolve("DIM-1");
-            }
-            if (id.equals(Level.END.identifier())) {
-                return worldFolder.resolve("DIM1");
-            }
+        if (id.equals(Level.OVERWORLD.identifier())) {
+            return worldFolder;
+        }
+        if (id.equals(Level.NETHER.identifier())) {
+            return worldFolder.resolve("DIM-1");
+        }
+        if (id.equals(Level.END.identifier())) {
+            return worldFolder.resolve("DIM1");
         }
         return worldFolder.resolve("dimensions")
                 .resolve(id.getNamespace())
@@ -262,8 +257,8 @@ public class ChunkExporter {
             if (entities == null || entities.isEmpty()) continue;
 
             ChunkPos chunkPos = entry.getKey();
-            int chunkX = chunkPos.x();
-            int chunkZ = chunkPos.z();
+            int chunkX = chunkPos.x;
+            int chunkZ = chunkPos.z;
             int regionX = chunkX >> 5;
             int regionZ = chunkZ >> 5;
             int localX = chunkX & 0x1F;
@@ -353,9 +348,5 @@ public class ChunkExporter {
 
     private static String regionKey(int regionX, int regionZ) {
         return regionX + "," + regionZ;
-    }
-
-    private static boolean usesLegacyVanillaDimensionLayout() {
-        return "1.21.11".equals(SharedConstants.getCurrentVersion().id());
     }
 }

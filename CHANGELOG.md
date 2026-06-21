@@ -3,15 +3,6 @@
 All notable changes to World Mirror are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
-
-### Fixed
-
-- Restored legacy vanilla-dimension save paths when running on Minecraft 1.21.11:
-  Overworld writes to the world root, Nether to `DIM-1`, and End to `DIM1`.
-
----
-
 ## [0.2.2] — 2026-06-21
 
 ### Added
@@ -23,8 +14,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - Version bump: `0.2.1` → `0.2.2`.
-- Updated the Minecraft/Fabric dependency set to `26.1.2`, Fabric Loader `0.19.3`,
-  Fabric API `0.151.0+26.1.2`, LibGUI `16.0.1+26.1`, and Cloth Config `26.1.154`.
+- Updated the Minecraft/Fabric dependency set to `1.21.11`, Fabric Loader `0.19.3`,
+  Fabric API `0.141.4+1.21.11`, ModMenu `17.0.0`, LibGUI `15.1.0+1.21.11`,
+  Cloth Config `21.11.153`, and Java 21.
 - Reduced routine lifecycle, capture, export, migration, and world-structure logs from
   info to debug so normal gameplay chat/log output is quieter.
 - Removed obsolete chest/debug mixins and centralized block-entity/container NBT handling
@@ -53,6 +45,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   post-processing, filtered heightmaps, and other vanilla chunk serialization fields
   that the client currently has.
 - The download toggle keybinding now uses the `P` keysym instead of a raw scancode.
+- Restored legacy vanilla-dimension save paths for Minecraft 1.21.11: Overworld writes
+  to the world root, Nether to `DIM-1`, and End to `DIM1`.
 
 ---
 

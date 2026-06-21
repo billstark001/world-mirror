@@ -6,7 +6,7 @@ import net.billstark001.worldmirror.ui.ChunkStatusCache;
 import net.billstark001.worldmirror.ui.ChunkStatusSnapshot;
 import com.mojang.blaze3d.platform.Window;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
@@ -46,7 +46,7 @@ public final class XaeroWorldMapOverlayRenderer {
 
     private XaeroWorldMapOverlayRenderer() {}
 
-    public static void extractRenderState(Screen screen, GuiGraphicsExtractor ctx, int width, int height) {
+    public static void render(Screen screen, GuiGraphics ctx, int width, int height) {
         ModConfig.ChunkMapConfig config = ModConfig.get().chunkMap;
         Minecraft client = Minecraft.getInstance();
         if (!config.showXaeroWorldMapOverlay || client.options.hideGui) return;
@@ -165,8 +165,8 @@ public final class XaeroWorldMapOverlayRenderer {
             }
         });
         snapshot.forEachConflictInRange(minChunkX, maxChunkX, minChunkZ, maxChunkZ, pos -> {
-            int bucketX = Math.floorDiv(pos.x(), bucketSize);
-            int bucketZ = Math.floorDiv(pos.z(), bucketSize);
+            int bucketX = Math.floorDiv(pos.x, bucketSize);
+            int bucketZ = Math.floorDiv(pos.z, bucketSize);
             long key = ChunkStatusSnapshot.chunkKey(bucketX, bucketZ);
             buckets.computeIfAbsent(key, ignored -> new CellAccumulator(bucketX, bucketZ)).conflict = true;
         });
@@ -207,7 +207,7 @@ public final class XaeroWorldMapOverlayRenderer {
         return (int) Math.round(screenPixel / guiScale);
     }
 
-    private static void drawStatusBoundaries(GuiGraphicsExtractor ctx,
+    private static void drawStatusBoundaries(GuiGraphics ctx,
                                              ChunkStatusSnapshot snapshot,
                                              int guiWidth,
                                              int guiHeight,
