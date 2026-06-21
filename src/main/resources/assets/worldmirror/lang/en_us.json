@@ -49,6 +49,14 @@
   "screen.worldmirror.status.conflictStrategy": "Conflict Strategy",
   "screen.worldmirror.status.openSettings":     "Global Settings",
   "screen.worldmirror.status.openFromSettings": "Open Status Screen",
+  "screen.worldmirror.status.xaeroOverlay":     "Xaero overlay",
+  "screen.worldmirror.status.xaeroOverlay.unknown": "Unknown",
+  "screen.worldmirror.status.xaeroOverlay.disabled": "Disabled",
+  "screen.worldmirror.status.xaeroOverlay.missing": "Missing",
+  "screen.worldmirror.status.xaeroOverlay.unsupported": "Unsupported",
+  "screen.worldmirror.status.xaeroOverlay.unavailable": "Unavailable",
+  "screen.worldmirror.status.xaeroOverlay.exact": "Exact",
+  "screen.worldmirror.status.xaeroOverlay.tail": "Tail fallback",
 
   "screen.worldmirror.tab.status":          "Status",
   "screen.worldmirror.tab.settings":        "Settings",
@@ -119,6 +127,12 @@
 
   "text.autoconfig.worldmirror.option.chunkMap.showXaeroWorldMapOverlay": "Xaero World Map Overlay",
   "text.autoconfig.worldmirror.option.chunkMap.showXaeroWorldMapOverlay.@Tooltip": "If Xaero's World Map is installed, draw World Mirror chunk status directly on its fullscreen world map.",
+
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayInjection": "Xaero Overlay Injection",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayInjection.@Tooltip": "How the Xaero overlay mixin is applied. EXACT_ONLY preserves draw order for verified Xaero versions. TAIL_FALLBACK avoids crashes on unknown versions but may draw above Xaero map UI elements. Changing this after Xaero's map class has loaded requires a restart.",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayInjection.disabled": "Disabled",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayInjection.exact_only": "Exact Only",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayInjection.tail_fallback": "Tail Fallback",
 
   "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayRefreshSeconds": "Xaero Overlay Refresh (seconds)",
   "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayRefreshSeconds.@Tooltip": "How often the Xaero World Map overlay reloads chunk status from disk in the background.",

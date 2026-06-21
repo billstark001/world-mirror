@@ -12,6 +12,7 @@ import net.billstark001.worldmirror.download.DownloadManager;
 import net.billstark001.worldmirror.download.MirrorMapping;
 import net.billstark001.worldmirror.download.WorldMetadata;
 import net.billstark001.worldmirror.core.ChunkListener;
+import net.billstark001.worldmirror.xaero.XaeroWorldMapOverlayStatus;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.Minecraft;
@@ -143,6 +144,11 @@ public class StatusScreen extends LightweightGuiDescription {
                 MARGIN, y, INNER_W, LBL_H);
         y += ROW_GAP;
         root.add(rowLabel("screen.worldmirror.status.lastSync", lastSyncStr),
+                MARGIN, y, INNER_W, LBL_H);
+        y += ROW_GAP;
+        root.add(new WLabel(Component.translatable("screen.worldmirror.status.xaeroOverlay")
+                        .append(": ")
+                        .append(XaeroWorldMapOverlayStatus.statusComponent())),
                 MARGIN, y, INNER_W, LBL_H);
         y += ROW_GAP;
 

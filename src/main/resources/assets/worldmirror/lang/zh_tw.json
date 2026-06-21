@@ -49,6 +49,14 @@
   "screen.worldmirror.status.conflictStrategy": "衝突策略",
   "screen.worldmirror.status.openSettings":     "全域設定",
   "screen.worldmirror.status.openFromSettings": "開啟狀態介面",
+  "screen.worldmirror.status.xaeroOverlay":     "Xaero 疊加層",
+  "screen.worldmirror.status.xaeroOverlay.unknown": "未知",
+  "screen.worldmirror.status.xaeroOverlay.disabled": "已停用",
+  "screen.worldmirror.status.xaeroOverlay.missing": "未安裝",
+  "screen.worldmirror.status.xaeroOverlay.unsupported": "不支援",
+  "screen.worldmirror.status.xaeroOverlay.unavailable": "不可用",
+  "screen.worldmirror.status.xaeroOverlay.exact": "精確注入",
+  "screen.worldmirror.status.xaeroOverlay.tail": "Tail 回退",
 
   "screen.worldmirror.tab.status":          "狀態",
   "screen.worldmirror.tab.settings":        "設定",
@@ -119,6 +127,12 @@
 
   "text.autoconfig.worldmirror.option.chunkMap.showXaeroWorldMapOverlay": "Xaero 世界地圖疊加層",
   "text.autoconfig.worldmirror.option.chunkMap.showXaeroWorldMapOverlay.@Tooltip": "安裝 Xaero's World Map 時，直接在其全螢幕世界地圖上繪製 World Mirror 區塊狀態。",
+
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayInjection": "Xaero 疊加層注入方式",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayInjection.@Tooltip": "Xaero 疊加層 mixin 的套用方式。EXACT_ONLY 只對已驗證 Xaero 版本使用精確注入並保持繪製順序。TAIL_FALLBACK 可避免未知版本崩潰，但可能繪製在 Xaero 地圖 UI 元素之上。若 Xaero 地圖類別已載入，修改後需要重新啟動。",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayInjection.disabled": "停用",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayInjection.exact_only": "僅精確注入",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayInjection.tail_fallback": "Tail 回退",
 
   "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayRefreshSeconds": "Xaero 疊加層刷新間隔（秒）",
   "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayRefreshSeconds.@Tooltip": "Xaero 世界地圖疊加層在背景從磁碟重新載入區塊狀態的頻率。",
