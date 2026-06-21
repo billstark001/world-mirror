@@ -11,7 +11,6 @@ import com.mojang.serialization.Lifecycle;
 import net.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.*;
@@ -304,40 +303,24 @@ public class WorldStructureCreator {
                 "datapacks",
                 "resourcepacks"
         };
-        String[] dimensionDirs = usesLegacyVanillaDimensionLayout()
-                ? new String[] {
-                    "region",
-                    "entities",
-                    "poi",
-                    "DIM-1/region",
-                    "DIM-1/entities",
-                    "DIM-1/poi",
-                    "DIM1/region",
-                    "DIM1/entities",
-                    "DIM1/poi"
-                }
-                : new String[] {
-                    "dimensions/minecraft/overworld/region",
-                    "dimensions/minecraft/overworld/entities",
-                    "dimensions/minecraft/overworld/poi",
-                    "dimensions/minecraft/overworld/data/minecraft",
-                    "dimensions/minecraft/the_nether/region",
-                    "dimensions/minecraft/the_nether/entities",
-                    "dimensions/minecraft/the_nether/poi",
-                    "dimensions/minecraft/the_nether/data/minecraft",
-                    "dimensions/minecraft/the_end/region",
-                    "dimensions/minecraft/the_end/entities",
-                    "dimensions/minecraft/the_end/poi",
-                    "dimensions/minecraft/the_end/data/minecraft"
-                };
+        String[] dimensionDirs = {
+                "dimensions/minecraft/overworld/region",
+                "dimensions/minecraft/overworld/entities",
+                "dimensions/minecraft/overworld/poi",
+                "dimensions/minecraft/overworld/data/minecraft",
+                "dimensions/minecraft/the_nether/region",
+                "dimensions/minecraft/the_nether/entities",
+                "dimensions/minecraft/the_nether/poi",
+                "dimensions/minecraft/the_nether/data/minecraft",
+                "dimensions/minecraft/the_end/region",
+                "dimensions/minecraft/the_end/entities",
+                "dimensions/minecraft/the_end/poi",
+                "dimensions/minecraft/the_end/data/minecraft"
+        };
         String[] subDirs = new String[dimensionDirs.length + common.length];
         System.arraycopy(dimensionDirs, 0, subDirs, 0, dimensionDirs.length);
         System.arraycopy(common, 0, subDirs, dimensionDirs.length, common.length);
         return subDirs;
-    }
-
-    private static boolean usesLegacyVanillaDimensionLayout() {
-        return "1.21.11".equals(SharedConstants.getCurrentVersion().id());
     }
 
     private static void writeLevelDat(File file, PrimaryLevelData data, UUID singleplayerUuid) throws Exception {
