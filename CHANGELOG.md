@@ -17,6 +17,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Ported 26.2 client API usages for screen switching, HUD-hidden checks, and flat
   world preset lookup.
+- Restored legacy vanilla-dimension save paths when running on Minecraft 1.21.11:
+  Overworld writes to the world root, Nether to `DIM-1`, and End to `DIM1`.
 
 ---
 
