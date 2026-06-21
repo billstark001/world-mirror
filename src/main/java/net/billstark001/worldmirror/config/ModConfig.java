@@ -54,6 +54,12 @@ public class ModConfig implements ConfigData {
         TRANSPARENT
     }
 
+    public enum XaeroOverlayInjectionMode {
+        DISABLED,
+        EXACT_ONLY,
+        TAIL_FALLBACK
+    }
+
     // ── Fields ───────────────────────────────────────────────────────────────
 
     @ConfigEntry.Gui.Tooltip
@@ -97,6 +103,10 @@ public class ModConfig implements ConfigData {
 
         @ConfigEntry.Gui.Tooltip
         public boolean showXaeroWorldMapOverlay = true;
+
+        @ConfigEntry.Gui.Tooltip
+        @ConfigEntry.Gui.EnumHandler(option = ConfigEntry.Gui.EnumHandler.EnumDisplayOption.DROPDOWN)
+        public XaeroOverlayInjectionMode xaeroWorldMapOverlayInjection = XaeroOverlayInjectionMode.EXACT_ONLY;
 
         @ConfigEntry.Gui.Tooltip
         @ConfigEntry.BoundedDiscrete(min = 1, max = 60)

@@ -49,6 +49,14 @@
   "screen.worldmirror.status.conflictStrategy": "競合戦略",
   "screen.worldmirror.status.openSettings":     "グローバル設定",
   "screen.worldmirror.status.openFromSettings": "ステータス画面を開く",
+  "screen.worldmirror.status.xaeroOverlay":     "Xaero オーバーレイ",
+  "screen.worldmirror.status.xaeroOverlay.unknown": "不明",
+  "screen.worldmirror.status.xaeroOverlay.disabled": "無効",
+  "screen.worldmirror.status.xaeroOverlay.missing": "未導入",
+  "screen.worldmirror.status.xaeroOverlay.unsupported": "非対応",
+  "screen.worldmirror.status.xaeroOverlay.unavailable": "利用不可",
+  "screen.worldmirror.status.xaeroOverlay.exact": "精密注入",
+  "screen.worldmirror.status.xaeroOverlay.tail": "Tail フォールバック",
 
   "screen.worldmirror.tab.status":          "ステータス",
   "screen.worldmirror.tab.settings":        "設定",
@@ -119,6 +127,12 @@
 
   "text.autoconfig.worldmirror.option.chunkMap.showXaeroWorldMapOverlay": "Xaero World Map オーバーレイ",
   "text.autoconfig.worldmirror.option.chunkMap.showXaeroWorldMapOverlay.@Tooltip": "Xaero's World Map が導入されている場合、World Mirror のチャンク状態を全画面ワールドマップ上に直接描画します。",
+
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayInjection": "Xaero オーバーレイ注入方式",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayInjection.@Tooltip": "Xaero オーバーレイ mixin の適用方式です。EXACT_ONLY は検証済み Xaero バージョンで描画順を保つ精密注入のみを使います。TAIL_FALLBACK は未知のバージョンでのクラッシュを避けますが、Xaero の地図 UI 要素より前面に描画される可能性があります。Xaero のマップクラス読み込み後に変更した場合は再起動が必要です。",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayInjection.disabled": "無効",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayInjection.exact_only": "精密注入のみ",
+  "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayInjection.tail_fallback": "Tail フォールバック",
 
   "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayRefreshSeconds": "Xaero オーバーレイ更新間隔（秒）",
   "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayRefreshSeconds.@Tooltip": "Xaero World Map オーバーレイがバックグラウンドでディスクからチャンク状態を再読み込みする頻度です。",

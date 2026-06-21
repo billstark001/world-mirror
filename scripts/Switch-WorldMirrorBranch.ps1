@@ -1,3 +1,24 @@
+<#
+.SYNOPSIS
+Switches World Mirror development branches and refreshes branch-local run assets.
+
+.DESCRIPTION
+This helper checks out a branch, determines its Minecraft version from
+`gradle.properties`, cleans branch-sensitive Fabric run caches, and downloads
+the matching Xaero's World Map jar through `Get-LatestXaerosWorldMap.ps1`.
+
+The default clean intentionally does not remove `build` because that can delete
+already compiled jars under `build/libs`. Pass `-CleanBuild` when you really
+want to remove the Gradle build directory. Pass `-CleanXaeroInspectCache` when
+you want to remove `build/tmp/xaero-inspect`, the disassembly cache generated
+by `Get-LatestXaerosWorldMap.ps1 -Disassemble`.
+
+.PARAMETER CleanBuild
+Remove the full Gradle `build` directory. Defaults to false.
+
+.PARAMETER CleanXaeroInspectCache
+Remove `build/tmp/xaero-inspect`. Defaults to false.
+#>
 param(
     [Parameter(Position = 0)]
     [string]$Branch,
@@ -6,6 +27,8 @@ param(
     [string]$Loader = "fabric",
     [switch]$NoCheckout,
     [switch]$SkipClean,
+    [switch]$CleanBuild,
+    [switch]$CleanXaeroInspectCache,
     [switch]$SkipXaero,
     [switch]$AllowAnyXaeroGameVersion
 )
@@ -72,7 +95,11 @@ try {
     }
 
     if (-not $SkipClean) {
-        Remove-GeneratedPath "build"
+        if ($CleanBuild) {
+            Remove-GeneratedPath "build"
+        } elseif ($CleanXaeroInspectCache) {
+            Remove-GeneratedPath "build\tmp\xaero-inspect"
+        }
         Remove-GeneratedPath "run\.fabric\processedMods"
         Remove-GeneratedPath "run\.fabric\remappedJars"
         Remove-GeneratedPath "run\.fabric\remappedMods"
