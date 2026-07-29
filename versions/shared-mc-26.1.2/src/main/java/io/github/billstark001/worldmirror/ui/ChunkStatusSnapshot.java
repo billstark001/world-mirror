@@ -127,6 +127,14 @@ public final class ChunkStatusSnapshot {
         }
     }
 
+    /** Version adapter for consumers that need coordinates without depending on ChunkPos accessors. */
+    public void forEachConflictCoordinatesInRange(int minChunkX, int maxChunkX,
+                                                  int minChunkZ, int maxChunkZ,
+                                                  java.util.function.BiConsumer<Integer, Integer> consumer) {
+        forEachConflictInRange(minChunkX, maxChunkX, minChunkZ, maxChunkZ,
+                pos -> consumer.accept(pos.x(), pos.z()));
+    }
+
     public static long chunkKey(int x, int z) {
         return ((long) x << 32) | (z & 0xFFFFFFFFL);
     }

@@ -1,6 +1,6 @@
 # World Mirror
 
-**Version:** 0.2.3 · **Minecraft:** 26.2 · **Loader:** Fabric
+**Version:** 0.3.0 · **Minecraft:** 1.21.11, 26.1.2, 26.2 · **Loader:** Fabric
 
 A client-side Fabric mod that silently mirrors the world you are playing on a multiplayer
 server — or even a singleplayer world — into a fully loadable local copy.  As you explore,
@@ -24,7 +24,7 @@ region-file save that you can open immediately in singleplayer.
 | **Per-world settings** | Save location and conflict strategy can be overridden per world from the status screen without touching the global config. |
 | **Conflict resolution** | Three built-in strategies for chunks that already exist on disk: *Overwrite* (default), *Ignore* (keep local), and *Manual* (save the server chunk to `conflict_chunks/` in MCA format for later review). |
 | **Chunk Map (Window 1)** | Full-screen draggable grid map showing every recorded chunk's download status. Color-coded: green (fresh) → blue (logarithmic, based on age) — downloaded via `world_mirror`. Orange — written by a third-party source (e.g. `player`, `map_hp`). Red border — chunk has an unresolved conflict. Built-in map rendering is optimized with status caching and merged boundary rendering to reduce dense UI drawing cost. Per-chunk conflict resolution dialog (Overwrite / Discard / Cancel). |
-| **Xaero's World Map Overlay** | Render World Mirror status fills and merged boundaries directly on Xaero's fullscreen map if Xaero's World Map is installed. |
+| **Xaero's World Map Overlay** | Optionally render World Mirror status on Xaero's fullscreen map through Xaero World Map Bridge. The bridge owns the compatible mixin injection and its fallback policy. |
 | **Export Nearby Region** | Snapshot all loaded chunks within a configurable radius (1–50 chunks) into a fresh singleplayer save with the spawn point set to your current position. |
 | **In-game status screen** | Press **I** to open a native Minecraft status screen showing source info, download state, export controls, conflict actions, and settings shortcuts. |
 | **In-game logging** | Important events are echoed to the player's chat at a configurable level (Debug / Info / Warning). |
@@ -75,11 +75,19 @@ Open *Mod Menu → World Mirror → Settings* (or click **Global Settings** in t
 | Sync interval | 5 / 10 / 30 / 60 / 120 s | 10 s |
 | In-game log level | `Debug` / `Info` / `Warning` | `Info` |
 | Conflict strategy | `Overwrite` / `Ignore` / `Manual` | `Overwrite` |
-| Xaero overlay | `true` / `false` | `true` |
+| Xaero bridge overlay | `true` / `false` | `true` |
 | Xaero overlay refresh | 1–60 s | 10 s |
 | Xaero overlay max cells | 1000–50000 | 6000 |
 
 Configuration is persisted in `<.minecraft>/config/worldmirror.json`.
+
+### Optional Xaero integration
+
+The Xaero overlay is an optional integration: World Mirror runs normally without
+Xaero's World Map or the bridge.  To enable it, install a matching
+[Xaero World Map Bridge 0.1.0 release](https://github.com/billstark001/xaero-world-map-bridge/releases/tag/v0.1.0)
+alongside Xaero's World Map.  The bridge's Mod Menu page controls exact injection
+and the safe tail fallback; World Mirror only supplies the chunk-status layer.
 
 ### Save locations
 

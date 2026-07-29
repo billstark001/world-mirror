@@ -6,12 +6,15 @@ import io.github.billstark001.worldmirror.download.ChunkDatabase;
 import io.github.billstark001.worldmirror.download.DownloadManager;
 import io.github.billstark001.worldmirror.ui.ChunkMapScreen;
 import io.github.billstark001.worldmirror.ui.StatusScreen;
+import io.github.billstark001.worldmirror.util.WMLogger;
+import io.github.billstark001.worldmirror.xaero.XaeroBridgeOverlay;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.resources.Identifier;
 import org.lwjgl.glfw.GLFW;
@@ -36,6 +39,7 @@ public class WorldMirrorClient implements ClientModInitializer {
     public void onInitializeClient() {
         ModConfig.register();
         ChunkDatabase.configureSqliteNativeDirectory();
+        installXaeroBridgeOverlay();
 
         toggleKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.worldmirror.toggle",
@@ -90,6 +94,15 @@ public class WorldMirrorClient implements ClientModInitializer {
         // Reset lifecycle tracking state when the player leaves a server / world.
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) ->
                 DownloadManager.onLeaveWorld(client));
+    }
+
+    private static void installXaeroBridgeOverlay() {
+        if (!FabricLoader.getInstance().isModLoaded("xaero_world_map_bridge")) return;
+        try {
+            XaeroBridgeOverlay.install();
+        } catch (LinkageError error) {
+            WMLogger.warn("Xaero World Map Bridge is present but could not be linked; skipping overlay", error);
+        }
     }
 }
 

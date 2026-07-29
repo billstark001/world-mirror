@@ -26,10 +26,6 @@
     {
       "config": "worldmirror.mixins.json",
       "environment": "client"
-    },
-    {
-      "config": "worldmirror.xaero.mixins.json",
-      "environment": "client"
     }
   ],
   "depends": {
@@ -42,6 +38,7 @@
   "suggests": {
     "modmenu": "*",
     "xaerominimap": "*",
-    "xaeroworldmap": "*"
+    "xaeroworldmap": "*",
+    "xaero_world_map_bridge": ">=0.1.0"
   }
 }

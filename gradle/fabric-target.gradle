@@ -50,6 +50,7 @@ dependencies {
         modApi include("me.shedaniel.cloth:cloth-config-fabric:${target.clothConfig}") {
             exclude(group: "net.fabricmc.fabric-api")
         }
+        modImplementation files(rootProject.file("libs/xaero-world-map-bridge-${target.minecraft}.jar"))
     } else {
         implementation "net.fabricmc:fabric-loader:${rootProject.loader_version}"
         implementation "net.fabricmc.fabric-api:fabric-api:${target.fabricApi}"
@@ -58,6 +59,7 @@ dependencies {
         api include("me.shedaniel.cloth:cloth-config-fabric:${target.clothConfig}") {
             exclude(group: "net.fabricmc.fabric-api")
         }
+        implementation files(rootProject.file("libs/xaero-world-map-bridge-${target.minecraft}.jar"))
     }
 
     implementation include("org.xerial:sqlite-jdbc:${rootProject.sqlite_version}")
