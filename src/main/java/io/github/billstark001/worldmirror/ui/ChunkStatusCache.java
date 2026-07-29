@@ -35,20 +35,6 @@ public final class ChunkStatusCache {
 
     private ChunkStatusCache() {}
 
-    public static ChunkStatusSnapshot loadNow(Minecraft client, ResourceKey<Level> dimension) {
-        CacheKey key = createKey(client, dimension);
-        if (key == null) {
-            snapshot = ChunkStatusSnapshot.EMPTY;
-            snapshotKey = null;
-            return snapshot;
-        }
-        ChunkStatusSnapshot loaded = loadSnapshot(key);
-        snapshot = loaded;
-        snapshotKey = key;
-        lastRefreshMs = System.currentTimeMillis();
-        return loaded;
-    }
-
     public static ChunkStatusSnapshot getOrScheduleRefresh(Minecraft client,
                                                            ResourceKey<Level> dimension,
                                                            long refreshIntervalMs) {

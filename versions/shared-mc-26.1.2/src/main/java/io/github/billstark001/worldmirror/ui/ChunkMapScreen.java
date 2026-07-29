@@ -160,13 +160,14 @@ public class ChunkMapScreen extends Screen {
         worldFolder = DownloadManager.getOutputPath(client);
         if (currentDimension == null) currentDimension = Level.OVERWORLD;
 
-        statusSnapshot = ChunkStatusCache.loadNow(client, currentDimension);
+        statusSnapshot = ChunkStatusCache.getOrScheduleRefresh(client, currentDimension, 0L);
     }
 
     // ── Rendering ─────────────────────────────────────────────────────────────
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor ctx, int mx, int my, float delta) {
+        statusSnapshot = ChunkStatusCache.getOrScheduleRefresh(Minecraft.getInstance(), currentDimension, 1_000L);
         this.mouseX = mx;
         this.mouseY = my;
 
