@@ -235,10 +235,20 @@ Press **L** to clear all cached data and start a new capture.
 ## Building
 
 ```bash
-./gradlew build
+./gradlew buildAll
 ```
 
-Output: `build/libs/world-mirror-<version>.jar`
+This builds the Fabric targets for Minecraft 1.21.11, 26.1.2, and 26.2. Each
+target's artifacts are stored in its `versions/fabric-*/build/libs` directory.
+
+For a Modrinth upload, build all targets and collect only the three distributable
+JARs in the root [`build/modrinth`](build/modrinth) directory:
+
+```powershell
+.\scripts\build-modrinth.ps1
+```
+
+Use `-SkipBuild` only when the current version's three JARs have already been built.
 
 ---
 
@@ -249,7 +259,7 @@ Output: `build/libs/world-mirror-<version>.jar`
 - Container data is captured in `ContainerMixin` and stored in `ContainerTracker`.
 - Entities are snapshot-serialized on the game thread by `EntityTracker` before each export.
 - Built-in and Xaero's map rendering are optimized via a status cache (`ChunkStatusCache` / `ChunkStatusSnapshot`) and merged boundary rendering to minimize GPU and database query overhead.
-- Xaero's World Map overlay uses a Mixin to inject World Mirror status rendering directly into Xaero's map GUI.
+- Xaero's World Map overlay is optional and uses Xaero World Map Bridge's public overlay API; the bridge owns Xaero-specific mixins and fallbacks.
 - The actual disk I/O runs on a background thread (`WM-Export`) to avoid freezing
   the game.  The game thread only provides immutable snapshots of the cached chunks,
   entities, and container overlays.

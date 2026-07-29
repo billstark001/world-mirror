@@ -11,6 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Fabric builds for Minecraft `1.21.11`, `26.1.2`, and `26.2` from one shared source layout.
 - Optional integration with Xaero World Map Bridge `0.1.0`, including World Mirror chunk-status rendering on Xaero's fullscreen map without embedding the bridge in World Mirror's jar.
+- `scripts/build-modrinth.ps1` builds all Fabric targets and collects the three current-version distributable JARs in `build/modrinth`.
 
 ### Changed
 
