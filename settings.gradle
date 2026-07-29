@@ -8,3 +8,15 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+
+plugins {
+    id "org.gradle.toolchains.foojay-resolver-convention" version "0.8.0"
+}
+
+rootProject.name = "world-mirror"
+
+include(
+    "versions:fabric-1.21.11",
+    "versions:fabric-26.1.2",
+    "versions:fabric-26.2"
+)

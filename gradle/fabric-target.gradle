@@ -1,0 +1,122 @@
+def target = rootProject.ext.targets[project.ext.minecraftTarget]
+
+group = rootProject.mod_group
+version = "${rootProject.mod_version}+${target.minecraft}-fabric"
+
+base {
+    archivesName = rootProject.archives_base_name
+}
+
+repositories {
+    maven { url = "https://maven.terraformersmc.com/releases/" }
+    maven { url = "https://maven.shedaniel.me/" }
+    exclusiveContent {
+        forRepositories(
+            maven {
+                name = "CottonMC-AlexIIL-staging"
+                url = uri("https://staging.alexiil.uk/maven")
+            },
+            mavenCentral()
+        )
+        filter {
+            includeGroup("io.github.cottonmc")
+            includeGroup("io.github.juuxel")
+            includeGroup("alexiil.mc.lib")
+            includeGroup("alexiil.mc.mod")
+        }
+    }
+    mavenCentral()
+}
+
+sourceSets {
+    main {
+        java.srcDirs = [
+            rootProject.file("src/main/java"),
+            rootProject.file("versions/shared-mc-${target.minecraft}/src/main/java"),
+            project.file("src/main/java")
+        ]
+        resources.srcDirs = [rootProject.file("src/main/resources")]
+    }
+}
+
+loom {
+    mods {
+        "worldmirror" {
+            sourceSet sourceSets.main
+        }
+    }
+    runs {
+        client {
+            client()
+            runDir = rootProject.file("run/fabric-${target.minecraft}").absolutePath
+        }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${target.minecraft}"
+
+    if (target.remapped) {
+        mappings loom.officialMojangMappings()
+        modImplementation "net.fabricmc:fabric-loader:${rootProject.loader_version}"
+        modImplementation "net.fabricmc.fabric-api:fabric-api:${target.fabricApi}"
+        modCompileOnly "com.terraformersmc:modmenu:${target.modMenu}"
+        modRuntimeOnly "com.terraformersmc:modmenu:${target.modMenu}"
+        modImplementation "io.github.cottonmc:LibGui:${target.libGui}"
+        modApi include("me.shedaniel.cloth:cloth-config-fabric:${target.clothConfig}") {
+            exclude(group: "net.fabricmc.fabric-api")
+        }
+    } else {
+        implementation "net.fabricmc:fabric-loader:${rootProject.loader_version}"
+        implementation "net.fabricmc.fabric-api:fabric-api:${target.fabricApi}"
+        compileOnly "com.terraformersmc:modmenu:${target.modMenu}"
+        runtimeOnly "com.terraformersmc:modmenu:${target.modMenu}"
+        implementation "io.github.cottonmc:LibGui:${target.libGui}"
+        api include("me.shedaniel.cloth:cloth-config-fabric:${target.clothConfig}") {
+            exclude(group: "net.fabricmc.fabric-api")
+        }
+    }
+
+    implementation include("org.xerial:sqlite-jdbc:${rootProject.sqlite_version}")
+}
+
+def resourceProperties = [
+    version: project.version,
+    minecraftRange: target.minecraftRange,
+    javaVersion: target.javaVersion,
+    mixinJava: target.mixinJava,
+    clothConfigVersion: target.clothConfig
+]
+
+processResources {
+    inputs.properties(resourceProperties)
+    filesMatching("fabric.mod.json") { expand(resourceProperties) }
+    filesMatching("worldmirror*.mixins.json") { expand(resourceProperties) }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
+    options.release = target.javaVersion
+}
+
+java {
+    withSourcesJar()
+    toolchain.languageVersion = JavaLanguageVersion.of(target.javaVersion)
+    sourceCompatibility = JavaVersion.toVersion(target.javaVersion)
+    targetCompatibility = JavaVersion.toVersion(target.javaVersion)
+}
+
+jar {
+    from(rootProject.file("LICENSE")) {
+        rename { "${it}_${rootProject.archives_base_name}" }
+    }
+}
+
+publishing {
+    publications {
+        create("mavenJava", MavenPublication) {
+            artifactId = rootProject.archives_base_name
+            from components.java
+        }
+    }
+}
