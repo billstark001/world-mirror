@@ -1,6 +1,6 @@
 {
   "required": true,
-  "package": "net.billstark001.worldmirror.mixin",
+  "package": "io.github.billstark001.worldmirror.mixin",
   "compatibilityLevel": "${mixinJava}",
   "client": [
     "ChunkDataMixin",

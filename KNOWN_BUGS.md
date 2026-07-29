@@ -34,15 +34,15 @@ absent or stale when the server never sends them to the client.
 
 **Mod source pointers**
 
-- `src/main/java/net/billstark001/worldmirror/io/ChunkSerializer.java`
+- `src/main/java/io/github/billstark001/worldmirror/io/ChunkSerializer.java`
   serializes block entities through Minecraft's `SerializableChunkData` path
   and then applies container overlays.
-- `src/main/java/net/billstark001/worldmirror/io/BlockEntityNbtSupport.java`
+- `src/main/java/io/github/billstark001/worldmirror/io/BlockEntityNbtSupport.java`
   centralizes block entity serialization, local/cached block entity merging,
   and container overlay application.
-- `src/main/java/net/billstark001/worldmirror/io/ChunkExporter.java`
+- `src/main/java/io/github/billstark001/worldmirror/io/ChunkExporter.java`
   merges locally written block entity data before overwriting a chunk.
-- `src/main/java/net/billstark001/worldmirror/core/ContainerTracker.java`
+- `src/main/java/io/github/billstark001/worldmirror/core/ContainerTracker.java`
   stores only packet-derived container inventory overlays; it only learns
   container contents when the player opens a container UI.
 
@@ -91,10 +91,10 @@ rely on data not transferred to the client by default.
 
 **Mod source pointers**
 
-- `src/main/java/net/billstark001/worldmirror/core/EntityTracker.java`
+- `src/main/java/io/github/billstark001/worldmirror/core/EntityTracker.java`
   captures from `world.entitiesForRendering()` and serializes via
   `Entity.saveWithoutId(...)`.
-- `src/main/java/net/billstark001/worldmirror/io/ChunkExporter.java`
+- `src/main/java/io/github/billstark001/worldmirror/io/ChunkExporter.java`
   writes entity chunks into the dimension `entities` directory.
 
 **Minecraft / format pointers**
@@ -137,7 +137,7 @@ Likely missing or unreliable fields include:
 
 **Mod source pointers**
 
-- `src/main/java/net/billstark001/worldmirror/io/ChunkSerializer.java`
+- `src/main/java/io/github/billstark001/worldmirror/io/ChunkSerializer.java`
   uses `SerializableChunkData` but still creates `structures` as an empty
   compound because the client does not expose authoritative structure data.
 - `src/main/java/io/github/ensgijs/nbt/mca/TerrainChunkBase.java` contains local
@@ -167,7 +167,7 @@ edge cases.
 
 **Mod source pointers**
 
-- `src/main/java/net/billstark001/worldmirror/io/ChunkSerializer.java` gathers
+- `src/main/java/io/github/billstark001/worldmirror/io/ChunkSerializer.java` gathers
   heightmaps through the same status-filtered path used by
   `SerializableChunkData`.
 - `src/main/java/io/github/ensgijs/nbt/mca/TerrainChunkBase.java` maps
@@ -198,9 +198,9 @@ possible in edge cases.
 
 **Mod source pointers**
 
-- `src/main/java/net/billstark001/worldmirror/mixin/ChunkDataMixin.java`
+- `src/main/java/io/github/billstark001/worldmirror/mixin/ChunkDataMixin.java`
   listens to `ClientboundLevelChunkWithLightPacket`.
-- `src/main/java/net/billstark001/worldmirror/io/ChunkSerializer.java`
+- `src/main/java/io/github/billstark001/worldmirror/io/ChunkSerializer.java`
   uses `SerializableChunkData.SectionData` with client light-engine
   `DataLayer` copies for `BlockLight` and `SkyLight` when available.
 

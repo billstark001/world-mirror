@@ -1,7 +1,7 @@
 {
   "required": false,
-  "package": "net.billstark001.worldmirror.xaero.mixin",
-  "plugin": "net.billstark001.worldmirror.xaero.WorldMirrorMixinPlugin",
+  "package": "io.github.billstark001.worldmirror.xaero.mixin",
+  "plugin": "io.github.billstark001.worldmirror.xaero.WorldMirrorMixinPlugin",
   "compatibilityLevel": "${mixinJava}",
   "client": [
     "XaeroGuiMapMixin"

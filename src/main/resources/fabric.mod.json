@@ -16,10 +16,10 @@
   "environment": "client",
   "entrypoints": {
     "client": [
-      "net.billstark001.worldmirror.WorldMirrorClient"
+      "io.github.billstark001.worldmirror.WorldMirrorClient"
     ],
     "modmenu": [
-      "net.billstark001.worldmirror.config.ModMenuApiImpl"
+      "io.github.billstark001.worldmirror.config.ModMenuApiImpl"
     ]
   },
   "mixins": [
