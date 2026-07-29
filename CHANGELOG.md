@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.3.0] — 2026-07-29
+
+### Added
+
+- Fabric builds for Minecraft `1.21.11`, `26.1.2`, and `26.2` from one shared source layout.
+- Optional integration with Xaero World Map Bridge `0.1.0`, including World Mirror chunk-status rendering on Xaero's fullscreen map without embedding the bridge in World Mirror's jar.
+
+### Changed
+
+- Migrated the Java package namespace to `io.github.billstark001.worldmirror`.
+- Replaced LibGui/Cotton status UI with native Minecraft screens while retaining source, mirror location, download/export state, per-world settings, and conflict-management views.
+- The built-in map and Xaero overlay now use asynchronous status snapshots, viewport aggregation, and merged state-coloured boundaries.
+
+### Fixed
+
+- Status-screen text now uses opaque ARGB colours on the new GUI extraction API.
+- Avoided forced immediate screen rendering when opening the status UI, eliminating the opening black flash.
+- Restored state-coloured chunk boundaries on built-in and Xaero map overlays.
+
+---
+
 ## [0.2.3] — 2026-06-22
 
 ### Changed

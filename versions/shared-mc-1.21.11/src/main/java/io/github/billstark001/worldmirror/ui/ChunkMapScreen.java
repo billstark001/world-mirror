@@ -287,7 +287,27 @@ public class ChunkMapScreen extends Screen {
             ctx.fill(sx, sz, Math.max(sx + 1, ex), Math.max(sz + 1, ez), fill);
             if (run.conflict()) ctx.fill(sx, sz, Math.max(sx + 1, ex), Math.max(sz + 1, ez), COLOR_CONFLICT_BORDER);
         }
+        renderAggregatedBoundaries(ctx, halfW, halfH, aggregate);
         renderGrid(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax, sparseGridIntervalForCellSize(cellSize));
+    }
+
+    private void renderAggregatedBoundaries(GuiGraphics ctx, int halfW, int halfH,
+                                            ChunkMapAggregation.Result aggregate) {
+        int bucketSize = aggregate.bucketSize();
+        for (ChunkMapAggregation.Boundary boundary : aggregate.boundaries()) {
+            int color = boundaryColor(boundary.color());
+            if (boundary.vertical()) {
+                int x = halfW + (int) Math.round((boundary.fixed() * bucketSize - viewCX) * cellSize);
+                int z1 = halfH + (int) Math.round((boundary.start() * bucketSize - viewCZ) * cellSize);
+                int z2 = halfH + (int) Math.round((boundary.end() * bucketSize - viewCZ) * cellSize);
+                ctx.fill(x, z1, x + 1, Math.max(z1 + 1, z2), color);
+            } else {
+                int x1 = halfW + (int) Math.round((boundary.start() * bucketSize - viewCX) * cellSize);
+                int x2 = halfW + (int) Math.round((boundary.end() * bucketSize - viewCX) * cellSize);
+                int z = halfH + (int) Math.round((boundary.fixed() * bucketSize - viewCZ) * cellSize);
+                ctx.fill(x1, z, Math.max(x1 + 1, x2), z + 1, color);
+            }
+        }
     }
 
     private void renderKnownRecords(GuiGraphics ctx, int halfW, int halfH,
@@ -317,7 +337,7 @@ public class ChunkMapScreen extends Screen {
     private void renderBoundaries(GuiGraphics ctx, int halfW, int halfH,
                                   int cxMin, int cxMax, int czMin, int czMax) {
         statusSnapshot.forEachBoundaryInRange(cxMin, cxMax, czMin, czMax, segment -> {
-            int color = withAlpha(segment.color(), COLOR_BOUNDARY_ALPHA);
+            int color = boundaryColor(segment.color());
             if (segment.vertical()) {
                 int x = halfW + (int) Math.round((segment.fixed() - viewCX) * cellSize);
                 int z1 = halfH + (int) Math.round((segment.start() - viewCZ) * cellSize);
@@ -478,6 +498,17 @@ public class ChunkMapScreen extends Screen {
     private static int withAlpha(int argb, int alpha) {
         if (argb == 0) return 0;
         return (argb & 0x00FFFFFF) | (alpha << 24);
+    }
+
+    /** Keeps the boundary's status hue while shifting luminance away from its fill. */
+    private static int boundaryColor(int argb) {
+        int r = (argb >> 16) & 0xFF;
+        int g = (argb >> 8) & 0xFF;
+        int b = argb & 0xFF;
+        int luminance = (r * 54 + g * 183 + b * 19) >> 8;
+        if (luminance < 128) { r = (r + 255) >> 1; g = (g + 255) >> 1; b = (b + 255) >> 1; }
+        else { r >>= 1; g >>= 1; b >>= 1; }
+        return 0xFF000000 | (r << 16) | (g << 8) | b;
     }
 
     private static String formatAge(long secs) {

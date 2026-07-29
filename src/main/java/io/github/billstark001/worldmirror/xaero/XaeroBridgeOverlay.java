@@ -2,6 +2,7 @@ package io.github.billstark001.worldmirror.xaero;
 
 import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.ui.ChunkMapScreen;
+import io.github.billstark001.worldmirror.ui.ChunkMapAggregation;
 import io.github.billstark001.worldmirror.ui.ChunkStatusCache;
 import io.github.billstark001.worldmirror.ui.ChunkStatusSnapshot;
 import io.github.billstark001.xaerobridge.api.MapOverlayContext;
@@ -48,23 +49,44 @@ public final class XaeroBridgeOverlay {
         double scale = context.pixelsPerBlock();
         if (!Double.isFinite(scale) || scale <= 0.0D) return;
 
-        int bucketSize = bucketSizeForViewport(context.width(), context.height(), scale,
-                Math.max(1_000, Math.min(50_000, config.xaeroWorldMapOverlayMaxCells)));
-        List<MapRun> runs = buildRuns(snapshot, context, bucketSize);
-        for (MapRun run : runs) {
+        double halfBlocksX = context.width() / (2.0D * scale);
+        double halfBlocksZ = context.height() / (2.0D * scale);
+        int minX = (int) Math.floor((context.cameraX() - halfBlocksX) / CHUNK_BLOCK_SIZE) - 1;
+        int maxX = (int) Math.ceil((context.cameraX() + halfBlocksX) / CHUNK_BLOCK_SIZE) + 1;
+        int minZ = (int) Math.floor((context.cameraZ() - halfBlocksZ) / CHUNK_BLOCK_SIZE) - 1;
+        int maxZ = (int) Math.ceil((context.cameraZ() + halfBlocksZ) / CHUNK_BLOCK_SIZE) + 1;
+        ChunkMapAggregation.Result aggregate = ChunkMapAggregation.aggregate(snapshot, minX, maxX, minZ, maxZ,
+                System.currentTimeMillis(), Math.max(1_000, Math.min(50_000, config.xaeroWorldMapOverlayMaxCells)));
+        int bucketSize = aggregate.bucketSize();
+        for (ChunkMapAggregation.Run run : aggregate.runs()) {
             double blockSize = (double) bucketSize * CHUNK_BLOCK_SIZE;
-            int x1 = context.worldToScreenX((double) run.startBucketX * blockSize);
-            int y1 = context.worldToScreenY((double) run.bucketZ * blockSize);
-            int x2 = context.worldToScreenX((double) (run.endBucketX + 1) * blockSize);
-            int y2 = context.worldToScreenY((double) (run.bucketZ + 1) * blockSize);
+            int x1 = context.worldToScreenX((double) run.startBucketX() * blockSize);
+            int y1 = context.worldToScreenY((double) run.bucketZ() * blockSize);
+            int x2 = context.worldToScreenX((double) (run.endBucketX() + 1) * blockSize);
+            int y2 = context.worldToScreenY((double) (run.bucketZ() + 1) * blockSize);
             if (x2 <= x1) x2 = x1 + 1;
             if (y2 <= y1) y2 = y1 + 1;
             if (x2 <= 0 || y2 <= 0 || x1 >= context.width() || y1 >= context.height()) continue;
             context.canvas().fill(Math.max(0, x1), Math.max(0, y1),
-                    Math.min(context.width(), x2), Math.min(context.height(), y2), run.color);
-            if (run.conflict) {
+                    Math.min(context.width(), x2), Math.min(context.height(), y2), translucent(run.color()));
+            if (run.conflict()) {
                 context.canvas().fill(Math.max(0, x1), Math.max(0, y1),
                         Math.min(context.width(), x2), Math.min(context.height(), y2), CONFLICT_COLOR);
+            }
+        }
+        for (ChunkMapAggregation.Boundary boundary : aggregate.boundaries()) {
+            double blockSize = (double) bucketSize * CHUNK_BLOCK_SIZE;
+            int color = boundaryColor(boundary.color());
+            if (boundary.vertical()) {
+                int x = context.worldToScreenX((double) boundary.fixed() * blockSize);
+                int y1 = context.worldToScreenY((double) boundary.start() * blockSize);
+                int y2 = context.worldToScreenY((double) boundary.end() * blockSize);
+                context.canvas().fill(x, y1, x + 1, Math.max(y1 + 1, y2), color);
+            } else {
+                int x1 = context.worldToScreenX((double) boundary.start() * blockSize);
+                int x2 = context.worldToScreenX((double) boundary.end() * blockSize);
+                int y = context.worldToScreenY((double) boundary.fixed() * blockSize);
+                context.canvas().fill(x1, y, Math.max(x1 + 1, x2), y + 1, color);
             }
         }
     }
@@ -114,6 +136,16 @@ public final class XaeroBridgeOverlay {
 
     private static int translucent(int argb) {
         return argb == 0 ? 0 : (argb & 0x00FFFFFF) | (OVERLAY_ALPHA << 24);
+    }
+
+    private static int boundaryColor(int argb) {
+        int r = (argb >> 16) & 0xFF;
+        int g = (argb >> 8) & 0xFF;
+        int b = argb & 0xFF;
+        int luminance = (r * 54 + g * 183 + b * 19) >> 8;
+        if (luminance < 128) { r = (r + 255) >> 1; g = (g + 255) >> 1; b = (b + 255) >> 1; }
+        else { r >>= 1; g >>= 1; b >>= 1; }
+        return 0xFF000000 | (r << 16) | (g << 8) | b;
     }
 
     private static final class Cell {

@@ -9,6 +9,7 @@ import io.github.billstark001.worldmirror.download.WorldMetadata;
 import me.shedaniel.autoconfig.AutoConfigClient;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
@@ -17,39 +18,203 @@ import net.minecraft.network.chat.Component;
 
 import java.nio.file.Path;
 
-/** Native Minecraft status screen with no external GUI dependency. */
+/**
+ * Native status UI retaining the full LibGui-era status, per-world settings,
+ * conflict-management, and live-state behaviour without a LibGui dependency.
+ */
 @Environment(EnvType.CLIENT)
 public class StatusScreen extends Screen {
-    protected StatusScreen() { super(Component.translatable("screen.worldmirror.title")); }
+    private static final int PANEL_WIDTH = 360;
+    private static final int BUTTON_HEIGHT = 20;
+    private static int activeTab;
+
+    private boolean lastExportState;
+    private boolean lastDownloadState;
+    private Button toggleButton;
+
+    protected StatusScreen() {
+        super(Component.translatable("screen.worldmirror.title"));
+        lastExportState = DownloadManager.isExportInProgress();
+        lastDownloadState = DownloadManager.isActive();
+    }
 
     @Override
     protected void init() {
-        int left = width / 2 - 150;
-        addRenderableWidget(Button.builder(Component.translatable(DownloadManager.isActive() ? "screen.worldmirror.status.stopDownload" : "screen.worldmirror.status.startDownload"), button -> { DownloadManager.toggle(Minecraft.getInstance()); refresh(); }).bounds(left, 92, 146, 20).build());
-        addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.exportNow"), button -> { DownloadManager.exportNow(Minecraft.getInstance()); refresh(); }).bounds(left + 154, 92, 146, 20).build());
-        addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.clearData"), button -> { DownloadManager.clearAll(Minecraft.getInstance()); refresh(); }).bounds(left, 116, 146, 20).build());
-        addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.exportNearby"), button -> ExportNearbyScreen.open(this)).bounds(left + 154, 116, 146, 20).build());
-        addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.openChunkMap"), button -> ChunkMapScreen.open()).bounds(left, 140, 146, 20).build());
-        addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.openSettings"), button -> Minecraft.getInstance().setScreen(AutoConfigClient.getConfigScreen(ModConfig.class, this).get())).bounds(left + 154, 140, 146, 20).build());
-        addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.overwriteAll"), button -> { clearConflicts(true); refresh(); }).bounds(left, 164, 146, 20).build());
-        addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.discardAll"), button -> { clearConflicts(false); refresh(); }).bounds(left + 154, 164, 146, 20).build());
-        addRenderableWidget(Button.builder(Component.translatable("gui.done"), button -> onClose()).bounds(width / 2 - 50, height - 28, 100, 20).build());
+        int left = left();
+        int tabWidth = (PANEL_WIDTH - 8) / 3;
+        addRenderableWidget(Button.builder(tabLabel("screen.worldmirror.tab.status", 0), button -> switchTab(0))
+                .bounds(left, 32, tabWidth, BUTTON_HEIGHT).build());
+        addRenderableWidget(Button.builder(tabLabel("screen.worldmirror.tab.settings", 1), button -> switchTab(1))
+                .bounds(left + tabWidth + 4, 32, tabWidth, BUTTON_HEIGHT).build());
+        addRenderableWidget(Button.builder(tabLabel("screen.worldmirror.tab.conflicts", 2), button -> switchTab(2))
+                .bounds(left + (tabWidth + 4) * 2, 32, tabWidth, BUTTON_HEIGHT).build());
+
+        switch (activeTab) {
+            case 0 -> addStatusButtons(left);
+            case 1 -> addSettingsButtons(left);
+            case 2 -> addConflictButtons(left);
+            default -> activeTab = 0;
+        }
+        addRenderableWidget(Button.builder(Component.translatable("gui.done"), button -> onClose())
+                .bounds(width / 2 - 50, height - 28, 100, BUTTON_HEIGHT).build());
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        boolean export = DownloadManager.isExportInProgress();
+        boolean downloading = DownloadManager.isActive();
+        if (export != lastExportState || downloading != lastDownloadState) {
+            lastExportState = export;
+            lastDownloadState = downloading;
+            if (toggleButton != null) toggleButton.setMessage(Component.translatable(downloading
+                    ? "screen.worldmirror.status.stopDownload" : "screen.worldmirror.status.startDownload"));
+        }
+    }
+
+    private void addStatusButtons(int left) {
+        toggleButton = addRenderableWidget(Button.builder(Component.translatable(DownloadManager.isActive()
+                        ? "screen.worldmirror.status.stopDownload" : "screen.worldmirror.status.startDownload"),
+                button -> { DownloadManager.toggle(Minecraft.getInstance()); refresh(); })
+                .bounds(left, 180, 178, BUTTON_HEIGHT).build());
+        addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.exportNow"),
+                button -> { DownloadManager.exportNow(Minecraft.getInstance()); refresh(); })
+                .bounds(left + 182, 180, 178, BUTTON_HEIGHT).build());
+        addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.clearData"),
+                button -> { DownloadManager.clearAll(Minecraft.getInstance()); refresh(); })
+                .bounds(left, 204, 178, BUTTON_HEIGHT).build());
+        addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.exportNearby"),
+                button -> ExportNearbyScreen.open(this))
+                .bounds(left + 182, 204, 178, BUTTON_HEIGHT).build());
+    }
+
+    private void addSettingsButtons(int left) {
+        String sourceId = WorldMetadata.detectSourceId(Minecraft.getInstance());
+        ModConfig.SaveLocation saveLocation = resolveSaveLocation(sourceId);
+        ModConfig.ConflictStrategy strategy = resolveStrategy(sourceId);
+        addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.saveLoc")
+                        .append(": ").append(Component.translatable("config.worldmirror.saveLoc." + saveLocation.name().toLowerCase())),
+                button -> {
+                    ModConfig.SaveLocation[] values = ModConfig.SaveLocation.values();
+                    MirrorMapping.getInstance().setPerWorldSaveLocation(sourceId, values[(saveLocation.ordinal() + 1) % values.length].name());
+                    refresh();
+                }).bounds(left, 92, PANEL_WIDTH, BUTTON_HEIGHT).build());
+        addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.conflictStrategy")
+                        .append(": ").append(Component.translatable("config.worldmirror.conflictStrategy." + strategy.name().toLowerCase())),
+                button -> {
+                    ModConfig.ConflictStrategy[] values = ModConfig.ConflictStrategy.values();
+                    MirrorMapping.getInstance().setPerWorldConflictStrategy(sourceId, values[(strategy.ordinal() + 1) % values.length].name());
+                    refresh();
+                }).bounds(left, 116, PANEL_WIDTH, BUTTON_HEIGHT).build());
+        addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.openSettings"),
+                button -> Minecraft.getInstance().setScreen(AutoConfigClient.getConfigScreen(ModConfig.class, this).get()))
+                .bounds(left, 150, PANEL_WIDTH, BUTTON_HEIGHT).build());
+    }
+
+    private void addConflictButtons(int left) {
+        Path output = DownloadManager.getOutputPath(Minecraft.getInstance());
+        if (ConflictManager.countAllConflicts(output) > 0) {
+            addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.overwriteAll"),
+                    button -> { ConflictManager.clearAllConflicts(output, true); refresh(); })
+                    .bounds(left, 108, 178, BUTTON_HEIGHT).build());
+            addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.discardAll"),
+                    button -> { ConflictManager.clearAllConflicts(output, false); refresh(); })
+                    .bounds(left + 182, 108, 178, BUTTON_HEIGHT).build());
+        }
+        addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.openChunkMap"),
+                button -> ChunkMapScreen.open()).bounds(left, 142, PANEL_WIDTH, BUTTON_HEIGHT).build());
     }
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
         super.extractRenderState(graphics, mouseX, mouseY, delta);
-        Minecraft client = Minecraft.getInstance();
-        String sourceId = WorldMetadata.detectSourceId(client);
-        int x = width / 2 - 150;
-        graphics.centeredText(font, title, width / 2, 12, 0xFFFFFF);
-        graphics.text(font, Component.translatable("screen.worldmirror.status.sourceId").getString() + ": " + sourceId, x, 34, 0xE0E0E0);
-        graphics.text(font, Component.translatable("screen.worldmirror.status.mirrorPath").getString() + ": " + MirrorMapping.getInstance().getMirrorFolderName(sourceId), x, 48, 0xE0E0E0);
-        graphics.text(font, Component.translatable("screen.worldmirror.status.chunks").getString() + ": " + ChunkListener.getTotalCount(), x, 62, 0xE0E0E0);
-        graphics.text(font, Component.translatable(DownloadManager.isExportInProgress() ? "screen.worldmirror.status.exportRunning" : "screen.worldmirror.status.exportIdle"), x, 76, 0xE0E0E0);
+        graphics.centeredText(font, title, width / 2, 12, 0xFFFFFFFF);
+        switch (activeTab) {
+            case 0 -> renderStatus(graphics);
+            case 1 -> graphics.centeredText(font, Component.translatable("screen.worldmirror.tab.settingsHeader"), width / 2, 66, 0xFFE0E0E0);
+            case 2 -> renderConflicts(graphics);
+            default -> { }
+        }
     }
 
-    private static void clearConflicts(boolean overwrite) { Path output = DownloadManager.getOutputPath(Minecraft.getInstance()); ConflictManager.clearAllConflicts(output, overwrite); }
+    private void renderStatus(GuiGraphicsExtractor graphics) {
+        Minecraft client = Minecraft.getInstance();
+        String sourceType = WorldMetadata.detectSourceType(client);
+        String sourceId = WorldMetadata.detectSourceId(client);
+        String folder = MirrorMapping.getInstance().getMirrorFolderName(sourceId);
+        Path output = DownloadManager.getOutputPath(client);
+        int x = left();
+        line(graphics, "screen.worldmirror.status.sourceType", sourceType, x, 62);
+        line(graphics, "screen.worldmirror.status.sourceId", sourceId, x, 76);
+        line(graphics, "screen.worldmirror.status.mirrorPath", folder, x, 90);
+        line(graphics, "screen.worldmirror.status.outputPath", output.toString(), x, 104);
+        line(graphics, "screen.worldmirror.status.chunks", String.valueOf(ChunkListener.getTotalCount()), x, 118);
+        line(graphics, "screen.worldmirror.status.lastSync", lastSync(client, sourceId, sourceType), x, 132);
+        line(graphics, "screen.worldmirror.status.xaeroOverlay", bridgeStatus().getString(), x, 146);
+        graphics.text(font, Component.translatable(DownloadManager.isActive()
+                ? "screen.worldmirror.status.downloadActive" : "screen.worldmirror.status.downloadInactive"), x, 160, 0xFFE0E0E0);
+        graphics.text(font, Component.translatable(DownloadManager.isExportInProgress()
+                ? "screen.worldmirror.status.exportRunning" : "screen.worldmirror.status.exportIdle"), x + 182, 160, 0xFFE0E0E0);
+    }
+
+    private void renderConflicts(GuiGraphicsExtractor graphics) {
+        Path output = DownloadManager.getOutputPath(Minecraft.getInstance());
+        int count = ConflictManager.countAllConflicts(output);
+        graphics.centeredText(font, Component.translatable("screen.worldmirror.tab.conflictsHeader"), width / 2, 66, 0xFFE0E0E0);
+        if (count == 0) {
+            graphics.centeredText(font, Component.translatable("screen.worldmirror.status.noConflicts"), width / 2, 88, 0xFFE0E0E0);
+        } else {
+            line(graphics, "screen.worldmirror.status.conflicts", String.valueOf(count), left(), 88);
+        }
+    }
+
+    private void line(GuiGraphicsExtractor graphics, String key, String value, int x, int y) {
+        graphics.text(font, Component.translatable(key).append(": " + value), x, y, 0xFFE0E0E0);
+    }
+
+    private Component tabLabel(String key, int tab) {
+        return activeTab == tab ? Component.literal("§l").append(Component.translatable(key)) : Component.translatable(key);
+    }
+
+    private void switchTab(int tab) { activeTab = tab; refresh(); }
+    private int left() { return width / 2 - PANEL_WIDTH / 2; }
+
+    private static Component bridgeStatus() {
+        if (!ModConfig.get().chunkMap.showXaeroWorldMapOverlay) return Component.translatable("screen.worldmirror.status.xaeroOverlay.disabled");
+        return FabricLoader.getInstance().isModLoaded("xaero_world_map_bridge")
+                ? Component.translatable("screen.worldmirror.status.xaeroOverlay.bridge")
+                : Component.translatable("screen.worldmirror.status.xaeroOverlay.missing");
+    }
+
+    private static String lastSync(Minecraft client, String sourceId, String sourceType) {
+        try {
+            WorldMetadata metadata = WorldMetadata.loadOrCreate(DownloadManager.getOutputPath(client), sourceId, sourceType);
+            if (metadata.lastSyncTime == 0) return Component.translatable("screen.worldmirror.status.lastSyncNever").getString();
+            return formatAge((System.currentTimeMillis() - metadata.lastSyncTime) / 1_000L);
+        } catch (Exception ignored) {
+            return "?";
+        }
+    }
+
+    private static String formatAge(long seconds) {
+        if (seconds < 0) seconds = 0;
+        if (seconds < 60) return seconds + "s ago";
+        if (seconds < 3_600) return seconds / 60 + "m ago";
+        return seconds / 3_600 + "h ago";
+    }
+
+    private static ModConfig.SaveLocation resolveSaveLocation(String sourceId) {
+        String configured = MirrorMapping.getInstance().getPerWorldSaveLocation(sourceId);
+        try { return configured != null ? ModConfig.SaveLocation.valueOf(configured) : ModConfig.get().defaultSaveLocation; }
+        catch (IllegalArgumentException ignored) { return ModConfig.get().defaultSaveLocation; }
+    }
+
+    private static ModConfig.ConflictStrategy resolveStrategy(String sourceId) {
+        String configured = MirrorMapping.getInstance().getPerWorldConflictStrategy(sourceId);
+        try { return configured != null ? ModConfig.ConflictStrategy.valueOf(configured) : ModConfig.get().defaultConflictStrategy; }
+        catch (IllegalArgumentException ignored) { return ModConfig.get().defaultConflictStrategy; }
+    }
+
     protected void refresh() { Minecraft.getInstance().setScreen(new StatusClientScreen()); }
-    public static void open() { Minecraft.getInstance().execute(() -> Minecraft.getInstance().setScreen(new StatusClientScreen())); }
+    public static void open() { Minecraft.getInstance().setScreen(new StatusClientScreen()); }
 }
