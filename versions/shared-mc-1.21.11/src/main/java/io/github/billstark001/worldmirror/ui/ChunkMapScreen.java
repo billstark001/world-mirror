@@ -276,10 +276,18 @@ public class ChunkMapScreen extends Screen {
 
     private void renderSparse(GuiGraphics ctx, int halfW, int halfH,
                               int cxMin, int cxMax, int czMin, int czMax, long now) {
-        renderKnownRecords(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax, now);
+        ChunkMapAggregation.Result aggregate = ChunkMapAggregation.aggregate(statusSnapshot, cxMin, cxMax, czMin, czMax, now);
+        int bucketSize = aggregate.bucketSize();
+        for (ChunkMapAggregation.Run run : aggregate.runs()) {
+            int sx = halfW + (int) Math.round((run.startBucketX() * bucketSize - viewCX) * cellSize);
+            int sz = halfH + (int) Math.round((run.bucketZ() * bucketSize - viewCZ) * cellSize);
+            int ex = halfW + (int) Math.round(((run.endBucketX() + 1) * bucketSize - viewCX) * cellSize);
+            int ez = halfH + (int) Math.round(((run.bucketZ() + 1) * bucketSize - viewCZ) * cellSize);
+            int fill = transparentBackground ? withAlpha(run.color(), TRANSPARENT_FILL_ALPHA) : run.color();
+            ctx.fill(sx, sz, Math.max(sx + 1, ex), Math.max(sz + 1, ez), fill);
+            if (run.conflict()) ctx.fill(sx, sz, Math.max(sx + 1, ex), Math.max(sz + 1, ez), COLOR_CONFLICT_BORDER);
+        }
         renderGrid(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax, sparseGridIntervalForCellSize(cellSize));
-        renderBoundaries(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax);
-        renderConflicts(ctx, halfW, halfH, cxMin, cxMax, czMin, czMax);
     }
 
     private void renderKnownRecords(GuiGraphics ctx, int halfW, int halfH,
