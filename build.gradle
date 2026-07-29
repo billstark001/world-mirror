@@ -7,19 +7,19 @@ ext.targets = [
     "1.21.11": [
         minecraft: "1.21.11", javaVersion: 21, mixinJava: "JAVA_21",
         fabricApi: "0.141.4+1.21.11", modMenu: "17.0.1-beta.1",
-        libGui: "15.1.0+1.21.11", clothConfig: "21.11.153",
+        clothConfig: "21.11.153",
         minecraftRange: "~1.21.11", remapped: true
     ],
     "26.1.2": [
         minecraft: "26.1.2", javaVersion: 25, mixinJava: "JAVA_25",
         fabricApi: "0.151.0+26.1.2", modMenu: "18.0.0",
-        libGui: "16.0.1+26.1", clothConfig: "26.1.154",
+        clothConfig: "26.1.154",
         minecraftRange: "~26.1.2", remapped: false
     ],
     "26.2": [
         minecraft: "26.2", javaVersion: 25, mixinJava: "JAVA_25",
         fabricApi: "0.152.2+26.2", modMenu: "20.0.1",
-        libGui: "17.0.0+26.2", clothConfig: "26.2.155",
+        clothConfig: "26.2.155",
         minecraftRange: "~26.2", remapped: false
     ]
 ]

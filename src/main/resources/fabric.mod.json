@@ -37,7 +37,6 @@
     "minecraft": "${minecraftRange}",
     "java": ">=${javaVersion}",
     "fabric-api": "*",
-    "libgui": "*",
     "cloth-config2": ">=${clothConfigVersion}"
   },
   "suggests": {

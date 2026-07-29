@@ -46,7 +46,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Version bump: `0.2.1` → `0.2.2`.
 - Updated the Minecraft/Fabric dependency set to `26.2`, Fabric Loader `0.19.3`,
-  Fabric API `0.152.2+26.2`, ModMenu `20.0.0-beta.3`, LibGUI `17.0.0+26.2`,
+  Fabric API `0.152.2+26.2`, ModMenu `20.0.0-beta.3`,
   and Cloth Config `26.2.155`.
 - Reduced routine lifecycle, capture, export, migration, and world-structure logs from
   info to debug so normal gameplay chat/log output is quieter.

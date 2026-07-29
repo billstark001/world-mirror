@@ -26,7 +26,7 @@ region-file save that you can open immediately in singleplayer.
 | **Chunk Map (Window 1)** | Full-screen draggable grid map showing every recorded chunk's download status. Color-coded: green (fresh) → blue (logarithmic, based on age) — downloaded via `world_mirror`. Orange — written by a third-party source (e.g. `player`, `map_hp`). Red border — chunk has an unresolved conflict. Built-in map rendering is optimized with status caching and merged boundary rendering to reduce dense UI drawing cost. Per-chunk conflict resolution dialog (Overwrite / Discard / Cancel). |
 | **Xaero's World Map Overlay** | Render World Mirror status fills and merged boundaries directly on Xaero's fullscreen map if Xaero's World Map is installed. |
 | **Export Nearby Region** | Snapshot all loaded chunks within a configurable radius (1–50 chunks) into a fresh singleplayer save with the spawn point set to your current position. |
-| **In-game status screen** | Press **I** to open a LibGUI status panel showing source info, sync statistics, download state, conflict counts with bulk resolution buttons, and per-world setting overrides. |
+| **In-game status screen** | Press **I** to open a native Minecraft status screen showing source info, download state, export controls, conflict actions, and settings shortcuts. |
 | **In-game logging** | Important events are echoed to the player's chat at a configurable level (Debug / Info / Warning). |
 | **Mod Menu settings** | All global settings are accessible from the Mod Menu settings screen. |
 | **Internationalisation** | UI strings are translated into English (`en_us`), Simplified Chinese (`zh_cn`), Traditional Chinese (`zh_tw`), and Japanese (`ja_jp`). |
@@ -195,10 +195,9 @@ as `container.chest` are not persisted as custom names.
 
 1. Install [Fabric Loader](https://fabricmc.net/use/) ≥ 0.19.3 for Minecraft 26.2
 2. Install [Fabric API](https://modrinth.com/mod/fabric-api)
-3. Install [LibGUI](https://github.com/CottonMC/LibGui) ≥ 17.0.0+26.2 (required)
-4. *(Optional)* Install [ModMenu](https://modrinth.com/mod/modmenu) for the in-game mod list
-5. *(Optional)* Install [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map) for fullscreen map overlay support
-6. Drop the compiled JAR file into your `mods/` folder
+3. *(Optional)* Install [ModMenu](https://modrinth.com/mod/modmenu) for the in-game mod list
+4. *(Optional)* Install [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map) for fullscreen map overlay support
+5. Drop the compiled JAR file into your `mods/` folder
 
 ---
 
