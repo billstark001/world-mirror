@@ -50,7 +50,7 @@ public final class ChunkMapAggregation {
             Cell cell = cells.computeIfAbsent(ChunkStatusSnapshot.chunkKey(bucketX, bucketZ), ignored -> new Cell(bucketX, bucketZ));
             if (record.updateTime() >= cell.updateTime) {
                 cell.updateTime = record.updateTime();
-                cell.color = ChunkMapScreen.computeColor(record, now);
+                cell.color = ChunkMapView.computeColor(record, now);
             }
         });
         snapshot.forEachConflictCoordinatesInRange(minChunkX, maxChunkX, minChunkZ, maxChunkZ, (x, z) -> {
