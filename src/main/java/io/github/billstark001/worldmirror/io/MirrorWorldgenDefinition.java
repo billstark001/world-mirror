@@ -5,6 +5,12 @@ import java.util.List;
 /** Version-neutral description consumed by the Minecraft-specific NBT adapters. */
 public final class MirrorWorldgenDefinition {
 
+    /**
+     * A positive density selects {@code default_block} (air) instead of the
+     * aquifer/fluid branch, whose vanilla fallback places lava below Y=-54.
+     */
+    public static final double VOID_FINAL_DENSITY = 1.0D;
+
     public static final List<String> ZERO_NOISE_ROUTER_FIELDS = List.of(
             "barrier", "fluid_level_floodedness", "fluid_level_spread", "lava",
             "temperature", "vegetation", "continents", "erosion", "depth", "ridges",

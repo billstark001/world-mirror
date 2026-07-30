@@ -6,9 +6,15 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 
 import static java.nio.file.Files.readString;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MirrorWorldgenAssetsTest {
+
+    @Test
+    void voidDensityUsesTheAirDefaultBlockPath() {
+        assertEquals(1.0D, MirrorWorldgenDefinition.VOID_FINAL_DENSITY);
+    }
 
     @Test
     void installsACompleteFeaturelessBiomePack(@TempDir Path world) throws Exception {

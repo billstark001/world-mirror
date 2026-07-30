@@ -46,7 +46,7 @@ public class WorldStructureCreator {
         for (String field : MirrorWorldgenDefinition.ZERO_NOISE_ROUTER_FIELDS) {
             router.putDouble(field, 0.0D);
         }
-        router.putDouble("final_density", -1.0D);
+        router.putDouble("final_density", MirrorWorldgenDefinition.VOID_FINAL_DENSITY);
         settings.put("noise_router", router);
         CompoundTag rule = new CompoundTag();
         rule.putString("type", "minecraft:block");
