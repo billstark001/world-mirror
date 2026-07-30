@@ -69,8 +69,11 @@ public class ChunkSerializer {
                     .getDataLayerData(SectionPos.of(chunkPos, sectionY));
             DataLayer skyLight = lightEngine.getLayerListener(LightLayer.SKY)
                     .getDataLayerData(SectionPos.of(chunkPos, sectionY));
-            DataLayer blockLightCopy = blockLight != null && !blockLight.isEmpty() ? blockLight.copy() : null;
-            DataLayer skyLightCopy = skyLight != null && !skyLight.isEmpty() ? skyLight.copy() : null;
+            // A non-null but empty DataLayer means that the client explicitly
+            // knows this section is all zero.  It must not be confused with a
+            // null layer, which means the client has no data for that section.
+            DataLayer blockLightCopy = blockLight != null ? blockLight.copy() : null;
+            DataLayer skyLightCopy = skyLight != null ? skyLight.copy() : null;
 
             if (hasChunkSection || blockLightCopy != null || skyLightCopy != null) {
                 LevelChunkSection section = hasChunkSection ? chunkSections[sectionIndex].copy() : null;

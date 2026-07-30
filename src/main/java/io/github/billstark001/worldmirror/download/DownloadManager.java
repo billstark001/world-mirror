@@ -62,10 +62,13 @@ public final class DownloadManager {
     private static final int PRE_EXPORT_CAPTURE_RANGE = 8;
     private static final int STOP_CAPTURE_RANGE = 6;
     private static final int CAPTURE_CHUNKS_PER_TICK = 8;
+    private static final int LIGHT_UPDATE_COALESCE_TICKS = 2;
     private static final Object captureQueueLock = new Object();
     private static final ArrayDeque<PendingChunkCapture> pendingCaptures = new ArrayDeque<>();
     private static final Set<CaptureKey> pendingCaptureSet = new HashSet<>();
+    private static final Map<CaptureKey, Long> pendingLightUpdates = new HashMap<>();
     private static PendingExportRequest pendingExport = null;
+    private static long clientTick = 0;
 
     private record CaptureKey(ResourceKey<Level> dimension, int chunkX, int chunkZ) { }
     private record PendingChunkCapture(CaptureKey key, String reason) { }
@@ -98,6 +101,36 @@ public final class DownloadManager {
 
     public static boolean isExportInProgress() {
         return exportInProgress.get();
+    }
+
+    /** Queues a normal capture when a light packet arrives before its base chunk. */
+    public static void queueLightUpdateCapture(ClientLevel world, ChunkPos pos) {
+        if (world == null || pos == null) return;
+
+        CaptureKey key = new CaptureKey(world.dimension(),
+                pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4);
+        synchronized (captureQueueLock) {
+            if (pendingCaptureSet.add(key)) {
+                pendingCaptures.add(new PendingChunkCapture(key, "light-update-no-base"));
+            }
+            captureInProgress.set(hasPendingCaptureWorkLocked());
+        }
+    }
+
+    /**
+     * Coalesces repeated light-only packets before marking their cached chunk
+     * dirty.  The overlay itself is updated immediately; only export dirtiness
+     * waits for the short fixed window.
+     */
+    public static void markLightUpdateDirty(ClientLevel world, ChunkPos pos) {
+        if (world == null || pos == null) return;
+
+        CaptureKey key = new CaptureKey(world.dimension(),
+                pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4);
+        synchronized (captureQueueLock) {
+            pendingLightUpdates.putIfAbsent(key, clientTick + LIGHT_UPDATE_COALESCE_TICKS);
+            captureInProgress.set(hasPendingCaptureWorkLocked());
+        }
     }
 
     // ── Public commands ───────────────────────────────────────────────────────
@@ -214,6 +247,8 @@ public final class DownloadManager {
     public static void onClientTick(Minecraft client) {
         if (client.level == null) return;
 
+        clientTick++;
+        flushPendingLightUpdates();
         processPendingCaptures(client);
         tryStartDeferredExport(client);
 
@@ -572,6 +607,13 @@ public final class DownloadManager {
             return;
         }
 
+        // A light overlay is already up to date, but its dirty timestamp is
+        // deliberately delayed so a burst exports as one coherent chunk write.
+        if (!preCaptureAlreadyDone && hasPendingLightUpdates()) {
+            deferExport(notify, preferredSourceId, preferredSourceType, preferredContainerSnapshot);
+            return;
+        }
+
         // Queue nearby capture work and defer export until that incremental
         // capture has finished. This keeps all chunk/world access on the main
         // thread without blocking it for hundreds of serialisations at once.
@@ -728,7 +770,7 @@ public final class DownloadManager {
                     }
                 }
             }
-            captureInProgress.set(!pendingCaptures.isEmpty());
+            captureInProgress.set(hasPendingCaptureWorkLocked());
         }
         return queued;
     }
@@ -748,7 +790,7 @@ public final class DownloadManager {
                 if (request != null) {
                     pendingCaptureSet.remove(request.key());
                 }
-                captureInProgress.set(!pendingCaptures.isEmpty());
+                captureInProgress.set(hasPendingCaptureWorkLocked());
             }
 
             if (request == null) {
@@ -803,7 +845,7 @@ public final class DownloadManager {
     private static void tryStartDeferredExport(Minecraft client) {
         PendingExportRequest request;
         synchronized (captureQueueLock) {
-            if (!pendingCaptures.isEmpty() || exportInProgress.get() || pendingExport == null) {
+            if (hasPendingCaptureWorkLocked() || exportInProgress.get() || pendingExport == null) {
                 return;
             }
             request = pendingExport;
@@ -818,8 +860,39 @@ public final class DownloadManager {
         synchronized (captureQueueLock) {
             pendingCaptures.clear();
             pendingCaptureSet.clear();
+            pendingLightUpdates.clear();
             pendingExport = null;
             captureInProgress.set(false);
+        }
+    }
+
+    private static void flushPendingLightUpdates() {
+        List<CaptureKey> ready = new java.util.ArrayList<>();
+        synchronized (captureQueueLock) {
+            java.util.Iterator<Map.Entry<CaptureKey, Long>> iterator =
+                    pendingLightUpdates.entrySet().iterator();
+            while (iterator.hasNext()) {
+                Map.Entry<CaptureKey, Long> entry = iterator.next();
+                if (entry.getValue() <= clientTick) {
+                    ready.add(entry.getKey());
+                    iterator.remove();
+                }
+            }
+            captureInProgress.set(hasPendingCaptureWorkLocked());
+        }
+
+        for (CaptureKey key : ready) {
+            ChunkListener.markChunkDirty(key.dimension(), new ChunkPos(key.chunkX(), key.chunkZ()));
+        }
+    }
+
+    private static boolean hasPendingCaptureWorkLocked() {
+        return !pendingCaptures.isEmpty() || !pendingLightUpdates.isEmpty();
+    }
+
+    private static boolean hasPendingLightUpdates() {
+        synchronized (captureQueueLock) {
+            return !pendingLightUpdates.isEmpty();
         }
     }
 

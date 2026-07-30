@@ -31,28 +31,79 @@ public class ChunkListener {
     // dimension → (chunkPos → capturedChunk)
     private static final ConcurrentHashMap<ResourceKey<Level>, ConcurrentHashMap<ChunkPos, CapturedChunk>>
             dimChunks = new ConcurrentHashMap<>();
+    // dimension → (chunkPos → latest known light sections).  The base chunk NBT
+    // intentionally has its light tags stripped so missing client data cannot
+    // replace older known data during a later full capture.
+    private static final ConcurrentHashMap<ResourceKey<Level>, ConcurrentHashMap<ChunkPos, LightingOverlay>>
+            dimLighting = new ConcurrentHashMap<>();
 
     public static void addChunkNbt(ResourceKey<Level> dimension, ChunkPos pos, CompoundTag chunkNbt) {
+        ConcurrentHashMap<ChunkPos, LightingOverlay> lightingByChunk =
+                dimLighting.computeIfAbsent(dimension, k -> new ConcurrentHashMap<>());
         dimChunks.computeIfAbsent(dimension, k -> new ConcurrentHashMap<>())
                  .compute(pos, (ignored, previous) -> {
                      CompoundTag mergedNbt = chunkNbt;
                      if (previous != null) {
                          BlockEntityNbtSupport.mergeChunkBlockEntities(mergedNbt, previous.nbt());
                      }
+                     lightingByChunk.computeIfAbsent(pos, ignoredKey -> new LightingOverlay())
+                             .absorbAndStrip(mergedNbt);
                      return new CapturedChunk(mergedNbt, System.currentTimeMillis());
                  });
         WMLogger.debug("Captured chunk [" + dimension.identifier() + "] " + pos);
     }
 
     /**
+     * Records a light-only packet against an existing base chunk.  Returns
+     * {@code false} when no base chunk is cached and the caller should queue a
+     * normal chunk capture instead.
+     */
+    public static boolean applyLightUpdate(
+            ResourceKey<Level> dimension,
+            ChunkPos pos,
+            LightingUpdate update) {
+        ConcurrentHashMap<ChunkPos, CapturedChunk> chunks = dimChunks.get(dimension);
+        if (chunks == null || !chunks.containsKey(pos)) {
+            return false;
+        }
+
+        dimLighting.computeIfAbsent(dimension, ignored -> new ConcurrentHashMap<>())
+                .computeIfAbsent(pos, ignored -> new LightingOverlay())
+                .applyUpdate(update);
+        return true;
+    }
+
+    /** Marks a chunk dirty after its light-update coalescing window has elapsed. */
+    public static void markChunkDirty(ResourceKey<Level> dimension, ChunkPos pos) {
+        ConcurrentHashMap<ChunkPos, CapturedChunk> chunks = dimChunks.get(dimension);
+        if (chunks == null) return;
+        chunks.computeIfPresent(pos, (ignored, previous) ->
+                new CapturedChunk(previous.nbt(), System.currentTimeMillis()));
+    }
+
+    /**
      * Returns an immutable snapshot of all captured chunks, safe to read from any thread.
-     * The inner maps are shallow copies — the {@link CapturedChunk} records are immutable.
+     * The returned NBT is materialized from an immutable base plus the latest
+     * light overlay, so it is safe for the background exporter to own.
      */
     public static Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> snapshot() {
         Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> result = new HashMap<>();
         for (Map.Entry<ResourceKey<Level>, ConcurrentHashMap<ChunkPos, CapturedChunk>> dimEntry
                 : dimChunks.entrySet()) {
-            result.put(dimEntry.getKey(), new HashMap<>(dimEntry.getValue()));
+            Map<ChunkPos, CapturedChunk> dimCopy = new HashMap<>();
+            Map<ChunkPos, LightingOverlay> lightingByChunk = dimLighting.get(dimEntry.getKey());
+            if (lightingByChunk == null) {
+                lightingByChunk = Map.of();
+            }
+            for (Map.Entry<ChunkPos, CapturedChunk> chunkEntry : dimEntry.getValue().entrySet()) {
+                CapturedChunk captured = chunkEntry.getValue();
+                LightingOverlay lighting = lightingByChunk.get(chunkEntry.getKey());
+                CompoundTag nbt = lighting == null
+                        ? captured.nbt().copy()
+                        : lighting.materialize(captured.nbt());
+                dimCopy.put(chunkEntry.getKey(), new CapturedChunk(nbt, captured.capturedAtMs()));
+            }
+            result.put(dimEntry.getKey(), dimCopy);
         }
         return result;
     }
@@ -79,6 +130,7 @@ public class ChunkListener {
 
     public static void clear() {
         dimChunks.clear();
+        dimLighting.clear();
     }
 
     /**
@@ -110,8 +162,7 @@ public class ChunkListener {
                     }
                 }
                 for (ChunkPos p : toRemove) {
-                    dimMap.remove(p);
-                    evicted++;
+                    if (removeChunk(dimEntry.getKey(), p)) evicted++;
                 }
                 if (!toRemove.isEmpty()) {
                     evictedByDim.computeIfAbsent(dimEntry.getKey(), k -> ConcurrentHashMap.newKeySet())
@@ -133,8 +184,7 @@ public class ChunkListener {
                     }
                 }
                 for (ChunkPos p : toRemove) {
-                    dimMap.remove(p);
-                    evicted++;
+                    if (removeChunk(playerDimension, p)) evicted++;
                 }
                 if (!toRemove.isEmpty()) {
                     evictedByDim.computeIfAbsent(playerDimension, k -> ConcurrentHashMap.newKeySet())
@@ -160,8 +210,7 @@ public class ChunkListener {
                 for (int i = 0; i < toEvict; i++) {
                     Entry e = allEntries.get(i);
                     ConcurrentHashMap<ChunkPos, CapturedChunk> dimMap = dimChunks.get(e.dim());
-                    if (dimMap != null) {
-                        dimMap.remove(e.pos());
+                    if (dimMap != null && removeChunk(e.dim(), e.pos())) {
                         evicted++;
                         evictedByDim.computeIfAbsent(e.dim(), k -> ConcurrentHashMap.newKeySet())
                                 .add(e.pos());
@@ -185,7 +234,7 @@ public class ChunkListener {
             ConcurrentHashMap<ChunkPos, CapturedChunk> dimMap = dimChunks.get(dimEntry.getKey());
             if (dimMap == null) continue;
             for (ChunkPos pos : dimEntry.getValue()) {
-                if (dimMap.remove(pos) != null) removed++;
+                if (removeChunk(dimEntry.getKey(), pos)) removed++;
             }
         }
         if (removed > 0) {
@@ -193,6 +242,20 @@ public class ChunkListener {
             ContainerTracker.evictForChunks(writtenByDim);
             EntityTracker.pruneToMatchCapturedChunks();
         }
+    }
+
+    private static boolean removeChunk(ResourceKey<Level> dimension, ChunkPos pos) {
+        ConcurrentHashMap<ChunkPos, CapturedChunk> chunks = dimChunks.get(dimension);
+        if (chunks == null || chunks.remove(pos) == null) return false;
+
+        ConcurrentHashMap<ChunkPos, LightingOverlay> lighting = dimLighting.get(dimension);
+        if (lighting != null) {
+            lighting.remove(pos);
+            if (lighting.isEmpty()) {
+                dimLighting.remove(dimension, lighting);
+            }
+        }
+        return true;
     }
 }
 

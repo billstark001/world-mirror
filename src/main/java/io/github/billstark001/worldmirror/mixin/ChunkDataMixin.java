@@ -2,6 +2,7 @@ package io.github.billstark001.worldmirror.mixin;
 
 import io.github.billstark001.worldmirror.download.DownloadManager;
 import io.github.billstark001.worldmirror.core.ChunkListener;
+import io.github.billstark001.worldmirror.core.LightingUpdate;
 import io.github.billstark001.worldmirror.io.ChunkSerializer;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
@@ -9,6 +10,7 @@ import net.fabricmc.api.Environment;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.protocol.game.ClientboundLightUpdatePacketData;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -54,6 +56,43 @@ public abstract class ChunkDataMixin {
             }
         } else {
             WMLogger.debug("Chunk at " + pos + " not fully loaded when onChunkData fired.");
+        }
+    }
+
+    /**
+     * Vanilla queues both initial and light-only packet data before applying it.
+     * Hooking this method, rather than the packet handler tail, therefore sees
+     * the exact masks after the client light engine has accepted them.
+     */
+    @Inject(method = "applyLightData", at = @At("TAIL"))
+    private void onLightDataApplied(
+            int chunkX,
+            int chunkZ,
+            ClientboundLightUpdatePacketData lightData,
+            boolean markDirty,
+            CallbackInfo ci) {
+        if (!DownloadManager.isActive()) return;
+
+        ClientLevel world = this.getLevel();
+        if (world == null) return;
+
+        ChunkPos pos = new ChunkPos(chunkX, chunkZ);
+        try {
+            var lightEngine = world.getChunkSource().getLightEngine();
+            boolean applied = ChunkListener.applyLightUpdate(
+                    world.dimension(), pos, new LightingUpdate(
+                            lightEngine.getMinLightSection(), lightEngine.getLightSectionCount(),
+                            lightData.getBlockYMask(), lightData.getEmptyBlockYMask(),
+                            lightData.getBlockUpdates(),
+                            lightData.getSkyYMask(), lightData.getEmptySkyYMask(),
+                            lightData.getSkyUpdates()));
+            if (applied) {
+                DownloadManager.markLightUpdateDirty(world, pos);
+            } else {
+                DownloadManager.queueLightUpdateCapture(world, pos);
+            }
+        } catch (Exception e) {
+            WMLogger.warn("Failed to capture applied light update for " + pos + ": " + e.getMessage());
         }
     }
 }
