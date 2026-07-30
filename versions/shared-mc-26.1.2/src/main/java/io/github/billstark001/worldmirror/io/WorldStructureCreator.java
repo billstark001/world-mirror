@@ -12,7 +12,6 @@ import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.*;
 import net.minecraft.world.Difficulty;
 import net.minecraft.world.level.GameType;
@@ -20,9 +19,6 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelSettings;
 import net.minecraft.world.level.WorldDataConfiguration;
 import net.minecraft.world.level.gamerules.GameRules;
-import net.minecraft.world.level.levelgen.WorldGenSettings;
-import net.minecraft.world.level.levelgen.WorldOptions;
-import net.minecraft.world.level.levelgen.presets.WorldPresets;
 import net.minecraft.world.level.storage.LevelData;
 import net.minecraft.world.level.storage.LevelStorageSource;
 import net.minecraft.world.level.storage.PrimaryLevelData;
@@ -30,46 +26,62 @@ import net.minecraft.world.level.storage.PrimaryLevelData;
 @Environment(EnvType.CLIENT)
 public class WorldStructureCreator {
 
-    public static CompoundTag createFlatGenerator() {
+    private static CompoundTag createVoidNoiseGenerator(String biome, int minY, int height,
+                                                        int seaLevel, int horizontalSize, int verticalSize) {
         CompoundTag generator = new CompoundTag();
-
         CompoundTag settings = new CompoundTag();
-        ListTag layers = new ListTag();
-        CompoundTag airLayer = new CompoundTag();
-        airLayer.putString("block", "minecraft:air");
-        airLayer.putInt("height", 1);
-        layers.add(airLayer);
-        settings.put("layers", layers);
-        settings.put("structure_overrides", new ListTag());
-        settings.putString("biome", "minecraft:the_void");
+        CompoundTag noise = new CompoundTag();
+        noise.putInt("min_y", minY);
+        noise.putInt("height", height);
+        noise.putInt("size_horizontal", horizontalSize);
+        noise.putInt("size_vertical", verticalSize);
+        settings.put("noise", noise);
+        settings.put("default_block", blockState("minecraft:air"));
+        settings.put("default_fluid", blockState("minecraft:air"));
+        settings.putInt("sea_level", seaLevel);
+        settings.putBoolean("disable_mob_generation", true);
+        settings.putBoolean("aquifers_enabled", false);
+        settings.putBoolean("ore_veins_enabled", false);
+        settings.putBoolean("legacy_random_source", false);
+        settings.put("spawn_target", new ListTag());
+        CompoundTag router = new CompoundTag();
+        for (String field : MirrorWorldgenDefinition.ZERO_NOISE_ROUTER_FIELDS) {
+            router.putDouble(field, 0.0D);
+        }
+        router.putDouble("final_density", -1.0D);
+        settings.put("noise_router", router);
+        CompoundTag rule = new CompoundTag();
+        rule.putString("type", "minecraft:block");
+        rule.put("result_state", blockState("minecraft:air"));
+        settings.put("surface_rule", rule);
         generator.put("settings", settings);
-        generator.putString("type", "minecraft:flat");
+        CompoundTag biomeSource = new CompoundTag();
+        biomeSource.putString("type", "minecraft:fixed");
+        biomeSource.putString("biome", biome);
+        generator.put("biome_source", biomeSource);
+        generator.putString("type", "minecraft:noise");
 
         return generator;
     }
 
-    public static CompoundTag createFlatWorldGenSettings() {
+    private static CompoundTag blockState(String block) {
+        CompoundTag state = new CompoundTag();
+        state.putString("Name", block);
+        return state;
+    }
+
+    public static CompoundTag createMirrorWorldGenSettings() {
         CompoundTag worldGenSettings = new CompoundTag();
         // --- dimensions ---
         CompoundTag dimensions = new CompoundTag();
 
-        // minecraft:overworld
-        CompoundTag overworld = new CompoundTag();
-        overworld.put("generator", createFlatGenerator());
-        overworld.putString("type", "minecraft:overworld");
-        dimensions.put("minecraft:overworld", overworld);
-
-        // minecraft:the_end
-        CompoundTag theEnd = new CompoundTag();
-        theEnd.put("generator", createFlatGenerator());
-        theEnd.putString("type", "minecraft:the_end");
-        dimensions.put("minecraft:the_end", theEnd);
-
-        // minecraft:the_nether
-        CompoundTag theNether = new CompoundTag();
-        theNether.put("generator", createFlatGenerator());
-        theNether.putString("type", "minecraft:the_nether");
-        dimensions.put("minecraft:the_nether", theNether);
+        for (MirrorWorldgenDefinition.Dimension definition : MirrorWorldgenDefinition.DIMENSIONS) {
+            CompoundTag dimension = new CompoundTag();
+            dimension.put("generator", createVoidNoiseGenerator(definition.biome(), definition.minY(),
+                    definition.height(), definition.seaLevel(), definition.horizontalSize(), definition.verticalSize()));
+            dimension.putString("type", definition.dimensionType());
+            dimensions.put(definition.dimensionType(), dimension);
+        }
 
         worldGenSettings.put("dimensions", dimensions);
         worldGenSettings.putByte("bonus_chest", (byte) 0);
@@ -92,7 +104,7 @@ public class WorldStructureCreator {
         );
         PrimaryLevelData data = new PrimaryLevelData(
                 settings,
-                PrimaryLevelData.SpecialWorldProperty.FLAT,
+                PrimaryLevelData.SpecialWorldProperty.NONE,
                 Lifecycle.stable()
         );
         data.setInitialized(true);
@@ -189,7 +201,7 @@ public class WorldStructureCreator {
     public static void createLoadableWorldWithSpawn(Path worldFolderPath, String levelName,
                                                     int spawnX, int spawnY, int spawnZ) {
         try {
-            createLoadableWorld(worldFolderPath, levelName, null);
+            createLoadableWorld(worldFolderPath, levelName, true, true);
 
             PrimaryLevelData data = createWorldData(levelName);
             data.setSpawn(LevelData.RespawnData.of(
@@ -219,7 +231,8 @@ public class WorldStructureCreator {
      * @param worldFolder  root directory of the mirror world
      * @param levelName    human-readable name to embed in {@code level.dat}
      */
-    public static void createLoadableWorld(java.nio.file.Path worldFolderPath, String levelName, RegistryAccess registryAccess) {
+    public static boolean createLoadableWorld(java.nio.file.Path worldFolderPath, String levelName,
+                                              boolean migrateWorldgen, boolean refreshAssets) {
         File worldFolder = worldFolderPath.toFile();
         try {
             boolean firstTime = !(new File(worldFolder, "level.dat")).exists();
@@ -236,22 +249,30 @@ public class WorldStructureCreator {
             Files.writeString(worldFolderPath.resolve("session.lock"), "\u2603", StandardCharsets.UTF_8);
 
             if (firstTime) {
+                MirrorWorldgenAssets.install(worldFolderPath, net.minecraft.SharedConstants.DATA_PACK_FORMAT_MAJOR);
                 UUID singleplayerUuid = UUID.nameUUIDFromBytes(
                         ("worldmirror:" + levelName).getBytes(StandardCharsets.UTF_8));
                 PrimaryLevelData data = createWorldData(levelName);
                 writeLevelDat(new File(worldFolder, "level.dat"), data, singleplayerUuid);
                 writeCompressed(new File(worldFolder, "players/data/" + singleplayerUuid + ".dat"), createPlayerData());
-                writeWorldGenSettings(worldFolderPath, registryAccess);
+                writeWorldGenSettings(worldFolderPath);
                 LevelStorageSource.writeGameRules(data, worldFolderPath, createGameRules(data.getDataConfiguration()));
                 writeSavedData(new File(worldFolder, "data/minecraft/weather.dat"), createWeatherData());
                 writeSavedData(new File(worldFolder, "data/minecraft/world_clocks.dat"), createWorldClocksData());
                 WMLogger.debug("World structure created at: " + worldFolder.getAbsolutePath()
                         + " (name: " + data.getLevelName() + ")");
             } else {
+                if (migrateWorldgen || refreshAssets) {
+                    MirrorWorldgenAssets.install(worldFolderPath, net.minecraft.SharedConstants.DATA_PACK_FORMAT_MAJOR);
+                    patchEnabledDataPack(worldFolderPath.resolve("level.dat"));
+                    if (migrateWorldgen) writeWorldGenSettings(worldFolderPath);
+                }
                 WMLogger.debug("World structure updated (incremental sync): " + worldFolder.getAbsolutePath());
             }
+            return true;
         } catch (Exception e) {
             WMLogger.warn("Failed to create loadable world: " + e.getMessage());
+            return false;
         }
     }
 
@@ -290,25 +311,35 @@ public class WorldStructureCreator {
 
     private static void writeLevelDat(File file, PrimaryLevelData data, UUID singleplayerUuid) throws Exception {
         CompoundTag root = new CompoundTag();
-        root.put("Data", data.createTag(singleplayerUuid));
+        CompoundTag levelData = data.createTag(singleplayerUuid);
+        enableDataPack(levelData);
+        root.put("Data", levelData);
         writeCompressed(file, root);
     }
 
-    private static void writeWorldGenSettings(java.nio.file.Path worldFolderPath, RegistryAccess registryAccess) throws Exception {
-        if (registryAccess != null) {
-            try {
-                WorldGenSettings settings = new WorldGenSettings(
-                        new WorldOptions(0L, false, false),
-                        WorldPresets.createFlatWorldDimensions(registryAccess)
-                );
-                LevelStorageSource.writeWorldGenSettings(registryAccess, worldFolderPath, settings);
-                return;
-            } catch (Exception e) {
-                WMLogger.warn("Failed to write WorldGenSettings with registry: " + e.getMessage() + ". Falling back to manual NBT.");
-            }
-        }
+    private static void writeWorldGenSettings(java.nio.file.Path worldFolderPath) throws Exception {
         writeSavedData(worldFolderPath.resolve("data/minecraft/world_gen_settings.dat").toFile(),
-                createFlatWorldGenSettings());
+                createMirrorWorldGenSettings());
+    }
+
+    private static void patchEnabledDataPack(Path levelDat) throws Exception {
+        CompoundTag root = NbtIo.readCompressed(levelDat, NbtAccounter.unlimitedHeap());
+        CompoundTag levelData = root.getCompoundOrEmpty("Data");
+        enableDataPack(levelData);
+        root.put("Data", levelData);
+        writeCompressed(levelDat.toFile(), root);
+    }
+
+    private static void enableDataPack(CompoundTag levelData) {
+        CompoundTag packs = levelData.getCompoundOrEmpty("DataPacks");
+        ListTag enabled = packs.getListOrEmpty("Enabled");
+        for (int i = 0; i < enabled.size(); i++) {
+            if (MirrorWorldgenAssets.PACK_ID.equals(enabled.getStringOr(i, ""))) return;
+        }
+        enabled.add(StringTag.valueOf(MirrorWorldgenAssets.PACK_ID));
+        packs.put("Enabled", enabled);
+        if (!packs.contains("Disabled")) packs.put("Disabled", new ListTag());
+        levelData.put("DataPacks", packs);
     }
 
     private static void writeSavedData(File file, CompoundTag data) throws Exception {

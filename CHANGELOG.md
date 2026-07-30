@@ -13,6 +13,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Optional integration with Xaero World Map Bridge `0.1.0`, including World Mirror chunk-status rendering on Xaero's fullscreen map without embedding the bridge in World Mirror's jar.
 - `scripts/build-modrinth.ps1` builds all Fabric targets and collects the three current-version distributable JARs in `build/modrinth`.
 - Per-world mirror-location migration with confirmation, synchronized path remapping, and safeguards that require downloads and exports to stop first.
+- A vanilla-readable `worldmirror_environment` data pack embedded in each mirror save, with featureless per-dimension biomes for uncaptured void terrain.
 
 ### Changed
 
@@ -27,6 +28,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Avoided forced immediate screen rendering when opening the status UI, eliminating the opening black flash.
 - Restored state-coloured chunk boundaries on built-in and Xaero map overlays.
 - Completed four-locale UI coverage for status ages, migration feedback, nearby-export messages, and chunk-map tooltips.
+- Migrated existing mirrors from the flat `the_void` generator before exporting more chunks, preserving exported chunk palettes while restoring normal Overworld, Nether, and End climate baselines for uncaptured space.
+- Kept data-pack asset revisions separate from the semantic world-generation schema so Minecraft command/data-pack format changes can refresh assets without redefining the migration contract.
 
 ---
 

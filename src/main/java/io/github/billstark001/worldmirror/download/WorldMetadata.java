@@ -24,6 +24,9 @@ import java.util.Map;
  */
 public class WorldMetadata {
 
+    /** Current semantic format of the generated mirror-world dimensions. */
+    public static final int CURRENT_WORLDGEN_SCHEMA = 1;
+
     // ── JSON fields ───────────────────────────────────────────────────────────
 
     /** Mod version that created / last updated this mirror. */
@@ -37,6 +40,18 @@ public class WorldMetadata {
 
     /** Unix millis of the most recent completed sync. */
     public long lastSyncTime = 0;
+
+    /**
+     * Semantic world-generation schema.  Gson assigns {@code 0} when this field
+     * is absent, which deliberately treats all pre-schema mirrors as migratable.
+     */
+    public int worldgenSchema = 0;
+
+    /** Revision of the vanilla-readable world data pack embedded in the save. */
+    public int worldgenAssetRevision = 0;
+
+    /** Minecraft data version used when the embedded assets were last refreshed. */
+    public int worldgenAssetDataVersion = 0;
 
     /**
      * Legacy per-chunk last-write timestamp map — kept for reading old JSON files
@@ -123,6 +138,23 @@ public class WorldMetadata {
         }
     }
 
+    /** Whether the dimension generator itself must be replaced. */
+    public boolean needsWorldgenMigration() {
+        return worldgenSchema < CURRENT_WORLDGEN_SCHEMA;
+    }
+
+    /** Whether the embedded vanilla data pack must be refreshed for this game version. */
+    public boolean needsWorldgenAssetRefresh(int dataVersion, int assetRevision) {
+        return worldgenAssetDataVersion != dataVersion || worldgenAssetRevision != assetRevision;
+    }
+
+    /** Marks both layers of world-generation migration as complete after a successful write. */
+    public void markWorldgenCurrent(int dataVersion, int assetRevision) {
+        worldgenSchema = CURRENT_WORLDGEN_SCHEMA;
+        worldgenAssetDataVersion = dataVersion;
+        worldgenAssetRevision = assetRevision;
+    }
+
     // ── Convenience update ────────────────────────────────────────────────────
 
     /**
@@ -160,6 +192,17 @@ public class WorldMetadata {
                 .orElse("unknown");
         meta.chunkUpdateTimes = null; // ensure legacy field is not written back
         meta.save(worldFolder);
+    }
+
+    /** Updates normal sync bookkeeping on an already-loaded metadata object. */
+    public void markSyncComplete(Path worldFolder) {
+        lastSyncTime = System.currentTimeMillis();
+        modVersion = FabricLoader.getInstance()
+                .getModContainer("worldmirror")
+                .map(c -> c.getMetadata().getVersion().getFriendlyString())
+                .orElse("unknown");
+        chunkUpdateTimes = null;
+        save(worldFolder);
     }
 
     // ── Source detection (call on game thread) ────────────────────────────────

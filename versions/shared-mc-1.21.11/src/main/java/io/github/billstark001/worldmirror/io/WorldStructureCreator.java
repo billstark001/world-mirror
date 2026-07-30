@@ -11,54 +11,74 @@ import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.SharedConstants;
-import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.DoubleTag;
 import net.minecraft.nbt.FloatTag;
 import net.minecraft.nbt.IntArrayTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtIo;
+import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtUtils;
+import net.minecraft.nbt.StringTag;
 
 @Environment(EnvType.CLIENT)
 public class WorldStructureCreator {
 
-    public static CompoundTag createFlatGenerator() {
+    private static CompoundTag createVoidNoiseGenerator(String biome, int minY, int height,
+                                                        int seaLevel, int horizontalSize, int verticalSize) {
         CompoundTag generator = new CompoundTag();
-
         CompoundTag settings = new CompoundTag();
-        ListTag layers = new ListTag();
-        CompoundTag airLayer = new CompoundTag();
-        airLayer.putString("block", "minecraft:air");
-        airLayer.putInt("height", 1);
-        layers.add(airLayer);
-        settings.put("layers", layers);
-        settings.put("structure_overrides", new ListTag());
-        settings.putString("biome", "minecraft:the_void");
+        CompoundTag noise = new CompoundTag();
+        noise.putInt("min_y", minY);
+        noise.putInt("height", height);
+        noise.putInt("size_horizontal", horizontalSize);
+        noise.putInt("size_vertical", verticalSize);
+        settings.put("noise", noise);
+        settings.put("default_block", blockState("minecraft:air"));
+        settings.put("default_fluid", blockState("minecraft:air"));
+        settings.putInt("sea_level", seaLevel);
+        settings.putBoolean("disable_mob_generation", true);
+        settings.putBoolean("aquifers_enabled", false);
+        settings.putBoolean("ore_veins_enabled", false);
+        settings.putBoolean("legacy_random_source", false);
+        settings.put("spawn_target", new ListTag());
+        CompoundTag router = new CompoundTag();
+        for (String field : MirrorWorldgenDefinition.ZERO_NOISE_ROUTER_FIELDS) {
+            router.putDouble(field, 0.0D);
+        }
+        router.putDouble("final_density", -1.0D);
+        settings.put("noise_router", router);
+        CompoundTag rule = new CompoundTag();
+        rule.putString("type", "minecraft:block");
+        rule.put("result_state", blockState("minecraft:air"));
+        settings.put("surface_rule", rule);
         generator.put("settings", settings);
-        generator.putString("type", "minecraft:flat");
+        CompoundTag biomeSource = new CompoundTag();
+        biomeSource.putString("type", "minecraft:fixed");
+        biomeSource.putString("biome", biome);
+        generator.put("biome_source", biomeSource);
+        generator.putString("type", "minecraft:noise");
 
         return generator;
     }
 
-    public static CompoundTag createFlatWorldGenSettings() {
+    private static CompoundTag blockState(String block) {
+        CompoundTag state = new CompoundTag();
+        state.putString("Name", block);
+        return state;
+    }
+
+    public static CompoundTag createMirrorWorldGenSettings() {
         CompoundTag worldGenSettings = new CompoundTag();
         CompoundTag dimensions = new CompoundTag();
 
-        CompoundTag overworld = new CompoundTag();
-        overworld.put("generator", createFlatGenerator());
-        overworld.putString("type", "minecraft:overworld");
-        dimensions.put("minecraft:overworld", overworld);
-
-        CompoundTag theEnd = new CompoundTag();
-        theEnd.put("generator", createFlatGenerator());
-        theEnd.putString("type", "minecraft:the_end");
-        dimensions.put("minecraft:the_end", theEnd);
-
-        CompoundTag theNether = new CompoundTag();
-        theNether.put("generator", createFlatGenerator());
-        theNether.putString("type", "minecraft:the_nether");
-        dimensions.put("minecraft:the_nether", theNether);
+        for (MirrorWorldgenDefinition.Dimension definition : MirrorWorldgenDefinition.DIMENSIONS) {
+            CompoundTag dimension = new CompoundTag();
+            dimension.put("generator", createVoidNoiseGenerator(definition.biome(), definition.minY(),
+                    definition.height(), definition.seaLevel(), definition.horizontalSize(), definition.verticalSize()));
+            dimension.putString("type", definition.dimensionType());
+            dimensions.put(definition.dimensionType(), dimension);
+        }
 
         worldGenSettings.put("dimensions", dimensions);
         worldGenSettings.putByte("bonus_chest", (byte) 0);
@@ -86,7 +106,8 @@ public class WorldStructureCreator {
         data.putBoolean("hardcore", false);
         data.putInt("Difficulty", 0);
         data.putBoolean("DifficultyLocked", false);
-        data.put("WorldGenSettings", createFlatWorldGenSettings());
+        data.put("WorldGenSettings", createMirrorWorldGenSettings());
+        data.put("DataPacks", createDataPacks());
         data.put("spawn", createSpawnSettings(spawnX, spawnY, spawnZ));
         data.putLong("Time", 6000L);
         data.putLong("DayTime", 6000L);
@@ -168,7 +189,7 @@ public class WorldStructureCreator {
     public static void createLoadableWorldWithSpawn(Path worldFolderPath, String levelName,
                                                     int spawnX, int spawnY, int spawnZ) {
         try {
-            createLoadableWorld(worldFolderPath, levelName, null);
+            createLoadableWorld(worldFolderPath, levelName, true, true);
             CompoundTag data = createWorldData(levelName, spawnX, spawnY, spawnZ);
             UUID singleplayerUuid = UUID.nameUUIDFromBytes(
                     ("worldmirror:" + levelName).getBytes(StandardCharsets.UTF_8));
@@ -182,7 +203,8 @@ public class WorldStructureCreator {
         }
     }
 
-    public static void createLoadableWorld(Path worldFolderPath, String levelName, RegistryAccess registryAccess) {
+    public static boolean createLoadableWorld(Path worldFolderPath, String levelName,
+                                              boolean migrateWorldgen, boolean refreshAssets) {
         File worldFolder = worldFolderPath.toFile();
         try {
             boolean firstTime = !(new File(worldFolder, "level.dat")).exists();
@@ -198,6 +220,7 @@ public class WorldStructureCreator {
             writeSessionLock(new File(worldFolder, "session.lock"));
 
             if (firstTime) {
+                MirrorWorldgenAssets.install(worldFolderPath, SharedConstants.DATA_PACK_FORMAT_MAJOR);
                 CompoundTag data = createWorldData(levelName);
                 UUID singleplayerUuid = UUID.nameUUIDFromBytes(
                         ("worldmirror:" + levelName).getBytes(StandardCharsets.UTF_8));
@@ -206,11 +229,45 @@ public class WorldStructureCreator {
                 WMLogger.debug("World structure created at: " + worldFolder.getAbsolutePath()
                         + " (name: " + data.getString("LevelName").orElse("Downloaded World") + ")");
             } else {
+                if (migrateWorldgen || refreshAssets) {
+                    MirrorWorldgenAssets.install(worldFolderPath, SharedConstants.DATA_PACK_FORMAT_MAJOR);
+                    CompoundTag root = NbtIo.readCompressed(worldFolderPath.resolve("level.dat"), NbtAccounter.unlimitedHeap());
+                    CompoundTag data = root.getCompoundOrEmpty("Data");
+                    if (migrateWorldgen) data.put("WorldGenSettings", createMirrorWorldGenSettings());
+                    enableDataPack(data);
+                    root.put("Data", data);
+                    writeCompressed(new File(worldFolder, "level.dat"), root);
+                }
                 WMLogger.debug("World structure updated (incremental sync): " + worldFolder.getAbsolutePath());
             }
+            return true;
         } catch (Exception e) {
             WMLogger.warn("Failed to create loadable world: " + e.getMessage());
+            return false;
         }
+    }
+
+    private static CompoundTag createDataPacks() {
+        CompoundTag packs = new CompoundTag();
+        ListTag enabled = new ListTag();
+        enabled.add(StringTag.valueOf(MirrorWorldgenAssets.PACK_ID));
+        packs.put("Enabled", enabled);
+        packs.put("Disabled", new ListTag());
+        return packs;
+    }
+
+    private static void enableDataPack(CompoundTag data) {
+        CompoundTag packs = data.getCompoundOrEmpty("DataPacks");
+        ListTag enabled = packs.getListOrEmpty("Enabled");
+        for (int i = 0; i < enabled.size(); i++) {
+            if (MirrorWorldgenAssets.PACK_ID.equals(enabled.getStringOr(i, ""))) {
+                data.put("DataPacks", packs);
+                return;
+            }
+        }
+        enabled.add(StringTag.valueOf(MirrorWorldgenAssets.PACK_ID));
+        packs.put("Enabled", enabled);
+        data.put("DataPacks", packs);
     }
 
     private static void mkdirs(File worldFolder, String relativePath) {

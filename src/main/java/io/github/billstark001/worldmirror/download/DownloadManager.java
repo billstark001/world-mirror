@@ -17,7 +17,6 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
@@ -632,10 +631,6 @@ public final class DownloadManager {
         // ── Game-thread preparations ──────────────────────────────────────────
         Map<ResourceKey<Level>, Map<ChunkPos, ChunkListener.CapturedChunk>> snapshot =
                 ChunkListener.snapshot();
-        if (snapshot.isEmpty() || snapshot.values().stream().allMatch(Map::isEmpty)) {
-            return;
-        }
-
         EntityTracker.pruneToMatchCapturedChunks();
 
         // Capture entities for the current dimension (must happen on game thread)
@@ -673,7 +668,6 @@ public final class DownloadManager {
 
         final String finalSourceId = sourceId;
         final String finalSourceType = sourceType;
-        final RegistryAccess finalRegistryAccess = client.level != null ? client.level.registryAccess() : null;
 
         Path worldFolder;
         try {
@@ -698,6 +692,25 @@ public final class DownloadManager {
                 WorldMetadata meta = WorldMetadata.loadOrCreate(
                         finalWorldFolder, finalSourceId, finalSourceType);
 
+                // Do this before any region file is written.  In particular, an old
+                // flat/the_void mirror must never receive a newly exported chunk
+                // between detecting its old schema and replacing its generator.
+                boolean worldgenReady = WorldStructureCreator.createLoadableWorld(
+                        finalWorldFolder,
+                        finalSourceId,
+                        meta.needsWorldgenMigration(),
+                        meta.needsWorldgenAssetRefresh(
+                                net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version(),
+                                io.github.billstark001.worldmirror.io.MirrorWorldgenAssets.ASSET_REVISION));
+                if (!worldgenReady) {
+                    WMLogger.warn("World generation migration failed; export aborted before writing chunks.");
+                    return;
+                }
+                meta.markWorldgenCurrent(
+                        net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version(),
+                        io.github.billstark001.worldmirror.io.MirrorWorldgenAssets.ASSET_REVISION);
+                meta.save(finalWorldFolder);
+
                 // Open (or create) the chunk database for this mirror world
                 try {
                     db = ChunkDatabase.open(finalWorldFolder, finalSourceId);
@@ -715,8 +728,7 @@ public final class DownloadManager {
                         ChunkExporter.exportChunks(finalWorldFolder, snapshot, entitySnapshot,
                                 containerSnapshot, resolver, db);
 
-                WorldStructureCreator.createLoadableWorld(finalWorldFolder, finalSourceId, finalRegistryAccess);
-                WorldMetadata.update(finalWorldFolder, finalSourceId, finalSourceType);
+                meta.markSyncComplete(finalWorldFolder);
 
                 for (Map.Entry<ResourceKey<Level>, Set<ChunkPos>> dimEntry : written.entrySet()) {
                     String dimStr = dimEntry.getKey().identifier().toString();
