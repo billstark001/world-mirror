@@ -692,24 +692,37 @@ public final class DownloadManager {
                 WorldMetadata meta = WorldMetadata.loadOrCreate(
                         finalWorldFolder, finalSourceId, finalSourceType);
 
+                if (meta.hasFutureWorldgenSchema()
+                        || meta.hasFutureWorldgenAssets(
+                                net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version(),
+                                io.github.billstark001.worldmirror.io.MirrorWorldgenAssets.ASSET_REVISION)) {
+                    WMLogger.warn("Mirror uses a newer world-generation schema or asset revision; export aborted without modifying it.");
+                    return;
+                }
+
+                boolean needsWorldgenMigration = meta.needsWorldgenMigration();
+                boolean needsAssetRefresh = meta.needsWorldgenAssetRefresh(
+                        net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version(),
+                        io.github.billstark001.worldmirror.io.MirrorWorldgenAssets.ASSET_REVISION);
+
                 // Do this before any region file is written.  In particular, an old
                 // flat/the_void mirror must never receive a newly exported chunk
                 // between detecting its old schema and replacing its generator.
                 boolean worldgenReady = WorldStructureCreator.createLoadableWorld(
                         finalWorldFolder,
                         finalSourceId,
-                        meta.needsWorldgenMigration(),
-                        meta.needsWorldgenAssetRefresh(
-                                net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version(),
-                                io.github.billstark001.worldmirror.io.MirrorWorldgenAssets.ASSET_REVISION));
+                        needsWorldgenMigration,
+                        needsAssetRefresh);
                 if (!worldgenReady) {
                     WMLogger.warn("World generation migration failed; export aborted before writing chunks.");
                     return;
                 }
-                meta.markWorldgenCurrent(
-                        net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version(),
-                        io.github.billstark001.worldmirror.io.MirrorWorldgenAssets.ASSET_REVISION);
-                meta.save(finalWorldFolder);
+                if (needsWorldgenMigration || needsAssetRefresh) {
+                    meta.markWorldgenCurrent(
+                            net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version(),
+                            io.github.billstark001.worldmirror.io.MirrorWorldgenAssets.ASSET_REVISION);
+                    meta.save(finalWorldFolder);
+                }
 
                 // Open (or create) the chunk database for this mirror world
                 try {
@@ -1051,8 +1064,15 @@ public final class DownloadManager {
                 } finally {
                     db.close();
                 }
-                WorldStructureCreator.createLoadableWorldWithSpawn(
-                        finalOut, safeName, finalBX, finalBY, finalBZ);
+                if (!WorldStructureCreator.createLoadableWorldWithSpawn(
+                        finalOut, safeName, finalBX, finalBY, finalBZ)) {
+                    throw new IllegalStateException("Could not create nearby-export world structure");
+                }
+                WorldMetadata metadata = WorldMetadata.create(sourceId, sourceType, "nearby_export");
+                metadata.markWorldgenCurrent(
+                        net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version(),
+                        io.github.billstark001.worldmirror.io.MirrorWorldgenAssets.ASSET_REVISION);
+                metadata.markSyncComplete(finalOut);
                 WMLogger.info("Nearby export complete: " + finalOut.toAbsolutePath());
                 client.execute(() -> WMLogger.sendSystemMessage(client.player,
                         Component.translatable("msg.worldmirror.nearbyDone", finalOut.getFileName())

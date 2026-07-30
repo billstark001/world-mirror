@@ -198,10 +198,10 @@ public class WorldStructureCreator {
      * @param spawnY          spawn block Y coordinate
      * @param spawnZ          spawn block Z coordinate
      */
-    public static void createLoadableWorldWithSpawn(Path worldFolderPath, String levelName,
-                                                    int spawnX, int spawnY, int spawnZ) {
+    public static boolean createLoadableWorldWithSpawn(Path worldFolderPath, String levelName,
+                                                       int spawnX, int spawnY, int spawnZ) {
         try {
-            createLoadableWorld(worldFolderPath, levelName, true, true);
+            if (!createLoadableWorld(worldFolderPath, levelName, true, true)) return false;
 
             PrimaryLevelData data = createWorldData(levelName);
             data.setSpawn(LevelData.RespawnData.of(
@@ -214,8 +214,10 @@ public class WorldStructureCreator {
                     worldFolderPath.resolve("players/data/" + singleplayerUuid + ".dat").toFile(),
                     createPlayerData(spawnX, spawnY, spawnZ));
             WMLogger.debug("Nearby-export world created at: " + worldFolderPath.toAbsolutePath());
+            return true;
         } catch (Exception e) {
             WMLogger.warn("createLoadableWorldWithSpawn failed: " + e.getMessage());
+            return false;
         }
     }
 

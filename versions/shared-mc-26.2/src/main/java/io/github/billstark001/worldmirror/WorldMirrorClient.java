@@ -4,7 +4,9 @@ import com.mojang.blaze3d.platform.InputConstants;
 import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
 import io.github.billstark001.worldmirror.download.DownloadManager;
+import io.github.billstark001.worldmirror.download.MirrorWorldContext;
 import io.github.billstark001.worldmirror.ui.ChunkMapScreen;
+import io.github.billstark001.worldmirror.ui.MirrorWorldWarningScreen;
 import io.github.billstark001.worldmirror.ui.StatusScreen;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.xaero.XaeroBridgeOverlay;
@@ -16,8 +18,12 @@ import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.KeyMapping;
+import net.minecraft.SharedConstants;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.level.storage.LevelResource;
 import org.lwjgl.glfw.GLFW;
+
+import java.nio.file.Path;
 
 @Environment(EnvType.CLIENT)
 public class WorldMirrorClient implements ClientModInitializer {
@@ -88,12 +94,30 @@ public class WorldMirrorClient implements ClientModInitializer {
         // Apply the configured on-join behaviour whenever the player enters a world.
         // ClientPlayConnectionEvents.JOIN fires after the world object is available,
         // which is exactly when we need it.
-        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) ->
-                DownloadManager.onJoinWorld(client));
+        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> onJoin(client));
 
         // Reset lifecycle tracking state when the player leaves a server / world.
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) ->
-                DownloadManager.onLeaveWorld(client));
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            MirrorWorldContext.leave();
+            DownloadManager.onLeaveWorld(client);
+        });
+    }
+
+    private static void onJoin(net.minecraft.client.Minecraft client) {
+        MirrorWorldContext.enter(currentLocalSave(client),
+                SharedConstants.getCurrentVersion().dataVersion().version());
+        DownloadManager.onJoinWorld(client);
+        client.execute(MirrorWorldWarningScreen::openIfCurrentWorldIsMirror);
+    }
+
+    private static Path currentLocalSave(net.minecraft.client.Minecraft client) {
+        try {
+            return client.getSingleplayerServer() != null
+                    ? client.getSingleplayerServer().getWorldPath(LevelResource.ROOT)
+                    : null;
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private static void installXaeroBridgeOverlay() {

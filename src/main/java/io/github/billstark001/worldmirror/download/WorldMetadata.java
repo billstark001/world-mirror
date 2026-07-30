@@ -12,6 +12,7 @@ import java.io.Reader;
 import java.io.Writer;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Per-world metadata written to {@code <mirror>/worldmirror_meta.json}.
@@ -26,11 +27,22 @@ public class WorldMetadata {
 
     /** Current semantic format of the generated mirror-world dimensions. */
     public static final int CURRENT_WORLDGEN_SCHEMA = 1;
+    public static final int CURRENT_METADATA_SCHEMA = 1;
+    public static final String FORMAT = "worldmirror";
 
     // ── JSON fields ───────────────────────────────────────────────────────────
 
     /** Mod version that created / last updated this mirror. */
     public String modVersion = "unknown";
+
+    /** Stable marker for read-only mirror-world discovery. */
+    public String format = FORMAT;
+
+    /** Format of this metadata document, independent from world-generation schema. */
+    public int metadataSchema = CURRENT_METADATA_SCHEMA;
+
+    /** Whether this is a synchronized mirror or a standalone nearby export. */
+    public String mirrorKind = "synchronized";
 
     /** {@code "singleplayer"} or {@code "server"}. */
     public String sourceType = "unknown";
@@ -68,7 +80,7 @@ public class WorldMetadata {
 
     // ── Persistence ───────────────────────────────────────────────────────────
 
-    private static final String FILE_NAME = "worldmirror_meta.json";
+    public static final String FILE_NAME = "worldmirror_meta.json";
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     /**
@@ -96,14 +108,29 @@ public class WorldMetadata {
                 WMLogger.warn("Could not read worldmirror_meta.json, creating fresh: " + e.getMessage());
             }
         }
+        return create(sourceId, sourceType, "synchronized");
+    }
+
+    /** Creates metadata for a newly-created mirror world. */
+    public static WorldMetadata create(String sourceId, String sourceType, String mirrorKind) {
         WorldMetadata meta = new WorldMetadata();
-        meta.modVersion = FabricLoader.getInstance()
-                .getModContainer("worldmirror")
-                .map(c -> c.getMetadata().getVersion().getFriendlyString())
-                .orElse("unknown");
+        meta.modVersion = currentModVersion();
         meta.sourceType = sourceType;
-        meta.sourceId   = sourceId;
+        meta.sourceId = sourceId;
+        meta.mirrorKind = mirrorKind;
         return meta;
+    }
+
+    /** Reads metadata without creating or modifying a file. */
+    public static Optional<WorldMetadata> loadIfPresent(Path worldFolder) {
+        Path metaFile = worldFolder.resolve(FILE_NAME);
+        if (!metaFile.toFile().exists()) return Optional.empty();
+        try (Reader r = new FileReader(metaFile.toFile())) {
+            return Optional.ofNullable(GSON.fromJson(r, WorldMetadata.class));
+        } catch (Exception e) {
+            WMLogger.warn("Could not read worldmirror_meta.json: " + e.getMessage());
+            return Optional.empty();
+        }
     }
 
     /** Writes this metadata to {@code worldFolder/worldmirror_meta.json}. */
@@ -143,9 +170,19 @@ public class WorldMetadata {
         return worldgenSchema < CURRENT_WORLDGEN_SCHEMA;
     }
 
+    /** True when this save was written by a newer world-generation schema. */
+    public boolean hasFutureWorldgenSchema() {
+        return worldgenSchema > CURRENT_WORLDGEN_SCHEMA;
+    }
+
     /** Whether the embedded vanilla data pack must be refreshed for this game version. */
     public boolean needsWorldgenAssetRefresh(int dataVersion, int assetRevision) {
-        return worldgenAssetDataVersion != dataVersion || worldgenAssetRevision != assetRevision;
+        return worldgenAssetDataVersion < dataVersion || worldgenAssetRevision < assetRevision;
+    }
+
+    /** True when refreshing assets would downgrade a newer mirror save. */
+    public boolean hasFutureWorldgenAssets(int dataVersion, int assetRevision) {
+        return worldgenAssetDataVersion > dataVersion || worldgenAssetRevision > assetRevision;
     }
 
     /** Marks both layers of world-generation migration as complete after a successful write. */
@@ -164,14 +201,9 @@ public class WorldMetadata {
      * Safe to call from any thread.
      */
     public static boolean isOwnedBy(Path worldFolder, String sourceId) {
-        Path metaFile = worldFolder.resolve(FILE_NAME);
-        if (!metaFile.toFile().exists()) return false;
-        try (Reader r = new FileReader(metaFile.toFile())) {
-            WorldMetadata meta = GSON.fromJson(r, WorldMetadata.class);
-            return meta != null && sourceId.equals(meta.sourceId);
-        } catch (Exception e) {
-            return false;
-        }
+        return loadIfPresent(worldFolder)
+                .map(meta -> sourceId.equals(meta.sourceId))
+                .orElse(false);
     }
 
     /**
@@ -186,10 +218,7 @@ public class WorldMetadata {
         WorldMetadata meta = loadOrCreate(worldFolder, sourceId, sourceType);
         long now = System.currentTimeMillis();
         meta.lastSyncTime = now;
-        meta.modVersion = FabricLoader.getInstance()
-                .getModContainer("worldmirror")
-                .map(c -> c.getMetadata().getVersion().getFriendlyString())
-                .orElse("unknown");
+        meta.modVersion = currentModVersion();
         meta.chunkUpdateTimes = null; // ensure legacy field is not written back
         meta.save(worldFolder);
     }
@@ -197,10 +226,7 @@ public class WorldMetadata {
     /** Updates normal sync bookkeeping on an already-loaded metadata object. */
     public void markSyncComplete(Path worldFolder) {
         lastSyncTime = System.currentTimeMillis();
-        modVersion = FabricLoader.getInstance()
-                .getModContainer("worldmirror")
-                .map(c -> c.getMetadata().getVersion().getFriendlyString())
-                .orElse("unknown");
+        modVersion = currentModVersion();
         chunkUpdateTimes = null;
         save(worldFolder);
     }
@@ -226,5 +252,12 @@ public class WorldMetadata {
             }
         } catch (Exception ignored) {}
         return "unknown";
+    }
+
+    private static String currentModVersion() {
+        return FabricLoader.getInstance()
+                .getModContainer("worldmirror")
+                .map(c -> c.getMetadata().getVersion().getFriendlyString())
+                .orElse("unknown");
     }
 }

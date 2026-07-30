@@ -4,6 +4,7 @@ import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.ui.ChunkStatusCache;
 import io.github.billstark001.worldmirror.ui.ChunkStatusSnapshot;
 import io.github.billstark001.worldmirror.ui.ChunkMapView;
+import io.github.billstark001.worldmirror.ui.ChunkStatusCache.StatusTarget;
 import io.github.billstark001.xaerobridge.api.MapOverlayContext;
 import io.github.billstark001.xaerobridge.api.OverlayRegistration;
 import io.github.billstark001.xaerobridge.api.XaeroWorldMapBridge;
@@ -49,5 +50,13 @@ public final class XaeroBridgeOverlay {
                 context.pixelsPerBlock(),
                 System.currentTimeMillis(),
                 config.xaeroWorldMapOverlayMaxCells);
+
+        // The bridge canvas has no text API.  A compact yellow marker makes it
+        // explicit that this overlay is reading the save currently being played,
+        // rather than a separate output mirror.
+        StatusTarget target = ChunkStatusCache.targetFor(client);
+        if (target != null && target.currentWorldIsMirror()) {
+            context.canvas().fill(4, 4, 10, 10, 0xFFFFFF00);
+        }
     }
 }

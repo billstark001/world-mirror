@@ -186,10 +186,10 @@ public class WorldStructureCreator {
         return player;
     }
 
-    public static void createLoadableWorldWithSpawn(Path worldFolderPath, String levelName,
-                                                    int spawnX, int spawnY, int spawnZ) {
+    public static boolean createLoadableWorldWithSpawn(Path worldFolderPath, String levelName,
+                                                       int spawnX, int spawnY, int spawnZ) {
         try {
-            createLoadableWorld(worldFolderPath, levelName, true, true);
+            if (!createLoadableWorld(worldFolderPath, levelName, true, true)) return false;
             CompoundTag data = createWorldData(levelName, spawnX, spawnY, spawnZ);
             UUID singleplayerUuid = UUID.nameUUIDFromBytes(
                     ("worldmirror:" + levelName).getBytes(StandardCharsets.UTF_8));
@@ -198,8 +198,10 @@ public class WorldStructureCreator {
                     worldFolderPath.resolve("playerdata/" + singleplayerUuid + ".dat").toFile(),
                     createPlayerData(spawnX, spawnY, spawnZ));
             WMLogger.debug("Nearby-export world created at: " + worldFolderPath.toAbsolutePath());
+            return true;
         } catch (Exception e) {
             WMLogger.warn("createLoadableWorldWithSpawn failed: " + e.getMessage());
+            return false;
         }
     }
 
