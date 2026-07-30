@@ -109,6 +109,8 @@
   "screen.worldmirror.upgrade.progressTitle": "World Mirror セーブを更新中",
   "screen.worldmirror.upgrade.progressBackup": "バックアップを作成してワールドデータを更新中…",
   "screen.worldmirror.upgrade.progressWrite": "ワールドデータを更新中…",
+  "screen.worldmirror.upgrade.progressScan": "旧版の虚空チャンクをスキャン中…",
+  "screen.worldmirror.upgrade.progressCleanup": "旧版の虚空チャンクを削除中…",
   "screen.worldmirror.upgrade.completeTitle": "ミラーセーブを更新しました",
   "screen.worldmirror.upgrade.completeBody": "World Mirror schema とアセットは最新です。",
   "screen.worldmirror.upgrade.failedTitle": "ミラー更新に失敗しました",

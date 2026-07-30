@@ -109,6 +109,8 @@
   "screen.worldmirror.upgrade.progressTitle": "Updating World Mirror save",
   "screen.worldmirror.upgrade.progressBackup": "Creating backup and updating world data…",
   "screen.worldmirror.upgrade.progressWrite": "Updating world data…",
+  "screen.worldmirror.upgrade.progressScan": "Scanning legacy void chunks…",
+  "screen.worldmirror.upgrade.progressCleanup": "Removing legacy void chunks…",
   "screen.worldmirror.upgrade.completeTitle": "Mirror save updated",
   "screen.worldmirror.upgrade.completeBody": "The World Mirror schema and assets are current.",
   "screen.worldmirror.upgrade.failedTitle": "Mirror update failed",

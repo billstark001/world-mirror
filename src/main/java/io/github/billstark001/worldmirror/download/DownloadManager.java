@@ -552,9 +552,8 @@ public final class DownloadManager {
         MirrorPrompt.ProgressHandle progress = ClientDialogs.progress(client,
                 new MirrorPrompt.Text("screen.worldmirror.upgrade.progressTitle"));
         Thread worker = new Thread(() -> {
-            client.execute(() -> progress.stage(
-                    new MirrorPrompt.Text("screen.worldmirror.upgrade.progressWrite")));
-            MirrorMigrationCoordinator.Result result = MirrorMigrationCoordinator.migrateApproved(output);
+            MirrorMigrationCoordinator.Result result = MirrorMigrationCoordinator.migrateApproved(output,
+                    new MirrorMigrationProgress(client, progress));
             client.execute(() -> {
                 progress.close();
                 if (!result.success()) {

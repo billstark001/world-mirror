@@ -109,6 +109,8 @@
   "screen.worldmirror.upgrade.progressTitle": "正在更新 World Mirror 存档",
   "screen.worldmirror.upgrade.progressBackup": "正在创建备份并更新世界数据…",
   "screen.worldmirror.upgrade.progressWrite": "正在更新世界数据…",
+  "screen.worldmirror.upgrade.progressScan": "正在扫描旧版虚空区块…",
+  "screen.worldmirror.upgrade.progressCleanup": "正在删除旧版虚空区块…",
   "screen.worldmirror.upgrade.completeTitle": "镜像存档已更新",
   "screen.worldmirror.upgrade.completeBody": "World Mirror schema 和资源已是当前版本。",
   "screen.worldmirror.upgrade.failedTitle": "镜像更新失败",

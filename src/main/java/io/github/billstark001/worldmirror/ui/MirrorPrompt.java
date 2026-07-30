@@ -13,6 +13,9 @@ public final class MirrorPrompt {
     public interface ProgressHandle {
         void stage(Text stage);
 
+        /** Updates the native progress bar with completed work out of total work. */
+        void progress(int completed, int total);
+
         void close();
     }
 

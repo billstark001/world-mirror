@@ -54,9 +54,8 @@ public final class WorldOpenMigrationController {
         MirrorPrompt.ProgressHandle progress = ClientDialogs.progress(client,
                 new MirrorPrompt.Text("screen.worldmirror.upgrade.progressTitle"));
         Thread worker = new Thread(() -> {
-            client.execute(() -> progress.stage(
-                    new MirrorPrompt.Text("screen.worldmirror.upgrade.progressBackup")));
-            MirrorMigrationCoordinator.Result result = MirrorMigrationCoordinator.migrateApproved(worldFolder);
+            MirrorMigrationCoordinator.Result result = MirrorMigrationCoordinator.migrateApproved(worldFolder,
+                    new MirrorMigrationProgress(client, progress));
             client.execute(() -> {
                 progress.close();
                 if (result.success()) {

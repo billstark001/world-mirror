@@ -49,6 +49,9 @@ public final class ClientDialogs {
         client.setScreen(screen);
         return new MirrorPrompt.ProgressHandle() {
             @Override public void stage(MirrorPrompt.Text stage) { screen.progressStage(component(stage)); }
+            @Override public void progress(int completed, int total) {
+                screen.progressStagePercentage(total <= 0 ? 100 : Math.clamp(completed * 100 / total, 0, 100));
+            }
             @Override public void close() { screen.stop(); client.setScreen(parent); }
         };
     }
