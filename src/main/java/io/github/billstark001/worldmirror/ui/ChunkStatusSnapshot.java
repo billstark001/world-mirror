@@ -42,10 +42,11 @@ public final class ChunkStatusSnapshot {
         this.conflictKeys = new HashSet<>(Math.max(16, conflicts.size() * 2));
         this.conflictsByRegion = new HashMap<>();
         for (ChunkPos pos : conflicts) {
-            long chunkKey = chunkKey(pos.x(), pos.z());
+            long chunkKey = chunkKey(pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4);
             conflictKeys.add(chunkKey);
             conflictsByRegion
-                    .computeIfAbsent(regionKeyForChunk(pos.x(), pos.z()), ignored -> new ArrayList<>())
+                    .computeIfAbsent(regionKeyForChunk(
+                            pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4), ignored -> new ArrayList<>())
                     .add(pos);
         }
 
@@ -107,8 +108,8 @@ public final class ChunkStatusSnapshot {
                 List<ChunkPos> conflicts = conflictsByRegion.get(regionKey(regionX, regionZ));
                 if (conflicts == null) continue;
                 for (ChunkPos pos : conflicts) {
-                    int x = pos.x();
-                    int z = pos.z();
+                    int x = pos.getMinBlockX() >> 4;
+                    int z = pos.getMinBlockZ() >> 4;
                     if (x >= minChunkX && x <= maxChunkX && z >= minChunkZ && z <= maxChunkZ) {
                         consumer.accept(pos);
                     }
@@ -132,7 +133,7 @@ public final class ChunkStatusSnapshot {
                                                   int minChunkZ, int maxChunkZ,
                                                   java.util.function.BiConsumer<Integer, Integer> consumer) {
         forEachConflictInRange(minChunkX, maxChunkX, minChunkZ, maxChunkZ,
-                pos -> consumer.accept(pos.x(), pos.z()));
+                pos -> consumer.accept(pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4));
     }
 
     public static long chunkKey(int x, int z) {

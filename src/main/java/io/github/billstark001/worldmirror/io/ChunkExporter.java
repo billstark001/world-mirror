@@ -26,7 +26,6 @@ import net.fabricmc.api.Environment;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.IntArrayTag;
 import net.minecraft.nbt.ListTag;
-import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
@@ -38,14 +37,8 @@ public class ChunkExporter {
     /**
      * Exports all chunks in the snapshot to the given world folder.
      * <p>
-     * Each dimension is exported to the appropriate subdirectory:
-     * <ul>
-     *   <li>{@code minecraft:overworld}  → {@code <worldFolder>/}</li>
-     *   <li>{@code minecraft:the_nether} → {@code <worldFolder>/DIM-1/}</li>
-     *   <li>{@code minecraft:the_end}    → {@code <worldFolder>/DIM1/}</li>
-     *   <li>any other                    → {@code <worldFolder>/dimensions/<ns>/<path>/}</li>
-     * </ul>
-     * <p>
+     * Each dimension is exported to the directory required by the target
+     * Minecraft save format.
      * Only "dirty" chunks are written — i.e. chunks whose {@link ChunkListener.CapturedChunk#capturedAtMs()}
      * is newer than their last recorded write time, and whose update source is not
      * outranked by a higher-priority source in {@code db}.
@@ -117,7 +110,7 @@ public class ChunkExporter {
                 new HashMap<>();
         for (Map.Entry<ChunkPos, ChunkListener.CapturedChunk> entry : dimChunks.entrySet()) {
             ChunkPos pos = entry.getKey();
-            chunksByRegion.computeIfAbsent(regionKey(pos.x >> 5, pos.z >> 5),
+            chunksByRegion.computeIfAbsent(regionKey(pos.getRegionX(), pos.getRegionZ()),
                     ignored -> new ArrayList<>()).add(entry);
         }
 
@@ -153,15 +146,16 @@ public class ChunkExporter {
                     ChunkPos chunkPos = entry.getKey();
                     ChunkListener.CapturedChunk captured = entry.getValue();
 
-                    if (db.shouldSkipUpdate(dimStr, chunkPos.x, chunkPos.z,
+                    if (db.shouldSkipUpdate(dimStr,
+                            chunkPos.getMinBlockX() >> 4, chunkPos.getMinBlockZ() >> 4,
                             "world_mirror", captured.capturedAtMs())) {
                         WMLogger.debug("Skipping chunk [" + dimension.identifier()
                                 + "] " + chunkPos + " (not dirty or higher-priority source)");
                         continue;
                     }
 
-                    int localX = chunkPos.x & 0x1F;
-                    int localZ = chunkPos.z & 0x1F;
+                    int localX = chunkPos.getRegionLocalX();
+                    int localZ = chunkPos.getRegionLocalZ();
                     try {
                         net.minecraft.nbt.CompoundTag chunkNbt = captured.nbt().copy();
                         TerrainChunk localChunk = preExisting ? mcaFile.getChunk(localX, localZ) : null;
@@ -226,19 +220,7 @@ public class ChunkExporter {
     // ── Dimension → directory mapping ────────────────────────────────────────
 
     public static Path dimensionDirForDimension(Path worldFolder, ResourceKey<Level> dimension) {
-        Identifier id = dimension.identifier();
-        if (id.equals(Level.OVERWORLD.identifier())) {
-            return worldFolder;
-        }
-        if (id.equals(Level.NETHER.identifier())) {
-            return worldFolder.resolve("DIM-1");
-        }
-        if (id.equals(Level.END.identifier())) {
-            return worldFolder.resolve("DIM1");
-        }
-        return worldFolder.resolve("dimensions")
-                .resolve(id.getNamespace())
-                .resolve(id.getPath());
+        return WorldSaveLayout.dimensionDirectory(worldFolder, dimension);
     }
 
     public static Path regionDirForDimension(Path worldFolder, ResourceKey<Level> dimension) {
@@ -257,12 +239,12 @@ public class ChunkExporter {
             if (entities == null || entities.isEmpty()) continue;
 
             ChunkPos chunkPos = entry.getKey();
-            int chunkX = chunkPos.x;
-            int chunkZ = chunkPos.z;
-            int regionX = chunkX >> 5;
-            int regionZ = chunkZ >> 5;
-            int localX = chunkX & 0x1F;
-            int localZ = chunkZ & 0x1F;
+            int chunkX = chunkPos.getMinBlockX() >> 4;
+            int chunkZ = chunkPos.getMinBlockZ() >> 4;
+            int regionX = chunkPos.getRegionX();
+            int regionZ = chunkPos.getRegionZ();
+            int localX = chunkPos.getRegionLocalX();
+            int localZ = chunkPos.getRegionLocalZ();
             String key = regionX + "," + regionZ;
 
             McaEntitiesFile mcaFile = entityFiles.computeIfAbsent(key, ignored -> {

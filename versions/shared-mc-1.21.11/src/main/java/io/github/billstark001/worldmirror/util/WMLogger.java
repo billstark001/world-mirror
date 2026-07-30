@@ -3,6 +3,7 @@ package io.github.billstark001.worldmirror.util;
 import io.github.billstark001.worldmirror.config.ModConfig;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.player.Player;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,6 +42,18 @@ public final class WMLogger {
         showInGame(ModConfig.LogLevel.WARNING, msg + ": " + t.getMessage());
     }
 
+    public static void sendSystemMessage(Player player, Component message) {
+        if (player != null) {
+            player.displayClientMessage(message, false);
+        }
+    }
+
+    public static void sendOverlayMessage(Player player, Component message) {
+        if (player != null) {
+            player.displayClientMessage(message, true);
+        }
+    }
+
     // ── Internal ──────────────────────────────────────────────────────────────
 
     private static void showInGame(ModConfig.LogLevel level, String msg) {
@@ -59,9 +72,7 @@ public final class WMLogger {
         Component text = Component.literal(prefix + msg);
         // Always dispatch onto the main (render) thread to avoid thread-safety issues.
         client.execute(() -> {
-            if (client.player != null) {
-                client.player.displayClientMessage(text, false);
-            }
+            sendSystemMessage(client.player, text);
         });
     }
 }

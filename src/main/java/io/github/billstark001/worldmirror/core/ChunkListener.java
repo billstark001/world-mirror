@@ -126,8 +126,8 @@ public class ChunkListener {
             if (dimMap != null) {
                 List<ChunkPos> toRemove = new ArrayList<>();
                 for (ChunkPos pos : dimMap.keySet()) {
-                    int dx = pos.x() - playerCX;
-                    int dz = pos.z() - playerCZ;
+                    int dx = (pos.getMinBlockX() >> 4) - playerCX;
+                    int dz = (pos.getMinBlockZ() >> 4) - playerCZ;
                     if (Math.abs(dx) > maxDistChunks || Math.abs(dz) > maxDistChunks) {
                         toRemove.add(pos);
                     }
