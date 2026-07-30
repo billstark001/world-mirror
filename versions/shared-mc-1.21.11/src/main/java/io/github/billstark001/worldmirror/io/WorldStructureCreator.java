@@ -1,6 +1,5 @@
 package io.github.billstark001.worldmirror.io;
 
-import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -186,10 +185,10 @@ public class WorldStructureCreator {
         return player;
     }
 
-    public static void createLoadableWorldWithSpawn(Path worldFolderPath, String levelName,
-                                                    int spawnX, int spawnY, int spawnZ) {
+    public static boolean createLoadableWorldWithSpawn(Path worldFolderPath, String levelName,
+                                                       int spawnX, int spawnY, int spawnZ) {
         try {
-            createLoadableWorld(worldFolderPath, levelName, true, true);
+            if (!createLoadableWorld(worldFolderPath, levelName, true, true)) return false;
             CompoundTag data = createWorldData(levelName, spawnX, spawnY, spawnZ);
             UUID singleplayerUuid = UUID.nameUUIDFromBytes(
                     ("worldmirror:" + levelName).getBytes(StandardCharsets.UTF_8));
@@ -198,8 +197,10 @@ public class WorldStructureCreator {
                     worldFolderPath.resolve("playerdata/" + singleplayerUuid + ".dat").toFile(),
                     createPlayerData(spawnX, spawnY, spawnZ));
             WMLogger.debug("Nearby-export world created at: " + worldFolderPath.toAbsolutePath());
+            return true;
         } catch (Exception e) {
             WMLogger.warn("createLoadableWorldWithSpawn failed: " + e.getMessage());
+            return false;
         }
     }
 
@@ -216,8 +217,6 @@ public class WorldStructureCreator {
             for (String dir : worldSubDirs()) {
                 mkdirs(worldFolder, dir);
             }
-
-            writeSessionLock(new File(worldFolder, "session.lock"));
 
             if (firstTime) {
                 MirrorWorldgenAssets.install(worldFolderPath, SharedConstants.DATA_PACK_FORMAT_MAJOR);
@@ -292,12 +291,6 @@ public class WorldStructureCreator {
                 "datapacks",
                 "resourcepacks"
         };
-    }
-
-    private static void writeSessionLock(File file) throws Exception {
-        try (DataOutputStream out = new DataOutputStream(new FileOutputStream(file))) {
-            out.writeLong(System.currentTimeMillis());
-        }
     }
 
     private static void writeLevelDat(File file, CompoundTag data) throws Exception {

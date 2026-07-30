@@ -5,6 +5,7 @@ import io.github.billstark001.worldmirror.conflict.ConflictManager;
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.download.DownloadManager;
 import io.github.billstark001.worldmirror.download.MirrorMapping;
+import io.github.billstark001.worldmirror.download.MirrorWorldContext;
 import io.github.billstark001.worldmirror.download.WorldMetadata;
 import me.shedaniel.autoconfig.AutoConfigClient;
 import net.fabricmc.api.EnvType;
@@ -77,10 +78,10 @@ public class StatusScreen extends Screen {
     private void addStatusButtons(int left) {
         toggleButton = addRenderableWidget(Button.builder(Component.translatable(DownloadManager.isActive()
                         ? "screen.worldmirror.status.stopDownload" : "screen.worldmirror.status.startDownload"),
-                button -> { DownloadManager.toggle(Minecraft.getInstance()); refresh(); })
+                button -> DownloadManager.toggle(Minecraft.getInstance()))
                 .bounds(left, 116, 178, BUTTON_HEIGHT).build());
         addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.exportNow"),
-                button -> { DownloadManager.exportNow(Minecraft.getInstance()); refresh(); })
+                button -> DownloadManager.exportNow(Minecraft.getInstance()))
                 .bounds(left + 182, 116, 178, BUTTON_HEIGHT).build());
         addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.clearData"),
                 button -> { DownloadManager.clearAll(Minecraft.getInstance()); refresh(); })
@@ -168,6 +169,11 @@ public class StatusScreen extends Screen {
                 ? "screen.worldmirror.status.downloadActive" : "screen.worldmirror.status.downloadInactive"), x, 90, 0xFFE0E0E0);
         graphics.drawString(font, Component.translatable(DownloadManager.isExportInProgress()
                 ? "screen.worldmirror.status.exportRunning" : "screen.worldmirror.status.exportIdle"), x + 182, 90, 0xFFE0E0E0);
+        MirrorWorldContext.Snapshot mirror = MirrorWorldContext.current();
+        if (mirror.isMirror()) {
+            graphics.drawCenteredString(font, Component.translatable("screen.worldmirror.status.currentMirror." + mirror.state().name().toLowerCase()),
+                    width / 2, 104, 0xFFFFFF55);
+        }
     }
 
     private void renderSettings(GuiGraphics graphics) {

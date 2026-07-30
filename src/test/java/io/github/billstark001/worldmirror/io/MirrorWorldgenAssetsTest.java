@@ -22,6 +22,8 @@ class MirrorWorldgenAssetsTest {
 
         Path pack = world.resolve("datapacks").resolve(MirrorWorldgenAssets.PACK_DIRECTORY);
         assertTrue(readString(pack.resolve("pack.mcmeta")).contains("\"pack_format\": 99"));
+        assertTrue(readString(pack.resolve("pack.mcmeta")).contains("\"min_format\": 99"));
+        assertTrue(readString(pack.resolve("pack.mcmeta")).contains("\"max_format\": 99"));
         assertTrue(readString(pack.resolve("worldmirror_manifest.json"))
                 .contains("\"assetRevision\": " + MirrorWorldgenAssets.ASSET_REVISION));
         for (String biome : new String[] {"mirror_overworld", "mirror_nether", "mirror_end"}) {

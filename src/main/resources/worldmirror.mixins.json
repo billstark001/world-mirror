@@ -4,7 +4,8 @@
   "compatibilityLevel": "${mixinJava}",
   "client": [
     "ChunkDataMixin",
-    "ContainerMixin"
+    "ContainerMixin",
+    "WorldOpenFlowsMixin"
   ],
   "injectors": {
     "defaultRequire": 1

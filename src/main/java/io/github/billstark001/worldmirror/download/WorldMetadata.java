@@ -6,12 +6,14 @@ import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.Reader;
-import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Per-world metadata written to {@code <mirror>/worldmirror_meta.json}.
@@ -26,11 +28,30 @@ public class WorldMetadata {
 
     /** Current semantic format of the generated mirror-world dimensions. */
     public static final int CURRENT_WORLDGEN_SCHEMA = 1;
+    public static final int CURRENT_METADATA_SCHEMA = 1;
+    /** Cleanup revision independent from {@link #CURRENT_WORLDGEN_SCHEMA}. */
+    public static final int CURRENT_VOID_CHUNK_CLEANUP_REVISION = 1;
+    public static final String FORMAT = "worldmirror";
 
     // ── JSON fields ───────────────────────────────────────────────────────────
 
     /** Mod version that created / last updated this mirror. */
     public String modVersion = "unknown";
+
+    /** Stable marker for read-only mirror-world discovery. */
+    public String format = FORMAT;
+
+    /** Format of this metadata document, independent from world-generation schema. */
+    public int metadataSchema = CURRENT_METADATA_SCHEMA;
+
+    /** Whether this is a synchronized mirror or a standalone nearby export. */
+    public String mirrorKind = "synchronized";
+
+    /** Stable save identity.  Unlike a folder name, it survives copies and moves. */
+    public String mirrorId;
+
+    /** Optional identity of the mirror this save was exported from. */
+    public String parentMirrorId;
 
     /** {@code "singleplayer"} or {@code "server"}. */
     public String sourceType = "unknown";
@@ -54,6 +75,13 @@ public class WorldMetadata {
     public int worldgenAssetDataVersion = 0;
 
     /**
+     * Completion marker for removing only the all-air {@code minecraft:the_void}
+     * chunks made by the pre-schema generator.  It intentionally does not bump
+     * {@link #worldgenSchema}: schema 1 remains the only released schema.
+     */
+    public int legacyVoidChunkCleanupRevision = 0;
+
+    /**
      * Legacy per-chunk last-write timestamp map — kept for reading old JSON files
      * during migration to {@code data/world_mirror.sqlite}.
      * <p>
@@ -68,7 +96,7 @@ public class WorldMetadata {
 
     // ── Persistence ───────────────────────────────────────────────────────────
 
-    private static final String FILE_NAME = "worldmirror_meta.json";
+    public static final String FILE_NAME = "worldmirror_meta.json";
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     /**
@@ -85,7 +113,7 @@ public class WorldMetadata {
                                              String sourceType) {
         Path metaFile = worldFolder.resolve(FILE_NAME);
         if (metaFile.toFile().exists()) {
-            try (Reader r = new FileReader(metaFile.toFile())) {
+            try (Reader r = Files.newBufferedReader(metaFile, StandardCharsets.UTF_8)) {
                 WorldMetadata loaded = GSON.fromJson(r, WorldMetadata.class);
                 if (loaded != null) {
                     // chunkUpdateTimes may be non-null if this is an old JSON file;
@@ -96,22 +124,49 @@ public class WorldMetadata {
                 WMLogger.warn("Could not read worldmirror_meta.json, creating fresh: " + e.getMessage());
             }
         }
+        return create(sourceId, sourceType, "synchronized");
+    }
+
+    /** Creates metadata for a newly-created mirror world. */
+    public static WorldMetadata create(String sourceId, String sourceType, String mirrorKind) {
         WorldMetadata meta = new WorldMetadata();
-        meta.modVersion = FabricLoader.getInstance()
-                .getModContainer("worldmirror")
-                .map(c -> c.getMetadata().getVersion().getFriendlyString())
-                .orElse("unknown");
+        meta.modVersion = currentModVersion();
         meta.sourceType = sourceType;
-        meta.sourceId   = sourceId;
+        meta.sourceId = sourceId;
+        meta.mirrorKind = mirrorKind;
+        meta.ensureMirrorId();
         return meta;
+    }
+
+    /** Reads metadata without creating or modifying a file. */
+    public static Optional<WorldMetadata> loadIfPresent(Path worldFolder) {
+        Path metaFile = worldFolder.resolve(FILE_NAME);
+        if (!metaFile.toFile().exists()) return Optional.empty();
+        try (Reader r = Files.newBufferedReader(metaFile, StandardCharsets.UTF_8)) {
+            return Optional.ofNullable(GSON.fromJson(r, WorldMetadata.class));
+        } catch (Exception e) {
+            WMLogger.warn("Could not read worldmirror_meta.json: " + e.getMessage());
+            return Optional.empty();
+        }
     }
 
     /** Writes this metadata to {@code worldFolder/worldmirror_meta.json}. */
     public void save(Path worldFolder) {
-        try (Writer w = new FileWriter(worldFolder.resolve(FILE_NAME).toFile())) {
-            GSON.toJson(this, w);
+        ensureMirrorId();
+        Path metadataFile = worldFolder.resolve(FILE_NAME);
+        Path temporaryFile = metadataFile.resolveSibling(FILE_NAME + ".tmp");
+        try {
+            Files.createDirectories(worldFolder);
+            Files.writeString(temporaryFile, GSON.toJson(this), StandardCharsets.UTF_8);
+            try {
+                Files.move(temporaryFile, metadataFile,
+                        StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException ignored) {
+                Files.move(temporaryFile, metadataFile, StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (Exception e) {
             WMLogger.warn("Failed to save worldmirror_meta.json: " + e.getMessage());
+            try { Files.deleteIfExists(temporaryFile); } catch (Exception ignored) {}
         }
     }
 
@@ -143,9 +198,29 @@ public class WorldMetadata {
         return worldgenSchema < CURRENT_WORLDGEN_SCHEMA;
     }
 
+    /** Assigns an identity to legacy metadata the next time it is written. */
+    public void ensureMirrorId() {
+        if (mirrorId == null || mirrorId.isBlank()) mirrorId = UUID.randomUUID().toString();
+    }
+
+    /** True when this save was written by a newer world-generation schema. */
+    public boolean hasFutureWorldgenSchema() {
+        return worldgenSchema > CURRENT_WORLDGEN_SCHEMA;
+    }
+
     /** Whether the embedded vanilla data pack must be refreshed for this game version. */
     public boolean needsWorldgenAssetRefresh(int dataVersion, int assetRevision) {
-        return worldgenAssetDataVersion != dataVersion || worldgenAssetRevision != assetRevision;
+        return worldgenAssetDataVersion < dataVersion || worldgenAssetRevision < assetRevision;
+    }
+
+    /** True when refreshing assets would downgrade a newer mirror save. */
+    public boolean hasFutureWorldgenAssets(int dataVersion, int assetRevision) {
+        return worldgenAssetDataVersion > dataVersion || worldgenAssetRevision > assetRevision;
+    }
+
+    /** Whether an old, blank void chunk cleanup has not yet been performed. */
+    public boolean needsLegacyVoidChunkCleanup() {
+        return legacyVoidChunkCleanupRevision < CURRENT_VOID_CHUNK_CLEANUP_REVISION;
     }
 
     /** Marks both layers of world-generation migration as complete after a successful write. */
@@ -153,6 +228,8 @@ public class WorldMetadata {
         worldgenSchema = CURRENT_WORLDGEN_SCHEMA;
         worldgenAssetDataVersion = dataVersion;
         worldgenAssetRevision = assetRevision;
+        legacyVoidChunkCleanupRevision = CURRENT_VOID_CHUNK_CLEANUP_REVISION;
+        modVersion = currentModVersion();
     }
 
     // ── Convenience update ────────────────────────────────────────────────────
@@ -164,14 +241,9 @@ public class WorldMetadata {
      * Safe to call from any thread.
      */
     public static boolean isOwnedBy(Path worldFolder, String sourceId) {
-        Path metaFile = worldFolder.resolve(FILE_NAME);
-        if (!metaFile.toFile().exists()) return false;
-        try (Reader r = new FileReader(metaFile.toFile())) {
-            WorldMetadata meta = GSON.fromJson(r, WorldMetadata.class);
-            return meta != null && sourceId.equals(meta.sourceId);
-        } catch (Exception e) {
-            return false;
-        }
+        return loadIfPresent(worldFolder)
+                .map(meta -> sourceId.equals(meta.sourceId))
+                .orElse(false);
     }
 
     /**
@@ -186,10 +258,7 @@ public class WorldMetadata {
         WorldMetadata meta = loadOrCreate(worldFolder, sourceId, sourceType);
         long now = System.currentTimeMillis();
         meta.lastSyncTime = now;
-        meta.modVersion = FabricLoader.getInstance()
-                .getModContainer("worldmirror")
-                .map(c -> c.getMetadata().getVersion().getFriendlyString())
-                .orElse("unknown");
+        meta.modVersion = currentModVersion();
         meta.chunkUpdateTimes = null; // ensure legacy field is not written back
         meta.save(worldFolder);
     }
@@ -197,10 +266,7 @@ public class WorldMetadata {
     /** Updates normal sync bookkeeping on an already-loaded metadata object. */
     public void markSyncComplete(Path worldFolder) {
         lastSyncTime = System.currentTimeMillis();
-        modVersion = FabricLoader.getInstance()
-                .getModContainer("worldmirror")
-                .map(c -> c.getMetadata().getVersion().getFriendlyString())
-                .orElse("unknown");
+        modVersion = currentModVersion();
         chunkUpdateTimes = null;
         save(worldFolder);
     }
@@ -226,5 +292,12 @@ public class WorldMetadata {
             }
         } catch (Exception ignored) {}
         return "unknown";
+    }
+
+    private static String currentModVersion() {
+        return FabricLoader.getInstance()
+                .getModContainer("worldmirror")
+                .map(c -> c.getMetadata().getVersion().getFriendlyString())
+                .orElse("unknown");
     }
 }

@@ -198,10 +198,10 @@ public class WorldStructureCreator {
      * @param spawnY          spawn block Y coordinate
      * @param spawnZ          spawn block Z coordinate
      */
-    public static void createLoadableWorldWithSpawn(Path worldFolderPath, String levelName,
-                                                    int spawnX, int spawnY, int spawnZ) {
+    public static boolean createLoadableWorldWithSpawn(Path worldFolderPath, String levelName,
+                                                       int spawnX, int spawnY, int spawnZ) {
         try {
-            createLoadableWorld(worldFolderPath, levelName, true, true);
+            if (!createLoadableWorld(worldFolderPath, levelName, true, true)) return false;
 
             PrimaryLevelData data = createWorldData(levelName);
             data.setSpawn(LevelData.RespawnData.of(
@@ -214,8 +214,10 @@ public class WorldStructureCreator {
                     worldFolderPath.resolve("players/data/" + singleplayerUuid + ".dat").toFile(),
                     createPlayerData(spawnX, spawnY, spawnZ));
             WMLogger.debug("Nearby-export world created at: " + worldFolderPath.toAbsolutePath());
+            return true;
         } catch (Exception e) {
             WMLogger.warn("createLoadableWorldWithSpawn failed: " + e.getMessage());
+            return false;
         }
     }
 
@@ -224,9 +226,8 @@ public class WorldStructureCreator {
      * for a mirror world.
      *
      * <p>On the <em>first</em> call (no {@code level.dat} yet), a full {@code level.dat}
-     * is written and "World structure created" is logged.  On subsequent calls the
-     * {@code session.lock} timestamp is refreshed and "World structure updated" is logged
-     * to distinguish incremental sync from initial creation.
+     * is written and "World structure created" is logged.  Subsequent calls only
+     * update World Mirror-owned world data.
      *
      * @param worldFolder  root directory of the mirror world
      * @param levelName    human-readable name to embed in {@code level.dat}
@@ -245,8 +246,6 @@ public class WorldStructureCreator {
             for (String dir : subDirs) {
                 mkdirs(worldFolder, dir);
             }
-
-            Files.writeString(worldFolderPath.resolve("session.lock"), "\u2603", StandardCharsets.UTF_8);
 
             if (firstTime) {
                 MirrorWorldgenAssets.install(worldFolderPath, net.minecraft.SharedConstants.DATA_PACK_FORMAT_MAJOR);

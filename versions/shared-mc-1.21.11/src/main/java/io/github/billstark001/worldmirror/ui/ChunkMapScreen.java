@@ -4,6 +4,7 @@ import io.github.billstark001.worldmirror.conflict.ConflictManager;
 import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
 import io.github.billstark001.worldmirror.download.DownloadManager;
+import io.github.billstark001.worldmirror.ui.ChunkStatusCache.StatusTarget;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.Minecraft;
@@ -53,6 +54,7 @@ public class ChunkMapScreen extends Screen {
 
     private ChunkStatusSnapshot statusSnapshot = ChunkStatusSnapshot.EMPTY;
     private Path worldFolder;
+    private boolean viewingCurrentMirror;
     private ResourceKey<Level> currentDimension;
 
     // ── Dialog ────────────────────────────────────────────────────────────────
@@ -139,7 +141,9 @@ public class ChunkMapScreen extends Screen {
     // ── Data loading ──────────────────────────────────────────────────────────
 
     private void loadData(Minecraft client) {
-        worldFolder = DownloadManager.getOutputPath(client);
+        StatusTarget target = ChunkStatusCache.targetFor(client);
+        worldFolder = target != null ? target.worldFolder() : null;
+        viewingCurrentMirror = target != null && target.currentWorldIsMirror();
         if (currentDimension == null) currentDimension = Level.OVERWORLD;
 
         statusSnapshot = ChunkStatusCache.getOrScheduleRefresh(client, currentDimension, 0L);
@@ -162,6 +166,10 @@ public class ChunkMapScreen extends Screen {
         if (client.player != null) {
             ChunkMapView.drawPlayerMarker(
                     ctx::fill, viewport, client.player.getX() / 16.0D, client.player.getZ() / 16.0D);
+        }
+        if (viewingCurrentMirror) {
+            ctx.drawCenteredString(this.font, Component.translatable("screen.worldmirror.chunkmap.currentMirror"),
+                    width / 2, 16, 0xFFFFFF55);
         }
 
         if (dialogChunk != null) drawConflictDialog(ctx);

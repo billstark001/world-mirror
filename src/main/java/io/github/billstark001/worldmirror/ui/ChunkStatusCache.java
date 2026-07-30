@@ -3,6 +3,7 @@ package io.github.billstark001.worldmirror.ui;
 import io.github.billstark001.worldmirror.conflict.ConflictManager;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
 import io.github.billstark001.worldmirror.download.DownloadManager;
+import io.github.billstark001.worldmirror.download.MirrorWorldContext;
 import io.github.billstark001.worldmirror.download.WorldMetadata;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.minecraft.client.Minecraft;
@@ -59,13 +60,28 @@ public final class ChunkStatusCache {
         lastRefreshMs = 0L;
     }
 
-    private static CacheKey createKey(Minecraft client, ResourceKey<Level> dimension) {
+    /**
+     * Resolves the save whose persistent capture state should be drawn.  When a
+     * mirror save itself is open, its own database is the authoritative source;
+     * otherwise the source world's configured output mirror remains the target.
+     */
+    public static StatusTarget targetFor(Minecraft client) {
+        MirrorWorldContext.Snapshot current = MirrorWorldContext.current();
+        if (current.isMirror() && current.worldFolder() != null && current.sourceId() != null) {
+            return new StatusTarget(current.worldFolder(), current.sourceId(), true);
+        }
         if (client == null) return null;
-        ResourceKey<Level> effectiveDimension = dimension != null ? dimension : Level.OVERWORLD;
         String sourceId = WorldMetadata.detectSourceId(client);
         Path worldFolder = DownloadManager.getOutputPath(client);
         if (sourceId == null || worldFolder == null) return null;
-        return new CacheKey(worldFolder, sourceId, effectiveDimension);
+        return new StatusTarget(worldFolder, sourceId, false);
+    }
+
+    private static CacheKey createKey(Minecraft client, ResourceKey<Level> dimension) {
+        ResourceKey<Level> effectiveDimension = dimension != null ? dimension : Level.OVERWORLD;
+        StatusTarget target = targetFor(client);
+        if (target == null) return null;
+        return new CacheKey(target.worldFolder(), target.sourceId(), effectiveDimension);
     }
 
     private static ChunkStatusSnapshot loadSnapshot(CacheKey key) {
@@ -100,4 +116,6 @@ public final class ChunkStatusCache {
             return Objects.hash(worldFolder, sourceId, dimension);
         }
     }
+
+    public record StatusTarget(Path worldFolder, String sourceId, boolean currentWorldIsMirror) {}
 }
