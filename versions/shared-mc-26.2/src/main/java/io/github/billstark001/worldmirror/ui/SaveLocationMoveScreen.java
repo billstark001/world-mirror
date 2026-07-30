@@ -29,13 +29,13 @@ public final class SaveLocationMoveScreen extends Screen {
         int y = height / 2;
         addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.move.confirm"), button -> move())
                 .bounds(x - 102, y + 22, 98, 20).build());
-        addRenderableWidget(Button.builder(Component.translatable("gui.cancel"), button -> Minecraft.getInstance().gui.setScreen(parent))
+        addRenderableWidget(Button.builder(Component.translatable("gui.cancel"), button -> ClientScreens.set(parent))
                 .bounds(x + 4, y + 22, 98, 20).build());
     }
 
     private void move() {
         DownloadManager.MirrorMoveResult result = DownloadManager.moveMirrorWorld(Minecraft.getInstance(), targetLocation);
-        if (result.success()) Minecraft.getInstance().gui.setScreen(new StatusClientScreen());
+        if (result.success()) ClientScreens.set(new StatusClientScreen());
         else failure = Component.translatable("screen.worldmirror.move.failure." + result.failureCode());
     }
 

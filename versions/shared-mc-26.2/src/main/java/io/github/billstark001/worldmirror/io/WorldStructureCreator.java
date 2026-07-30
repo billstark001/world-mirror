@@ -103,14 +103,18 @@ public class WorldStructureCreator {
     }
 
     private static CompoundTag createPlayerData() {
+        return createPlayerData(0, 80, 0);
+    }
+
+    private static CompoundTag createPlayerData(int x, int y, int z) {
         CompoundTag player = new CompoundTag();
         NbtUtils.addCurrentDataVersion(player);
         player.putString("Dimension", "minecraft:overworld");
 
         ListTag pos = new ListTag();
-        pos.add(DoubleTag.valueOf(0.0D));
-        pos.add(DoubleTag.valueOf(80.0D));
-        pos.add(DoubleTag.valueOf(0.0D));
+        pos.add(DoubleTag.valueOf(x + 0.5D));
+        pos.add(DoubleTag.valueOf(y));
+        pos.add(DoubleTag.valueOf(z + 0.5D));
         player.put("Pos", pos);
 
         ListTag rotation = new ListTag();
@@ -197,50 +201,11 @@ public class WorldStructureCreator {
             writeLevelDat(worldFolderPath.resolve("level.dat").toFile(), data, singleplayerUuid);
             writeCompressed(
                     worldFolderPath.resolve("players/data/" + singleplayerUuid + ".dat").toFile(),
-                    createPlayerData());
+                    createPlayerData(spawnX, spawnY, spawnZ));
             WMLogger.debug("Nearby-export world created at: " + worldFolderPath.toAbsolutePath());
         } catch (Exception e) {
             WMLogger.warn("createLoadableWorldWithSpawn failed: " + e.getMessage());
         }
-    }
-
-    /**
-     * Creates or updates the {@code level.dat} and supporting directory structure
-     * for a mirror world.
-     *
-     * <p>On the <em>first</em> call (no {@code level.dat} yet), a full {@code level.dat}
-     * is written and "World structure created" is logged.  On subsequent calls the
-     * {@code session.lock} timestamp is refreshed and "World structure updated" is logged
-     * to distinguish incremental sync from initial creation.
-     *
-     * @param worldFolder  root directory of the mirror world
-
-    private static CompoundTag createWeatherData() {
-        CompoundTag weather = new CompoundTag();
-        weather.putInt("clear_weather_time", 0);
-        weather.putInt("rain_time", 0);
-        weather.putInt("thunder_time", 0);
-        weather.putBoolean("raining", false);
-        weather.putBoolean("thundering", false);
-        return weather;
-    }
-
-    private static CompoundTag createWorldClocksData() {
-        CompoundTag clocks = new CompoundTag();
-        CompoundTag clockStates = new CompoundTag();
-        clockStates.put("minecraft:overworld", createClockState(6000L));
-        clockStates.put("minecraft:the_end", createClockState(6000L));
-        clocks.put("clocks", clockStates);
-        return clocks;
-    }
-
-    private static CompoundTag createClockState(long totalTicks) {
-        CompoundTag state = new CompoundTag();
-        state.putLong("total_ticks", totalTicks);
-        state.putFloat("partial_tick", 0.0F);
-        state.putFloat("rate", 1.0F);
-        state.putBoolean("paused", false);
-        return state;
     }
 
     /**

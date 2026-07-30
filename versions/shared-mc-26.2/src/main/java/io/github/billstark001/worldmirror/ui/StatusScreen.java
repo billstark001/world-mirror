@@ -110,7 +110,7 @@ public class StatusScreen extends Screen {
                         return;
                     }
                     if (Files.isDirectory(DownloadManager.getOutputPath(Minecraft.getInstance()))) {
-                        Minecraft.getInstance().gui.setScreen(new SaveLocationMoveScreen(this, target));
+                        ClientScreens.set(new SaveLocationMoveScreen(this, target));
                     } else {
                         DownloadManager.setMirrorSaveLocation(sourceId, target);
                         refresh();
@@ -124,7 +124,7 @@ public class StatusScreen extends Screen {
                     refresh();
                 }).bounds(left, 140, PANEL_WIDTH, BUTTON_HEIGHT).build());
         addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.openSettings"),
-                button -> Minecraft.getInstance().gui.setScreen(AutoConfigClient.getConfigScreen(ModConfig.class, this).get()))
+                button -> ClientScreens.set(AutoConfigClient.getConfigScreen(ModConfig.class, this).get()))
                 .bounds(left, 174, PANEL_WIDTH, BUTTON_HEIGHT).build());
     }
 
@@ -251,6 +251,6 @@ public class StatusScreen extends Screen {
         catch (IllegalArgumentException ignored) { return ModConfig.get().defaultConflictStrategy; }
     }
 
-    protected void refresh() { Minecraft.getInstance().gui.setScreen(new StatusClientScreen()); }
-    public static void open() { Minecraft.getInstance().gui.setScreen(new StatusClientScreen()); }
+    protected void refresh() { ClientScreens.set(new StatusClientScreen()); }
+    public static void open() { ClientScreens.set(new StatusClientScreen()); }
 }
