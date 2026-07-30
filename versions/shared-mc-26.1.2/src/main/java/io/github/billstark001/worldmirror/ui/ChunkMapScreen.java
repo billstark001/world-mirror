@@ -251,11 +251,11 @@ public class ChunkMapScreen extends Screen {
         ChunkDatabase.ChunkRecord rec = statusSnapshot.getRecord(pos.x(), pos.z());
         boolean hasConflict = statusSnapshot.hasConflict(pos.x(), pos.z());
         List<Component> lines = new ArrayList<>();
-        lines.add(Component.literal("§eChunk (" + pos.x() + ", " + pos.z() + ")"));
-        lines.add(Component.literal("§7Block: (" + (pos.x() * 16) + ", " + (pos.z() * 16) + ")"));
+        lines.add(Component.translatable("screen.worldmirror.chunkmap.chunk", pos.x(), pos.z()));
+        lines.add(Component.translatable("screen.worldmirror.chunkmap.block", pos.x() * 16, pos.z() * 16));
         if (rec != null) {
-            lines.add(Component.literal("§7Updated: §f" + formatAge((now - rec.updateTime()) / 1000)));
-            lines.add(Component.literal("§7Source: §f" + rec.updateSource()));
+            lines.add(Component.translatable("screen.worldmirror.chunkmap.updated", formatAge((now - rec.updateTime()) / 1000)));
+            lines.add(Component.translatable("screen.worldmirror.chunkmap.source", rec.updateSource()));
         } else {
             lines.add(Component.translatable("screen.worldmirror.chunkmap.notDownloaded"));
         }
@@ -511,12 +511,12 @@ public class ChunkMapScreen extends Screen {
         return 0xFF000000 | (r << 16) | (g << 8) | b;
     }
 
-    private static String formatAge(long secs) {
+    private static Component formatAge(long secs) {
         if (secs < 0) secs = 0;
-        if (secs < 60)    return secs + "s ago";
-        if (secs < 3600)  return (secs / 60) + "m ago";
-        if (secs < 86400) return (secs / 3600) + "h ago";
-        return (secs / 86400) + "d ago";
+        if (secs < 60)    return Component.translatable("screen.worldmirror.status.age.seconds", secs);
+        if (secs < 3600)  return Component.translatable("screen.worldmirror.status.age.minutes", secs / 60);
+        if (secs < 86400) return Component.translatable("screen.worldmirror.status.age.hours", secs / 3600);
+        return Component.translatable("screen.worldmirror.status.age.days", secs / 86400);
     }
 
     /** Opens a fresh ChunkMapScreen on the game thread. */

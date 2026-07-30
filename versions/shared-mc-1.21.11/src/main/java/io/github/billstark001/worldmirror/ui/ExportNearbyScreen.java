@@ -110,7 +110,7 @@ public class ExportNearbyScreen extends Screen {
         // Chunk count hint
         long chunkCount = (long) (2 * radius + 1) * (2 * radius + 1);
         context.drawCenteredString(this.font,
-                Component.literal("§7(" + chunkCount + " chunks max)"),
+                Component.translatable("screen.worldmirror.exportNearby.chunkCount", chunkCount),
                 cx, cy + 18, 0xFFAAAAAA);
     }
 
