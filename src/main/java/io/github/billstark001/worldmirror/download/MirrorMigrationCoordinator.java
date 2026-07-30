@@ -1,7 +1,9 @@
 package io.github.billstark001.worldmirror.download;
 
+import io.github.billstark001.worldmirror.io.LegacyVoidChunkCleanup;
 import io.github.billstark001.worldmirror.io.MirrorWorldgenAssets;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
+import io.github.billstark001.worldmirror.util.WMLogger;
 import net.minecraft.SharedConstants;
 
 import java.io.IOException;
@@ -53,9 +55,19 @@ public final class MirrorMigrationCoordinator {
                 return Result.failure("mirror_not_migratable:" + plan.state().name().toLowerCase());
             }
 
+            LegacyVoidChunkCleanup.Plan voidCleanup;
+            try {
+                voidCleanup = plan.cleanupLegacyVoidChunks()
+                        ? LegacyVoidChunkCleanup.plan(normalized)
+                        : LegacyVoidChunkCleanup.Plan.empty();
+            } catch (Exception e) {
+                WMLogger.warn("Failed to scan legacy void chunks in " + normalized, e);
+                return Result.failure("legacy_void_scan_failed:" + e.getMessage());
+            }
+
             Path backup;
             try {
-                backup = backupTouchedFiles(normalized);
+                backup = backupTouchedFiles(normalized, voidCleanup);
             } catch (IOException e) {
                 return Result.failure("backup_failed:" + e.getMessage());
             }
@@ -67,6 +79,13 @@ public final class MirrorMigrationCoordinator {
                     plan.refreshAssets());
             if (!created) {
                 return Result.failure("worldgen_write_failed");
+            }
+
+            try {
+                LegacyVoidChunkCleanup.apply(voidCleanup);
+            } catch (Exception e) {
+                WMLogger.warn("Failed to clean legacy void chunks in " + normalized, e);
+                return Result.failure("legacy_void_cleanup_failed:" + e.getMessage());
             }
 
             // Commit the schema marker only after all mutable world files were
@@ -88,19 +107,22 @@ public final class MirrorMigrationCoordinator {
     }
 
     /** Creates a compact, recoverable backup of every file this migration may change. */
-    private static Path backupTouchedFiles(Path worldFolder) throws IOException {
+    private static Path backupTouchedFiles(Path worldFolder, LegacyVoidChunkCleanup.Plan voidCleanup)
+            throws IOException {
         Path backupRoot = worldFolder.resolve("backups");
         Files.createDirectories(backupRoot);
         String timestamp = Instant.now().toString().replace(':', '-');
         Path archive = backupRoot.resolve("worldmirror-schema-backup-" + timestamp + ".zip");
         try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(archive))) {
             addFileIfPresent(zip, worldFolder, worldFolder.resolve("level.dat"));
-            addFileIfPresent(zip, worldFolder, worldFolder.resolve("session.lock"));
             addFileIfPresent(zip, worldFolder, worldFolder.resolve(WorldMetadata.FILE_NAME));
             addFileIfPresent(zip, worldFolder,
                     worldFolder.resolve("data/minecraft/world_gen_settings.dat"));
             addTreeIfPresent(zip, worldFolder,
                     worldFolder.resolve("datapacks").resolve(MirrorWorldgenAssets.PACK_DIRECTORY));
+            for (LegacyVoidChunkCleanup.RegionPlan region : voidCleanup.regions()) {
+                addFileIfPresent(zip, worldFolder, region.regionFile());
+            }
         }
         return archive;
     }

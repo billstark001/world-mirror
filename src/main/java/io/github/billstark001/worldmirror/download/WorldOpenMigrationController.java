@@ -10,14 +10,15 @@ import java.nio.file.Path;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Coordinates an approved offline upgrade before vanilla opens a local save. */
+/** Coordinates an approved offline upgrade after vanilla finishes its own checks. */
 public final class WorldOpenMigrationController {
     private static final Set<Path> BYPASS_ONCE = ConcurrentHashMap.newKeySet();
 
     private WorldOpenMigrationController() {}
 
     /** @return true when vanilla opening was deferred for a prompt or migration. */
-    public static boolean intercept(WorldOpenFlows flows, String levelId, Runnable reloadCallback) {
+    public static boolean intercept(WorldOpenFlows flows, String levelId, Runnable reloadCallback,
+                                    Runnable closeWorldAccess) {
         Path worldFolder = resolveSave(levelId);
         if (worldFolder == null) return false;
         if (BYPASS_ONCE.remove(worldFolder)) return false;
@@ -27,6 +28,11 @@ public final class WorldOpenMigrationController {
         // future saves.  Entry confirmation is reserved for schema-outdated
         // mirrors as requested; download-time operations still protect writes.
         if (plan.state() != MirrorMigrationPlan.State.OUTDATED) return false;
+
+        // Vanilla has already performed any game-version migration when this
+        // hook runs.  Release its access before our offline writer starts, and
+        // also before the player can cancel back to the world list.
+        closeWorldAccess.run();
 
         Minecraft client = Minecraft.getInstance();
         Runnable reopen = () -> {
@@ -39,7 +45,7 @@ public final class WorldOpenMigrationController {
                         new MirrorPrompt.Text("screen.worldmirror.upgrade.entryConfirm")),
                 () -> migrateThenReopen(client, worldFolder, reopen, reloadCallback),
                 reopen,
-                () -> {});
+                reloadCallback);
         return true;
     }
 

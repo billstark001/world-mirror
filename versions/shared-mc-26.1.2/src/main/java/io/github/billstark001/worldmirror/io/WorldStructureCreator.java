@@ -226,9 +226,8 @@ public class WorldStructureCreator {
      * for a mirror world.
      *
      * <p>On the <em>first</em> call (no {@code level.dat} yet), a full {@code level.dat}
-     * is written and "World structure created" is logged.  On subsequent calls the
-     * {@code session.lock} timestamp is refreshed and "World structure updated" is logged
-     * to distinguish incremental sync from initial creation.
+     * is written and "World structure created" is logged.  Subsequent calls only
+     * update World Mirror-owned world data.
      *
      * @param worldFolder  root directory of the mirror world
      * @param levelName    human-readable name to embed in {@code level.dat}
@@ -247,8 +246,6 @@ public class WorldStructureCreator {
             for (String dir : subDirs) {
                 mkdirs(worldFolder, dir);
             }
-
-            Files.writeString(worldFolderPath.resolve("session.lock"), "\u2603", StandardCharsets.UTF_8);
 
             if (firstTime) {
                 MirrorWorldgenAssets.install(worldFolderPath, net.minecraft.SharedConstants.DATA_PACK_FORMAT_MAJOR);

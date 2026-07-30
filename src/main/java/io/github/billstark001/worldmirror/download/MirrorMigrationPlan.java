@@ -22,7 +22,8 @@ public final class MirrorMigrationPlan {
     }
 
     public record Inspection(Path worldFolder, State state, WorldMetadata metadata,
-                             boolean migrateWorldgen, boolean refreshAssets) {
+                             boolean migrateWorldgen, boolean refreshAssets,
+                             boolean cleanupLegacyVoidChunks) {
         public boolean requiresApproval() {
             return state == State.OUTDATED;
         }
@@ -40,26 +41,27 @@ public final class MirrorMigrationPlan {
         boolean hasLevelDat = Files.isRegularFile(normalized.resolve("level.dat"));
         if (!Files.isRegularFile(metadataFile)) {
             return new Inspection(normalized, hasLevelDat ? State.UNMANAGED : State.NEW,
-                    null, false, false);
+                    null, false, false, false);
         }
 
         Optional<WorldMetadata> loaded = WorldMetadata.loadIfPresent(normalized);
         if (loaded.isEmpty()) {
-            return new Inspection(normalized, State.UNREADABLE, null, false, false);
+            return new Inspection(normalized, State.UNREADABLE, null, false, false, false);
         }
         WorldMetadata metadata = loaded.get();
         if (metadata.sourceId == null || metadata.sourceId.isBlank()) {
-            return new Inspection(normalized, State.UNREADABLE, metadata, false, false);
+            return new Inspection(normalized, State.UNREADABLE, metadata, false, false, false);
         }
         if (metadata.hasFutureWorldgenSchema()
                 || metadata.hasFutureWorldgenAssets(dataVersion, MirrorWorldgenAssets.ASSET_REVISION)) {
-            return new Inspection(normalized, State.FUTURE, metadata, false, false);
+            return new Inspection(normalized, State.FUTURE, metadata, false, false, false);
         }
         boolean migrateWorldgen = metadata.needsWorldgenMigration();
         boolean refreshAssets = metadata.needsWorldgenAssetRefresh(
                 dataVersion, MirrorWorldgenAssets.ASSET_REVISION);
+        boolean cleanupLegacyVoidChunks = metadata.needsLegacyVoidChunkCleanup();
         return new Inspection(normalized,
-                migrateWorldgen || refreshAssets ? State.OUTDATED : State.CURRENT,
-                metadata, migrateWorldgen, refreshAssets);
+                migrateWorldgen || refreshAssets || cleanupLegacyVoidChunks ? State.OUTDATED : State.CURRENT,
+                metadata, migrateWorldgen, refreshAssets, cleanupLegacyVoidChunks);
     }
 }

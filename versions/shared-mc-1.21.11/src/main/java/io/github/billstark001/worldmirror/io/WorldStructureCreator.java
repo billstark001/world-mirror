@@ -1,6 +1,5 @@
 package io.github.billstark001.worldmirror.io;
 
-import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -219,8 +218,6 @@ public class WorldStructureCreator {
                 mkdirs(worldFolder, dir);
             }
 
-            writeSessionLock(new File(worldFolder, "session.lock"));
-
             if (firstTime) {
                 MirrorWorldgenAssets.install(worldFolderPath, SharedConstants.DATA_PACK_FORMAT_MAJOR);
                 CompoundTag data = createWorldData(levelName);
@@ -294,12 +291,6 @@ public class WorldStructureCreator {
                 "datapacks",
                 "resourcepacks"
         };
-    }
-
-    private static void writeSessionLock(File file) throws Exception {
-        try (DataOutputStream out = new DataOutputStream(new FileOutputStream(file))) {
-            out.writeLong(System.currentTimeMillis());
-        }
     }
 
     private static void writeLevelDat(File file, CompoundTag data) throws Exception {

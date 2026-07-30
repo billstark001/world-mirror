@@ -37,6 +37,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Prevented an older mod from overwriting a mirror's newer worldgen schema or embedded-asset revision.
 - Replaced silent download-time schema migration with explicit confirmation; current mirror saves are only warned about capture when Download is clicked, not when entered.
 - Replaced Xaero's obscured yellow dot with a high-contrast `WM` UI badge beside its settings button and a one-time explanatory toast.
+- Deferred the World Mirror schema prompt until Minecraft's own save-version upgrade has completed, and restored the world list correctly when that prompt is cancelled.
+- Refreshed migrated metadata with the currently loaded mod version and repaired generated data-pack metadata for Minecraft's required `min_format` / `max_format` range.
+- Added a one-time, backed-up cleanup for blank legacy `minecraft:the_void` chunks so they regenerate under schema 1 without deleting captured or player-modified terrain.
+- Stopped schema migration from writing Minecraft's exclusively locked `session.lock` file.
 
 ---
 

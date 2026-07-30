@@ -29,6 +29,8 @@ public class WorldMetadata {
     /** Current semantic format of the generated mirror-world dimensions. */
     public static final int CURRENT_WORLDGEN_SCHEMA = 1;
     public static final int CURRENT_METADATA_SCHEMA = 1;
+    /** Cleanup revision independent from {@link #CURRENT_WORLDGEN_SCHEMA}. */
+    public static final int CURRENT_VOID_CHUNK_CLEANUP_REVISION = 1;
     public static final String FORMAT = "worldmirror";
 
     // ── JSON fields ───────────────────────────────────────────────────────────
@@ -71,6 +73,13 @@ public class WorldMetadata {
 
     /** Minecraft data version used when the embedded assets were last refreshed. */
     public int worldgenAssetDataVersion = 0;
+
+    /**
+     * Completion marker for removing only the all-air {@code minecraft:the_void}
+     * chunks made by the pre-schema generator.  It intentionally does not bump
+     * {@link #worldgenSchema}: schema 1 remains the only released schema.
+     */
+    public int legacyVoidChunkCleanupRevision = 0;
 
     /**
      * Legacy per-chunk last-write timestamp map — kept for reading old JSON files
@@ -209,11 +218,18 @@ public class WorldMetadata {
         return worldgenAssetDataVersion > dataVersion || worldgenAssetRevision > assetRevision;
     }
 
+    /** Whether an old, blank void chunk cleanup has not yet been performed. */
+    public boolean needsLegacyVoidChunkCleanup() {
+        return legacyVoidChunkCleanupRevision < CURRENT_VOID_CHUNK_CLEANUP_REVISION;
+    }
+
     /** Marks both layers of world-generation migration as complete after a successful write. */
     public void markWorldgenCurrent(int dataVersion, int assetRevision) {
         worldgenSchema = CURRENT_WORLDGEN_SCHEMA;
         worldgenAssetDataVersion = dataVersion;
         worldgenAssetRevision = assetRevision;
+        legacyVoidChunkCleanupRevision = CURRENT_VOID_CHUNK_CLEANUP_REVISION;
+        modVersion = currentModVersion();
     }
 
     // ── Convenience update ────────────────────────────────────────────────────

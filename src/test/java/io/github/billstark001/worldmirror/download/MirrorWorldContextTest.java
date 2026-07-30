@@ -50,6 +50,23 @@ class MirrorWorldContextTest {
     }
 
     @Test
+    void schedulesTheOneTimeVoidCleanupWithoutChangingSchemaOne(@TempDir Path world) {
+        WorldMetadata metadata = metadata();
+        metadata.worldgenSchema = WorldMetadata.CURRENT_WORLDGEN_SCHEMA;
+        metadata.worldgenAssetRevision = MirrorWorldgenAssets.ASSET_REVISION;
+        metadata.worldgenAssetDataVersion = 100;
+        metadata.save(world);
+
+        MirrorMigrationPlan.Inspection pending = MirrorMigrationPlan.inspect(world, 100);
+        assertEquals(MirrorMigrationPlan.State.OUTDATED, pending.state());
+        assertTrue(pending.cleanupLegacyVoidChunks());
+
+        metadata.legacyVoidChunkCleanupRevision = WorldMetadata.CURRENT_VOID_CHUNK_CLEANUP_REVISION;
+        metadata.save(world);
+        assertEquals(MirrorMigrationPlan.State.CURRENT, MirrorMigrationPlan.inspect(world, 100).state());
+    }
+
+    @Test
     void nearbyExportLineageKeepsTheOriginalSourceOrCreatesAStableDerivedIdentity() {
         WorldMetadata current = metadata();
         current.mirrorId = "mirror-id";

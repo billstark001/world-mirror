@@ -27,10 +27,12 @@ public final class MirrorWorldgenAssets {
                 {
                   "pack": {
                     "pack_format": %d,
+                    "min_format": %d,
+                    "max_format": %d,
                     "description": "World Mirror environment definitions"
                   }
                 }
-                """.formatted(dataPackFormat));
+                """.formatted(dataPackFormat, dataPackFormat, dataPackFormat));
         write(pack.resolve("worldmirror_manifest.json"), """
                 {
                   "assetRevision": %d
