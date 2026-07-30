@@ -22,14 +22,22 @@ import java.util.List;
  * Removes only chunks produced by the pre-schema all-air void generator.
  *
  * <p>A chunk is eligible only when every saved biome palette is exclusively
- * {@code minecraft:the_void}, every saved block-state palette is air, and it
- * contains no block entities or scheduled ticks.  This deliberately preserves
- * nearby-export terrain and any player-built content, while letting Minecraft
- * regenerate the blank legacy chunks with the schema-1 generator.</p>
+ * {@code minecraft:the_void} and every saved block-state palette is air.
+ * This deliberately preserves any chunk containing blocks, while letting
+ * Minecraft regenerate the blank legacy chunks with the schema-1 generator.
+ * The same legacy generator affected all three vanilla dimensions, so each
+ * dimension's region directory is inspected.</p>
  */
 public final class LegacyVoidChunkCleanup {
-    private static final Path OVERWORLD_REGION_DIRECTORY = Path.of(
-            "dimensions", "minecraft", "overworld", "region");
+    private static final List<Path> REGION_DIRECTORIES = List.of(
+            // Minecraft 1.21.11's vanilla dimension layout.
+            Path.of("region"),
+            Path.of("DIM-1", "region"),
+            Path.of("DIM1", "region"),
+            // Minecraft 26.x's namespaced dimension layout.
+            Path.of("dimensions", "minecraft", "overworld", "region"),
+            Path.of("dimensions", "minecraft", "the_nether", "region"),
+            Path.of("dimensions", "minecraft", "the_end", "region"));
     private static final String VOID_BIOME = "minecraft:the_void";
     private static final int FILE_REPLACE_ATTEMPTS = 10;
     private static final long FILE_REPLACE_RETRY_MILLIS = 200L;
@@ -54,34 +62,52 @@ public final class LegacyVoidChunkCleanup {
         }
     }
 
+    @FunctionalInterface
+    public interface ProgressListener {
+        ProgressListener NONE = (completed, total) -> {};
+
+        void update(int completed, int total);
+    }
+
     private LegacyVoidChunkCleanup() {}
 
     /** Read-only scan used before backup creation. */
     public static Plan plan(Path worldFolder) throws IOException {
-        Path regionDirectory = worldFolder.resolve(OVERWORLD_REGION_DIRECTORY);
-        if (!Files.isDirectory(regionDirectory)) return Plan.empty();
+        return plan(worldFolder, ProgressListener.NONE);
+    }
 
-        List<Path> regionFiles;
-        try (var files = Files.list(regionDirectory)) {
-            regionFiles = files.filter(Files::isRegularFile)
-                    .filter(path -> McaFileHelpers.isValidMcaFileName(path.getFileName().toString()))
-                    .sorted(Comparator.comparing(path -> path.getFileName().toString()))
-                    .toList();
-        }
+    /** Read-only scan used before backup creation, reporting non-empty region files scanned. */
+    public static Plan plan(Path worldFolder, ProgressListener progress) throws IOException {
+        List<Path> regionFiles = findRegionFiles(worldFolder);
+        progress.update(0, regionFiles.size());
 
         List<RegionPlan> regions = new ArrayList<>();
+        int completed = 0;
+        int lastPercent = 0;
         for (Path regionFile : regionFiles) {
             List<Integer> chunks = findLegacyVoidChunks(regionFile);
             if (!chunks.isEmpty()) regions.add(new RegionPlan(regionFile, chunks));
+            completed++;
+            lastPercent = reportProgress(progress, completed, regionFiles.size(), lastPercent);
         }
         return new Plan(regions);
     }
 
     /** Applies a previously scanned plan through same-directory atomic replacement. */
     public static int apply(Plan plan) throws IOException {
+        return apply(plan, ProgressListener.NONE);
+    }
+
+    /** Applies a previously scanned plan, reporting region files rewritten. */
+    public static int apply(Plan plan, ProgressListener progress) throws IOException {
         int removed = 0;
+        progress.update(0, plan.regions().size());
+        int completed = 0;
+        int lastPercent = 0;
         for (RegionPlan region : plan.regions()) {
             removed += removeChunks(region);
+            completed++;
+            lastPercent = reportProgress(progress, completed, plan.regions().size(), lastPercent);
         }
         return removed;
     }
@@ -100,6 +126,9 @@ public final class LegacyVoidChunkCleanup {
 
     private static int removeChunks(RegionPlan plan) throws IOException {
         Path regionFile = plan.regionFile();
+        // Empty placeholder files are not valid region files and have no chunk
+        // data to migrate.  Do not open, rewrite, or add them to a backup.
+        if (Files.size(regionFile) == 0) return 0;
         synchronized (McaWriteSupport.lockFor(regionFile)) {
             IOException lastFailure = null;
             for (int attempt = 1; attempt <= FILE_REPLACE_ATTEMPTS; attempt++) {
@@ -194,8 +223,41 @@ public final class LegacyVoidChunkCleanup {
 
     static boolean isLegacyVoidChunk(CompoundTag chunk) {
         return hasOnlyVoidBiomePalettes(chunk)
-                && hasOnlyAirBlockStatePalettes(chunk)
-                && hasNoSavedContent(chunk);
+                && hasOnlyAirBlockStatePalettes(chunk);
+    }
+
+    private static List<Path> findRegionFiles(Path worldFolder) throws IOException {
+        List<Path> regionFiles = new ArrayList<>();
+        for (Path relativeDirectory : REGION_DIRECTORIES) {
+            Path regionDirectory = worldFolder.resolve(relativeDirectory);
+            if (!Files.isDirectory(regionDirectory)) continue;
+            try (var files = Files.list(regionDirectory)) {
+                files.filter(Files::isRegularFile)
+                        .filter(path -> McaFileHelpers.isValidMcaFileName(path.getFileName().toString()))
+                        // A zero-byte .mca is a common interrupted-download
+                        // artifact.  It contains no chunks, so leave it alone.
+                        .filter(LegacyVoidChunkCleanup::isNonEmpty)
+                        .forEach(regionFiles::add);
+            }
+        }
+        regionFiles.sort(Comparator.comparing(Path::toString));
+        return regionFiles;
+    }
+
+    private static boolean isNonEmpty(Path file) {
+        try {
+            return Files.size(file) > 0;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private static int reportProgress(ProgressListener progress, int completed, int total, int lastPercent) {
+        int percent = total <= 0 ? 100 : completed * 100 / total;
+        if (percent != lastPercent || completed == total) {
+            progress.update(completed, total);
+        }
+        return percent;
     }
 
     private static boolean hasOnlyVoidBiomePalettes(Tag<?> tag) {
@@ -217,14 +279,6 @@ public final class LegacyVoidChunkCleanup {
             }
         });
         return check.valid;
-    }
-
-    private static boolean hasNoSavedContent(CompoundTag chunk) {
-        for (String key : new String[] {"block_entities", "entities", "block_ticks", "fluid_ticks"}) {
-            Tag<?> value = chunk.get(key);
-            if (value instanceof ListTag<?> list && !list.isEmpty()) return false;
-        }
-        return true;
     }
 
     private static boolean paletteContainsOnly(CompoundTag container, String exactName, boolean airOnly) {

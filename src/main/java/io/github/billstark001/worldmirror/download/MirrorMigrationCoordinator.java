@@ -32,6 +32,20 @@ public final class MirrorMigrationCoordinator {
         }
     }
 
+    public enum Phase {
+        SCANNING_VOID_CHUNKS,
+        BACKING_UP,
+        WRITING_WORLD_DATA,
+        REMOVING_VOID_CHUNKS
+    }
+
+    @FunctionalInterface
+    public interface ProgressListener {
+        ProgressListener NONE = (phase, completed, total) -> {};
+
+        void update(Phase phase, int completed, int total);
+    }
+
     private MirrorMigrationCoordinator() {}
 
     public static MirrorMigrationPlan.Inspection inspect(Path worldFolder) {
@@ -44,6 +58,10 @@ public final class MirrorMigrationCoordinator {
      * must ensure the world is not loaded by an integrated server.
      */
     public static Result migrateApproved(Path worldFolder) {
+        return migrateApproved(worldFolder, ProgressListener.NONE);
+    }
+
+    public static Result migrateApproved(Path worldFolder, ProgressListener progress) {
         Path normalized = worldFolder.toAbsolutePath().normalize();
         Object lock = LOCKS.computeIfAbsent(normalized, ignored -> new Object());
         synchronized (lock) {
@@ -57,8 +75,11 @@ public final class MirrorMigrationCoordinator {
 
             LegacyVoidChunkCleanup.Plan voidCleanup;
             try {
+                progress.update(Phase.SCANNING_VOID_CHUNKS, 0, 1);
                 voidCleanup = plan.cleanupLegacyVoidChunks()
-                        ? LegacyVoidChunkCleanup.plan(normalized)
+                        ? LegacyVoidChunkCleanup.plan(normalized,
+                                (completed, total) -> progress.update(
+                                        Phase.SCANNING_VOID_CHUNKS, completed, total))
                         : LegacyVoidChunkCleanup.Plan.empty();
             } catch (Exception e) {
                 WMLogger.warn("Failed to scan legacy void chunks in " + normalized, e);
@@ -67,11 +88,14 @@ public final class MirrorMigrationCoordinator {
 
             Path backup;
             try {
+                progress.update(Phase.BACKING_UP, 0, 1);
                 backup = backupTouchedFiles(normalized, voidCleanup);
+                progress.update(Phase.BACKING_UP, 1, 1);
             } catch (IOException e) {
                 return Result.failure("backup_failed:" + e.getMessage());
             }
 
+            progress.update(Phase.WRITING_WORLD_DATA, 0, 1);
             boolean created = WorldStructureCreator.createLoadableWorld(
                     normalized,
                     displayName(normalized, plan.metadata()),
@@ -80,9 +104,12 @@ public final class MirrorMigrationCoordinator {
             if (!created) {
                 return Result.failure("worldgen_write_failed");
             }
+            progress.update(Phase.WRITING_WORLD_DATA, 1, 1);
 
             try {
-                LegacyVoidChunkCleanup.apply(voidCleanup);
+                LegacyVoidChunkCleanup.apply(voidCleanup,
+                        (completed, total) -> progress.update(
+                                Phase.REMOVING_VOID_CHUNKS, completed, total));
             } catch (Exception e) {
                 WMLogger.warn("Failed to clean legacy void chunks in " + normalized, e);
                 return Result.failure("legacy_void_cleanup_failed:" + e.getMessage());

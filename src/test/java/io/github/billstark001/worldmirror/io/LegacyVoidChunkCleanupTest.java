@@ -31,10 +31,30 @@ class LegacyVoidChunkCleanupTest {
     }
 
     @Test
-    void preservesVoidChunksWithSavedContent() {
+    void preservesVoidChunksWithBlocks() {
         CompoundTag chunk = blankVoidChunk();
-        chunk.put("block_entities", new ListTag<>(List.of(new CompoundTag())));
+        CompoundTag section = (CompoundTag) ((ListTag<?>) chunk.get("sections")).get(0);
+        ListTag<CompoundTag> palette = section.getCompoundTag("block_states").getCompoundList("palette");
+        palette.clear();
+        palette.add(block("minecraft:chest"));
         assertFalse(LegacyVoidChunkCleanup.isLegacyVoidChunk(chunk));
+    }
+
+    @Test
+    void skipsZeroByteRegionFilesInEveryDimension(@TempDir Path world) throws Exception {
+        for (Path dimension : List.of(
+                Path.of("region"),
+                Path.of("DIM-1", "region"),
+                Path.of("DIM1", "region"),
+                Path.of("dimensions", "minecraft", "overworld", "region"),
+                Path.of("dimensions", "minecraft", "the_nether", "region"),
+                Path.of("dimensions", "minecraft", "the_end", "region"))) {
+            Path region = world.resolve(dimension).resolve("r.0.0.mca");
+            Files.createDirectories(region.getParent());
+            Files.createFile(region);
+        }
+
+        assertTrue(LegacyVoidChunkCleanup.plan(world).regions().isEmpty());
     }
 
     @Test
