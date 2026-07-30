@@ -10,11 +10,11 @@ public final class ClientScreens {
     private ClientScreens() {}
 
     public static void set(Screen screen) {
-        Minecraft.getInstance().setScreenAndShow(screen);
+        Minecraft.getInstance().gui.setScreen(screen);
     }
 
     public static void setLater(Screen screen) {
         Minecraft client = Minecraft.getInstance();
-        client.execute(() -> client.setScreenAndShow(screen));
+        client.execute(() -> client.gui.setScreen(screen));
     }
 }
