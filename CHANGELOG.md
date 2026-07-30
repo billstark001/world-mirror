@@ -12,18 +12,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Fabric builds for Minecraft `1.21.11`, `26.1.2`, and `26.2` from one shared source layout.
 - Optional integration with Xaero World Map Bridge `0.1.0`, including World Mirror chunk-status rendering on Xaero's fullscreen map without embedding the bridge in World Mirror's jar.
 - `scripts/build-modrinth.ps1` builds all Fabric targets and collects the three current-version distributable JARs in `build/modrinth`.
+- Per-world mirror-location migration with confirmation, synchronized path remapping, and safeguards that require downloads and exports to stop first.
 
 ### Changed
 
 - Migrated the Java package namespace to `io.github.billstark001.worldmirror`.
 - Replaced LibGui/Cotton status UI with native Minecraft screens while retaining source, mirror location, download/export state, per-world settings, and conflict-management views.
 - The built-in map and Xaero overlay now use asynchronous status snapshots, viewport aggregation, and merged state-coloured boundaries.
+- Compact status layout: source/type with mirror and cache count with last-sync time share rows; output and Xaero-bridge status are in the per-world settings tab.
 
 ### Fixed
 
 - Status-screen text now uses opaque ARGB colours on the new GUI extraction API.
 - Avoided forced immediate screen rendering when opening the status UI, eliminating the opening black flash.
 - Restored state-coloured chunk boundaries on built-in and Xaero map overlays.
+- Completed four-locale UI coverage for status ages, migration feedback, nearby-export messages, and chunk-map tooltips.
 
 ---
 
@@ -131,9 +134,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and map background style (black or transparent, default black).
 - **MCA write support:** Added shared per-file locking and same-directory temporary-file
   replacement for terrain, entity, and conflict MCA writes.
-- **Known-bugs research notes:** Re-enabled and expanded `KNOWN_BUGS.md` with current
-  entity, block entity, world-generation/noise, heightmap, and lighting persistence gaps,
-  plus pointers into Minecraft format docs and local mod source.
 - Language file additions for all new UI strings (en_us, zh_cn, zh_tw, ja_jp).
 
 ### Changed
@@ -169,7 +169,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Container items now export correctly. (BUG-1 in `KNOWN_BUGS.md`)
+- Container items now export correctly.
 - Redstone components and other stateful blocks now export with their correct state.
 - Biome and light data are now included correctly in chunk exports.
 - Performance and memory issues in the caching and serialization processes have been comprehensively addressed:
@@ -188,8 +188,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **GitHub Actions release workflows** (manual trigger):
   - `release-modrinth.yml` — builds and publishes to Modrinth.
   - `release-github.yml` — builds and creates a GitHub Release with bundled JAR.
-
-- **`KNOWN_BUGS.md`** — documents confirmed issues and their status.
 
 - **`DATABASE.md`** — English documentation for the SQLite schema, intended for third-party tool authors.
 
