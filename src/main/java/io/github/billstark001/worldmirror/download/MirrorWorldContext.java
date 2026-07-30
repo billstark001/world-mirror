@@ -1,10 +1,6 @@
 package io.github.billstark001.worldmirror.download;
 
-import io.github.billstark001.worldmirror.io.MirrorWorldgenAssets;
-
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Optional;
 
 /**
  * Read-only identity of the locally-open world.  This deliberately does not
@@ -45,25 +41,13 @@ public final class MirrorWorldContext {
 
     public static Snapshot inspect(Path worldFolder, int dataVersion) {
         if (worldFolder == null) return Snapshot.NONE;
-        Path normalized = worldFolder.toAbsolutePath().normalize();
-        Path metaFile = normalized.resolve(WorldMetadata.FILE_NAME);
-        if (!Files.isRegularFile(metaFile)) return Snapshot.NONE;
-
-        Optional<WorldMetadata> loaded = WorldMetadata.loadIfPresent(normalized);
-        if (loaded.isEmpty()) return new Snapshot(normalized, State.UNREADABLE, null);
-
-        WorldMetadata metadata = loaded.get();
-        if (metadata.sourceId == null || metadata.sourceId.isBlank()) {
-            return new Snapshot(normalized, State.UNREADABLE, metadata);
-        }
-        if (metadata.hasFutureWorldgenSchema()
-                || metadata.hasFutureWorldgenAssets(dataVersion, MirrorWorldgenAssets.ASSET_REVISION)) {
-            return new Snapshot(normalized, State.FUTURE, metadata);
-        }
-        if (metadata.needsWorldgenMigration()
-                || metadata.needsWorldgenAssetRefresh(dataVersion, MirrorWorldgenAssets.ASSET_REVISION)) {
-            return new Snapshot(normalized, State.OUTDATED, metadata);
-        }
-        return new Snapshot(normalized, State.CURRENT, metadata);
+        MirrorMigrationPlan.Inspection inspection = MirrorMigrationPlan.inspect(worldFolder, dataVersion);
+        return switch (inspection.state()) {
+            case CURRENT -> new Snapshot(inspection.worldFolder(), State.CURRENT, inspection.metadata());
+            case OUTDATED -> new Snapshot(inspection.worldFolder(), State.OUTDATED, inspection.metadata());
+            case FUTURE -> new Snapshot(inspection.worldFolder(), State.FUTURE, inspection.metadata());
+            case UNREADABLE -> new Snapshot(inspection.worldFolder(), State.UNREADABLE, inspection.metadata());
+            default -> Snapshot.NONE;
+        };
     }
 }

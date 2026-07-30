@@ -12,6 +12,8 @@ import io.github.billstark001.worldmirror.core.ContainerTracker;
 import io.github.billstark001.worldmirror.core.EntityTracker;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
+import io.github.billstark001.worldmirror.ui.ClientDialogs;
+import io.github.billstark001.worldmirror.ui.MirrorPrompt;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
@@ -68,6 +70,7 @@ public final class DownloadManager {
     private static final Map<CaptureKey, Long> pendingLightUpdates = new HashMap<>();
     private static PendingExportRequest pendingExport = null;
     private static long clientTick = 0;
+    private static volatile boolean mirrorCaptureWarningShown;
 
     private record CaptureKey(ResourceKey<Level> dimension, int chunkX, int chunkZ) { }
     private record PendingChunkCapture(CaptureKey key, String reason) { }
@@ -140,31 +143,26 @@ public final class DownloadManager {
      * immediately captured so that the player does not need to reload them.
      */
     public static void toggle(Minecraft client) {
-        boolean wasActive = currentActive.get();
-        boolean nowActive = !wasActive;
-        currentActive.set(nowActive);
-        if (nowActive) {
-            lastPeriodicSyncMs = System.currentTimeMillis();
-            // Capture chunks that are already loaded so the player does not need
-            // to walk through the area again after enabling download.
-            if (client.level != null) {
-                captureLoadedChunksAsync(client);
-            }
-        } else {
+        if (currentActive.get()) {
+            currentActive.set(false);
             clearPendingCaptureState();
             finalizeCaptureOnStop(client, "manual-toggle");
+            WMLogger.sendOverlayMessage(client.player,
+                    Component.translatable("msg.worldmirror.downloadStop"));
+            WMLogger.debug("Download deactivated");
+            return;
         }
-        Component msg = Component.translatable(
-                nowActive ? "msg.worldmirror.downloadStart"
-                          : "msg.worldmirror.downloadStop");
-        WMLogger.sendOverlayMessage(client.player, msg);
-        WMLogger.debug(nowActive ? "Download activated" : "Download deactivated");
+        requestDownloadStart(client, "manual-toggle");
     }
 
     /**
      * Performs an immediate one-shot export regardless of the toggle state.
      */
     public static void exportNow(Minecraft client) {
+        requestOutputReady(client, () -> exportNowReady(client));
+    }
+
+    private static void exportNowReady(Minecraft client) {
         boolean canPreCapture = ModConfig.get().lifecycle.captureNearbyBeforeExport
                 && client.level != null && client.player != null;
         if (ChunkListener.isEmpty() && !canPreCapture) {
@@ -208,6 +206,7 @@ public final class DownloadManager {
     public static void onJoinWorld(Minecraft client) {
         clearPendingCaptureState();
         ContainerTracker.clear();
+        mirrorCaptureWarningShown = false;
         applyTransition(client, ModConfig.get().lifecycle.onJoinWorld, "join-world");
 
         // Reset tracking so subsequent change-detection starts fresh.
@@ -318,10 +317,14 @@ public final class DownloadManager {
         }
         if (wasActive == desired) return; // already in the right state
 
-        currentActive.set(desired);
-        if (desired) lastPeriodicSyncMs = System.currentTimeMillis();
+        if (desired) {
+            requestDownloadStart(client, eventName);
+            return;
+        }
+
+        currentActive.set(false);
+        clearPendingCaptureState();
         if (!desired) {
-            clearPendingCaptureState();
             finalizeCaptureOnStop(client, eventName);
         }
 
@@ -329,7 +332,7 @@ public final class DownloadManager {
                 desired ? "msg.worldmirror.downloadStart"
                        : "msg.worldmirror.downloadStop");
         WMLogger.sendOverlayMessage(client.player, msg);
-        String transitionMessage = "Download " + (desired ? "activated" : "deactivated")
+        String transitionMessage = "Download deactivated"
                 + " by lifecycle event: " + eventName;
         if ("dimension-change".equals(eventName)) {
             WMLogger.debug(transitionMessage);
@@ -499,6 +502,84 @@ public final class DownloadManager {
     private static boolean isFolderFreeOrOwned(Path folder, String sourceId) {
         if (!folder.toFile().exists()) return true;
         return WorldMetadata.isOwnedBy(folder, sourceId);
+    }
+
+    private static void requestDownloadStart(Minecraft client, String reason) {
+        Runnable continueStart = () -> requestOutputReady(client, () -> activateDownload(client, reason));
+        MirrorWorldContext.Snapshot currentMirror = MirrorWorldContext.current();
+        if (currentMirror.isMirror() && !mirrorCaptureWarningShown) {
+            String bodyKey = currentMirror.state() == MirrorWorldContext.State.OUTDATED
+                    ? "screen.worldmirror.captureMirror.outdated"
+                    : "screen.worldmirror.captureMirror.body";
+            ClientDialogs.confirm(client, new MirrorPrompt.Confirmation(
+                    new MirrorPrompt.Text("screen.worldmirror.captureMirror.title"),
+                    new MirrorPrompt.Text(bodyKey),
+                    new MirrorPrompt.Text("screen.worldmirror.captureMirror.continue"),
+                    new MirrorPrompt.Text("gui.cancel")), () -> {
+                mirrorCaptureWarningShown = true;
+                continueStart.run();
+            }, () -> {});
+            return;
+        }
+        continueStart.run();
+    }
+
+    /** Ensures an output world is current only after an explicit confirmation. */
+    private static void requestOutputReady(Minecraft client, Runnable onReady) {
+        String sourceId = WorldMetadata.detectSourceId(client);
+        Path output = getOutputPathForSource(sourceId);
+        MirrorMigrationPlan.Inspection plan = MirrorMigrationCoordinator.inspect(output);
+        switch (plan.state()) {
+            case NEW, CURRENT -> onReady.run();
+            case OUTDATED -> ClientDialogs.confirm(client, new MirrorPrompt.Confirmation(
+                    new MirrorPrompt.Text("screen.worldmirror.upgrade.title"),
+                    new MirrorPrompt.Text("screen.worldmirror.upgrade.downloadBody", output.getFileName()),
+                    new MirrorPrompt.Text("screen.worldmirror.upgrade.downloadConfirm"),
+                    new MirrorPrompt.Text("gui.cancel")),
+                    () -> migrateOutputAndContinue(client, output, onReady), () -> {});
+            case FUTURE -> ClientDialogs.alert(client, new MirrorPrompt.Alert(
+                    new MirrorPrompt.Text("screen.worldmirror.upgrade.futureTitle"),
+                    new MirrorPrompt.Text("screen.worldmirror.upgrade.futureBody"),
+                    new MirrorPrompt.Text("gui.done")), () -> {});
+            default -> ClientDialogs.alert(client, new MirrorPrompt.Alert(
+                    new MirrorPrompt.Text("screen.worldmirror.upgrade.unavailableTitle"),
+                    new MirrorPrompt.Text("screen.worldmirror.upgrade.unavailableBody", plan.state().name()),
+                    new MirrorPrompt.Text("gui.done")), () -> {});
+        }
+    }
+
+    private static void migrateOutputAndContinue(Minecraft client, Path output, Runnable onReady) {
+        MirrorPrompt.ProgressHandle progress = ClientDialogs.progress(client,
+                new MirrorPrompt.Text("screen.worldmirror.upgrade.progressTitle"));
+        Thread worker = new Thread(() -> {
+            client.execute(() -> progress.stage(
+                    new MirrorPrompt.Text("screen.worldmirror.upgrade.progressWrite")));
+            MirrorMigrationCoordinator.Result result = MirrorMigrationCoordinator.migrateApproved(output);
+            client.execute(() -> {
+                progress.close();
+                if (!result.success()) {
+                    ClientDialogs.alert(client, new MirrorPrompt.Alert(
+                            new MirrorPrompt.Text("screen.worldmirror.upgrade.failedTitle"),
+                            new MirrorPrompt.Text("screen.worldmirror.upgrade.failedBody", result.failure()),
+                            new MirrorPrompt.Text("gui.done")), () -> {});
+                    return;
+                }
+                ClientDialogs.toast(client,
+                        new MirrorPrompt.Text("screen.worldmirror.upgrade.completeTitle"),
+                        new MirrorPrompt.Text("screen.worldmirror.upgrade.completeBody"));
+                onReady.run();
+            });
+        }, "WM-MirrorMigration");
+        worker.setDaemon(false);
+        worker.start();
+    }
+
+    private static void activateDownload(Minecraft client, String reason) {
+        if (!currentActive.compareAndSet(false, true)) return;
+        lastPeriodicSyncMs = System.currentTimeMillis();
+        if (client.level != null) captureLoadedChunksAsync(client);
+        WMLogger.sendOverlayMessage(client.player, Component.translatable("msg.worldmirror.downloadStart"));
+        WMLogger.debug("Download activated" + (reason == null ? "" : " by " + reason));
     }
 
     // ── Internal ─────────────────────────────────────────────────────────────
@@ -689,35 +770,30 @@ public final class DownloadManager {
         Thread worker = new Thread(() -> {
             ChunkDatabase db = null;
             try {
-                WorldMetadata meta = WorldMetadata.loadOrCreate(
-                        finalWorldFolder, finalSourceId, finalSourceType);
-
-                if (meta.hasFutureWorldgenSchema()
-                        || meta.hasFutureWorldgenAssets(
-                                net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version(),
-                                io.github.billstark001.worldmirror.io.MirrorWorldgenAssets.ASSET_REVISION)) {
-                    WMLogger.warn("Mirror uses a newer world-generation schema or asset revision; export aborted without modifying it.");
+                MirrorMigrationPlan.Inspection readiness = MirrorMigrationCoordinator.inspect(finalWorldFolder);
+                if (!readiness.mayCreateOrWriteWithoutMigration()) {
+                    WMLogger.warn("Mirror requires an explicit upgrade or is not writable ("
+                            + readiness.state() + "); export aborted without modifying it.");
                     return;
                 }
 
-                boolean needsWorldgenMigration = meta.needsWorldgenMigration();
-                boolean needsAssetRefresh = meta.needsWorldgenAssetRefresh(
-                        net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version(),
-                        io.github.billstark001.worldmirror.io.MirrorWorldgenAssets.ASSET_REVISION);
+                boolean createFreshWorld = readiness.state() == MirrorMigrationPlan.State.NEW;
+                WorldMetadata meta = createFreshWorld
+                        ? WorldMetadata.create(finalSourceId, finalSourceType, "synchronized")
+                        : readiness.metadata();
 
-                // Do this before any region file is written.  In particular, an old
-                // flat/the_void mirror must never receive a newly exported chunk
-                // between detecting its old schema and replacing its generator.
+                // New worlds still need their initial generator and embedded pack.
+                // Existing worlds are never migrated from this background worker.
                 boolean worldgenReady = WorldStructureCreator.createLoadableWorld(
                         finalWorldFolder,
                         finalSourceId,
-                        needsWorldgenMigration,
-                        needsAssetRefresh);
+                        createFreshWorld,
+                        createFreshWorld);
                 if (!worldgenReady) {
-                    WMLogger.warn("World generation migration failed; export aborted before writing chunks.");
+                    WMLogger.warn("World generation setup failed; export aborted before writing chunks.");
                     return;
                 }
-                if (needsWorldgenMigration || needsAssetRefresh) {
+                if (createFreshWorld) {
                     meta.markWorldgenCurrent(
                             net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version(),
                             io.github.billstark001.worldmirror.io.MirrorWorldgenAssets.ASSET_REVISION);
@@ -990,7 +1066,8 @@ public final class DownloadManager {
      * @param radiusChunks capture radius in chunks (e.g. 16 = a 33×33 chunk area)
      */
     public static void exportNearbyToNewSave(Minecraft client,
-                                             String worldName, int radiusChunks) {
+                                              String worldName, int radiusChunks,
+                                              NearbyExportLineage.Choice lineageChoice) {
         ClientLevel world = client.level;
         if (world == null || client.player == null) {
             WMLogger.sendSystemMessage(client.player,
@@ -1047,8 +1124,15 @@ public final class DownloadManager {
         }
         final Path finalOut = outFolder;
         final int finalBX = playerBX, finalBY = playerBY, finalBZ = playerBZ;
-        final String sourceId = WorldMetadata.detectSourceId(client);
-        final String sourceType = WorldMetadata.detectSourceType(client);
+        MirrorWorldContext.Snapshot currentMirror = MirrorWorldContext.current();
+        ensureCurrentMirrorIdentity(currentMirror);
+        NearbyExportLineage.Result lineage = NearbyExportLineage.resolve(
+                lineageChoice,
+                currentMirror.isMirror() ? currentMirror.metadata() : null,
+                WorldMetadata.detectSourceId(client), WorldMetadata.detectSourceType(client));
+        final String sourceId = lineage.sourceId();
+        final String sourceType = lineage.sourceType();
+        final String parentMirrorId = lineage.parentMirrorId();
 
         WMLogger.info("Exporting " + nearbyChunks.size() + " nearby chunk(s) to '"
                 + finalOut.getFileName() + "'...");
@@ -1069,6 +1153,7 @@ public final class DownloadManager {
                     throw new IllegalStateException("Could not create nearby-export world structure");
                 }
                 WorldMetadata metadata = WorldMetadata.create(sourceId, sourceType, "nearby_export");
+                metadata.parentMirrorId = parentMirrorId;
                 metadata.markWorldgenCurrent(
                         net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version(),
                         io.github.billstark001.worldmirror.io.MirrorWorldgenAssets.ASSET_REVISION);
@@ -1086,6 +1171,15 @@ public final class DownloadManager {
         }, "WM-NearbyExport");
         worker.setDaemon(false);
         worker.start();
+    }
+
+    private static void ensureCurrentMirrorIdentity(MirrorWorldContext.Snapshot currentMirror) {
+        if (!currentMirror.isMirror() || currentMirror.metadata() == null
+                || currentMirror.worldFolder() == null) return;
+        WorldMetadata metadata = currentMirror.metadata();
+        if (metadata.mirrorId != null && !metadata.mirrorId.isBlank()) return;
+        metadata.ensureMirrorId();
+        metadata.save(currentMirror.worldFolder());
     }
 
     private static String sanitiseFolderName(String name) {

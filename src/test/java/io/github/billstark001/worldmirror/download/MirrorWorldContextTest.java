@@ -36,6 +36,35 @@ class MirrorWorldContextTest {
         assertFalse(metadata.needsWorldgenAssetRefresh(100, MirrorWorldgenAssets.ASSET_REVISION));
     }
 
+    @Test
+    void classifiesFreshAndUnmanagedFoldersSeparately(@TempDir Path root) throws Exception {
+        Path fresh = root.resolve("fresh");
+        Files.createDirectories(fresh);
+        assertEquals(MirrorMigrationPlan.State.NEW, MirrorMigrationPlan.inspect(fresh, 100).state());
+
+        Path unmanaged = root.resolve("unmanaged");
+        Files.createDirectories(unmanaged);
+        Files.writeString(unmanaged.resolve("level.dat"), "not a real level file");
+        assertEquals(MirrorMigrationPlan.State.UNMANAGED,
+                MirrorMigrationPlan.inspect(unmanaged, 100).state());
+    }
+
+    @Test
+    void nearbyExportLineageKeepsTheOriginalSourceOrCreatesAStableDerivedIdentity() {
+        WorldMetadata current = metadata();
+        current.mirrorId = "mirror-id";
+
+        NearbyExportLineage.Result inherited = NearbyExportLineage.resolve(
+                NearbyExportLineage.Choice.INHERIT_ORIGINAL, current, "fallback", "server");
+        assertEquals("server:example.test", inherited.sourceId());
+        assertEquals("mirror-id", inherited.parentMirrorId());
+
+        NearbyExportLineage.Result derived = NearbyExportLineage.resolve(
+                NearbyExportLineage.Choice.CURRENT_MIRROR, current, "fallback", "server");
+        assertEquals("mirror:mirror-id", derived.sourceId());
+        assertEquals("mirror", derived.sourceType());
+    }
+
     private static WorldMetadata metadata() {
         WorldMetadata metadata = new WorldMetadata();
         metadata.sourceId = "server:example.test";

@@ -15,6 +15,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Per-world mirror-location migration with confirmation, synchronized path remapping, and safeguards that require downloads and exports to stop first.
 - A vanilla-readable `worldmirror_environment` data pack embedded in each mirror save, with featureless per-dimension biomes for uncaptured void terrain.
 - Read-only detection of the currently-open local mirror save, including its schema compatibility and original source identity.
+- Enter-before-load schema updates for outdated local mirror saves, with a targeted backup, native confirmation, progress, and completion feedback.
+- Metadata lineage choices for Nearby Export made from an open mirror: inherit the original source, point at the current mirror, or create an independent snapshot.
 
 ### Changed
 
@@ -33,6 +35,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Kept data-pack asset revisions separate from the semantic world-generation schema so Minecraft command/data-pack format changes can refresh assets without redefining the migration contract.
 - Added metadata to new Nearby Export saves and made the status map use a currently-open mirror save's own capture database; Xaero shows a yellow current-mirror indicator where its canvas API permits.
 - Prevented an older mod from overwriting a mirror's newer worldgen schema or embedded-asset revision.
+- Replaced silent download-time schema migration with explicit confirmation; current mirror saves are only warned about capture when Download is clicked, not when entered.
+- Replaced Xaero's obscured yellow dot with a high-contrast `WM` UI badge beside its settings button and a one-time explanatory toast.
 
 ---
 

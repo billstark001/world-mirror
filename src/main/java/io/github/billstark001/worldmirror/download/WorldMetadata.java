@@ -6,13 +6,14 @@ import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.Reader;
-import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Per-world metadata written to {@code <mirror>/worldmirror_meta.json}.
@@ -43,6 +44,12 @@ public class WorldMetadata {
 
     /** Whether this is a synchronized mirror or a standalone nearby export. */
     public String mirrorKind = "synchronized";
+
+    /** Stable save identity.  Unlike a folder name, it survives copies and moves. */
+    public String mirrorId;
+
+    /** Optional identity of the mirror this save was exported from. */
+    public String parentMirrorId;
 
     /** {@code "singleplayer"} or {@code "server"}. */
     public String sourceType = "unknown";
@@ -97,7 +104,7 @@ public class WorldMetadata {
                                              String sourceType) {
         Path metaFile = worldFolder.resolve(FILE_NAME);
         if (metaFile.toFile().exists()) {
-            try (Reader r = new FileReader(metaFile.toFile())) {
+            try (Reader r = Files.newBufferedReader(metaFile, StandardCharsets.UTF_8)) {
                 WorldMetadata loaded = GSON.fromJson(r, WorldMetadata.class);
                 if (loaded != null) {
                     // chunkUpdateTimes may be non-null if this is an old JSON file;
@@ -118,6 +125,7 @@ public class WorldMetadata {
         meta.sourceType = sourceType;
         meta.sourceId = sourceId;
         meta.mirrorKind = mirrorKind;
+        meta.ensureMirrorId();
         return meta;
     }
 
@@ -125,7 +133,7 @@ public class WorldMetadata {
     public static Optional<WorldMetadata> loadIfPresent(Path worldFolder) {
         Path metaFile = worldFolder.resolve(FILE_NAME);
         if (!metaFile.toFile().exists()) return Optional.empty();
-        try (Reader r = new FileReader(metaFile.toFile())) {
+        try (Reader r = Files.newBufferedReader(metaFile, StandardCharsets.UTF_8)) {
             return Optional.ofNullable(GSON.fromJson(r, WorldMetadata.class));
         } catch (Exception e) {
             WMLogger.warn("Could not read worldmirror_meta.json: " + e.getMessage());
@@ -135,10 +143,21 @@ public class WorldMetadata {
 
     /** Writes this metadata to {@code worldFolder/worldmirror_meta.json}. */
     public void save(Path worldFolder) {
-        try (Writer w = new FileWriter(worldFolder.resolve(FILE_NAME).toFile())) {
-            GSON.toJson(this, w);
+        ensureMirrorId();
+        Path metadataFile = worldFolder.resolve(FILE_NAME);
+        Path temporaryFile = metadataFile.resolveSibling(FILE_NAME + ".tmp");
+        try {
+            Files.createDirectories(worldFolder);
+            Files.writeString(temporaryFile, GSON.toJson(this), StandardCharsets.UTF_8);
+            try {
+                Files.move(temporaryFile, metadataFile,
+                        StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException ignored) {
+                Files.move(temporaryFile, metadataFile, StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (Exception e) {
             WMLogger.warn("Failed to save worldmirror_meta.json: " + e.getMessage());
+            try { Files.deleteIfExists(temporaryFile); } catch (Exception ignored) {}
         }
     }
 
@@ -168,6 +187,11 @@ public class WorldMetadata {
     /** Whether the dimension generator itself must be replaced. */
     public boolean needsWorldgenMigration() {
         return worldgenSchema < CURRENT_WORLDGEN_SCHEMA;
+    }
+
+    /** Assigns an identity to legacy metadata the next time it is written. */
+    public void ensureMirrorId() {
+        if (mirrorId == null || mirrorId.isBlank()) mirrorId = UUID.randomUUID().toString();
     }
 
     /** True when this save was written by a newer world-generation schema. */

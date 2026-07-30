@@ -78,10 +78,10 @@ public class StatusScreen extends Screen {
     private void addStatusButtons(int left) {
         toggleButton = addRenderableWidget(Button.builder(Component.translatable(DownloadManager.isActive()
                         ? "screen.worldmirror.status.stopDownload" : "screen.worldmirror.status.startDownload"),
-                button -> { DownloadManager.toggle(Minecraft.getInstance()); refresh(); })
+                button -> DownloadManager.toggle(Minecraft.getInstance()))
                 .bounds(left, 116, 178, BUTTON_HEIGHT).build());
         addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.exportNow"),
-                button -> { DownloadManager.exportNow(Minecraft.getInstance()); refresh(); })
+                button -> DownloadManager.exportNow(Minecraft.getInstance()))
                 .bounds(left + 182, 116, 178, BUTTON_HEIGHT).build());
         addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.status.clearData"),
                 button -> { DownloadManager.clearAll(Minecraft.getInstance()); refresh(); })

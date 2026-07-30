@@ -5,8 +5,11 @@ import io.github.billstark001.worldmirror.ui.ChunkStatusCache;
 import io.github.billstark001.worldmirror.ui.ChunkStatusSnapshot;
 import io.github.billstark001.worldmirror.ui.ChunkMapView;
 import io.github.billstark001.worldmirror.ui.ChunkStatusCache.StatusTarget;
+import io.github.billstark001.worldmirror.ui.ClientDialogs;
+import io.github.billstark001.worldmirror.ui.MirrorPrompt;
 import io.github.billstark001.xaerobridge.api.MapOverlayContext;
 import io.github.billstark001.xaerobridge.api.OverlayRegistration;
+import io.github.billstark001.xaerobridge.api.UiOverlayContext;
 import io.github.billstark001.xaerobridge.api.XaeroWorldMapBridge;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceKey;
@@ -20,6 +23,8 @@ import net.minecraft.world.level.Level;
  */
 public final class XaeroBridgeOverlay {
     private static OverlayRegistration registration;
+    private static OverlayRegistration indicatorRegistration;
+    private static volatile boolean indicatorToastShown;
 
     private XaeroBridgeOverlay() {}
 
@@ -27,6 +32,8 @@ public final class XaeroBridgeOverlay {
         if (registration == null) {
             registration = XaeroWorldMapBridge.registerMapOverlay(
                     "worldmirror:chunk-status", 0, XaeroBridgeOverlay::render);
+            indicatorRegistration = XaeroWorldMapBridge.registerUiOverlay(
+                    "worldmirror:mirror-indicator", 0, XaeroBridgeOverlay::renderIndicator);
         }
     }
 
@@ -51,12 +58,45 @@ public final class XaeroBridgeOverlay {
                 System.currentTimeMillis(),
                 config.xaeroWorldMapOverlayMaxCells);
 
-        // The bridge canvas has no text API.  A compact yellow marker makes it
-        // explicit that this overlay is reading the save currently being played,
-        // rather than a separate output mirror.
+    }
+
+    /** Drawn after Xaero's widgets, avoiding the old settings-button overlap. */
+    private static void renderIndicator(UiOverlayContext context) {
+        Minecraft client = Minecraft.getInstance();
         StatusTarget target = ChunkStatusCache.targetFor(client);
         if (target != null && target.currentWorldIsMirror()) {
-            context.canvas().fill(4, 4, 10, 10, 0xFFFFFF00);
+            int x = Math.min(36, Math.max(4, context.width() - 50));
+            int y = 5;
+            context.canvas().fill(x, y, x + 46, y + 18, 0xD0000000);
+            context.canvas().fill(x, y, x + 46, y + 2, 0xFFFFC000);
+            context.canvas().fill(x, y + 16, x + 46, y + 18, 0xFFFFC000);
+            context.canvas().fill(x, y, x + 2, y + 18, 0xFFFFC000);
+            context.canvas().fill(x + 44, y, x + 46, y + 18, 0xFFFFC000);
+            drawWmGlyph(context, x + 7, y + 5);
+            if (!indicatorToastShown) {
+                indicatorToastShown = true;
+                client.execute(() -> ClientDialogs.toast(client,
+                        new MirrorPrompt.Text("toast.worldmirror.mirrorIndicator.title"),
+                        new MirrorPrompt.Text("toast.worldmirror.mirrorIndicator.body")));
+            }
+        } else {
+            indicatorToastShown = false;
         }
+    }
+
+    /** A legible fill-only WM glyph; Bridge 0.1.0 intentionally has no text API. */
+    private static void drawWmGlyph(UiOverlayContext context, int x, int y) {
+        int color = 0xFFFFE066;
+        context.canvas().fill(x, y, x + 2, y + 8, color);
+        context.canvas().fill(x + 9, y, x + 11, y + 8, color);
+        context.canvas().fill(x + 2, y + 5, x + 4, y + 8, color);
+        context.canvas().fill(x + 7, y + 5, x + 9, y + 8, color);
+        context.canvas().fill(x + 4, y + 6, x + 7, y + 8, color);
+        x += 15;
+        context.canvas().fill(x, y, x + 2, y + 8, color);
+        context.canvas().fill(x + 9, y, x + 11, y + 8, color);
+        context.canvas().fill(x + 2, y, x + 4, y + 3, color);
+        context.canvas().fill(x + 7, y, x + 9, y + 3, color);
+        context.canvas().fill(x + 4, y + 2, x + 7, y + 4, color);
     }
 }

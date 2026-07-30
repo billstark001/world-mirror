@@ -6,7 +6,6 @@ import io.github.billstark001.worldmirror.download.ChunkDatabase;
 import io.github.billstark001.worldmirror.download.DownloadManager;
 import io.github.billstark001.worldmirror.download.MirrorWorldContext;
 import io.github.billstark001.worldmirror.ui.ChunkMapScreen;
-import io.github.billstark001.worldmirror.ui.MirrorWorldWarningScreen;
 import io.github.billstark001.worldmirror.ui.StatusScreen;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.xaero.XaeroBridgeOverlay;
@@ -107,7 +106,6 @@ public class WorldMirrorClient implements ClientModInitializer {
         MirrorWorldContext.enter(currentLocalSave(client),
                 SharedConstants.getCurrentVersion().dataVersion().version());
         DownloadManager.onJoinWorld(client);
-        client.execute(MirrorWorldWarningScreen::openIfCurrentWorldIsMirror);
     }
 
     private static Path currentLocalSave(net.minecraft.client.Minecraft client) {
