@@ -13,6 +13,7 @@ import io.github.billstark001.worldmirror.core.EntityTracker;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
@@ -330,9 +331,6 @@ public final class DownloadManager {
     }
 
     private static Path getOutputPathForSource(String sourceId) {
-        // Always the sanitised base name — no suffix appended here.
-        String baseName   = MirrorMapping.getInstance().getMirrorFolderName(sourceId);
-
         // Per-world override wins over global config
         String perWorldLoc = MirrorMapping.getInstance().getPerWorldSaveLocation(sourceId);
         ModConfig.SaveLocation saveLocation;
@@ -346,6 +344,12 @@ public final class DownloadManager {
             saveLocation = ModConfig.get().defaultSaveLocation;
         }
 
+        return getOutputPathForLocation(sourceId, saveLocation);
+    }
+
+    /** Resolves a source's mirror location for an explicit save-location choice. */
+    public static Path getOutputPathForLocation(String sourceId, ModConfig.SaveLocation saveLocation) {
+        String baseName = MirrorMapping.getInstance().getMirrorFolderName(sourceId);
         Path base = (saveLocation == ModConfig.SaveLocation.SAVES)
                 ? FabricLoader.getInstance().getGameDir().resolve("saves")
                 : FabricLoader.getInstance().getGameDir().resolve("downloaded_worlds");
@@ -372,6 +376,42 @@ public final class DownloadManager {
                     + baseName + "' → '" + resolvedName + "'");
         }
         return resolved;
+    }
+
+    /** Records a location change before a mirror has been created. */
+    public static void setMirrorSaveLocation(String sourceId, ModConfig.SaveLocation saveLocation) {
+        Path target = getOutputPathForLocation(sourceId, saveLocation);
+        MirrorMapping mapping = MirrorMapping.getInstance();
+        mapping.setPerWorldSaveLocation(sourceId, saveLocation.name());
+        mapping.setResolvedFolderName(sourceId, saveLocation.name(), target.getFileName().toString());
+    }
+
+    public static MirrorMoveResult moveMirrorWorld(Minecraft client, ModConfig.SaveLocation targetLocation) {
+        if (isActive()) return MirrorMoveResult.failure("download_active");
+        if (isExportInProgress()) return MirrorMoveResult.failure("export_in_progress");
+        String sourceId = WorldMetadata.detectSourceId(client);
+        Path source = getOutputPath(client);
+        if (!Files.isDirectory(source)) return MirrorMoveResult.failure("source_missing");
+        Path target = getOutputPathForLocation(sourceId, targetLocation);
+        if (source.normalize().equals(target.normalize())) {
+            setMirrorSaveLocation(sourceId, targetLocation);
+            return MirrorMoveResult.success(source, target);
+        }
+        try {
+            if (Files.exists(target)) return MirrorMoveResult.failure("target_exists");
+            Files.createDirectories(target.getParent());
+            Files.move(source, target);
+            setMirrorSaveLocation(sourceId, targetLocation);
+            return MirrorMoveResult.success(source, target);
+        } catch (Exception e) {
+            WMLogger.warn("Could not move mirror world from " + source + " to " + target, e);
+            return MirrorMoveResult.failure("io_error");
+        }
+    }
+
+    public record MirrorMoveResult(boolean success, String failureCode, Path source, Path target) {
+        private static MirrorMoveResult success(Path source, Path target) { return new MirrorMoveResult(true, null, source, target); }
+        private static MirrorMoveResult failure(String failureCode) { return new MirrorMoveResult(false, failureCode, null, null); }
     }
 
     /**
@@ -838,7 +878,7 @@ public final class DownloadManager {
         if (world == null || client.player == null) {
             if (client.player != null)
                 client.player.displayClientMessage(
-                        Component.literal("§cCannot export: no world loaded."), false);
+                        Component.translatable("msg.worldmirror.nearbyNoWorld").withStyle(ChatFormatting.RED), false);
             return;
         }
 
@@ -870,7 +910,7 @@ public final class DownloadManager {
         if (nearbyChunks.isEmpty()) {
             if (client.player != null)
                 client.player.displayClientMessage(
-                        Component.literal("§cNo chunks captured in radius " + radiusChunks + "."), false);
+                        Component.translatable("msg.worldmirror.nearbyNoChunks", radiusChunks).withStyle(ChatFormatting.RED), false);
             return;
         }
 
@@ -914,14 +954,14 @@ public final class DownloadManager {
                 client.execute(() -> {
                     if (client.player != null)
                         client.player.displayClientMessage(
-                                Component.literal("§aExported to saves/" + finalOut.getFileName()), false);
+                                Component.translatable("msg.worldmirror.nearbyDone", finalOut.getFileName()).withStyle(ChatFormatting.GREEN), false);
                 });
             } catch (Exception e) {
                 WMLogger.warn("exportNearbyToNewSave failed: " + e.getMessage());
                 client.execute(() -> {
                     if (client.player != null)
                         client.player.displayClientMessage(
-                                Component.literal("§cExport failed: " + e.getMessage()), false);
+                                Component.translatable("msg.worldmirror.nearbyFailed", e.getMessage()).withStyle(ChatFormatting.RED), false);
                 });
             }
         }, "WM-NearbyExport");
