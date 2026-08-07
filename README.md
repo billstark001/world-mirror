@@ -296,6 +296,28 @@ JARs in the root [`build/modrinth`](build/modrinth) directory:
 
 Use `-SkipBuild` only when the current version's three JARs have already been built.
 
+### Development run configurations
+
+Gradle generates a separate IntelliJ IDEA client run configuration for every supported Minecraft target. All targets
+intentionally share the root `run/` directory, while their module, Loom launch file, and Java runtime remain
+version-specific. Minecraft 1.21.11 uses Java 21; Minecraft 26.x uses Java 25.
+
+Reloading the Gradle project refreshes the configurations automatically. They can also be rebuilt from a terminal:
+
+```powershell
+.\gradlew.bat syncIdeaRunConfigurations
+```
+
+Before regeneration, this removes the old generated configurations, including entries belonging to deleted targets.
+When adding or removing a Minecraft target:
+
+1. Update its metadata entry in `build.gradle`.
+2. Update the matching `versions/fabric-<minecraft>` project in `settings.gradle` and its source directories.
+3. Update the CI, release, and Modrinth matrices in `.github/workflows` and `scripts`.
+4. Reload the Gradle project, or run `syncIdeaRunConfigurations`.
+
+`buildAll` derives its project list from `targets`, so it does not need a separate update.
+
 ---
 
 ## Architecture Notes

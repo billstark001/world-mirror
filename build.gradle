@@ -24,12 +24,27 @@ ext.targets = [
     ]
 ]
 
+def fabricProjectPaths = targets.keySet().collect { ":versions:fabric-${it}" }
+
+tasks.register("cleanIdeaRunConfigurations", Delete) {
+    group = "ide"
+    description = "Deletes generated Fabric run configurations before IDEA recreates them."
+    delete fileTree(rootProject.file(".idea/runConfigurations")) {
+        include "Minecraft_Client.xml"
+        include "Minecraft_Server.xml"
+        include "Minecraft_Client_*fabric-*.xml"
+        include "Minecraft_Server_*fabric-*.xml"
+    }
+}
+
+tasks.register("syncIdeaRunConfigurations") {
+    group = "ide"
+    description = "Recreates IDEA run configurations for every configured Fabric target."
+    dependsOn(fabricProjectPaths.collect { "${it}:ideaSyncTask" })
+}
+
 tasks.register("buildAll") {
     group = "build"
     description = "Builds every supported Fabric target."
-    dependsOn(
-        ":versions:fabric-1.21.11:build",
-        ":versions:fabric-26.1.2:build",
-        ":versions:fabric-26.2:build"
-    )
+    dependsOn(fabricProjectPaths.collect { "${it}:build" })
 }
