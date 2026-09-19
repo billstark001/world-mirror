@@ -1,5 +1,7 @@
 package io.github.billstark001.worldmirror.io;
 
+import io.github.billstark001.worldmirror.util.JsonSupport;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -25,21 +27,10 @@ public final class MirrorWorldgenAssets {
     /** Installs (or refreshes) the vanilla-readable data pack for a world. */
     public static void install(Path worldFolder, int dataPackFormat) throws IOException {
         Path pack = worldFolder.resolve("datapacks").resolve(PACK_DIRECTORY);
-        write(pack.resolve("pack.mcmeta"), """
-                {
-                  "pack": {
-                    "pack_format": %d,
-                    "min_format": %d,
-                    "max_format": %d,
-                    "description": "World Mirror environment definitions"
-                  }
-                }
-                """.formatted(dataPackFormat, dataPackFormat, dataPackFormat));
-        write(pack.resolve("worldmirror_manifest.json"), """
-                {
-                  "assetRevision": %d
-                }
-                """.formatted(ASSET_REVISION));
+        write(pack.resolve("pack.mcmeta"),
+                MirrorWorldgenJson.packDocument(dataPackFormat));
+        write(pack.resolve("worldmirror_manifest.json"),
+                MirrorWorldgenJson.assetManifest(ASSET_REVISION));
         writeBiome(pack, "mirror_overworld", 0.8F, 0.4F, 12638463, 7907327,
                 dataPackFormat);
         writeBiome(pack, "mirror_nether", 2.0F, 0.0F, 3344392, 7254527,
@@ -55,53 +46,22 @@ public final class MirrorWorldgenAssets {
             writeModernBiome(pack, name, temperature, downfall, fogColor, skyColor);
             return;
         }
-        write(pack.resolve("data/worldmirror/worldgen/biome/" + name + ".json"), """
-                {
-                  "has_precipitation": true,
-                  "temperature": %s,
-                  "downfall": %s,
-                  "effects": {
-                    "fog_color": %d,
-                    "sky_color": %d,
-                    "water_color": 4159204,
-                    "water_fog_color": 329011
-                  },
-                  "carvers": [],
-                  "features": [],
-                  "spawners": {},
-                  "spawn_costs": {}
-                }
-                """.formatted(temperature, downfall, fogColor, skyColor));
+        write(pack.resolve("data/worldmirror/worldgen/biome/" + name + ".json"),
+                MirrorWorldgenJson.legacyBiome(
+                        temperature, downfall, fogColor, skyColor));
     }
 
     private static void writeModernBiome(Path pack, String name, float temperature,
                                          float downfall, int fogColor, int skyColor)
             throws IOException {
-        write(pack.resolve("data/worldmirror/worldgen/biome/" + name + ".json"), """
-                {
-                  "has_precipitation": true,
-                  "temperature": %s,
-                  "downfall": %s,
-                  "attributes": {
-                    "minecraft:gameplay/natural_mob_spawns": {
-                      "spawn_costs": {},
-                      "spawns_by_category": {}
-                    },
-                    "minecraft:visual/fog_color": "#%06x",
-                    "minecraft:visual/sky_color": "#%06x",
-                    "minecraft:visual/water_fog_color": "#032e3f"
-                  },
-                  "effects": {
-                    "water_color": "#3f76e4"
-                  },
-                  "carvers": [],
-                  "features": []
-                }
-                """.formatted(temperature, downfall, fogColor, skyColor));
+        write(pack.resolve("data/worldmirror/worldgen/biome/" + name + ".json"),
+                MirrorWorldgenJson.modernBiome(
+                        temperature, downfall, fogColor, skyColor));
     }
 
-    private static void write(Path file, String contents) throws IOException {
+    private static void write(Path file, Object model) throws IOException {
         Files.createDirectories(file.getParent());
-        Files.writeString(file, contents, StandardCharsets.UTF_8);
+        Files.writeString(file, JsonSupport.toPrettyJson(model) + System.lineSeparator(),
+                StandardCharsets.UTF_8);
     }
 }
