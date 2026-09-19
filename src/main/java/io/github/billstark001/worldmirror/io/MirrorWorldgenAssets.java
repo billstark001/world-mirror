@@ -14,7 +14,9 @@ import java.nio.file.Path;
  */
 public final class MirrorWorldgenAssets {
 
-    public static final int ASSET_REVISION = 1;
+    public static final int ASSET_REVISION = 2;
+    /** Minecraft 26.3 moved biome visuals and natural spawning into environment attributes. */
+    static final int ENVIRONMENT_ATTRIBUTE_BIOME_FORMAT = 121;
     public static final String PACK_DIRECTORY = "worldmirror_environment";
     public static final String PACK_ID = "file/" + PACK_DIRECTORY;
 
@@ -38,13 +40,21 @@ public final class MirrorWorldgenAssets {
                   "assetRevision": %d
                 }
                 """.formatted(ASSET_REVISION));
-        writeBiome(pack, "mirror_overworld", 0.8F, 0.4F, 12638463, 7907327);
-        writeBiome(pack, "mirror_nether", 2.0F, 0.0F, 3344392, 7254527);
-        writeBiome(pack, "mirror_end", 0.5F, 0.5F, 10518688, 0);
+        writeBiome(pack, "mirror_overworld", 0.8F, 0.4F, 12638463, 7907327,
+                dataPackFormat);
+        writeBiome(pack, "mirror_nether", 2.0F, 0.0F, 3344392, 7254527,
+                dataPackFormat);
+        writeBiome(pack, "mirror_end", 0.5F, 0.5F, 10518688, 0,
+                dataPackFormat);
     }
 
     private static void writeBiome(Path pack, String name, float temperature, float downfall,
-                                   int fogColor, int skyColor) throws IOException {
+                                   int fogColor, int skyColor, int dataPackFormat)
+            throws IOException {
+        if (dataPackFormat >= ENVIRONMENT_ATTRIBUTE_BIOME_FORMAT) {
+            writeModernBiome(pack, name, temperature, downfall, fogColor, skyColor);
+            return;
+        }
         write(pack.resolve("data/worldmirror/worldgen/biome/" + name + ".json"), """
                 {
                   "has_precipitation": true,
@@ -60,6 +70,32 @@ public final class MirrorWorldgenAssets {
                   "features": [],
                   "spawners": {},
                   "spawn_costs": {}
+                }
+                """.formatted(temperature, downfall, fogColor, skyColor));
+    }
+
+    private static void writeModernBiome(Path pack, String name, float temperature,
+                                         float downfall, int fogColor, int skyColor)
+            throws IOException {
+        write(pack.resolve("data/worldmirror/worldgen/biome/" + name + ".json"), """
+                {
+                  "has_precipitation": true,
+                  "temperature": %s,
+                  "downfall": %s,
+                  "attributes": {
+                    "minecraft:gameplay/natural_mob_spawns": {
+                      "spawn_costs": {},
+                      "spawns_by_category": {}
+                    },
+                    "minecraft:visual/fog_color": "#%06x",
+                    "minecraft:visual/sky_color": "#%06x",
+                    "minecraft:visual/water_fog_color": "#032e3f"
+                  },
+                  "effects": {
+                    "water_color": "#3f76e4"
+                  },
+                  "carvers": [],
+                  "features": []
                 }
                 """.formatted(temperature, downfall, fogColor, skyColor));
     }
