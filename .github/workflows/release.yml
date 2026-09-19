@@ -11,7 +11,7 @@ on:
         required: true
         type: string
       publish_modrinth:
-        description: 'Publish the three Modrinth versions when a token is configured'
+        description: 'Publish the four Modrinth versions when a token is configured'
         required: true
         default: false
         type: boolean
@@ -116,13 +116,13 @@ jobs:
           set -euo pipefail
           mkdir -p build/release
           mv release-notes.md build/release/
-          for minecraft in 1.21.11 26.1.2 26.2; do
+          for minecraft in 1.21.11 26.1.2 26.2 26.3; do
             jar="versions/fabric-$minecraft/build/libs/world-mirror-$VERSION+$minecraft-fabric.jar"
             test -f "$jar"
             cp "$jar" build/release/
           done
-          test "$(find build/release -maxdepth 1 -name '*.jar' -type f | wc -l)" -eq 3
-          test "$(find versions -path '*/build/libs/world-mirror-*-fabric.jar' -type f | wc -l)" -eq 3
+          test "$(find build/release -maxdepth 1 -name '*.jar' -type f | wc -l)" -eq 4
+          test "$(find versions -path '*/build/libs/world-mirror-*-fabric.jar' -type f | wc -l)" -eq 4
 
       - name: Upload release bundle
         uses: actions/upload-artifact@v4
@@ -164,6 +164,7 @@ jobs:
           - '1.21.11'
           - '26.1.2'
           - '26.2'
+          - '26.3'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
