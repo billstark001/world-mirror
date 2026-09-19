@@ -1,6 +1,6 @@
 # World Mirror
 
-**Version:** 0.4.3 · **Minecraft:** 1.21.11, 26.1.2, 26.2 · **Loader:** Fabric
+**Version:** 0.4.4 · **Minecraft:** 1.21.11, 26.1.2, 26.2, 26.3 · **Loader:** Fabric
 
 A client-side Fabric mod that mirrors the world you are playing on a multiplayer server —
 or even a singleplayer world — into a standard local save. As you explore, the mod captures
@@ -165,13 +165,13 @@ Minecraft's dimension layout differs by target version:
 | Target | Overworld | Nether | End | Custom dimension |
 |--------|-----------|--------|-----|------------------|
 | 1.21.11 | `<world>/` | `<world>/DIM-1/` | `<world>/DIM1/` | `<world>/dimensions/<ns>/<path>/` |
-| 26.1.2 / 26.2 | `<world>/dimensions/minecraft/overworld/` | `<world>/dimensions/minecraft/the_nether/` | `<world>/dimensions/minecraft/the_end/` | `<world>/dimensions/<ns>/<path>/` |
+| 26.1.2 / 26.2 / 26.3 | `<world>/dimensions/minecraft/overworld/` | `<world>/dimensions/minecraft/the_nether/` | `<world>/dimensions/minecraft/the_end/` | `<world>/dimensions/<ns>/<path>/` |
 
 Each dimension directory contains the target version's `region/`, `entities/`, and
 `poi/` structure. World Mirror also creates the player-data and saved-data directories
 required by that version.
 
-Minecraft 26.1.2 and 26.2 also use `data/minecraft/world_clocks.dat`. World Mirror
+Minecraft 26.1.2, 26.2, and 26.3 also use `data/minecraft/world_clocks.dat`. World Mirror
 generates its payload through Minecraft's `PackedClockStates` codec and automatically
 repairs the exact extra `data.clocks` wrapper produced by World Mirror 0.4.0. Other clock
 payload shapes are left untouched.
@@ -263,10 +263,11 @@ Choose the World Mirror JAR that exactly matches your Minecraft version:
 | 1.21.11 | 21 or newer |
 | 26.1.2 | 25 or newer |
 | 26.2 | 25 or newer |
+| 26.3 | 25 or newer |
 
-1. Install [Fabric Loader](https://fabricmc.net/use/) 0.19.3 or newer.
+1. Install [Fabric Loader](https://fabricmc.net/use/) 0.19.5 or newer.
 2. Install the matching [Fabric API](https://modrinth.com/mod/fabric-api).
-3. Put the matching World Mirror 0.4.3 JAR in `mods/`.
+3. Put the matching World Mirror 0.4.4 JAR in `mods/`.
 4. *(Optional)* Install [Mod Menu](https://modrinth.com/mod/modmenu) for a title-screen settings entry.
 5. *(Optional)* For the Xaero overlay, install both
    [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map) 1.40.x–1.44.x and the
@@ -339,17 +340,17 @@ project-wide logging policy and the vendored NBT dependency notes.
 ./gradlew buildAll
 ```
 
-This builds the Fabric targets for Minecraft 1.21.11, 26.1.2, and 26.2. Each
+This builds the Fabric targets for Minecraft 1.21.11, 26.1.2, 26.2, and 26.3. Each
 target's artifacts are stored in its `versions/fabric-*/build/libs` directory.
 
-For a Modrinth upload, build all targets and collect only the three distributable
+For a Modrinth upload, build all targets and collect only the four distributable
 JARs in the generated root `build/modrinth` directory:
 
 ```powershell
 .\scripts\build-modrinth.ps1
 ```
 
-Use `-SkipBuild` only when the current version's three JARs have already been built.
+Use `-SkipBuild` only when the current version's four JARs have already been built.
 
 ### Development run configurations
 
@@ -362,7 +363,7 @@ being launched; the helper script keeps other downloaded versions as `.jar.disab
 On this multi-target branch, select the target explicitly:
 
 ```powershell
-.\scripts\Get-LatestXaerosWorldMap.ps1 -MinecraftVersion 26.2
+.\scripts\Get-LatestXaerosWorldMap.ps1 -MinecraftVersion 26.3
 ```
 
 For a World Mirror-only startup smoke test, the external map and bridge can be excluded with

@@ -100,10 +100,11 @@ area instead of a continuing mirror.
 | 1.21.11 | Java 21 or newer |
 | 26.1.2 | Java 25 or newer |
 | 26.2 | Java 25 or newer |
+| 26.3 | Java 25 or newer |
 
 Install:
 
-1. [Fabric Loader](https://fabricmc.net/use/) 0.19.3 or newer.
+1. [Fabric Loader](https://fabricmc.net/use/) 0.19.5 or newer.
 2. The matching [Fabric API](https://modrinth.com/mod/fabric-api).
 3. The World Mirror JAR for your exact Minecraft version.
 

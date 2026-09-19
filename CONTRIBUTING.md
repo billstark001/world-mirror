@@ -12,7 +12,7 @@ and `WMPlayerMessages`.
 Version adapters translate Minecraft types, method names, data encodings, or save
 layouts. They must not acquire lifecycle policy, persistence policy, or duplicated
 UI behavior. Do not introduce a cross-version `shared-mc-26` layer until the Gradle
-source sets explicitly consume it; identical thin 26.1.2/26.2 adapters are acceptable
+source sets explicitly consume it; identical thin 26.1.2/26.2/26.3 adapters are acceptable
 while their upstream APIs remain separate compatibility targets.
 
 The download package follows the same ownership rule:
@@ -117,7 +117,7 @@ map by mod ID, but report that limitation instead of presenting it as an integra
 Releases use the single `.github/workflows/release.yml` workflow. Update `mod_version` in
 `gradle.properties` and make the first release section in `CHANGELOG.md` use that exact
 version, then push the corresponding `v<version>` tag. The workflow validates those three
-values, builds all targets once, checks the exact three distributable JAR names, and creates
+values, builds all targets once, checks the exact four distributable JAR names, and creates
 one GitHub Release. Its release channel and pre-release flag are derived from the version:
 plain semantic versions are stable, `-alpha...` versions are alpha, and other suffixes are
 beta.
@@ -127,7 +127,7 @@ named `MODRINTH_PROJECT_ID` with the Modrinth project slug or ID, and an Actions
 secret named `MODRINTH_TOKEN`. Use a Modrinth personal access token belonging to a project
 team member with the minimum `VERSION_CREATE` scope. When either setting is absent, tag
 releases still publish to GitHub and report that Modrinth was skipped. Each enabled
-Modrinth release is a three-entry matrix, with one primary JAR and one exact Minecraft
+Modrinth release is a four-entry matrix, with one primary JAR and one exact Minecraft
 version per entry. Never hard-code deployment project IDs or tokens in the workflow.
 
 `workflow_dispatch` is the recovery path for an existing tag. It uses the same validation,
