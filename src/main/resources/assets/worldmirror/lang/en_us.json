@@ -238,6 +238,12 @@
 
   "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells": "Xaero Overlay Max Cells",
   "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells.@Tooltip": "Maximum number of screen cells to draw for the Xaero overlay. Lower values improve performance at very low zoom.",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlay": "In-World Chunk Overlay",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlay.@Tooltip": "Draw current and historical World Mirror chunk status as colored boxes in the world. Yellow is waiting to download, green is captured this session, and blue was downloaded previously.",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayRenderDistance": "In-World Overlay Distance (chunks)",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayRenderDistance.@Tooltip": "Maximum square radius of chunk boxes rendered around the player.",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayHeight": "In-World Overlay Height",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayHeight.@Tooltip": "Y coordinate of the one-block-high chunk status boxes.",
 
   "text.autoconfig.worldmirror.option.lifecycle": "Lifecycle Behaviour",
 

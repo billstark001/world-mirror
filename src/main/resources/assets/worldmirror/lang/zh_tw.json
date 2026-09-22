@@ -238,6 +238,12 @@
 
   "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells": "Xaero 疊加層最大繪製單元",
   "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells.@Tooltip": "Xaero 疊加層每幀最多繪製的螢幕單元數量。低縮放時降低此值可提升效能。",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlay": "遊戲內區塊疊加層",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlay.@Tooltip": "在世界中顯示 World Mirror 的區塊狀態。黃色表示等待下載，綠色表示本次工作階段已擷取，藍色表示過去已下載。",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayRenderDistance": "遊戲內疊加層距離（區塊）",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayRenderDistance.@Tooltip": "圍繞玩家繪製的區塊方框最大距離。",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayHeight": "遊戲內疊加層高度",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayHeight.@Tooltip": "繪製一格高區塊狀態方框的 Y 座標。",
 
   "text.autoconfig.worldmirror.option.lifecycle": "生命週期行為",
 

@@ -13,6 +13,16 @@ plugins {
     id "org.gradle.toolchains.foojay-resolver-convention" version "0.8.0"
 }
 
+// Fabric Loom stores its persistent cache below Gradle's project cache. A
+// mapped NAS path can be exposed to Java as a UNC-style path (//NAS/...),
+// which Loom cannot use when constructing its remapped-mods directory. Keep
+// the cache local while leaving the checkout and build outputs in the project.
+def localProjectCacheRoot = System.getenv("LOCALAPPDATA")
+    ? new File(System.getenv("LOCALAPPDATA"), "world-mirror/gradle-cache")
+    : new File(System.getProperty("java.io.tmpdir"), "world-mirror-gradle-cache")
+def projectCacheKey = Integer.toUnsignedString(settingsDir.absolutePath.hashCode())
+gradle.startParameter.projectCacheDir = new File(localProjectCacheRoot, projectCacheKey)
+
 rootProject.name = "world-mirror"
 
 include(

@@ -238,6 +238,12 @@
 
   "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells": "Xaero オーバーレイ最大セル数",
   "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells.@Tooltip": "Xaero オーバーレイで描画する画面セル数の上限です。低ズーム時は値を下げると性能が向上します。",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlay": "ワールド内チャンクオーバーレイ",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlay.@Tooltip": "World Mirror のチャンク状態を色付きボックスで表示します。黄色はダウンロード待ち、緑は今のセッションで取得済み、青は過去にダウンロード済みです。",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayRenderDistance": "ワールド内オーバーレイ距離（チャンク）",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayRenderDistance.@Tooltip": "プレイヤーの周囲に描画するチャンクボックスの最大距離です。",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayHeight": "ワールド内オーバーレイの高さ",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayHeight.@Tooltip": "チャンク状態ボックスを描画する Y 座標です。",
 
   "text.autoconfig.worldmirror.option.lifecycle": "ライフサイクル動作",
 
