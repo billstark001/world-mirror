@@ -1,8 +1,7 @@
 package io.github.billstark001.worldmirror.download;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import io.github.billstark001.worldmirror.config.ModConfig;
+import io.github.billstark001.worldmirror.util.JsonSupport;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.loader.api.FabricLoader;
 
@@ -76,7 +75,6 @@ public class MirrorMapping {
 
     // ── Persistence ───────────────────────────────────────────────────────────
 
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     /** Characters that are NOT safe for folder names and will be replaced with underscores. */
     private static final Pattern UNSAFE = Pattern.compile("[^a-zA-Z0-9._\\-]");
 
@@ -104,7 +102,7 @@ public class MirrorMapping {
         Path file = configDir.resolve("mirrors.json");
         if (file.toFile().exists()) {
             try (Reader r = new FileReader(file.toFile())) {
-                MirrorMapping m = GSON.fromJson(r, MirrorMapping.class);
+                MirrorMapping m = JsonSupport.fromJson(r, MirrorMapping.class);
                 if (m != null) {
                     if (m.entries == null) m.entries = new HashMap<>();
                     if (m.resolvedFolderNames == null) m.resolvedFolderNames = new HashMap<>();
@@ -126,7 +124,7 @@ public class MirrorMapping {
         try {
             Files.createDirectories(configDir);
             try (Writer w = new FileWriter(file.toFile())) {
-                GSON.toJson(this, w);
+                JsonSupport.writePrettyJson(w, this);
             }
         } catch (Exception e) {
             WMLogger.warn("Mirror mapping save failed file=" + file, e);

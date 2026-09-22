@@ -1,6 +1,7 @@
 package io.github.billstark001.worldmirror.download;
 
 import io.github.billstark001.worldmirror.io.MirrorWorldgenAssets;
+import io.github.billstark001.worldmirror.util.JsonSupport;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -15,9 +16,9 @@ class MirrorWorldContextTest {
 
     @Test
     void recognizesLegacyMetadataWithoutAWorldgenSchema(@TempDir Path world) throws Exception {
-        Files.writeString(world.resolve(WorldMetadata.FILE_NAME), """
-                { "sourceId": "server:example.test", "sourceType": "server" }
-                """);
+        Files.writeString(world.resolve(WorldMetadata.FILE_NAME),
+                JsonSupport.toPrettyJson(new LegacyMetadata(
+                        "server:example.test", "server")));
 
         assertEquals(MirrorWorldContext.State.OUTDATED, MirrorWorldContext.inspect(world, 100).state());
     }
@@ -88,4 +89,6 @@ class MirrorWorldContextTest {
         metadata.sourceType = "server";
         return metadata;
     }
+
+    private record LegacyMetadata(String sourceId, String sourceType) { }
 }

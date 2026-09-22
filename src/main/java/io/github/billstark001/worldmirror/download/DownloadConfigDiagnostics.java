@@ -1,18 +1,12 @@
 package io.github.billstark001.worldmirror.download;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import io.github.billstark001.worldmirror.config.ModConfig;
+import io.github.billstark001.worldmirror.util.JsonSupport;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.minecraft.client.Minecraft;
 
 /** Emits reproducible global and current-world configuration at diagnostic startup. */
 final class DownloadConfigDiagnostics {
-    private static final Gson GSON = new GsonBuilder()
-            .disableHtmlEscaping()
-            .serializeNulls()
-            .create();
-
     private DownloadConfigDiagnostics() { }
 
     static void log(Minecraft client) {
@@ -27,7 +21,7 @@ final class DownloadConfigDiagnostics {
     }
 
     static String globalJson(ModConfig config) {
-        return GSON.toJson(config);
+        return JsonSupport.toCompactJsonWithNulls(config);
     }
 
     static String localJson(
@@ -41,7 +35,7 @@ final class DownloadConfigDiagnostics {
         String resolvedFolderName = mapping.previewResolvedFolderName(
                 sourceId, effectiveSaveLocation.name());
 
-        return GSON.toJson(new LocalConfigSnapshot(
+        return JsonSupport.toCompactJsonWithNulls(new LocalConfigSnapshot(
                 sourceId,
                 sourceType,
                 saveLocationOverride,

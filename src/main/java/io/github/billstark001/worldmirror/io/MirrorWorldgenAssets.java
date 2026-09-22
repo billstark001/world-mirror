@@ -1,5 +1,7 @@
 package io.github.billstark001.worldmirror.io;
 
+import io.github.billstark001.worldmirror.util.JsonSupport;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -14,7 +16,9 @@ import java.nio.file.Path;
  */
 public final class MirrorWorldgenAssets {
 
-    public static final int ASSET_REVISION = 1;
+    public static final int ASSET_REVISION = 2;
+    /** Minecraft 26.3 moved biome visuals and natural spawning into environment attributes. */
+    static final int ENVIRONMENT_ATTRIBUTE_BIOME_FORMAT = 121;
     public static final String PACK_DIRECTORY = "worldmirror_environment";
     public static final String PACK_ID = "file/" + PACK_DIRECTORY;
 
@@ -23,49 +27,41 @@ public final class MirrorWorldgenAssets {
     /** Installs (or refreshes) the vanilla-readable data pack for a world. */
     public static void install(Path worldFolder, int dataPackFormat) throws IOException {
         Path pack = worldFolder.resolve("datapacks").resolve(PACK_DIRECTORY);
-        write(pack.resolve("pack.mcmeta"), """
-                {
-                  "pack": {
-                    "pack_format": %d,
-                    "min_format": %d,
-                    "max_format": %d,
-                    "description": "World Mirror environment definitions"
-                  }
-                }
-                """.formatted(dataPackFormat, dataPackFormat, dataPackFormat));
-        write(pack.resolve("worldmirror_manifest.json"), """
-                {
-                  "assetRevision": %d
-                }
-                """.formatted(ASSET_REVISION));
-        writeBiome(pack, "mirror_overworld", 0.8F, 0.4F, 12638463, 7907327);
-        writeBiome(pack, "mirror_nether", 2.0F, 0.0F, 3344392, 7254527);
-        writeBiome(pack, "mirror_end", 0.5F, 0.5F, 10518688, 0);
+        write(pack.resolve("pack.mcmeta"),
+                MirrorWorldgenJson.packDocument(dataPackFormat));
+        write(pack.resolve("worldmirror_manifest.json"),
+                MirrorWorldgenJson.assetManifest(ASSET_REVISION));
+        writeBiome(pack, "mirror_overworld", 0.8F, 0.4F, 12638463, 7907327,
+                dataPackFormat);
+        writeBiome(pack, "mirror_nether", 2.0F, 0.0F, 3344392, 7254527,
+                dataPackFormat);
+        writeBiome(pack, "mirror_end", 0.5F, 0.5F, 10518688, 0,
+                dataPackFormat);
     }
 
     private static void writeBiome(Path pack, String name, float temperature, float downfall,
-                                   int fogColor, int skyColor) throws IOException {
-        write(pack.resolve("data/worldmirror/worldgen/biome/" + name + ".json"), """
-                {
-                  "has_precipitation": true,
-                  "temperature": %s,
-                  "downfall": %s,
-                  "effects": {
-                    "fog_color": %d,
-                    "sky_color": %d,
-                    "water_color": 4159204,
-                    "water_fog_color": 329011
-                  },
-                  "carvers": [],
-                  "features": [],
-                  "spawners": {},
-                  "spawn_costs": {}
-                }
-                """.formatted(temperature, downfall, fogColor, skyColor));
+                                   int fogColor, int skyColor, int dataPackFormat)
+            throws IOException {
+        if (dataPackFormat >= ENVIRONMENT_ATTRIBUTE_BIOME_FORMAT) {
+            writeModernBiome(pack, name, temperature, downfall, fogColor, skyColor);
+            return;
+        }
+        write(pack.resolve("data/worldmirror/worldgen/biome/" + name + ".json"),
+                MirrorWorldgenJson.legacyBiome(
+                        temperature, downfall, fogColor, skyColor));
     }
 
-    private static void write(Path file, String contents) throws IOException {
+    private static void writeModernBiome(Path pack, String name, float temperature,
+                                         float downfall, int fogColor, int skyColor)
+            throws IOException {
+        write(pack.resolve("data/worldmirror/worldgen/biome/" + name + ".json"),
+                MirrorWorldgenJson.modernBiome(
+                        temperature, downfall, fogColor, skyColor));
+    }
+
+    private static void write(Path file, Object model) throws IOException {
         Files.createDirectories(file.getParent());
-        Files.writeString(file, contents, StandardCharsets.UTF_8);
+        Files.writeString(file, JsonSupport.toPrettyJson(model) + System.lineSeparator(),
+                StandardCharsets.UTF_8);
     }
 }

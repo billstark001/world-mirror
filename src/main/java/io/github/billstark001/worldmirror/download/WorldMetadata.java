@@ -1,8 +1,7 @@
 package io.github.billstark001.worldmirror.download;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import io.github.billstark001.worldmirror.util.WMLogger;
+import io.github.billstark001.worldmirror.util.JsonSupport;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 
@@ -97,7 +96,6 @@ public class WorldMetadata {
     // ── Persistence ───────────────────────────────────────────────────────────
 
     public static final String FILE_NAME = "worldmirror_meta.json";
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     /**
      * Loads existing metadata from {@code worldFolder/worldmirror_meta.json}, or
@@ -114,7 +112,7 @@ public class WorldMetadata {
         Path metaFile = worldFolder.resolve(FILE_NAME);
         if (metaFile.toFile().exists()) {
             try (Reader r = Files.newBufferedReader(metaFile, StandardCharsets.UTF_8)) {
-                WorldMetadata loaded = GSON.fromJson(r, WorldMetadata.class);
+                WorldMetadata loaded = JsonSupport.fromJson(r, WorldMetadata.class);
                 if (loaded != null) {
                     // chunkUpdateTimes may be non-null if this is an old JSON file;
                     // keep it so the caller can trigger migration if needed.
@@ -143,7 +141,7 @@ public class WorldMetadata {
         Path metaFile = worldFolder.resolve(FILE_NAME);
         if (!metaFile.toFile().exists()) return Optional.empty();
         try (Reader r = Files.newBufferedReader(metaFile, StandardCharsets.UTF_8)) {
-            return Optional.ofNullable(GSON.fromJson(r, WorldMetadata.class));
+            return Optional.ofNullable(JsonSupport.fromJson(r, WorldMetadata.class));
         } catch (Exception e) {
             WMLogger.warn("World metadata read failed file=" + metaFile, e);
             return Optional.empty();
@@ -157,7 +155,8 @@ public class WorldMetadata {
         Path temporaryFile = metadataFile.resolveSibling(FILE_NAME + ".tmp");
         try {
             Files.createDirectories(worldFolder);
-            Files.writeString(temporaryFile, GSON.toJson(this), StandardCharsets.UTF_8);
+            Files.writeString(temporaryFile, JsonSupport.toPrettyJson(this),
+                    StandardCharsets.UTF_8);
             try {
                 Files.move(temporaryFile, metadataFile,
                         StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);

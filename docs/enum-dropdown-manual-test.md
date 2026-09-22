@@ -1,6 +1,6 @@
 # Enum dropdown manual test checklist
 
-Run this checklist on Minecraft 1.21.11, 26.1.2, and 26.2.
+Run this checklist on Minecraft 1.21.11, 26.1.2, 26.2, and 26.3.
 
 ## Global settings
 

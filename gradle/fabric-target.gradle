@@ -1,4 +1,14 @@
 def target = rootProject.ext.targets[project.ext.minecraftTarget]
+def sharedMinecraft = target.sharedMinecraft ?: target.minecraft
+def bridgeMinecraft = target.bridgeMinecraft ?: target.minecraft
+def commonJava = objects.sourceDirectorySet("commonJava${target.minecraft}",
+        "Common Java sources for Minecraft ${target.minecraft}")
+commonJava.srcDir(rootProject.file("src/main/java"))
+commonJava.exclude(target.commonOverrides ?: [])
+def sharedJava = objects.sourceDirectorySet("sharedJava${target.minecraft}",
+        "Shared Java sources for Minecraft ${sharedMinecraft}")
+sharedJava.srcDir(rootProject.file("versions/shared-mc-${sharedMinecraft}/src/main/java"))
+sharedJava.exclude(target.sharedOverrides ?: [])
 
 group = rootProject.mod_group
 version = "${rootProject.mod_version}+${target.minecraft}-fabric"
@@ -15,11 +25,13 @@ repositories {
 
 sourceSets {
     main {
-        java.srcDirs = [
-            rootProject.file("src/main/java"),
-            rootProject.file("versions/shared-mc-${target.minecraft}/src/main/java"),
-            project.file("src/main/java")
-        ]
+        java.setSrcDirs([])
+        java.source(commonJava)
+        java.source(sharedJava)
+        if (sharedMinecraft != target.minecraft) {
+            java.srcDir(rootProject.file("versions/shared-mc-${target.minecraft}/src/main/java"))
+        }
+        java.srcDir(project.file("src/main/java"))
         resources.srcDirs = [rootProject.file("src/main/resources")]
     }
     test {
@@ -75,8 +87,10 @@ tasks.named("ideaSyncTask").configure {
 }
 
 dependencies {
+    compileOnly "com.google.code.gson:gson:${rootProject.gson_version}"
     testImplementation platform("org.junit:junit-bom:5.11.4")
     testImplementation "org.junit.jupiter:junit-jupiter"
+    testImplementation "com.google.code.gson:gson:${rootProject.gson_version}"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
     minecraft "com.mojang:minecraft:${target.minecraft}"
 
@@ -89,7 +103,7 @@ dependencies {
         modApi include("me.shedaniel.cloth:cloth-config-fabric:${target.clothConfig}") {
             exclude(group: "net.fabricmc.fabric-api")
         }
-        modImplementation files(rootProject.file("libs/xaero-world-map-bridge-${target.minecraft}.jar"))
+        modImplementation files(rootProject.file("libs/xaero-world-map-bridge-${bridgeMinecraft}.jar"))
     } else {
         implementation "net.fabricmc:fabric-loader:${rootProject.loader_version}"
         implementation "net.fabricmc.fabric-api:fabric-api:${target.fabricApi}"
@@ -98,7 +112,7 @@ dependencies {
         api include("me.shedaniel.cloth:cloth-config-fabric:${target.clothConfig}") {
             exclude(group: "net.fabricmc.fabric-api")
         }
-        implementation files(rootProject.file("libs/xaero-world-map-bridge-${target.minecraft}.jar"))
+        implementation files(rootProject.file("libs/xaero-world-map-bridge-${bridgeMinecraft}.jar"))
     }
 
     implementation include("org.xerial:sqlite-jdbc:${rootProject.sqlite_version}")
@@ -115,6 +129,7 @@ tasks.named("test") {
 def resourceProperties = [
     version: project.version,
     minecraftRange: target.minecraftRange,
+    loaderVersion: rootProject.loader_version,
     javaVersion: target.javaVersion,
     mixinJava: target.mixinJava,
     clothConfigVersion: target.clothConfig

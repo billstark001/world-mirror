@@ -33,8 +33,8 @@ $artifacts = Get-ChildItem -Path $versionsDirectory -Recurse -File -Filter "worl
     Where-Object { $_.Name -match $artifactPattern } |
     Sort-Object Name
 
-if ($artifacts.Count -ne 3) {
-    throw "Expected three distributable $modVersion Fabric JARs after building, but found $($artifacts.Count)."
+if ($artifacts.Count -ne 4) {
+    throw "Expected four distributable $modVersion Fabric JARs after building, but found $($artifacts.Count)."
 }
 
 foreach ($artifact in $artifacts) {

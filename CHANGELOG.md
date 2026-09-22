@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.4.4] — 2026-09-19
+
+### Added
+
+- Added a Fabric build target for Minecraft 26.3 with the current Loader, Fabric API,
+  Cloth Config, and Mod Menu toolchain.
+- Added Minecraft 26.3 biome data-pack generation using environment attributes, including
+  codec validation for the new schema and preservation of dynamically registered biome
+  palette entries such as the Dappled Forest.
+
+### Changed
+
+- Updated chunk, lighting, keybinding, and world-clock adapters for Minecraft 26.3.
+- Replaced handwritten runtime and generated data-pack JSON with typed Gson document
+  models and a shared serialization policy.
+
 ## [0.4.3] — 2026-08-29
 
 ### Changed
