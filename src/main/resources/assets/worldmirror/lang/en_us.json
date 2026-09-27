@@ -123,6 +123,7 @@
   "screen.worldmirror.upgrade.failedTitle": "Mirror update failed",
   "screen.worldmirror.upgrade.failedBody": "The mirror was not marked updated: %s",
 
+  "overlay.worldmirror.mirrorIndicator": "Mirror",
   "toast.worldmirror.mirrorIndicator.title": "World Mirror",
   "toast.worldmirror.mirrorIndicator.body": "Xaero is showing this mirror save's capture state.",
 

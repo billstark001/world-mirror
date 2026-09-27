@@ -123,6 +123,7 @@
   "screen.worldmirror.upgrade.failedTitle": "镜像更新失败",
   "screen.worldmirror.upgrade.failedBody": "镜像未被标记为已更新：%s",
 
+  "overlay.worldmirror.mirrorIndicator": "镜像",
   "toast.worldmirror.mirrorIndicator.title": "World Mirror",
   "toast.worldmirror.mirrorIndicator.body": "Xaero 正在显示此镜像存档的捕获状态。",
 

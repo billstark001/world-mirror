@@ -123,6 +123,7 @@
   "screen.worldmirror.upgrade.failedTitle": "ミラー更新に失敗しました",
   "screen.worldmirror.upgrade.failedBody": "ミラーは更新済みとして記録されませんでした：%s",
 
+  "overlay.worldmirror.mirrorIndicator": "ミラー",
   "toast.worldmirror.mirrorIndicator.title": "World Mirror",
   "toast.worldmirror.mirrorIndicator.body": "Xaero はこのミラーセーブのキャプチャ状態を表示しています。",
 
