@@ -12,6 +12,16 @@ also ships its own changelog in its release ZIP.
 
 ---
 
+## world-mirror-format [0.1.1] — 2026-09-27
+
+### Changed
+
+- Published the binary and source JARs as direct GitHub Release assets so Gradle
+  consumers can resolve the version through a public Ivy repository without a
+  neighboring source checkout or Maven Central.
+
+---
+
 ## [0.4.5] — 2026-09-27
 
 ### Changed

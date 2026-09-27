@@ -121,8 +121,10 @@ happened within each category. Keep the copy in
 The format module is a standalone Java 21+ Gradle build inside this repository.
 The mod and toolkit consume its source through `includeBuild`, so development
 needs no package repository. `gradle -p world-mirror-format releaseBundle` produces
-the versioned binary/source bundle for a GitHub Release; publish the ZIP and
-its SHA-256 checksum together. Keep its version independent of `mod_version`.
+  the versioned binary/source bundle for a GitHub Release; publish the ZIP,
+  its SHA-256 checksum, and direct binary/source JAR assets together. Keep its
+  version independent of `mod_version`. Public Gradle consumers use the
+  GitHub Release Ivy pattern documented in `world-mirror-format/README.md`.
 Tag format releases `world-mirror-format-v<version>` to run the independent
 format release workflow; tag mod releases `v<version>` to run the mod workflow.
 

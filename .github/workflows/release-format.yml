@@ -68,8 +68,15 @@ jobs:
           test -f "$zip"
           test -f "$zip.sha256"
           (cd "$(dirname "$zip")" && sha256sum --check "$(basename "$zip").sha256")
+          jar="world-mirror-format/build/libs/world-mirror-format-$VERSION.jar"
+          sources="world-mirror-format/build/libs/world-mirror-format-$VERSION-sources.jar"
+          test -f "$jar"
+          test -f "$sources"
+          (cd "$(dirname "$jar")" && sha256sum "$(basename "$jar")" "$(basename "$sources")" > "world-mirror-format-$VERSION-jars.sha256")
           mkdir -p build/release-format
-          cp "$zip" "$zip.sha256" release-notes.md build/release-format/
+          cp "$zip" "$zip.sha256" "$jar" "$sources" \
+            "world-mirror-format/build/libs/world-mirror-format-$VERSION-jars.sha256" \
+            release-notes.md build/release-format/
 
       - name: Upload format release bundle
         uses: actions/upload-artifact@v4
@@ -100,5 +107,6 @@ jobs:
           make_latest: false
           files: |
             build/release-format/*.zip
+            build/release-format/*.jar
             build/release-format/*.sha256
           fail_on_unmatched_files: true

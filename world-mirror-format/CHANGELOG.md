@@ -3,6 +3,14 @@
 Releases are listed newest first by release date. Changes that belong only to a
 single consumer remain in that consumer's changelog with an artifact prefix.
 
+## [0.1.1] — 2026-09-27
+
+### Changed
+
+- Published the binary and source JARs as direct GitHub Release assets so Gradle
+  consumers can resolve the version through a public Ivy repository without a
+  neighboring source checkout or Maven Central.
+
 ## [0.1.0] — 2026-09-27
 
 ### Added
