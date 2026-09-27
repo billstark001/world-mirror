@@ -169,6 +169,24 @@ final class DownloadCaptureQueue {
         }
     }
 
+    /** Returns the live chunk positions currently waiting for capture. */
+    Set<ChunkPos> pendingChunkPositions(ResourceKey<Level> dimension) {
+        synchronized (lock) {
+            Set<ChunkPos> result = new HashSet<>();
+            for (Pending request : pending) {
+                if (dimension.equals(request.key().dimension())) {
+                    result.add(new ChunkPos(request.key().chunkX(), request.key().chunkZ()));
+                }
+            }
+            for (Key key : pendingLightUpdates.keySet()) {
+                if (dimension.equals(key.dimension())) {
+                    result.add(new ChunkPos(key.chunkX(), key.chunkZ()));
+                }
+            }
+            return result;
+        }
+    }
+
     boolean hasWork() {
         synchronized (lock) {
             return hasWorkLocked();

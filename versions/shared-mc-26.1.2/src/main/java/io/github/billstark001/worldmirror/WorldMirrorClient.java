@@ -6,6 +6,8 @@ import io.github.billstark001.worldmirror.download.ChunkDatabase;
 import io.github.billstark001.worldmirror.download.DownloadManager;
 import io.github.billstark001.worldmirror.download.MirrorWorldContext;
 import io.github.billstark001.worldmirror.ui.ChunkMapScreen;
+import io.github.billstark001.worldmirror.ui.ChunkWorldOverlay;
+import io.github.billstark001.worldmirror.ui.ChunkWorldOverlayGeometry;
 import io.github.billstark001.worldmirror.ui.StatusScreen;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.xaero.XaeroBridgeOverlay;
@@ -19,8 +21,10 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.KeyMapping;
+import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.SharedConstants;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.level.storage.LevelResource;
 import org.lwjgl.glfw.GLFW;
 
@@ -95,6 +99,21 @@ public class WorldMirrorClient implements ClientModInitializer {
                 DownloadManager.queueChunkCapture(world, chunk.getPos(), "chunk-load"));
         ClientChunkEvents.CHUNK_UNLOAD.register(DownloadManager::captureChunkBeforeUnload);
         LevelRenderEvents.END_MAIN.register(context -> DownloadManager.recordWorldFrame());
+        LevelRenderEvents.BEFORE_GIZMOS.register(context -> {
+            ChunkWorldOverlay.OverlaySnapshot overlay =
+                    ChunkWorldOverlay.snapshot(net.minecraft.client.Minecraft.getInstance());
+            if (overlay.isEmpty() || context.levelState().cameraRenderState == null
+                    || context.levelState().cameraRenderState.pos == null) return;
+            Vec3 camera = context.levelState().cameraRenderState.pos;
+            context.submitNodeCollector().submitCustomGeometry(
+                    context.poseStack(), RenderTypes.debugFilledBox(),
+                    (pose, consumer) -> ChunkWorldOverlayGeometry.renderFilled(
+                            pose, consumer, overlay, camera));
+            context.submitNodeCollector().submitCustomGeometry(
+                    context.poseStack(), RenderTypes.lines(),
+                    (pose, consumer) -> ChunkWorldOverlayGeometry.renderOutlined(
+                            pose, consumer, overlay, camera));
+        });
 
         // Apply the configured on-join behaviour whenever the player enters a world.
         // ClientPlayConnectionEvents.JOIN fires after the world object is available,

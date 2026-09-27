@@ -161,6 +161,20 @@ public class ModConfig implements ConfigData {
         @ConfigEntry.Gui.Tooltip
         @ConfigEntry.BoundedDiscrete(min = 1000, max = 50000)
         public int xaeroWorldMapOverlayMaxCells = 6000;
+
+        /** Draws World Mirror's live and historical chunk state in the 3D world. */
+        @ConfigEntry.Gui.Tooltip
+        public boolean showWorldChunkOverlay = false;
+
+        /** Maximum square radius, in chunks, rendered by the in-world overlay. */
+        @ConfigEntry.Gui.Tooltip
+        @ConfigEntry.BoundedDiscrete(min = 6, max = 256)
+        public int worldChunkOverlayRenderDistance = 128;
+
+        /** Y coordinate of the one-block-high in-world chunk overlay boxes. */
+        @ConfigEntry.Gui.Tooltip
+        @ConfigEntry.BoundedDiscrete(min = -64, max = 319)
+        public int worldChunkOverlayHeight = 0;
     }
 
     public static class CacheConfig {
