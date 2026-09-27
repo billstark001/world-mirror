@@ -1,0 +1,48 @@
+plugins {
+    id 'java-library'
+    id 'distribution'
+}
+
+group = 'io.github.billstark001.worldmirror'
+version = '0.1.0'
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+distributions {
+    main {
+        distributionBaseName = 'world-mirror-format'
+        contents {
+            from(tasks.named('jar'))
+            from(tasks.named('sourcesJar'))
+            from(rootProject.file('README.md'))
+            from(rootProject.file('CHANGELOG.md'))
+            from(rootProject.file('../LICENSE'))
+        }
+    }
+}
+
+tasks.register('releaseBundle') {
+    group = 'distribution'
+    description = 'Builds the GitHub Release ZIP and adjacent SHA-256 checksum.'
+    dependsOn(tasks.named('distZip'))
+    doLast {
+        def archive = tasks.named('distZip').get().archiveFile.get().asFile
+        def digest = java.security.MessageDigest.getInstance('SHA-256')
+        archive.withInputStream { input ->
+            byte[] buffer = new byte[8192]
+            int count
+            while ((count = input.read(buffer)) != -1) digest.update(buffer, 0, count)
+        }
+        def checksum = digest.digest().collect { String.format('%02x', it & 0xff) }.join('')
+        new File(archive.parentFile, archive.name + '.sha256').text =
+                "${checksum}  ${archive.name}\n"
+    }
+}
