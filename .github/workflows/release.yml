@@ -103,6 +103,11 @@ jobs:
           java-version: '25'
           distribution: 'microsoft'
 
+      - name: Verify target bridge artifacts
+        run: |
+          chmod +x ./gradlew
+          ./gradlew verifyBridgeMatrix
+
       - name: Build all targets once
         run: |
           chmod +x ./gradlew

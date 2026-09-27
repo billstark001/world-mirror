@@ -1,6 +1,6 @@
 def target = rootProject.ext.targets[project.ext.minecraftTarget]
 def sharedMinecraft = target.sharedMinecraft ?: target.minecraft
-def bridgeMinecraft = target.bridgeMinecraft ?: target.minecraft
+def bridgeJar = rootProject.file("libs/xaero-world-map-bridge-${target.minecraft}.jar")
 def commonJava = objects.sourceDirectorySet("commonJava${target.minecraft}",
         "Common Java sources for Minecraft ${target.minecraft}")
 commonJava.srcDir(rootProject.file("src/main/java"))
@@ -9,6 +9,43 @@ def sharedJava = objects.sourceDirectorySet("sharedJava${target.minecraft}",
         "Shared Java sources for Minecraft ${sharedMinecraft}")
 sharedJava.srcDir(rootProject.file("versions/shared-mc-${sharedMinecraft}/src/main/java"))
 sharedJava.exclude(target.sharedOverrides ?: [])
+
+def verifyXaeroBridge = tasks.register("verifyXaeroBridge") {
+    group = "verification"
+    description = "Checks that the Xaero bridge JAR matches Minecraft ${target.minecraft}."
+    doLast {
+        if (!bridgeJar.isFile()) {
+            throw new GradleException("Missing ${bridgeJar.name}; supply the Minecraft ${target.minecraft} Fabric bridge JAR")
+        }
+        new java.util.zip.ZipFile(bridgeJar).withCloseable { archive ->
+            def entry = archive.getEntry("fabric.mod.json")
+            if (entry == null) {
+                throw new GradleException("${bridgeJar.name} has no fabric.mod.json")
+            }
+            def metadata = new groovy.json.JsonSlurper().parseText(
+                    archive.getInputStream(entry).getText("UTF-8"))
+            def expectedVersion = "${rootProject.xaero_bridge_version}+${target.minecraft}-fabric"
+            def bridgeVersion = metadata.version?.toString()
+            def minecraftRequirement = metadata.depends?.minecraft?.toString()
+            def xaeroRequirement = metadata.depends?.xaeroworldmap?.toString()
+            def minecraftVersion = target.minecraft.toString()
+            def acceptsTarget = minecraftRequirement == minecraftVersion ||
+                    minecraftRequirement == "~${minecraftVersion}" ||
+                    minecraftRequirement == ">=${minecraftVersion}" ||
+                    minecraftRequirement?.startsWith(">=${minecraftVersion} ")
+            if (metadata.id != "xaero_world_map_bridge" ||
+                    bridgeVersion != expectedVersion || !acceptsTarget ||
+                    !xaeroRequirement || xaeroRequirement.contains("<")) {
+                throw new GradleException("${bridgeJar.name} is incompatible with Minecraft ${minecraftVersion}: " +
+                        "expectedVersion=${expectedVersion}, id=${metadata.id}, version=${bridgeVersion}, " +
+                        "depends.minecraft=${minecraftRequirement}, depends.xaeroworldmap=${xaeroRequirement}")
+            }
+        }
+    }
+}
+
+tasks.named("compileJava") { dependsOn(verifyXaeroBridge) }
+tasks.named("check") { dependsOn(verifyXaeroBridge) }
 
 group = rootProject.mod_group
 version = "${rootProject.mod_version}+${target.minecraft}-fabric"
@@ -59,6 +96,7 @@ loom {
 // configuration to the Java version required by its Minecraft target.
 tasks.named("ideaSyncTask").configure {
     dependsOn(rootProject.tasks.named("cleanIdeaRunConfigurations"))
+    dependsOn(rootProject.tasks.named("verifyBridgeMatrix"))
     doLast {
         def moduleMarker = "<module name=\"${rootProject.name}.versions.fabric-${target.minecraft}.main\""
         def runConfigurationsDirectory = rootProject.file(".idea/runConfigurations")
@@ -104,7 +142,7 @@ dependencies {
         modApi include("me.shedaniel.cloth:cloth-config-fabric:${target.clothConfig}") {
             exclude(group: "net.fabricmc.fabric-api")
         }
-        modImplementation files(rootProject.file("libs/xaero-world-map-bridge-${bridgeMinecraft}.jar"))
+        modImplementation files(bridgeJar)
     } else {
         implementation "net.fabricmc:fabric-loader:${rootProject.loader_version}"
         implementation "net.fabricmc.fabric-api:fabric-api:${target.fabricApi}"
@@ -113,7 +151,7 @@ dependencies {
         api include("me.shedaniel.cloth:cloth-config-fabric:${target.clothConfig}") {
             exclude(group: "net.fabricmc.fabric-api")
         }
-        implementation files(rootProject.file("libs/xaero-world-map-bridge-${bridgeMinecraft}.jar"))
+        implementation files(bridgeJar)
     }
 
     implementation include("org.xerial:sqlite-jdbc:${rootProject.sqlite_version}")
@@ -125,6 +163,14 @@ dependencies {
 
 tasks.named("test") {
     useJUnitPlatform()
+}
+
+tasks.register("printRuntimeClasspath") {
+    group = "help"
+    description = "Print resolved runtime JAR paths for tooling that inspects this Minecraft target."
+    doLast {
+        configurations.runtimeClasspath.files.each { println it.absolutePath }
+    }
 }
 
 def resourceProperties = [

@@ -27,7 +27,7 @@ ext.targets = [
         fabricApi: "0.161.0+26.3", modMenu: "21.0.0-beta.1",
         clothConfig: "26.3.158",
         minecraftRange: "~26.3", remapped: false,
-        sharedMinecraft: "26.2", bridgeMinecraft: "26.2",
+        sharedMinecraft: "26.2",
         sharedOverrides: [
             "io/github/billstark001/worldmirror/WorldMirrorClient.java",
             "io/github/billstark001/worldmirror/io/WorldStructureApi.java"
@@ -41,6 +41,12 @@ ext.targets = [
 
 def fabricProjectPaths = targets.keySet().collect { ":versions:fabric-${it}" }
 
+tasks.register("verifyBridgeMatrix") {
+    group = "verification"
+    description = "Checks every target's local Xaero bridge JAR and its Fabric metadata."
+    dependsOn(fabricProjectPaths.collect { "${it}:verifyXaeroBridge" })
+}
+
 tasks.register("cleanIdeaRunConfigurations", Delete) {
     group = "ide"
     description = "Deletes generated Fabric run configurations before IDEA recreates them."
@@ -52,6 +58,10 @@ tasks.register("cleanIdeaRunConfigurations", Delete) {
     }
 }
 
+tasks.named("cleanIdeaRunConfigurations") {
+    mustRunAfter(tasks.named("verifyBridgeMatrix"))
+}
+
 tasks.register("syncIdeaRunConfigurations") {
     group = "ide"
     description = "Recreates IDEA run configurations for every configured Fabric target."
@@ -61,5 +71,6 @@ tasks.register("syncIdeaRunConfigurations") {
 tasks.register("buildAll") {
     group = "build"
     description = "Builds every supported Fabric target."
+    dependsOn(tasks.named("verifyBridgeMatrix"))
     dependsOn(fabricProjectPaths.collect { "${it}:build" })
 }
