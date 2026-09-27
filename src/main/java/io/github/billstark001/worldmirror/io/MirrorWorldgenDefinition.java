@@ -6,8 +6,8 @@ import java.util.List;
 public final class MirrorWorldgenDefinition {
 
     /**
-     * A positive density selects {@code default_block} (air) instead of the
-     * aquifer/fluid branch, whose vanilla fallback places lava below Y=-54.
+     * A positive density selects {@code default_block} (air). On older game
+     * versions it also avoids the aquifer/fluid branch and its lava fallback.
      */
     public static final double VOID_FINAL_DENSITY = 1.0D;
 
@@ -15,6 +15,10 @@ public final class MirrorWorldgenDefinition {
             "barrier", "fluid_level_floodedness", "fluid_level_spread", "lava",
             "temperature", "vegetation", "continents", "erosion", "depth", "ridges",
             "preliminary_surface_level", "vein_toggle", "vein_ridged", "vein_gap");
+
+    public static final List<String> MODERN_ZERO_NOISE_ROUTER_FIELDS = List.of(
+            "temperature", "vegetation", "continents", "erosion", "depth",
+            "ridges", "chunk_surface_level");
 
     public static final List<Dimension> DIMENSIONS = List.of(
             new Dimension("minecraft:overworld", "worldmirror:mirror_overworld", -64, 384, 63, 1, 2),

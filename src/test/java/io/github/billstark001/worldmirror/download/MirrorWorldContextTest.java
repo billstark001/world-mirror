@@ -68,6 +68,22 @@ class MirrorWorldContextTest {
     }
 
     @Test
+    void treatsRevisionTwoAsOutdatedOnEveryTarget(@TempDir Path world) {
+        WorldMetadata metadata = metadata();
+        metadata.worldgenSchema = WorldMetadata.CURRENT_WORLDGEN_SCHEMA;
+        metadata.worldgenAssetRevision = 2;
+        metadata.worldgenAssetDataVersion = 100;
+        metadata.legacyVoidChunkCleanupRevision = WorldMetadata.CURRENT_VOID_CHUNK_CLEANUP_REVISION;
+        metadata.save(world);
+
+        MirrorMigrationPlan.Inspection inspection = MirrorMigrationPlan.inspect(world, 100);
+        assertEquals(3, MirrorWorldgenAssets.ASSET_REVISION);
+        assertEquals(MirrorMigrationPlan.State.OUTDATED, inspection.state());
+        assertFalse(inspection.migrateWorldgen());
+        assertTrue(inspection.refreshAssets());
+    }
+
+    @Test
     void nearbyExportLineageKeepsTheOriginalSourceOrCreatesAStableDerivedIdentity() {
         WorldMetadata current = metadata();
         current.mirrorId = "mirror-id";

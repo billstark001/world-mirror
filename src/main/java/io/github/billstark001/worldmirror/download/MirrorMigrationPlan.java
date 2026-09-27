@@ -53,7 +53,8 @@ public final class MirrorMigrationPlan {
             return new Inspection(normalized, State.UNREADABLE, metadata, false, false, false);
         }
         if (metadata.hasFutureWorldgenSchema()
-                || metadata.hasFutureWorldgenAssets(dataVersion, MirrorWorldgenAssets.ASSET_REVISION)) {
+                || metadata.hasFutureWorldgenAssets(dataVersion,
+                        MirrorWorldgenAssets.ASSET_REVISION)) {
             return new Inspection(normalized, State.FUTURE, metadata, false, false, false);
         }
         boolean migrateWorldgen = metadata.needsWorldgenMigration();

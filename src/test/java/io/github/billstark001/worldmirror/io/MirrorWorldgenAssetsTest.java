@@ -60,6 +60,7 @@ class MirrorWorldgenAssetsTest {
     @Test
     void installsEnvironmentAttributeBiomesForMinecraft263(@TempDir Path world)
             throws Exception {
+        assertEquals(3, MirrorWorldgenAssets.ASSET_REVISION);
         MirrorWorldgenAssets.install(world,
                 MirrorWorldgenAssets.ENVIRONMENT_ATTRIBUTE_BIOME_FORMAT);
 

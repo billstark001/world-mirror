@@ -4,7 +4,9 @@ import net.minecraft.SharedConstants;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
+import net.minecraft.nbt.NbtOps;
 import net.minecraft.server.Bootstrap;
+import net.minecraft.world.level.levelgen.NoiseGeneratorSettings;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -22,6 +24,17 @@ class WorldSettingsCreationTest {
     static void bootstrapMinecraftRegistries() {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
+    }
+
+    @Test
+    void voidGeneratorsDecodeWithTheCurrentMinecraftCodec() {
+        CompoundTag dimensions = WorldStructureCreator.createMirrorWorldGenSettings()
+                .getCompoundOrEmpty("dimensions");
+        for (MirrorWorldgenDefinition.Dimension definition : MirrorWorldgenDefinition.DIMENSIONS) {
+            CompoundTag settings = dimensions.getCompoundOrEmpty(definition.dimensionType())
+                    .getCompoundOrEmpty("generator").getCompoundOrEmpty("settings");
+            NoiseGeneratorSettings.DIRECT_CODEC.parse(NbtOps.INSTANCE, settings).getOrThrow();
+        }
     }
 
     @Test

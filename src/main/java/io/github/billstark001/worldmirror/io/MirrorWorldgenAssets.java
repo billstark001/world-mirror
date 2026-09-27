@@ -16,7 +16,8 @@ import java.nio.file.Path;
  */
 public final class MirrorWorldgenAssets {
 
-    public static final int ASSET_REVISION = 2;
+    /** Global, monotonically increasing revision shared by every Minecraft target. */
+    public static final int ASSET_REVISION = 3;
     /** Minecraft 26.3 moved biome visuals and natural spawning into environment attributes. */
     static final int ENVIRONMENT_ATTRIBUTE_BIOME_FORMAT = 121;
     public static final String PACK_DIRECTORY = "worldmirror_environment";

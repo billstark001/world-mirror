@@ -11,6 +11,8 @@ import net.minecraft.nbt.FloatTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.NbtUtils;
+import net.minecraft.nbt.StringTag;
+import net.minecraft.nbt.Tag;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -117,7 +119,8 @@ public final class WorldStructureCreator {
                 WorldStructureApi.repairOwnedSavedData(worldFolder);
                 if (migrateWorldgen || refreshAssets) {
                     MirrorWorldgenAssets.install(worldFolder, WorldStructureApi.dataPackFormat());
-                    WorldStructureApi.updateOwnedLevelData(worldFolder, migrateWorldgen,
+                    WorldStructureApi.updateOwnedLevelData(worldFolder,
+                            migrateWorldgen || refreshAssets,
                             createMirrorWorldGenSettings());
                 }
                 WMLogger.debug("World structure updated (incremental sync): "
@@ -217,27 +220,35 @@ public final class WorldStructureCreator {
         CompoundTag noise = new CompoundTag();
         noise.putInt("min_y", minY);
         noise.putInt("height", height);
-        noise.putInt("size_horizontal", horizontalSize);
-        noise.putInt("size_vertical", verticalSize);
+        boolean modern = WorldStructureApi.dataPackFormat()
+                >= MirrorWorldgenAssets.ENVIRONMENT_ATTRIBUTE_BIOME_FORMAT;
+        if (!modern) {
+            noise.putInt("size_horizontal", horizontalSize);
+            noise.putInt("size_vertical", verticalSize);
+        }
         settings.put("noise", noise);
-        settings.put("default_block", blockState("minecraft:air"));
-        settings.put("default_fluid", blockState("minecraft:air"));
+        settings.put("default_block", blockState("minecraft:air", modern));
+        settings.put("default_fluid", blockState("minecraft:air", modern));
         settings.putInt("sea_level", seaLevel);
         settings.putBoolean("disable_mob_generation", true);
-        settings.putBoolean("aquifers_enabled", false);
-        settings.putBoolean("ore_veins_enabled", false);
+        if (!modern) {
+            settings.putBoolean("aquifers_enabled", false);
+            settings.putBoolean("ore_veins_enabled", false);
+        }
         settings.putBoolean("legacy_random_source", false);
         settings.put("spawn_target", new ListTag());
         CompoundTag router = new CompoundTag();
-        for (String field : MirrorWorldgenDefinition.ZERO_NOISE_ROUTER_FIELDS) {
+        for (String field : modern
+                ? MirrorWorldgenDefinition.MODERN_ZERO_NOISE_ROUTER_FIELDS
+                : MirrorWorldgenDefinition.ZERO_NOISE_ROUTER_FIELDS) {
             router.putDouble(field, 0.0D);
         }
         router.putDouble("final_density", MirrorWorldgenDefinition.VOID_FINAL_DENSITY);
         settings.put("noise_router", router);
         CompoundTag rule = new CompoundTag();
         rule.putString("type", "minecraft:block");
-        rule.put("result_state", blockState("minecraft:air"));
-        settings.put("surface_rule", rule);
+        rule.put("result_state", blockState("minecraft:air", modern));
+        settings.put(modern ? "material_rule" : "surface_rule", rule);
         generator.put("settings", settings);
         CompoundTag biomeSource = new CompoundTag();
         biomeSource.putString("type", "minecraft:fixed");
@@ -247,7 +258,8 @@ public final class WorldStructureCreator {
         return generator;
     }
 
-    private static CompoundTag blockState(String block) {
+    private static Tag blockState(String block, boolean modern) {
+        if (modern) return StringTag.valueOf(block);
         CompoundTag state = new CompoundTag();
         state.putString("Name", block);
         return state;
