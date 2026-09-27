@@ -46,6 +46,7 @@ public class StatusScreen extends StatusScreenApi {
     private Component settingsFailure;
     private boolean settingsSucceeded;
     private long lastSyncTime;
+    private long nextSyncTimeRefreshMs;
     private int conflictCount;
     private StatusContext statusContext;
     private boolean dropdownOpen;
@@ -106,6 +107,11 @@ public class StatusScreen extends StatusScreenApi {
             }
         }
         if (exportFinished) loadPersistentStatus();
+        long now = System.currentTimeMillis();
+        if (now >= nextSyncTimeRefreshMs) {
+            refreshLastSyncTime();
+            nextSyncTimeRefreshMs = now + 1_000L;
+        }
     }
 
     @Override
@@ -427,7 +433,12 @@ public class StatusScreen extends StatusScreenApi {
         statusContext = resolveStatusContext(client);
         Path output = statusContext.output();
         conflictCount = ConflictManager.countAllConflicts(output);
-        WorldMetadata metadata = statusContext.metadata();
+        refreshLastSyncTime();
+    }
+
+    private void refreshLastSyncTime() {
+        Path output = statusContext.output();
+        WorldMetadata metadata = WorldMetadata.loadIfPresent(output).orElse(null);
         if (metadata != null) {
             lastSyncTime = metadata.lastSyncTime;
         } else {
