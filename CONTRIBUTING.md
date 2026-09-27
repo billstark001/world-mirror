@@ -53,6 +53,29 @@ file atomically, and exercise the target Minecraft codec in a round-trip test. A
 that does not use that saved-data file should provide only the no-op adapter required by
 the shared orchestrator.
 
+## Mirror worldgen revision policy
+
+`worldgenAssetRevision` is one global, monotonically increasing integer for every
+supported Minecraft target. All artifacts in one mod release write the same value
+to both `worldmirror_meta.json` and the embedded data-pack manifest. Never select
+this revision from the Minecraft or data-pack version. Increment it across all
+targets when a release changes the embedded worldgen assets or the serialized
+worldgen settings for any target. A target whose bytes did not change still
+adopts the new revision; this keeps migration ordering consistent.
+
+`worldgenAssetDataVersion` separately records the Minecraft data version used
+to write those assets. The revision does not imply identical encodings across
+Minecraft targets. `worldgenSchema` tracks semantic changes to the mirror's
+dimension layout and is bumped only when that schema changes. Do not reuse any
+of these numbers for a different purpose or decrease them in a later release.
+
+An older revision or data version requires an approved upgrade: back up the
+affected files, regenerate the data pack and worldgen settings with the target
+Minecraft codec, then advance both metadata markers after the write succeeds.
+A newer revision or data version is treated as future data and must not be
+overwritten. Test the revision transition and generated settings on every
+supported target; test the exact new codec on the target whose encoding changed.
+
 ## UI control policy
 
 User-selectable enums are selection-only listboxes. Do not expose editable enum text or
@@ -82,6 +105,27 @@ overlay order, save/cancel/default behavior, and serialized-name compatibility.
 
 ## Documentation and release policy
 
+### Changelog order and prefixes
+
+Keep mod and format-library release sections in one reverse-chronological
+timeline by release date. For releases on the same date, put the later release
+first. Mod sections use `## [<mod-version>]`; independent format-library
+sections use `## world-mirror-format [<format-version>]`. Put format-only
+changes under the format section, never as prefixed bullets under a mod
+section. Within a mod section, use an unprefixed entry when a change applies
+to every supported Minecraft build and `[fabric-<minecraft-version>]` when it
+affects only one target. Add changes to the current section in the order they
+happened within each category. Keep the copy in
+`world-mirror-format/CHANGELOG.md` consistent with the root format section.
+
+The format module is a standalone Java 21+ Gradle build inside this repository.
+The mod and toolkit consume its source through `includeBuild`, so development
+needs no package repository. `gradle -p world-mirror-format releaseBundle` produces
+the versioned binary/source bundle for a GitHub Release; publish the ZIP and
+its SHA-256 checksum together. Keep its version independent of `mod_version`.
+Tag format releases `world-mirror-format-v<version>` to run the independent
+format release workflow; tag mod releases `v<version>` to run the mod workflow.
+
 Documentation changes are part of a feature or compatibility change, not a later release
 chore. Before merging, compare all user-visible behavior against `README.md`, the
 self-contained player description in `README_MODRINTH.md`, the current release section in
@@ -106,6 +150,12 @@ removing, or releasing a target also requires checking `settings.gradle`, its
 workflows, both READMEs, and the current changelog. CI and release jobs must call
 `buildAll` and collect artifacts from `versions/fabric-*/build/libs`; the old root
 `build/libs` path is not a multi-target distribution directory.
+Every target must have a matching `libs/xaero-world-map-bridge-<minecraft>.jar`.
+The `verifyBridgeMatrix` task reads each JAR's Fabric metadata and rejects a
+different Minecraft target, a version other than `xaero_bridge_version`, or a
+Xaero dependency with an upper bound; `buildAll`, IDEA sync, and the release
+workflow run it. Update all four JARs and `xaero_bridge_version` together.
+Do not point a new target at an older bridge artifact merely to satisfy compilation.
 
 Before a release, run all target tests, `buildAll`, and one client startup smoke test per
 target. The shared `run/mods` directory may contain only one enabled Minecraft-version
@@ -114,13 +164,21 @@ map by mod ID, but report that limitation instead of presenting it as an integra
 
 ### Release automation
 
-Releases use the single `.github/workflows/release.yml` workflow. Update `mod_version` in
-`gradle.properties` and make the first release section in `CHANGELOG.md` use that exact
-version, then push the corresponding `v<version>` tag. The workflow validates those three
-values, builds all targets once, checks the exact four distributable JAR names, and creates
-one GitHub Release. Its release channel and pre-release flag are derived from the version:
+Mod releases use `.github/workflows/release.yml`. Update `mod_version` in
+`gradle.properties` and make the first mod release section in `CHANGELOG.md` use that
+exact version, then push the corresponding `v<version>` tag. The workflow validates
+those values, extracts only that mod section, builds all targets once, checks the
+exact four distributable JAR names, and creates one GitHub Release. Its release
+channel and pre-release flag are derived from the version:
 plain semantic versions are stable, `-alpha...` versions are alpha, and other suffixes are
 beta.
+
+Format releases use `.github/workflows/release-format.yml`. Update the module
+version in `world-mirror-format/build.gradle`, add a separate
+`## world-mirror-format [<version>]` section to the root changelog, then push
+`world-mirror-format-v<version>`. This workflow extracts only the format section,
+builds the ZIP and SHA-256 checksum with Java 21, and publishes them to a
+separate GitHub Release. Publish the format tag before a mod tag that consumes it.
 
 Modrinth publishing is optional. To enable it, configure an Actions repository variable
 named `MODRINTH_PROJECT_ID` with the Modrinth project slug or ID, and an Actions repository

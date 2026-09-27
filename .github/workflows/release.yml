@@ -55,8 +55,11 @@ jobs:
 
           first_changelog_version="$(sed -n 's/^## \[\([^]]*\)\].*/\1/p' CHANGELOG.md | head -n 1)"
           test "$first_changelog_version" = "$version"
-          awk '/^## \[/{section++} section == 1{print} section == 2{exit}' CHANGELOG.md \
-            | sed '$d' > release-notes.md
+          awk -v header="## [$version]" '
+            /^## / { if (found) exit; found = index($0, header) == 1 }
+            found && /^---$/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
           test -s release-notes.md
 
           suffix="${version#*-}"

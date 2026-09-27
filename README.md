@@ -1,6 +1,6 @@
 # World Mirror
 
-**Version:** 0.4.4 · **Minecraft:** 1.21.11, 26.1.2, 26.2, 26.3 · **Loader:** Fabric
+**Version:** 0.4.5 · **Minecraft:** 1.21.11, 26.1.2, 26.2, 26.3 · **Loader:** Fabric
 
 A client-side Fabric mod that mirrors the world you are playing on a multiplayer server —
 or even a singleplayer world — into a standard local save. As you explore, the mod captures
@@ -119,10 +119,12 @@ Configuration is persisted in `<.minecraft>/config/worldmirror.json`.
 ### Optional Xaero integration
 
 The Xaero overlay is an optional integration: World Mirror runs normally without
-Xaero's World Map or the bridge. To enable it, install Xaero's World Map 1.40.x–1.44.x
-and a matching Minecraft-version build from the
-[Xaero World Map Bridge 0.1.0 release](https://github.com/billstark001/xaero-world-map-bridge/releases/tag/v0.1.0)
-alongside [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map). World Mirror's
+Xaero's World Map or the bridge. To enable it, install a matching Minecraft-version
+build of [Xaero World Map Bridge](https://github.com/billstark001/xaero-world-map-bridge/releases)
+alongside [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map).
+Use bridge 0.1.2 or newer for every supported Minecraft version; bridge 0.1.0
+has an Xaero version upper bound. For Minecraft 26.3, use its 26.3 bridge
+artifact with Xaero's World Map 1.46.x. World Mirror's
 Chunk Map settings control whether and how often its layer is rendered. The bridge's own
 Mod Menu page controls exact mixin injection and the safe tail fallback; World Mirror
 only supplies the chunk-status layer through the bridge API.
@@ -189,7 +191,7 @@ payload shapes are left untouched.
 | `sourceId` | `local:<level-name>` or `server:<address>` |
 | `lastSyncTime` | Unix-millisecond timestamp of the most recent fully successful synchronization pass |
 | `worldgenSchema` | Semantic schema of the generated mirror dimensions |
-| `worldgenAssetRevision` / `worldgenAssetDataVersion` | Embedded data-pack revision and Minecraft data version |
+| `worldgenAssetRevision` / `worldgenAssetDataVersion` | Global worldgen asset revision (shared by all targets) and the Minecraft data version used to write it |
 | `legacyVoidChunkCleanupRevision` | Completion marker for the backed-up legacy void-chunk cleanup |
 
 Per-chunk dirty-check metadata is stored in `data/world_mirror.sqlite`. Older
@@ -267,11 +269,13 @@ Choose the World Mirror JAR that exactly matches your Minecraft version:
 
 1. Install [Fabric Loader](https://fabricmc.net/use/) 0.19.5 or newer.
 2. Install the matching [Fabric API](https://modrinth.com/mod/fabric-api).
-3. Put the matching World Mirror 0.4.4 JAR in `mods/`.
+3. Put the matching World Mirror 0.4.5 JAR in `mods/`.
 4. *(Optional)* Install [Mod Menu](https://modrinth.com/mod/modmenu) for a title-screen settings entry.
-5. *(Optional)* For the Xaero overlay, install both
-   [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map) 1.40.x–1.44.x and the
-   matching [Xaero World Map Bridge 0.1.0](https://github.com/billstark001/xaero-world-map-bridge/releases/tag/v0.1.0).
+5. *(Optional)* For the Xaero overlay, install a Minecraft-matched
+   [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map) and
+   [Xaero World Map Bridge](https://github.com/billstark001/xaero-world-map-bridge/releases).
+   Use bridge 0.1.2 or newer for the exact Minecraft version. Minecraft 26.3
+   needs Xaero 1.46.x.
 
 Cloth Config and SQLite JDBC are bundled in the World Mirror JAR. LibGui is not used
 and does not need to be installed.
@@ -342,6 +346,9 @@ project-wide logging policy and the vendored NBT dependency notes.
 
 This builds the Fabric targets for Minecraft 1.21.11, 26.1.2, 26.2, and 26.3. Each
 target's artifacts are stored in its `versions/fabric-*/build/libs` directory.
+Each target uses `libs/xaero-world-map-bridge-<minecraft>.jar`. Run
+`./gradlew verifyBridgeMatrix` when updating a target or its bridge artifact;
+`buildAll` and IDEA synchronization run the same metadata check automatically.
 
 For a Modrinth upload, build all targets and collect only the four distributable
 JARs in the generated root `build/modrinth` directory:

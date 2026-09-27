@@ -3,6 +3,50 @@
 All notable changes to World Mirror are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+Mod and format-library releases share one reverse-chronological timeline. Mod
+releases use `## [version]`; format-library releases use
+`## world-mirror-format [version]`. Changes shared by every Minecraft target
+of the mod have no prefix. Changes limited to one target use
+`[fabric-<minecraft-version>]` at the start of the entry. The format library
+also ships its own changelog in its release ZIP.
+
+---
+
+## [0.4.5] — 2026-09-27
+
+### Changed
+
+- Shared the chunk SQLite schema, source priorities, and durability rules with
+  the standalone format module across all Minecraft targets.
+- Rendered the Xaero map's mirror indicator as centered, localized Minecraft
+  font text instead of a collection of filled rectangles.
+- Validated each Fabric target's Xaero bridge artifact metadata during builds and
+  IDEA synchronization.
+- Updated every target's Xaero bridge artifact to 0.1.2 and made builds reject
+  stale bridge versions or Xaero dependency upper bounds.
+- Unified the worldgen asset revision at 3 across all Minecraft targets so
+  revision-2 mirrors follow the same backed-up upgrade path.
+
+### Fixed
+
+- [fabric-26.3] Selected the Minecraft 26.3 bridge artifact instead of the 26.2
+  bridge, which Fabric Loader rejects on 26.3 and Xaero 1.46.
+- [fabric-26.3] Wrote the current noise generator fields so mirror worlds reopen
+  without a data-pack safe-mode error; existing mirrors refresh their worldgen
+  settings through the normal upgrade flow.
+- Refreshed the status screen's last-sync time from persisted metadata while it
+  stays open, including when a fast export completes between client ticks.
+
+---
+
+## world-mirror-format [0.1.0] — 2026-09-27
+
+### Added
+
+- Introduced version 0.1.0 of the Java 21+ mirror-format
+  contract, consumable through a local composite build or a release ZIP without
+  Maven Central.
+
 ---
 
 ## [0.4.4] — 2026-09-19

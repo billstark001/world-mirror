@@ -116,12 +116,13 @@ is optional, and LibGui is not required.
 World Mirror works without Xaero. To display World Mirror's chunk status on Xaero's
 fullscreen map, install both:
 
-- [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map) 1.40.x–1.44.x for your
-  Minecraft version; and
-- the matching Fabric file from
-  [Xaero World Map Bridge 0.1.0](https://github.com/billstark001/xaero-world-map-bridge/releases/tag/v0.1.0).
+- [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map) for your Minecraft version; and
+- the matching Minecraft-version Fabric file from
+  [Xaero World Map Bridge](https://github.com/billstark001/xaero-world-map-bridge/releases).
 
-The bridge release provides separate builds for Minecraft 1.21.11, 26.1.2, and 26.2.
+Use the bridge's matching Fabric file from release 0.1.2 or newer for every
+Minecraft version; bridge 0.1.0 restricts newer Xaero releases. For Minecraft
+26.3, use Xaero's World Map 1.46.x and the bridge's 26.3 file.
 
 ## Reporting a performance problem
 
