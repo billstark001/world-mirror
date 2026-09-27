@@ -1,5 +1,6 @@
 package io.github.billstark001.worldmirror.download;
 
+import io.github.billstark001.worldmirror.format.MirrorFormat;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.util.JsonSupport;
 import net.fabricmc.loader.api.FabricLoader;
@@ -26,11 +27,11 @@ import java.util.UUID;
 public class WorldMetadata {
 
     /** Current semantic format of the generated mirror-world dimensions. */
-    public static final int CURRENT_WORLDGEN_SCHEMA = 1;
-    public static final int CURRENT_METADATA_SCHEMA = 1;
+    public static final int CURRENT_WORLDGEN_SCHEMA = MirrorFormat.WORLDGEN_SCHEMA;
+    public static final int CURRENT_METADATA_SCHEMA = MirrorFormat.METADATA_SCHEMA;
     /** Cleanup revision independent from {@link #CURRENT_WORLDGEN_SCHEMA}. */
     public static final int CURRENT_VOID_CHUNK_CLEANUP_REVISION = 1;
-    public static final String FORMAT = "worldmirror";
+    public static final String FORMAT = MirrorFormat.FORMAT;
 
     // ── JSON fields ───────────────────────────────────────────────────────────
 
@@ -95,7 +96,7 @@ public class WorldMetadata {
 
     // ── Persistence ───────────────────────────────────────────────────────────
 
-    public static final String FILE_NAME = "worldmirror_meta.json";
+    public static final String FILE_NAME = MirrorFormat.METADATA_FILE;
 
     /**
      * Loads existing metadata from {@code worldFolder/worldmirror_meta.json}, or
