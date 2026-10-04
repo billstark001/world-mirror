@@ -30,6 +30,7 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -157,6 +158,12 @@ public final class DownloadManager {
     public static void queueLightUpdateCapture(ClientLevel world, ChunkPos pos) {
         if (!currentActive.get()) return;
         captureQueue.queueLightUpdate(world, pos);
+    }
+
+    public static Set<ChunkPos> pendingChunkCaptures(ResourceKey<Level> dimension,
+                                                     int minX, int maxX, int minZ, int maxZ) {
+        if (!currentActive.get() || dimension == null) return Set.of();
+        return captureQueue.pendingChunkPositions(dimension, minX, maxX, minZ, maxZ);
     }
 
     /**

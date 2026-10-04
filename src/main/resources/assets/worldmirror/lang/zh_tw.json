@@ -99,6 +99,10 @@
   "screen.worldmirror.chunkmap.block": "方塊：（%s，%s）",
   "screen.worldmirror.chunkmap.updated": "更新：%s",
   "screen.worldmirror.chunkmap.source": "來源：%s",
+  "screen.worldmirror.chunkmap.source.replayImport": "Toolkit 回放匯入",
+  "screen.worldmirror.chunkmap.live.cached": "已在記憶體快取",
+  "screen.worldmirror.chunkmap.live.pending_write": "等待寫入存檔",
+  "screen.worldmirror.chunkmap.live.pending_capture": "等待擷取",
   "screen.worldmirror.chunkmap.currentMirror": "正在檢視目前鏡像存檔的擷取狀態",
 
   "screen.worldmirror.captureMirror.title": "正在從鏡像存檔擷取",

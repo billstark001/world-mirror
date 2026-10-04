@@ -169,6 +169,27 @@ final class DownloadCaptureQueue {
         }
     }
 
+    Set<ChunkPos> pendingChunkPositions(ResourceKey<Level> dimension,
+                                        int minX, int maxX, int minZ, int maxZ) {
+        Set<ChunkPos> result = new HashSet<>();
+        synchronized (lock) {
+            for (Pending request : pending) {
+                Key key = request.key();
+                if (dimension.equals(key.dimension()) && key.chunkX() >= minX && key.chunkX() <= maxX
+                        && key.chunkZ() >= minZ && key.chunkZ() <= maxZ) {
+                    result.add(new ChunkPos(key.chunkX(), key.chunkZ()));
+                }
+            }
+            for (Key key : pendingLightUpdates.keySet()) {
+                if (dimension.equals(key.dimension()) && key.chunkX() >= minX && key.chunkX() <= maxX
+                        && key.chunkZ() >= minZ && key.chunkZ() <= maxZ) {
+                    result.add(new ChunkPos(key.chunkX(), key.chunkZ()));
+                }
+            }
+        }
+        return result;
+    }
+
     boolean hasWork() {
         synchronized (lock) {
             return hasWorkLocked();

@@ -99,6 +99,10 @@
   "screen.worldmirror.chunkmap.block": "Block: (%s, %s)",
   "screen.worldmirror.chunkmap.updated": "Updated: %s",
   "screen.worldmirror.chunkmap.source": "Source: %s",
+  "screen.worldmirror.chunkmap.source.replayImport": "Toolkit replay import",
+  "screen.worldmirror.chunkmap.live.cached": "Cached in memory",
+  "screen.worldmirror.chunkmap.live.pending_write": "Waiting to be saved",
+  "screen.worldmirror.chunkmap.live.pending_capture": "Waiting to be captured",
   "screen.worldmirror.chunkmap.currentMirror": "Viewing capture state of the current mirror save",
 
   "screen.worldmirror.captureMirror.title": "Capturing from a mirror save",

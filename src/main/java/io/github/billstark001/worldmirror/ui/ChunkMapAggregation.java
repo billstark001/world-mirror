@@ -76,10 +76,11 @@ public final class ChunkMapAggregation {
     }
 
     private static int bucketSizeFor(int minX, int maxX, int minZ, int maxZ, int maxBucketCells) {
-        long viewportCells = (long) (maxX - minX + 1) * (maxZ - minZ + 1);
+        double viewportCells = ((double) maxX - minX + 1.0D)
+                * ((double) maxZ - minZ + 1.0D);
         int limit = Math.max(1, maxBucketCells);
         return viewportCells <= limit ? 1
-                : Math.max(1, (int) Math.ceil(Math.sqrt((double) viewportCells / limit)));
+                : Math.max(1, (int) Math.ceil(Math.sqrt(viewportCells / limit)));
     }
 
     private static List<Boundary> buildBoundaries(HashMap<Long, Cell> cells) {

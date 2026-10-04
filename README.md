@@ -129,6 +129,14 @@ Chunk Map settings control whether and how often its layer is rendered. The brid
 Mod Menu page controls exact mixin injection and the safe tail fallback; World Mirror
 only supplies the chunk-status layer through the bridge API.
 
+The built-in map and Xaero overlay use the same live colours. Yellow means a
+chunk without a saved record is waiting for capture; yellow-green means a saved
+record already exists but a new capture is pending. Bright lime means a new
+in-memory capture is waiting to be saved, and light green means that an older
+saved record already exists while the new capture waits to be saved. Once saved,
+chunks return to the green-to-blue age gradient. A pending light update can also
+temporarily appear as waiting for capture.
+
 ![World Mirror overlay on Xaero's World Map](assets/xaero-map-overlay.png)
 
 ### Save locations

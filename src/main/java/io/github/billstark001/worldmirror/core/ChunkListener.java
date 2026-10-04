@@ -201,6 +201,27 @@ public class ChunkListener {
         return chunks == null ? Map.of() : chunks;
     }
 
+    /** Lightweight viewport state for maps; serialized chunk NBT never leaves the cache. */
+    public record MapChunkStatus(int x, int z, long capturedAtMs, boolean pendingWrite) { }
+
+    public static List<MapChunkStatus> snapshotMapStatusInRange(
+            ResourceKey<Level> dimension, int minX, int maxX, int minZ, int maxZ) {
+        Map<ChunkPos, CapturedChunk> chunks = getDimension(dimension);
+        Map<ChunkPos, Long> durable = dimDurableRevisions.get(dimension);
+        List<MapChunkStatus> result = new ArrayList<>();
+        for (Map.Entry<ChunkPos, CapturedChunk> entry : chunks.entrySet()) {
+            ChunkPos pos = entry.getKey();
+            int x = pos.getMinBlockX() >> 4;
+            int z = pos.getMinBlockZ() >> 4;
+            if (x < minX || x > maxX || z < minZ || z > maxZ) continue;
+            CapturedChunk chunk = entry.getValue();
+            long durableRevision = durable == null ? 0L : durable.getOrDefault(pos, 0L);
+            result.add(new MapChunkStatus(x, z, chunk.capturedAtMs(),
+                    chunk.revision() > durableRevision));
+        }
+        return result;
+    }
+
     /** Total captured chunks across all dimensions. */
     public static int getTotalCount() {
         return dimChunks.values().stream().mapToInt(Map::size).sum();

@@ -23,7 +23,8 @@ public final class ChunkStatusSnapshot {
     private final Map<Long, List<ChunkDatabase.ChunkRecord>> recordsByRegion;
     private final Set<Long> conflictKeys;
     private final Map<Long, List<ChunkPos>> conflictsByRegion;
-    private final List<BoundarySegment> boundarySegments;
+    private final NavigableMap<Integer, List<BoundarySegment>> verticalBoundaries;
+    private final NavigableMap<Integer, List<BoundarySegment>> horizontalBoundaries;
     private final long version;
 
     public ChunkStatusSnapshot(Collection<ChunkDatabase.ChunkRecord> records,
@@ -50,7 +51,9 @@ public final class ChunkStatusSnapshot {
                     .add(pos);
         }
 
-        this.boundarySegments = buildBoundarySegments(System.currentTimeMillis());
+        List<BoundarySegment> boundarySegments = buildBoundarySegments(System.currentTimeMillis());
+        this.verticalBoundaries = indexBoundaries(boundarySegments, true);
+        this.horizontalBoundaries = indexBoundaries(boundarySegments, false);
         this.version = version;
     }
 
@@ -77,55 +80,96 @@ public final class ChunkStatusSnapshot {
     public void forEachRecordInRange(int minChunkX, int maxChunkX,
                                      int minChunkZ, int maxChunkZ,
                                      Consumer<ChunkDatabase.ChunkRecord> consumer) {
-        int minRegionX = Math.floorDiv(minChunkX, REGION_SIZE);
-        int maxRegionX = Math.floorDiv(maxChunkX, REGION_SIZE);
-        int minRegionZ = Math.floorDiv(minChunkZ, REGION_SIZE);
-        int maxRegionZ = Math.floorDiv(maxChunkZ, REGION_SIZE);
-        for (int regionX = minRegionX; regionX <= maxRegionX; regionX++) {
-            for (int regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ++) {
-                List<ChunkDatabase.ChunkRecord> records = recordsByRegion.get(regionKey(regionX, regionZ));
-                if (records == null) continue;
-                for (ChunkDatabase.ChunkRecord record : records) {
-                    int x = record.x();
-                    int z = record.z();
-                    if (x >= minChunkX && x <= maxChunkX && z >= minChunkZ && z <= maxChunkZ) {
-                        consumer.accept(record);
+        forEachRegionInRange(recordsByRegion, minChunkX, maxChunkX, minChunkZ, maxChunkZ,
+                records -> {
+                    for (ChunkDatabase.ChunkRecord record : records) {
+                        int x = record.x();
+                        int z = record.z();
+                        if (x >= minChunkX && x <= maxChunkX && z >= minChunkZ && z <= maxChunkZ) {
+                            consumer.accept(record);
+                        }
                     }
-                }
-            }
-        }
+                });
     }
 
     public void forEachConflictInRange(int minChunkX, int maxChunkX,
                                        int minChunkZ, int maxChunkZ,
                                        Consumer<ChunkPos> consumer) {
-        int minRegionX = Math.floorDiv(minChunkX, REGION_SIZE);
-        int maxRegionX = Math.floorDiv(maxChunkX, REGION_SIZE);
-        int minRegionZ = Math.floorDiv(minChunkZ, REGION_SIZE);
-        int maxRegionZ = Math.floorDiv(maxChunkZ, REGION_SIZE);
-        for (int regionX = minRegionX; regionX <= maxRegionX; regionX++) {
-            for (int regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ++) {
-                List<ChunkPos> conflicts = conflictsByRegion.get(regionKey(regionX, regionZ));
-                if (conflicts == null) continue;
-                for (ChunkPos pos : conflicts) {
-                    int x = pos.getMinBlockX() >> 4;
-                    int z = pos.getMinBlockZ() >> 4;
-                    if (x >= minChunkX && x <= maxChunkX && z >= minChunkZ && z <= maxChunkZ) {
-                        consumer.accept(pos);
+        forEachRegionInRange(conflictsByRegion, minChunkX, maxChunkX, minChunkZ, maxChunkZ,
+                conflicts -> {
+                    for (ChunkPos pos : conflicts) {
+                        int x = pos.getMinBlockX() >> 4;
+                        int z = pos.getMinBlockZ() >> 4;
+                        if (x >= minChunkX && x <= maxChunkX && z >= minChunkZ && z <= maxChunkZ) {
+                            consumer.accept(pos);
+                        }
                     }
-                }
-            }
-        }
+                });
     }
 
     public void forEachBoundaryInRange(int minChunkX, int maxChunkX,
                                        int minChunkZ, int maxChunkZ,
                                        Consumer<BoundarySegment> consumer) {
-        for (BoundarySegment segment : boundarySegments) {
-            if (segment.intersects(minChunkX, maxChunkX + 1, minChunkZ, maxChunkZ + 1)) {
-                consumer.accept(segment);
+        if (minChunkX > maxChunkX || minChunkZ > maxChunkZ) return;
+        int maxBoundaryX = maxChunkX == Integer.MAX_VALUE ? maxChunkX : maxChunkX + 1;
+        int maxBoundaryZ = maxChunkZ == Integer.MAX_VALUE ? maxChunkZ : maxChunkZ + 1;
+        for (List<BoundarySegment> segments : verticalBoundaries.subMap(
+                minChunkX, true, maxBoundaryX, true).values()) {
+            for (BoundarySegment segment : segments) {
+                if (segment.intersects(minChunkX, maxChunkX + 1L, minChunkZ, maxChunkZ + 1L)) {
+                    consumer.accept(segment);
+                }
             }
         }
+        for (List<BoundarySegment> segments : horizontalBoundaries.subMap(
+                minChunkZ, true, maxBoundaryZ, true).values()) {
+            for (BoundarySegment segment : segments) {
+                if (segment.intersects(minChunkX, maxChunkX + 1L, minChunkZ, maxChunkZ + 1L)) {
+                    consumer.accept(segment);
+                }
+            }
+        }
+    }
+
+    private static <T> void forEachRegionInRange(Map<Long, T> regions,
+                                                  int minChunkX, int maxChunkX,
+                                                  int minChunkZ, int maxChunkZ,
+                                                  Consumer<T> consumer) {
+        if (regions.isEmpty() || minChunkX > maxChunkX || minChunkZ > maxChunkZ) return;
+        int minRegionX = Math.floorDiv(minChunkX, REGION_SIZE);
+        int maxRegionX = Math.floorDiv(maxChunkX, REGION_SIZE);
+        int minRegionZ = Math.floorDiv(minChunkZ, REGION_SIZE);
+        int maxRegionZ = Math.floorDiv(maxChunkZ, REGION_SIZE);
+        long area = ((long) maxRegionX - minRegionX + 1L)
+                * ((long) maxRegionZ - minRegionZ + 1L);
+        if (area > 4L * regions.size()) {
+            for (Map.Entry<Long, T> entry : regions.entrySet()) {
+                int regionX = (int) (entry.getKey() >> 32);
+                int regionZ = (int) (long) entry.getKey();
+                if (regionX >= minRegionX && regionX <= maxRegionX
+                        && regionZ >= minRegionZ && regionZ <= maxRegionZ) {
+                    consumer.accept(entry.getValue());
+                }
+            }
+            return;
+        }
+        for (int regionX = minRegionX; regionX <= maxRegionX; regionX++) {
+            for (int regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ++) {
+                T value = regions.get(regionKey(regionX, regionZ));
+                if (value != null) consumer.accept(value);
+            }
+        }
+    }
+
+    private static NavigableMap<Integer, List<BoundarySegment>> indexBoundaries(
+            List<BoundarySegment> segments, boolean vertical) {
+        NavigableMap<Integer, List<BoundarySegment>> index = new TreeMap<>();
+        for (BoundarySegment segment : segments) {
+            if (segment.vertical() == vertical) {
+                index.computeIfAbsent(segment.fixed(), ignored -> new ArrayList<>()).add(segment);
+            }
+        }
+        return index;
     }
 
     /** Version adapter for consumers that need coordinates without depending on ChunkPos accessors. */
@@ -236,7 +280,7 @@ public final class ChunkStatusSnapshot {
             return new VisualStatus(0, COLOR_CONFLICT, 1_000_000);
         }
         if (record == null) return null;
-        if (!"world_mirror".equals(record.updateSource())) {
+        if (!ChunkMapView.usesCaptureTimeGradient(record.updateSource())) {
             return new VisualStatus(1, COLOR_EXTERNAL, 900_000);
         }
         long ageMs = Math.max(0L, now - record.updateTime());
@@ -282,7 +326,7 @@ public final class ChunkStatusSnapshot {
     }
 
     public record BoundarySegment(boolean vertical, int fixed, int start, int end, int color) {
-        private boolean intersects(int minX, int maxX, int minZ, int maxZ) {
+        private boolean intersects(long minX, long maxX, long minZ, long maxZ) {
             if (vertical) {
                 return fixed >= minX && fixed <= maxX && end > minZ && start < maxZ;
             }

@@ -99,6 +99,10 @@
   "screen.worldmirror.chunkmap.block": "ブロック：（%s、%s）",
   "screen.worldmirror.chunkmap.updated": "更新：%s",
   "screen.worldmirror.chunkmap.source": "ソース：%s",
+  "screen.worldmirror.chunkmap.source.replayImport": "Toolkit リプレイからインポート",
+  "screen.worldmirror.chunkmap.live.cached": "メモリにキャッシュ済み",
+  "screen.worldmirror.chunkmap.live.pending_write": "保存待ち",
+  "screen.worldmirror.chunkmap.live.pending_capture": "取得待ち",
   "screen.worldmirror.chunkmap.currentMirror": "現在のミラーセーブのキャプチャ状態を表示中",
 
   "screen.worldmirror.captureMirror.title": "ミラーセーブからキャプチャ",

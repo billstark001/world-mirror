@@ -27,9 +27,10 @@ import java.util.*;
  * indicate download status:
  * <ul>
  *   <li><b>Transparent</b> — never downloaded.</li>
- *   <li><b>Green→Blue</b> — downloaded via {@code world_mirror}; colour shifts from
+ *   <li><b>Green→Blue</b> — downloaded via World Mirror or the replay toolkit; colour shifts from
  *       green (≤10 min ago) to blue (≥1 month ago) on a logarithmic scale.</li>
- *   <li><b>Orange</b> — written by a non-{@code world_mirror} source.</li>
+ *   <li><b>Orange</b> — written by another external source.</li>
+ *   <li><b>Yellow / bright green</b> — waiting for capture / waiting for a durable write.</li>
  * </ul>
  *
  * <p>If a chunk has an unresolved conflict entry a <b>red border</b> is drawn
@@ -53,6 +54,10 @@ public class ChunkMapScreen extends Screen {
     // ── Data ─────────────────────────────────────────────────────────────────
 
     private ChunkStatusSnapshot statusSnapshot = ChunkStatusSnapshot.EMPTY;
+    private LiveChunkStatusSnapshot liveSnapshot = LiveChunkStatusSnapshot.EMPTY;
+    private ChunkMapView.ChunkRange liveCaptureRange;
+    private ResourceKey<Level> liveDimension;
+    private long nextLiveRefreshMs;
     private Path worldFolder;
     private boolean viewingCurrentMirror;
     private ResourceKey<Level> currentDimension;
@@ -147,6 +152,7 @@ public class ChunkMapScreen extends Screen {
         if (currentDimension == null) currentDimension = Level.OVERWORLD;
 
         statusSnapshot = ChunkStatusCache.getOrScheduleRefresh(client, currentDimension, 0L);
+        liveCaptureRange = null;
     }
 
     // ── Rendering ─────────────────────────────────────────────────────────────
@@ -158,8 +164,10 @@ public class ChunkMapScreen extends Screen {
         long now = System.currentTimeMillis();
         ChunkMapView.BuiltInViewport viewport = viewport(
                 mapConfig.background == ModConfig.ChunkMapBackground.TRANSPARENT);
+        refreshLiveSnapshot(ChunkMapView.visibleRange(viewport), now);
         ChunkMapView.renderBuiltIn(
-                ctx::fill, statusSnapshot, viewport, now, mapConfig.sparseRenderCellThreshold);
+                ctx::fill, statusSnapshot, liveSnapshot, viewport, now,
+                mapConfig.sparseRenderCellThreshold);
         hoveredChunk = chunkAt(viewport, mx, my);
 
         Minecraft client = Minecraft.getInstance();
@@ -183,14 +191,26 @@ public class ChunkMapScreen extends Screen {
         int chunkX = pos.getMinBlockX() >> 4;
         int chunkZ = pos.getMinBlockZ() >> 4;
         ChunkDatabase.ChunkRecord rec = statusSnapshot.getRecord(chunkX, chunkZ);
+        LiveChunkStatusSnapshot.Record live = liveSnapshot.getRecord(chunkX, chunkZ);
         boolean hasConflict = statusSnapshot.hasConflict(chunkX, chunkZ);
         List<Component> lines = new ArrayList<>();
         lines.add(Component.translatable("screen.worldmirror.chunkmap.chunk", chunkX, chunkZ));
         lines.add(Component.translatable("screen.worldmirror.chunkmap.block", chunkX * 16, chunkZ * 16));
+        if (live != null) {
+            lines.add(Component.translatable("screen.worldmirror.chunkmap.live."
+                    + live.state().name().toLowerCase(Locale.ROOT)));
+            if (rec == null && live.capturedAtMs() > 0L) {
+                lines.add(Component.translatable("screen.worldmirror.chunkmap.updated",
+                        formatAge((now - live.capturedAtMs()) / 1000)));
+            }
+        }
         if (rec != null) {
             lines.add(Component.translatable("screen.worldmirror.chunkmap.updated", formatAge((now - rec.updateTime()) / 1000)));
-            lines.add(Component.translatable("screen.worldmirror.chunkmap.source", rec.updateSource()));
-        } else {
+            lines.add(Component.translatable("screen.worldmirror.chunkmap.source",
+                    "replay_import".equals(rec.updateSource())
+                            ? Component.translatable("screen.worldmirror.chunkmap.source.replayImport")
+                            : Component.literal(rec.updateSource())));
+        } else if (live == null) {
             lines.add(Component.translatable("screen.worldmirror.chunkmap.notDownloaded"));
         }
         if (hasConflict) {
@@ -198,6 +218,23 @@ public class ChunkMapScreen extends Screen {
             lines.add(Component.translatable("screen.worldmirror.chunkmap.clickResolve"));
         }
         ctx.setComponentTooltipForNextFrame(this.font, lines, mx, my);
+    }
+
+    private void refreshLiveSnapshot(ChunkMapView.ChunkRange visible, long now) {
+        if (liveCaptureRange != null && currentDimension.equals(liveDimension)
+                && now < nextLiveRefreshMs
+                && visible.minX() >= liveCaptureRange.minX()
+                && visible.maxX() <= liveCaptureRange.maxX()
+                && visible.minZ() >= liveCaptureRange.minZ()
+                && visible.maxZ() <= liveCaptureRange.maxZ()) return;
+        int margin = 16;
+        liveCaptureRange = new ChunkMapView.ChunkRange(
+                visible.minX() - margin, visible.maxX() + margin,
+                visible.minZ() - margin, visible.maxZ() + margin);
+        liveSnapshot = LiveChunkStatusSnapshot.capture(currentDimension, liveCaptureRange,
+                statusSnapshot);
+        liveDimension = currentDimension;
+        nextLiveRefreshMs = now + 500L;
     }
 
     // ── Dialog ────────────────────────────────────────────────────────────────
