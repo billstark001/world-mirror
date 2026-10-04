@@ -156,19 +156,19 @@ public class StatusScreen extends StatusScreenApi {
                                 ? "screen.worldmirror.status.stopDownload"
                                 : "screen.worldmirror.status.startDownload"),
                 button -> DownloadManager.toggle(Minecraft.getInstance()))
-                .bounds(left, 116, 178, BUTTON_HEIGHT).build());
+                .bounds(left, 140, 178, BUTTON_HEIGHT).build());
         addRenderableWidget(Button.builder(Component.translatable(
                         "screen.worldmirror.status.exportNow"),
                 button -> DownloadManager.exportNow(Minecraft.getInstance()))
-                .bounds(left + 182, 116, 178, BUTTON_HEIGHT).build());
+                .bounds(left + 182, 140, 178, BUTTON_HEIGHT).build());
         addRenderableWidget(Button.builder(Component.translatable(
                         "screen.worldmirror.status.clearData"),
                 button -> { DownloadManager.clearAll(Minecraft.getInstance()); refresh(); })
-                .bounds(left, 140, 178, BUTTON_HEIGHT).build());
+                .bounds(left, 164, 178, BUTTON_HEIGHT).build());
         addRenderableWidget(Button.builder(Component.translatable(
                         "screen.worldmirror.status.exportNearby"),
                 button -> ExportNearbyScreen.open(this))
-                .bounds(left + 182, 140, 178, BUTTON_HEIGHT).build());
+                .bounds(left + 182, 164, 178, BUTTON_HEIGHT).build());
     }
 
     private void addSettingsButtons(int left) {
@@ -319,19 +319,25 @@ public class StatusScreen extends StatusScreenApi {
         int x = left();
         pairLine(graphics, "screen.worldmirror.status.sourceId", sourceType + " · " + sourceId,
                 "screen.worldmirror.status.mirrorPath", folder, x, 62);
-        pairLine(graphics, "screen.worldmirror.status.chunks",
-                String.valueOf(ChunkListener.getTotalCount()),
-                "screen.worldmirror.status.lastSync", lastSync().getString(), x, 76);
+        int savedCount = ChunkStatusCache.getOrScheduleSavedCount(
+                statusContext.output(), sourceId, 1_000L);
+        pairLine(graphics, "screen.worldmirror.status.savedChunks",
+                savedCount < 0 ? "…" : String.valueOf(savedCount),
+                "screen.worldmirror.status.chunks",
+                String.valueOf(ChunkListener.getTotalCount()), x, 76);
+        pairLine(graphics, "screen.worldmirror.status.pendingWrite",
+                String.valueOf(ChunkListener.getDirtyCount()),
+                "screen.worldmirror.status.lastSync", lastSync().getString(), x, 90);
         graphics.text(Component.translatable(DownloadManager.isActive()
                 ? "screen.worldmirror.status.downloadActive"
-                : "screen.worldmirror.status.downloadInactive"), x, 90, 0xFFE0E0E0);
+                : "screen.worldmirror.status.downloadInactive"), x, 104, 0xFFE0E0E0);
         graphics.text(Component.translatable(DownloadManager.isExportInProgress()
                 ? "screen.worldmirror.status.exportRunning"
-                : "screen.worldmirror.status.exportIdle"), x + 182, 90, 0xFFE0E0E0);
+                : "screen.worldmirror.status.exportIdle"), x + 182, 104, 0xFFE0E0E0);
         MirrorWorldContext.Snapshot mirror = MirrorWorldContext.current();
         if (mirror.isMirror()) {
             graphics.centered(Component.translatable("screen.worldmirror.status.currentMirror."
-                    + mirror.state().name().toLowerCase()), width / 2, 104, 0xFFFFFF55);
+                    + mirror.state().name().toLowerCase()), width / 2, 118, 0xFFFFFF55);
         }
     }
 

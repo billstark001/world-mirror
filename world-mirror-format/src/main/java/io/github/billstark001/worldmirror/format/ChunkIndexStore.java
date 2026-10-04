@@ -183,6 +183,17 @@ public final class ChunkIndexStore {
         return records;
     }
 
+    /** Count durable chunks across every dimension for this source. */
+    public int countAll() throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT COUNT(*) FROM chunks WHERE source=?")) {
+            statement.setString(1, sourceId);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? result.getInt(1) : 0;
+            }
+        }
+    }
+
     private void bindKey(PreparedStatement statement, String dimension, ChunkCoordinate chunk)
             throws SQLException {
         statement.setString(1, sourceId);

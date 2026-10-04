@@ -137,6 +137,7 @@ public final class NearbyExporter {
                                   WorldSettingsSnapshot worldSettings) {
         try {
             Files.createDirectories(output);
+            long latestCaptureTime;
             try (ChunkDatabase database = ChunkDatabase.open(output, lineage.sourceId())) {
                 ChunkExporter.ExportResult result = ChunkExporter.exportChunks(
                         output, snapshot, entities, containers,
@@ -145,6 +146,10 @@ public final class NearbyExporter {
                 if (!result.chunkWritesSuccessful() || !result.entityWritesSuccessful()) {
                     throw new java.io.IOException("One or more nearby-export region writes failed");
                 }
+                latestCaptureTime = result.written().values().stream()
+                        .flatMap(chunks -> chunks.values().stream())
+                        .mapToLong(ChunkExporter.WriteStamp::capturedAtMs)
+                        .max().orElse(0L);
             }
             if (!WorldStructureCreator.createLoadableWorldWithSpawn(
                     output, worldName, spawnX, spawnY, spawnZ, worldSettings)) {
@@ -156,7 +161,7 @@ public final class NearbyExporter {
             metadata.markWorldgenCurrent(
                     SharedConstants.getCurrentVersion().dataVersion().version(),
                     MirrorWorldgenAssets.ASSET_REVISION);
-            metadata.markSyncComplete(output);
+            metadata.markSyncComplete(output, latestCaptureTime);
             WMLogger.info("Nearby export complete: " + output.toAbsolutePath());
             client.execute(() -> WMPlayerMessages.sendSystemMessage(client.player,
                     Component.translatable("msg.worldmirror.nearbyDone", output.getFileName())

@@ -151,6 +151,25 @@ public class ChunkDatabase implements Closeable {
         }
     }
 
+    /** Returns -1 when the durable count cannot be read. */
+    public static int countAllReadOnly(Path worldFolder, String sourceId) {
+        Path database = worldFolder.resolve(MirrorFormat.DATABASE_FILE);
+        if (!Files.isRegularFile(database)) return 0;
+        SQLiteConfig config = new SQLiteConfig();
+        config.setReadOnly(true);
+        try (Connection connection = openConnection(
+                "jdbc:sqlite:" + database.toAbsolutePath(), config.toProperties())) {
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("PRAGMA query_only=TRUE");
+            }
+            return new ChunkIndexStore(connection, sourceId).countAll();
+        } catch (SQLException e) {
+            WMLogger.warnRateLimited("db-count-read-only", 30_000L,
+                    "Read-only chunk count failed world=" + worldFolder, e);
+            return -1;
+        }
+    }
+
     @Override
     public void close() {
         try {

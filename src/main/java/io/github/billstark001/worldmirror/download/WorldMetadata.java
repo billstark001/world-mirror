@@ -59,7 +59,7 @@ public class WorldMetadata {
     /** Server address or local world folder name. */
     public String sourceId = "unknown";
 
-    /** Unix millis of the most recent completed sync. */
+    /** New writes use the newest durably saved chunk capture time; old values are preserved. */
     public long lastSyncTime = 0;
 
     /**
@@ -247,25 +247,29 @@ public class WorldMetadata {
     }
 
     /**
-     * Load-or-create, update {@code lastSyncTime} and {@code modVersion}, then save.
+     * Load-or-create, update {@code lastSyncTime} from a durable capture, then save.
      * <p>
      * Chunk write timestamps are no longer stored in JSON; they are managed by
      * {@link ChunkDatabase} instead.
      */
     public static void update(Path worldFolder,
                               String sourceId,
-                              String sourceType) {
+                              String sourceType,
+                              long latestCaptureTime) {
         WorldMetadata meta = loadOrCreate(worldFolder, sourceId, sourceType);
-        long now = System.currentTimeMillis();
-        meta.lastSyncTime = now;
+        if (latestCaptureTime > 0L) {
+            meta.lastSyncTime = Math.max(meta.lastSyncTime, latestCaptureTime);
+        }
         meta.modVersion = currentModVersion();
         meta.chunkUpdateTimes = null; // ensure legacy field is not written back
         meta.save(worldFolder);
     }
 
-    /** Updates normal sync bookkeeping on an already-loaded metadata object. */
-    public void markSyncComplete(Path worldFolder) {
-        lastSyncTime = System.currentTimeMillis();
+    /** Records the newest durably saved capture time without rewriting older metadata values. */
+    public void markSyncComplete(Path worldFolder, long latestCaptureTime) {
+        if (latestCaptureTime > 0L) {
+            lastSyncTime = Math.max(lastSyncTime, latestCaptureTime);
+        }
         modVersion = currentModVersion();
         chunkUpdateTimes = null;
         save(worldFolder);

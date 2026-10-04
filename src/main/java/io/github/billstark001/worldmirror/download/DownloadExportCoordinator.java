@@ -314,6 +314,7 @@ final class DownloadExportCoordinator {
             lastTimings = result.timings();
 
             Map<ResourceKey<Level>, Map<ChunkPos, Long>> durableWritten = new HashMap<>();
+            long latestDurableCaptureTime = 0L;
             boolean durabilityIndexSuccessful = true;
             long durabilityStartedNs = System.nanoTime();
             for (Map.Entry<ResourceKey<Level>, Set<ChunkPos>> dimension
@@ -338,6 +339,9 @@ final class DownloadExportCoordinator {
                 });
                 if (db.recordUpdates(dimensionId, timestamps, "world_mirror")) {
                     durableWritten.put(dimension.getKey(), revisions);
+                    for (long capturedAtMs : timestamps.values()) {
+                        latestDurableCaptureTime = Math.max(latestDurableCaptureTime, capturedAtMs);
+                    }
                 } else {
                     durabilityIndexSuccessful = false;
                     WMLogger.warn("Durability-index commit failed for [" + dimensionId
@@ -356,7 +360,7 @@ final class DownloadExportCoordinator {
 
             boolean successful = result.chunkWritesSuccessful()
                     && result.entityWritesSuccessful() && durabilityIndexSuccessful;
-            if (successful) metadata.markSyncComplete(worldFolder);
+            if (successful) metadata.markSyncComplete(worldFolder, latestDurableCaptureTime);
             else failures.incrementAndGet();
 
             int written = result.totalWritten();

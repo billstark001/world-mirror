@@ -189,7 +189,7 @@ payload shapes are left untouched.
 | `parentMirrorId` | Optional identity of the mirror from which a nearby export was created |
 | `sourceType` | `singleplayer` or `server` |
 | `sourceId` | `local:<level-name>` or `server:<address>` |
-| `lastSyncTime` | Unix-millisecond timestamp of the most recent fully successful synchronization pass |
+| `lastSyncTime` | Unix-millisecond capture timestamp of the newest successfully saved chunk. Existing values written by older versions as export completion times are left unchanged. |
 | `worldgenSchema` | Semantic schema of the generated mirror dimensions |
 | `worldgenAssetRevision` / `worldgenAssetDataVersion` | Global worldgen asset revision (shared by all targets) and the Minecraft data version used to write it |
 | `legacyVoidChunkCleanupRevision` | Completion marker for the backed-up legacy void-chunk cleanup |
