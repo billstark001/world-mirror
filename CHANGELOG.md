@@ -12,6 +12,32 @@ also ships its own changelog in its release ZIP.
 
 ---
 
+## [0.4.6] — 2026-10-05
+
+### Added
+
+- Show live cached chunks and capture/write queues on the built-in map and Xaero
+  World Map overlay. Four yellow-to-green colours distinguish pending captures
+  and pending writes with or without an existing saved record.
+- Show separate saved, memory-cached, and pending-write chunk counts on the
+  status screen.
+
+### Changed
+
+- Colour toolkit replay imports with the same capture-age gradient as World
+  Mirror chunks, while retaining their source in the map tooltip.
+- Record new successful sync times using chunk capture timestamps. Existing
+  metadata timestamps are not migrated.
+
+### Fixed
+
+- Keep chunk-status snapshots consistent across concurrent refreshes and
+  invalidations, and avoid scanning empty map regions or all saved boundaries
+  on every frame.
+- Guard Xaero overlay rendering against invalid projections and extreme zoom.
+
+---
+
 ## world-mirror-format [0.1.1] — 2026-09-27
 
 ### Changed
