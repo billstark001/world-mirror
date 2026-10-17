@@ -6,6 +6,7 @@
   "key.worldmirror.toggle": "切換下載",
   "key.worldmirror.status": "開啟狀態介面",
   "key.worldmirror.chunkMap": "開啟區塊地圖",
+  "key.worldmirror.worldOverlay": "切換遊戲內區塊疊加層",
 
   "config.worldmirror.saveLoc": "儲存位置",
   "config.worldmirror.saveLoc.downloaded": "下載資料夾",
@@ -245,6 +246,20 @@
 
   "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells": "Xaero 疊加層最大繪製單元",
   "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells.@Tooltip": "Xaero 疊加層每幀最多繪製的螢幕單元數量。低縮放時降低此值可提升效能。",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlay": "遊戲內疊加層（原始世界）",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlay.@Tooltip": "在原始世界或伺服器中顯示區塊狀態。黃色表示等待下載，綠色表示本次工作階段已擷取，藍色表示過去已下載。",
+  "text.autoconfig.worldmirror.option.chunkMap.showMirrorWorldChunkOverlay": "遊戲內疊加層（鏡像世界）",
+  "text.autoconfig.worldmirror.option.chunkMap.showMirrorWorldChunkOverlay.@Tooltip": "遊玩 World Mirror 鏡像存檔時顯示區塊狀態，可獨立於原始世界的疊加層切換。",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlayWithHiddenGui": "F1 隱藏介面時仍顯示遊戲內疊加層",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlayWithHiddenGui.@Tooltip": "使用 F1 隱藏遊戲介面時仍繪製遊戲內區塊疊加層。預設關閉。",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayRenderDistance": "遊戲內疊加層距離（區塊）",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayRenderDistance.@Tooltip": "圍繞玩家繪製的最大方形半徑，範圍 8–16384 區塊。可輸入精確數值；遠處的區塊會合併繪製。",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayHeight": "遊戲內疊加層高度",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayHeight.@Tooltip": "繪製一格高區塊狀態方框的 Y 座標。高於該座標的地形會遮擋方框。",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlayInnerGrid": "顯示同狀態區塊內網格線",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlayInnerGrid.@Tooltip": "顯示相鄰同狀態區塊之間的邊界。關閉後只顯示外邊界和狀態交界；遠距離時網格線按聚合單元繪製。",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayOpacityPercent": "遊戲內疊加層不透明度（%）",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayOpacityPercent.@Tooltip": "按比例調整填充和邊線的不透明度。100% 與原版疊加層相同；預設 60% 更透明。",
 
   "text.autoconfig.worldmirror.option.lifecycle": "生命週期行為",
 

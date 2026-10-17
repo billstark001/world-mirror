@@ -2,10 +2,12 @@ package io.github.billstark001.worldmirror;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import io.github.billstark001.worldmirror.config.ModConfig;
+import io.github.billstark001.worldmirror.config.EnumDropdownGui;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
 import io.github.billstark001.worldmirror.download.DownloadManager;
 import io.github.billstark001.worldmirror.download.MirrorWorldContext;
 import io.github.billstark001.worldmirror.ui.ChunkMapScreen;
+import io.github.billstark001.worldmirror.ui.ChunkWorldOverlay;
 import io.github.billstark001.worldmirror.ui.StatusScreen;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.xaero.XaeroBridgeOverlay;
@@ -41,10 +43,12 @@ public class WorldMirrorClient implements ClientModInitializer {
     private static KeyMapping clearKey;
     private static KeyMapping statusKey;
     private static KeyMapping chunkMapKey;
+    private static KeyMapping worldOverlayKey;
 
     @Override
     public void onInitializeClient() {
         ModConfig.register();
+        EnumDropdownGui.register();
         ChunkDatabase.configureSqliteNativeDirectory();
         installXaeroBridgeOverlay();
 
@@ -73,6 +77,11 @@ public class WorldMirrorClient implements ClientModInitializer {
                 InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_M,
                 CATEGORY));
 
+        worldOverlayKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+                "key.worldmirror.worldOverlay",
+                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_K,
+                CATEGORY));
+
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (toggleKey.consumeClick()) {
                 DownloadManager.toggle(client);
@@ -89,12 +98,17 @@ public class WorldMirrorClient implements ClientModInitializer {
             while (chunkMapKey.consumeClick()) {
                 ChunkMapScreen.open();
             }
+            while (worldOverlayKey.consumeClick()) {
+                ChunkWorldOverlay.toggleForCurrentWorld(client);
+            }
             DownloadManager.onClientTick(client);
+            ChunkWorldOverlay.capture(client, client.options.hideGui);
         });
         ClientChunkEvents.CHUNK_LOAD.register((world, chunk) ->
                 DownloadManager.queueChunkCapture(world, chunk.getPos(), "chunk-load"));
         ClientChunkEvents.CHUNK_UNLOAD.register(DownloadManager::captureChunkBeforeUnload);
         WorldRenderEvents.END_MAIN.register(context -> DownloadManager.recordWorldFrame());
+
 
         // Apply the configured on-join behaviour whenever the player enters a world.
         // ClientPlayConnectionEvents.JOIN fires after the world object is available,

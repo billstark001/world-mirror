@@ -12,6 +12,49 @@ also ships its own changelog in its release ZIP.
 
 ---
 
+## [0.5.0] — 2026-10-18
+
+### Added
+
+- Added an in-world chunk overlay showing queued captures, chunks captured in
+  the current session, and previously saved chunks. Source worlds and mirror
+  worlds have independent visibility settings; **K** toggles the setting for
+  the current world type. Thanks to [@cev-api](https://github.com/cev-api) for
+  the original [PR #14](https://github.com/billstark001/world-mirror/pull/14).
+
+### Changed
+
+- Prepared lightweight overlay state before drawing, reused the map's indexed
+  snapshots and bounded bucket sizing, and merged adjacent same-colour tiles.
+  The default overlay radius is 128 chunks; larger views use coarse tiles.
+- Fixed degenerate faces in the chunk-box geometry and prevented distant
+  outlines from fading to the sky's fog colour. Kept the PR's Gradle cache-path
+  change separate from this release.
+- Restored visible grid lines in both directions, with a switch for same-status
+  interior boundaries, and reduced the default fill and outline opacity to 60%
+  of its previous strength. Removed translucent internal side faces that left
+  one-directional stripes even when the grid was hidden.
+- Kept the optional Xaero bridge off the development client's runtime classpath,
+  so World Mirror can launch without Xaero's World Map installed.
+- Kept the custom Cloth Config select for enums. Boolean and short bounded
+  integer fields can opt into it explicitly; current fields use their default
+  controls. The 8–16384 chunk overlay radius uses a bounded text field for
+  exact values.
+- Stopped in-world overlay extraction when it is hidden, including under F1
+  by default. A separate setting can keep it visible under F1.
+
+### Fixed
+
+- Added opt-in development Xaero bridge runtime dependencies with
+  `-PxaeroIntegration=true`, while keeping startup without Xaero supported.
+- Render the in-world overlay after water, clouds, and transparency composition
+  on the classic path, with the grid drawn after the fill. Minecraft 26.3 retains
+  native improved-transparency rendering.
+- Keep chunk boxes while blending only their camera-facing shell, avoiding doubled
+  opacity from front and back faces.
+
+---
+
 ## [0.4.6] — 2026-10-05
 
 ### Added

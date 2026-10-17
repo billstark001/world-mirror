@@ -1,6 +1,7 @@
 def target = rootProject.ext.targets[project.ext.minecraftTarget]
 def sharedMinecraft = target.sharedMinecraft ?: target.minecraft
 def bridgeJar = rootProject.file("libs/xaero-world-map-bridge-${target.minecraft}.jar")
+def xaeroIntegration = providers.gradleProperty("xaeroIntegration").map { it.toBoolean() }.getOrElse(false)
 def commonJava = objects.sourceDirectorySet("commonJava${target.minecraft}",
         "Common Java sources for Minecraft ${target.minecraft}")
 commonJava.srcDir(rootProject.file("src/main/java"))
@@ -87,7 +88,7 @@ loom {
             client()
             configName = "Minecraft Client ${target.minecraft}"
             getGenerateRunConfig().set(true)
-            runDir = rootProject.file("run").absolutePath
+            runDir = rootProject.file(providers.gradleProperty("worldMirrorRunDir").getOrElse("run")).absolutePath
         }
     }
 }
@@ -142,7 +143,8 @@ dependencies {
         modApi include("me.shedaniel.cloth:cloth-config-fabric:${target.clothConfig}") {
             exclude(group: "net.fabricmc.fabric-api")
         }
-        modImplementation files(bridgeJar)
+        modCompileOnly files(bridgeJar)
+        if (xaeroIntegration) modLocalRuntime files(bridgeJar)
     } else {
         implementation "net.fabricmc:fabric-loader:${rootProject.loader_version}"
         implementation "net.fabricmc.fabric-api:fabric-api:${target.fabricApi}"
@@ -151,7 +153,8 @@ dependencies {
         api include("me.shedaniel.cloth:cloth-config-fabric:${target.clothConfig}") {
             exclude(group: "net.fabricmc.fabric-api")
         }
-        implementation files(bridgeJar)
+        compileOnly files(bridgeJar)
+        if (xaeroIntegration) localRuntime files(bridgeJar)
     }
 
     implementation include("org.xerial:sqlite-jdbc:${rootProject.sqlite_version}")

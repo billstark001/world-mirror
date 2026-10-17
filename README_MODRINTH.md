@@ -42,6 +42,7 @@ Automatic export on stop is available in settings but is disabled by default, so
 | **O** | Export captured changes now |
 | **I** | Open World Mirror's status and settings screen |
 | **M** | Open the built-in chunk map |
+| **K** | Toggle the in-world chunk overlay for the current world type |
 | **L** | Clear the in-memory capture cache |
 
 All controls can be rebound under *Options → Controls → World Mirror*. Clearing the cache
@@ -62,6 +63,12 @@ with **L** does not delete mirror files already written to disk.
 
 The built-in map shows recorded chunks and unresolved conflicts. Drag to pan, use the
 mouse wheel to zoom, and hover a chunk for its coordinates, age, and source.
+
+Enable the in-world chunk overlay in Chunk Map settings, or press **K**, to show
+one-block-high coverage boxes at an adjustable height. Source worlds and mirror
+worlds have separate switches, both disabled by default. The boxes keep a consistent
+fill opacity from above and below; water and clouds behind them no longer erase
+their color. Solid terrain still hides boxes behind it.
 
 ### What it cannot save perfectly
 

@@ -6,6 +6,7 @@
   "key.worldmirror.toggle": "ダウンロードの切り替え",
   "key.worldmirror.status": "ステータス画面を開く",
   "key.worldmirror.chunkMap": "チャンクマップを開く",
+  "key.worldmirror.worldOverlay": "ワールド内チャンクオーバーレイの切り替え",
 
   "config.worldmirror.saveLoc": "保存場所",
   "config.worldmirror.saveLoc.downloaded": "ダウンロードフォルダ",
@@ -245,6 +246,20 @@
 
   "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells": "Xaero オーバーレイ最大セル数",
   "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells.@Tooltip": "Xaero オーバーレイで描画する画面セル数の上限です。低ズーム時は値を下げると性能が向上します。",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlay": "ワールド内オーバーレイ（元のワールド）",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlay.@Tooltip": "元のワールドやサーバーでチャンク状態を表示します。黄色はダウンロード待ち、緑は今のセッションで取得済み、青は過去にダウンロード済みです。",
+  "text.autoconfig.worldmirror.option.chunkMap.showMirrorWorldChunkOverlay": "ワールド内オーバーレイ（ミラーワールド）",
+  "text.autoconfig.worldmirror.option.chunkMap.showMirrorWorldChunkOverlay.@Tooltip": "World Mirror のミラーセーブをプレイするときにチャンク状態を表示します。元のワールドとは別に切り替えられます。",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlayWithHiddenGui": "F1 で GUI を隠しても表示",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlayWithHiddenGui.@Tooltip": "F1 でゲーム画面の GUI を隠している間もワールド内オーバーレイを表示します。既定ではオフです。",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayRenderDistance": "ワールド内オーバーレイ距離（チャンク）",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayRenderDistance.@Tooltip": "プレイヤーを中心とする最大半径は 8～16384 チャンクです。正確な値を入力できます。遠方のチャンクはまとめて描画します。",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayHeight": "ワールド内オーバーレイの高さ",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayHeight.@Tooltip": "チャンク状態ボックスを描画する Y 座標です。これより高い地形には隠れます。",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlayInnerGrid": "同じ状態のチャンク境界を表示",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlayInnerGrid.@Tooltip": "同じ状態の隣接チャンク間にも境界線を描画します。オフにすると外周と状態の変わる境界だけを表示します。遠距離では集約タイル単位です。",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayOpacityPercent": "ワールド内オーバーレイの不透明度（%）",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayOpacityPercent.@Tooltip": "塗りと輪郭の不透明度を調整します。100% は従来と同じで、既定の 60% はより透明です。",
 
   "text.autoconfig.worldmirror.option.lifecycle": "ライフサイクル動作",
 

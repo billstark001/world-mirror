@@ -50,6 +50,7 @@ public final class DownloadManager {
     // ── State ─────────────────────────────────────────────────────────────────
 
     private static final AtomicBoolean currentActive = new AtomicBoolean(false);
+    private static volatile long downloadSessionStartedAtMs;
     private static long lastCacheEvictionMs = 0;
     private static final int INITIAL_CAPTURE_RANGE = 33;
     private static final int PRE_EXPORT_CAPTURE_RANGE = 8;
@@ -92,6 +93,11 @@ public final class DownloadManager {
 
     public static boolean isActive() {
         return currentActive.get();
+    }
+
+    /** Start time of the latest capture session, used to distinguish green current data from blue history. */
+    public static long downloadSessionStartedAtMs() {
+        return downloadSessionStartedAtMs;
     }
 
     public static boolean isExportInProgress() {
@@ -250,6 +256,7 @@ public final class DownloadManager {
      * {@link ModConfig.LifecycleConfig#onJoinWorld} behaviour.
      */
     public static void onJoinWorld(Minecraft client) {
+        downloadSessionStartedAtMs = 0L;
         clearPendingCaptureState();
         clearCapturedWorldState();
         ContainerTracker.clear();
@@ -561,6 +568,7 @@ public final class DownloadManager {
 
     private static void activateDownload(Minecraft client, String reason) {
         if (!currentActive.compareAndSet(false, true)) return;
+        downloadSessionStartedAtMs = System.currentTimeMillis();
         activePipeline = DownloadPipeline.create(ModConfig.get().pipelineMode);
         resetDiagnosticSession();
         diagnosticSessionActive = ModConfig.get().performance.diagnosticPerformanceLogging;

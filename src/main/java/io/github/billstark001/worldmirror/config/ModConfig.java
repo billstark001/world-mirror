@@ -161,6 +161,50 @@ public class ModConfig implements ConfigData {
         @ConfigEntry.Gui.Tooltip
         @ConfigEntry.BoundedDiscrete(min = 1000, max = 50000)
         public int xaeroWorldMapOverlayMaxCells = 6000;
+
+        /** Draws chunk status in source worlds and on servers. */
+        @ConfigEntry.Gui.Tooltip
+        public boolean showWorldChunkOverlay = false;
+
+        /** Draws chunk status when a World Mirror save is open. */
+        @ConfigEntry.Gui.Tooltip
+        public boolean showMirrorWorldChunkOverlay = false;
+
+        /** Keep the in-world overlay visible while F1 hides the game interface. */
+        @ConfigEntry.Gui.Tooltip
+        public boolean showWorldChunkOverlayWithHiddenGui = false;
+
+        public boolean isWorldChunkOverlayEnabled(boolean mirrorWorld) {
+            return mirrorWorld ? showMirrorWorldChunkOverlay : showWorldChunkOverlay;
+        }
+
+        public void toggleWorldChunkOverlay(boolean mirrorWorld) {
+            if (mirrorWorld) {
+                showMirrorWorldChunkOverlay = !showMirrorWorldChunkOverlay;
+            } else {
+                showWorldChunkOverlay = !showWorldChunkOverlay;
+            }
+        }
+
+        /** Maximum square radius, in chunks, rendered by the in-world overlay. */
+        @ConfigEntry.Gui.Tooltip
+        @ConfigEntry.BoundedDiscrete(min = 8, max = 16384)
+        @DirectIntegerInput
+        public int worldChunkOverlayRenderDistance = 128;
+
+        /** Y coordinate of the one-block-high in-world chunk overlay boxes. */
+        @ConfigEntry.Gui.Tooltip
+        @ConfigEntry.BoundedDiscrete(min = -64, max = 319)
+        public int worldChunkOverlayHeight = 0;
+
+        /** Draw boundaries between adjacent tiles that have the same status. */
+        @ConfigEntry.Gui.Tooltip
+        public boolean showWorldChunkOverlayInnerGrid = true;
+
+        /** Percentage of the original fill and outline opacity. */
+        @ConfigEntry.Gui.Tooltip
+        @ConfigEntry.BoundedDiscrete(min = 0, max = 100)
+        public int worldChunkOverlayOpacityPercent = 60;
     }
 
     public static class CacheConfig {

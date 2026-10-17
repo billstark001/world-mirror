@@ -161,8 +161,12 @@ Do not point a new target at an older bridge artifact merely to satisfy compilat
 
 Before a release, run all target tests, `buildAll`, and one client startup smoke test per
 target. The shared `run/mods` directory may contain only one enabled Minecraft-version
-build of Xaero's World Map at a time. A core smoke test may disable the external bridge and
-map by mod ID, but report that limitation instead of presenting it as an integration test.
+build of Xaero's World Map at a time. Use `-PxaeroIntegration=true` for integration
+testing; the default runtime excludes our compile-only bridge. To test genuine absence of Xaero, use
+`-PworldMirrorRunDir=build/smoke/<target>` with an empty `mods` directory and leave
+`xaeroIntegration` unset. Run the matching published map and bridge separately as an
+integration test. For IDEA, the integration property must also be present when
+reloading the Gradle model, not only when regenerating run configuration XML.
 
 ### Release automation
 
