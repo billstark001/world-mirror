@@ -25,6 +25,7 @@ in Minecraft's singleplayer world list.
 | **Per-world settings** | Save location and conflict strategy can be overridden per world. Time, weather, and difficulty can also be copied manually from the current source world. |
 | **Conflict resolution** | Three built-in strategies for chunks that already exist on disk: *Overwrite* (default), *Ignore* (keep local), and *Manual* (save the server chunk to `conflict_chunks/` in MCA format for later review). |
 | **Built-in Chunk Map** | Full-screen draggable and zoomable map of recorded chunks. Viewport-indexed snapshots, low-zoom bucket aggregation, and merged boundaries keep large views responsive. Colors show freshness/source; red marks unresolved conflicts. |
+| **In-world Chunk Overlay** | Toggleable in-world chunk boxes make coverage easy to follow while exploring. Yellow marks chunks waiting to download, green marks chunks captured in the current session, and blue marks chunks downloaded in a previous session. Adjustable render distance and Y height make it easier to find missed areas and confirm full coverage. |
 | **Xaero's World Map Overlay** | Optionally render the same status layer on Xaero's fullscreen map through Xaero World Map Bridge. Xaero's World Map and the bridge are both required for this integration. |
 | **Export Nearby Region** | Snapshot all loaded chunks within a configurable radius (1–50 chunks) into a fresh singleplayer save with the spawn point set to your current position. |
 | **Native status UI** | Press **I** to open the native Minecraft status screen. It retains download/export status, mirror information, per-world settings, safe mirror relocation, and conflict actions without a LibGui dependency. |
@@ -109,6 +110,13 @@ is also available from *Mod Menu → World Mirror → Settings*.
 | Xaero overlay enabled | `true` / `false` | `true` |
 | Xaero overlay refresh | 1–60 s | 10 s |
 | Xaero overlay max cells | 1000–50000 | 6000 |
+| In-world chunk overlay (source worlds) | `true` / `false` | `false` |
+| In-world chunk overlay (mirror worlds) | `true` / `false` | `false` |
+| Show in-world overlay while F1 hides the GUI | `true` / `false` | `false` |
+| In-world overlay distance | 8–16384 chunks, direct input | 128 chunks |
+| In-world overlay height | -64–319 | 0 |
+| Show same-status grid lines | `true` / `false` | `true` |
+| In-world overlay opacity | 0–100% of original | 60% |
 | On join / dimension change / server-world change | `Start` / `Stop` / `Keep` | `Stop` / `Keep` / `Stop` |
 | Capture nearby before export | `true` / `false` | `true` |
 | Capture nearby on stop | `true` / `false` | `false` |
@@ -138,6 +146,48 @@ chunks return to the green-to-blue age gradient. A pending light update can also
 temporarily appear as waiting for capture.
 
 ![World Mirror overlay on Xaero's World Map](assets/xaero-map-overlay.png)
+
+### In-world chunk overlay
+
+Based on the original contribution by [@cev-api](https://github.com/cev-api)
+in [PR #14](https://github.com/billstark001/world-mirror/pull/14).
+
+The 0.5.0 overlay at 60% opacity and a 24-chunk radius in a normally generated
+Minecraft 26.2 world. The same-status interior grid is enabled in the first screenshot and
+disabled in the second:
+
+![In-world chunk overlay with interior grid](assets/world-overlay-0.5.0-inner-grid-on.png)
+
+![In-world chunk overlay without interior grid](assets/world-overlay-0.5.0-inner-grid-off.png)
+
+Enable **In-World Chunk Overlay** in the Chunk Map settings to draw one-block-high
+status boxes around the player. It makes coverage easy to read while you explore: gaps
+stand out immediately, so you can retrace missed areas instead of trying to remember
+which parts of the world you have already covered. Use it to systematically fill in
+the map and confirm that a route or region has full coverage before stopping a download
+session.
+
+The colors show exactly where each chunk is in the download lifecycle:
+
+- **Yellow** — the chunk is waiting in the capture queue and is currently downloading.
+- **Green** — the chunk has been captured during the current download session.
+- **Blue** — the chunk was downloaded during an earlier session and is already in the
+  persistent mirror.
+
+Both world types have separate overlay switches, disabled by default. Press **K**
+while playing to toggle the switch for the current world type, or change either
+switch in the settings menu. The choices are saved across sessions. The overlay's
+render distance (8–16384 chunks, entered directly) and Y height are adjustable in
+the same settings group, so the boxes
+can be placed where they are easiest to see without obscuring gameplay.
+F1 hides the overlay with the rest of the GUI unless the separate F1 setting is enabled.
+Terrain above the selected Y height hides the overlay at that spot.
+At larger distances, adjacent chunks are grouped into larger tiles to keep the
+overlay responsive; use a shorter distance when checking individual chunks.
+The same-status grid switch shows boundaries within a single-colour area by default;
+turn it off to keep only the outer perimeter and changes in chunk status. At larger
+distances, grid lines follow the aggregated tiles. Opacity defaults to 60% of the
+original fill and outline strength and can be adjusted in the same settings group.
 
 ### Save locations
 
