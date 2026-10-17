@@ -66,7 +66,11 @@ mouse wheel to zoom, and hover a chunk for its coordinates, age, and source.
 
 Enable the in-world chunk overlay in Chunk Map settings, or press **K**, to show
 one-block-high coverage boxes at an adjustable height. Source worlds and mirror
-worlds have separate switches, both disabled by default. The boxes keep a consistent
+worlds have separate switches, both disabled by default. The default fixed height
+is Y=96; existing configured heights are preserved. Choose **Session** colors
+(yellow for queued captures, green for current-session captures, blue for historical
+chunks and replay imports) or **Map** colors (the same age gradient, source colors,
+and live queue colors as both chunk maps) in settings. The boxes keep a consistent
 fill opacity from above and below; water and clouds behind them no longer erase
 their color. Solid terrain still hides boxes behind it.
 

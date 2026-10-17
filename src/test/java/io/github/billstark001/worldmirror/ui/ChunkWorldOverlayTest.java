@@ -1,13 +1,18 @@
 package io.github.billstark001.worldmirror.ui;
 
+import io.github.billstark001.worldmirror.config.ModConfig.WorldChunkOverlayColorMode;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Set;
 
+import static io.github.billstark001.worldmirror.config.ModConfig.WorldChunkOverlayColorMode.MAP;
+import static io.github.billstark001.worldmirror.config.ModConfig.WorldChunkOverlayColorMode.SESSION;
 import static io.github.billstark001.worldmirror.ui.LiveChunkStatusSnapshot.State.CACHED;
 import static io.github.billstark001.worldmirror.ui.LiveChunkStatusSnapshot.State.PENDING_CAPTURE;
 import static io.github.billstark001.worldmirror.ui.LiveChunkStatusSnapshot.State.PENDING_WRITE;
@@ -32,8 +37,9 @@ class ChunkWorldOverlayTest {
                 overlay.chunks());
     }
 
-    @Test
-    void largeDenseViewStaysWithinMapOverlayBucketBudget() {
+    @ParameterizedTest
+    @EnumSource(WorldChunkOverlayColorMode.class)
+    void largeDenseViewStaysWithinMapOverlayBucketBudget(WorldChunkOverlayColorMode mode) {
         ArrayList<ChunkDatabase.ChunkRecord> records = new ArrayList<>();
         for (int z = -128; z <= 128; z++) {
             for (int x = -128; x <= 128; x++) {
@@ -42,7 +48,7 @@ class ChunkWorldOverlayTest {
         }
         ChunkStatusSnapshot persistent = new ChunkStatusSnapshot(records, Set.of(), 1);
         var overlay = ChunkWorldOverlay.build(persistent, LiveChunkStatusSnapshot.EMPTY,
-                new ChunkMapView.ChunkRange(-128, 128, -128, 128), 0, 0);
+                new ChunkMapView.ChunkRange(-128, 128, -128, 128), 96, 0, true, 60, mode, 20);
         assertTrue(overlay.chunks().size() <= 4_096);
         assertTrue(overlay.chunks().size() < records.size() / 10);
     }
@@ -62,7 +68,7 @@ class ChunkWorldOverlayTest {
                 new LiveChunkStatusSnapshot.Record(5, 0, 20, CACHED, false),
                 new LiveChunkStatusSnapshot.Record(6, 0, 10, CACHED, false));
         var overlay = ChunkWorldOverlay.build(persistent, live,
-                new ChunkMapView.ChunkRange(0, 8, 0, 0), 96, 15, true, 60);
+                new ChunkMapView.ChunkRange(0, 8, 0, 0), 96, 15, true, 60, SESSION, 30);
 
         assertEquals(0xFFFFD21F, colorAt(overlay, 0, 0));
         assertEquals(0xFFFFD21F, colorAt(overlay, 1, 0));
@@ -81,10 +87,96 @@ class ChunkWorldOverlayTest {
                 new ChunkDatabase.ChunkRecord(1, 0, 30, "replay_import")), Set.of(), 1);
         var overlay = ChunkWorldOverlay.build(persistent,
                 live(new LiveChunkStatusSnapshot.Record(2, 0, 40, CACHED, false)),
-                new ChunkMapView.ChunkRange(0, 2, 0, 0), 96, 0, true, 60);
+                new ChunkMapView.ChunkRange(0, 2, 0, 0), 96, 0, true, 60, SESSION, 50);
 
         assertEquals(List.of(new ChunkWorldOverlay.OverlayChunk(0, 3, 0, 1, 96, 0xFF2878E0)),
                 overlay.chunks());
+    }
+
+    @Test
+    void mapUsesCaptureAgeAndSourceColorsIndependentlyOfSessionMembership() {
+        long now = 40L * 24 * 60 * 60 * 1_000;
+        var records = List.of(
+                new ChunkDatabase.ChunkRecord(0, 0, now, "world_mirror"),
+                new ChunkDatabase.ChunkRecord(1, 0, 1L, "world_mirror"),
+                new ChunkDatabase.ChunkRecord(2, 0, now - 3_600_000, "replay_import"),
+                new ChunkDatabase.ChunkRecord(3, 0, now, "external"));
+        var persistent = new ChunkStatusSnapshot(records, Set.of(), 1);
+        var range = new ChunkMapView.ChunkRange(0, 3, 0, 0);
+        var overlay = ChunkWorldOverlay.build(persistent, LiveChunkStatusSnapshot.EMPTY,
+                range, 96, 0, true, 60, MAP, now);
+        var withSession = ChunkWorldOverlay.build(persistent, LiveChunkStatusSnapshot.EMPTY,
+                range, 96, now, true, 60, MAP, now);
+
+        assertEquals(overlay, withSession);
+        assertEquals(0xFF00C800, colorAt(overlay, 0, 0));
+        assertEquals(0xFF0000C8, colorAt(overlay, 1, 0));
+        assertEquals(0xFFFF9000, colorAt(overlay, 3, 0));
+        for (var record : records) {
+            assertEquals(ChunkMapView.computeColor(record, now), colorAt(overlay, record.x(), record.z()));
+        }
+
+        var session = ChunkWorldOverlay.build(persistent, LiveChunkStatusSnapshot.EMPTY,
+                range, 96, now, true, 60, SESSION, now);
+        assertEquals(0xFF2878E0, colorAt(session, 2, 0));
+        assertEquals(0, colorAt(session, 3, 0));
+    }
+
+    @Test
+    void mapDistinguishesAllLiveQueueColorsAndLetsThemReplaceSavedColors() {
+        long now = 40L * 24 * 60 * 60 * 1_000;
+        var persistent = new ChunkStatusSnapshot(List.of(
+                new ChunkDatabase.ChunkRecord(0, 0, now, "world_mirror")), Set.of(), 1);
+        var overlay = ChunkWorldOverlay.build(persistent, live(
+                new LiveChunkStatusSnapshot.Record(0, 0, 0, PENDING_CAPTURE, true),
+                new LiveChunkStatusSnapshot.Record(1, 0, 0, PENDING_CAPTURE, false),
+                new LiveChunkStatusSnapshot.Record(2, 0, now, PENDING_WRITE, true),
+                new LiveChunkStatusSnapshot.Record(3, 0, now, PENDING_WRITE, false),
+                new LiveChunkStatusSnapshot.Record(4, 0, now, CACHED, false),
+                new LiveChunkStatusSnapshot.Record(5, 0, 1, CACHED, true)),
+                new ChunkMapView.ChunkRange(0, 5, 0, 0), 96, 0, true, 60, MAP, now);
+
+        int[] expected = {0xFFD8DC30, 0xFFFFD21F, 0xFF20E060, 0xFF91E633, 0xFF00C800, 0xFF0000C8};
+        for (int x = 0; x < expected.length; x++) assertEquals(expected[x], colorAt(overlay, x, 0));
+    }
+
+    @Test
+    void mapColorsAgeWhenTheSameSnapshotIsRebuilt() {
+        long capturedAt = 1_000_000;
+        var persistent = new ChunkStatusSnapshot(List.of(
+                new ChunkDatabase.ChunkRecord(0, 0, capturedAt, "world_mirror")), Set.of(), 1);
+        var range = new ChunkMapView.ChunkRange(0, 0, 0, 0);
+        var fresh = ChunkWorldOverlay.build(persistent, LiveChunkStatusSnapshot.EMPTY,
+                range, 96, capturedAt, true, 60, MAP, capturedAt);
+        var old = ChunkWorldOverlay.build(persistent, LiveChunkStatusSnapshot.EMPTY,
+                range, 96, capturedAt, true, 60, MAP, capturedAt + 35L * 24 * 60 * 60 * 1_000);
+
+        assertEquals(0xFF00C800, colorAt(fresh, 0, 0));
+        assertEquals(0xFF0000C8, colorAt(old, 0, 0));
+    }
+
+    @Test
+    void coarseMapBucketsUseNewestSavedRecordsAndTheMapsLiveStatePriority() {
+        long now = 40L * 24 * 60 * 60 * 1_000;
+        var persistent = new ChunkStatusSnapshot(List.of(
+                new ChunkDatabase.ChunkRecord(-2, 0, 1, "world_mirror"),
+                new ChunkDatabase.ChunkRecord(-1, 0, 2, "external")), Set.of(), 1);
+        var range = new ChunkMapView.ChunkRange(-128, 128, -128, 128);
+        var saved = ChunkWorldOverlay.build(persistent, LiveChunkStatusSnapshot.EMPTY,
+                range, 96, 0, true, 60, MAP, now);
+        assertEquals(0xFFFF9000, colorAt(saved, -2, 0));
+
+        var overlay = ChunkWorldOverlay.build(persistent, live(
+                new LiveChunkStatusSnapshot.Record(-2, 0, now, CACHED, false),
+                new LiveChunkStatusSnapshot.Record(-1, 0, 0, PENDING_CAPTURE, true),
+                new LiveChunkStatusSnapshot.Record(126, 0, now, PENDING_WRITE, true),
+                new LiveChunkStatusSnapshot.Record(127, 0, 1, PENDING_WRITE, false),
+                new LiveChunkStatusSnapshot.Record(128, 0, now, PENDING_WRITE, true),
+                new LiveChunkStatusSnapshot.Record(129, 0, 0, PENDING_CAPTURE, false)),
+                range, 96, 0, true, 60, MAP, now);
+
+        assertEquals(0xFFD8DC30, colorAt(overlay, -2, 0));
+        assertEquals(0xFF91E633, colorAt(overlay, 128, 0));
     }
 
     @Test

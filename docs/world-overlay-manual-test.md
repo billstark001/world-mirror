@@ -4,6 +4,23 @@ Run these checks on Minecraft 1.21.11, 26.1.2, 26.2, and 26.3. Use a separate
 run directory for each target so test saves, options, and external mods cannot
 affect another target or the normal development world.
 
+## Height and color settings
+
+1. With a fresh config, confirm the fixed overlay height is 96 and the color mode
+   is Session. Loading an existing config must preserve its height, including 0.
+2. Check both Session and Map in the settings dropdown, then save and reopen it.
+   Confirm each choice is translated and persists after restarting the client.
+3. In Session, confirm pending captures are yellow, captures from this session
+   are green, and historical chunks and replay imports are blue. Replay imports
+   remain blue even if their timestamp is newer than the session start. Pending
+   writes and cached chunks must not introduce the maps' extra queue colors.
+4. In Map, compare saved and live chunk states against the built-in and Xaero
+   maps. Capture-age gradients, source colors, and the four pending-capture/write
+   colors must match; the world overlay retains its independent opacity.
+5. Switch modes while the overlay is visible, including at coarse distances.
+   Confirm the next capture updates the colors, queue priority remains correct,
+   and both modes retain the grid, perimeter, opacity, and geometry bounds.
+
 ## Optional Xaero runtime
 
 1. Leave `xaeroIntegration` unset and keep Xaero and the bridge out of the test

@@ -387,7 +387,7 @@ public final class ChunkMapView {
         }
     }
 
-    private static int liveColor(LiveChunkStatusSnapshot.Record record, long now) {
+    static int liveColor(LiveChunkStatusSnapshot.Record record, long now) {
         return switch (record.state()) {
             case PENDING_CAPTURE -> record.hasSavedRecord()
                     ? COLOR_PENDING_CAPTURE_SAVED : COLOR_PENDING_CAPTURE_NEW;

@@ -1,6 +1,7 @@
 package io.github.billstark001.worldmirror.ui;
 
 import io.github.billstark001.worldmirror.config.ModConfig;
+import io.github.billstark001.worldmirror.config.ModConfig.WorldChunkOverlayColorMode;
 import io.github.billstark001.worldmirror.download.DownloadManager;
 import io.github.billstark001.worldmirror.download.MirrorWorldContext;
 import net.minecraft.client.Minecraft;
@@ -36,6 +37,7 @@ public final class ChunkWorldOverlay {
     private static int lastCenterZ;
     private static int lastRadius;
     private static int lastHeight;
+    private static WorldChunkOverlayColorMode lastColorMode;
     private static boolean lastShowInnerGrid;
     private static int lastOpacityPercent;
     private static long lastSessionStartedAtMs;
@@ -62,6 +64,8 @@ public final class ChunkWorldOverlay {
         int centerZ = client.player.getBlockZ() >> 4;
         int radius = Math.max(8, Math.min(16_384, config.worldChunkOverlayRenderDistance));
         int height = Math.max(-64, Math.min(319, config.worldChunkOverlayHeight));
+        WorldChunkOverlayColorMode colorMode = config.worldChunkOverlayColorMode != null
+                ? config.worldChunkOverlayColorMode : WorldChunkOverlayColorMode.SESSION;
         boolean showInnerGrid = config.showWorldChunkOverlayInnerGrid;
         int opacityPercent = Math.max(0, Math.min(100, config.worldChunkOverlayOpacityPercent));
         long now = System.currentTimeMillis();
@@ -75,6 +79,7 @@ public final class ChunkWorldOverlay {
                 && sessionStartedAtMs == lastSessionStartedAtMs
                 && centerX == lastCenterX && centerZ == lastCenterZ
                 && radius == lastRadius && height == lastHeight
+                && colorMode == lastColorMode
                 && showInnerGrid == lastShowInnerGrid
                 && opacityPercent == lastOpacityPercent) return;
 
@@ -84,7 +89,7 @@ public final class ChunkWorldOverlay {
                 centerX - radius, centerX + radius, centerZ - radius, centerZ + radius);
         LiveChunkStatusSnapshot live = LiveChunkStatusSnapshot.capture(dimension, range, persistent);
         cached = build(persistent, live, range, height, sessionStartedAtMs,
-                showInnerGrid, opacityPercent);
+                showInnerGrid, opacityPercent, colorMode, now);
         lastBuildMs = now;
         lastDimension = dimension;
         lastLevel = new WeakReference<>(client.level);
@@ -92,6 +97,7 @@ public final class ChunkWorldOverlay {
         lastCenterZ = centerZ;
         lastRadius = radius;
         lastHeight = height;
+        lastColorMode = colorMode;
         lastShowInnerGrid = showInnerGrid;
         lastOpacityPercent = opacityPercent;
         lastSessionStartedAtMs = sessionStartedAtMs;
@@ -130,23 +136,20 @@ public final class ChunkWorldOverlay {
     static OverlaySnapshot build(ChunkStatusSnapshot persistent, LiveChunkStatusSnapshot live,
                                  ChunkMapView.ChunkRange range, int height, long sessionStartedAtMs,
                                  boolean showInnerGrid, int opacityPercent) {
+        return build(persistent, live, range, height, sessionStartedAtMs,
+                showInnerGrid, opacityPercent, WorldChunkOverlayColorMode.SESSION, 0L);
+    }
+
+    static OverlaySnapshot build(ChunkStatusSnapshot persistent, LiveChunkStatusSnapshot live,
+                                 ChunkMapView.ChunkRange range, int height, long sessionStartedAtMs,
+                                 boolean showInnerGrid, int opacityPercent,
+                                 WorldChunkOverlayColorMode colorMode, long now) {
         int bucketSize = ChunkMapAggregation.bucketSizeFor(range.minX(), range.maxX(),
                 range.minZ(), range.maxZ(), MAX_BUCKET_CELLS);
-        Map<Long, Cell> cells = new HashMap<>();
-        persistent.forEachRecordInRange(range.minX(), range.maxX(), range.minZ(), range.maxZ(), record -> {
-            boolean captured = "world_mirror".equals(record.updateSource());
-            if (!captured && !"replay_import".equals(record.updateSource())) return;
-            int color = captured && sessionStartedAtMs > 0 && record.updateTime() >= sessionStartedAtMs
-                    ? GREEN : BLUE;
-            put(cells, record.x(), record.z(), bucketSize, color);
-        });
-        live.forEachRecord(record -> {
-            if (record.x() < range.minX() || record.x() > range.maxX()
-                    || record.z() < range.minZ() || record.z() > range.maxZ()) return;
-            int color = record.state() == LiveChunkStatusSnapshot.State.PENDING_CAPTURE ? YELLOW
-                    : sessionStartedAtMs > 0 && record.capturedAtMs() >= sessionStartedAtMs ? GREEN : BLUE;
-            put(cells, record.x(), record.z(), bucketSize, color);
-        });
+        Map<Long, Cell> cells = switch (colorMode) {
+            case SESSION -> sessionCells(persistent, live, range, bucketSize, sessionStartedAtMs);
+            case MAP -> mapCells(persistent, live, range, bucketSize, now);
+        };
 
         ArrayList<Cell> sorted = new ArrayList<>(cells.values());
         sorted.sort(Comparator.comparingInt((Cell cell) -> cell.z).thenComparingInt(cell -> cell.x));
@@ -215,6 +218,62 @@ public final class ChunkWorldOverlay {
         }
         return new OverlaySnapshot(List.copyOf(rectangles), List.copyOf(edges),
                 showInnerGrid, opacityPercent);
+    }
+
+    private static Map<Long, Cell> sessionCells(ChunkStatusSnapshot persistent,
+                                               LiveChunkStatusSnapshot live,
+                                               ChunkMapView.ChunkRange range,
+                                               int bucketSize, long sessionStartedAtMs) {
+        Map<Long, Cell> cells = new HashMap<>();
+        persistent.forEachRecordInRange(range.minX(), range.maxX(), range.minZ(), range.maxZ(), record -> {
+            boolean captured = "world_mirror".equals(record.updateSource());
+            if (!captured && !"replay_import".equals(record.updateSource())) return;
+            int color = captured && sessionStartedAtMs > 0 && record.updateTime() >= sessionStartedAtMs
+                    ? GREEN : BLUE;
+            put(cells, record.x(), record.z(), bucketSize, color);
+        });
+        live.forEachRecord(record -> {
+            if (!inRange(record, range)) return;
+            int color = record.state() == LiveChunkStatusSnapshot.State.PENDING_CAPTURE ? YELLOW
+                    : sessionStartedAtMs > 0 && record.capturedAtMs() >= sessionStartedAtMs ? GREEN : BLUE;
+            put(cells, record.x(), record.z(), bucketSize, color);
+        });
+        return cells;
+    }
+
+    private static Map<Long, Cell> mapCells(ChunkStatusSnapshot persistent,
+                                           LiveChunkStatusSnapshot live,
+                                           ChunkMapView.ChunkRange range,
+                                           int bucketSize, long now) {
+        Map<Long, Cell> cells = new HashMap<>();
+        // Reuse the maps' newest-record selection and age/source colors even at
+        // coarse distances; session-color priority must not affect map colors.
+        var saved = ChunkMapAggregation.aggregate(persistent, range.minX(), range.maxX(),
+                range.minZ(), range.maxZ(), now, MAX_BUCKET_CELLS);
+        for (var run : saved.runs()) {
+            for (int x = run.startBucketX(); x <= run.endBucketX(); x++) {
+                cells.put(ChunkStatusSnapshot.chunkKey(x, run.bucketZ()),
+                        new Cell(x, run.bucketZ(), run.color()));
+            }
+        }
+        Map<Long, LiveChunkStatusSnapshot.Record> liveBuckets = new HashMap<>();
+        live.forEachRecord(record -> {
+            if (!inRange(record, range)) return;
+            long key = ChunkStatusSnapshot.chunkKey(
+                    Math.floorDiv(record.x(), bucketSize), Math.floorDiv(record.z(), bucketSize));
+            if (LiveChunkStatusSnapshot.hasPriorityOver(record, liveBuckets.get(key))) {
+                liveBuckets.put(key, record);
+            }
+        });
+        liveBuckets.forEach((key, record) -> cells.put(key, new Cell(
+                Math.floorDiv(record.x(), bucketSize), Math.floorDiv(record.z(), bucketSize),
+                ChunkMapView.liveColor(record, now))));
+        return cells;
+    }
+
+    private static boolean inRange(LiveChunkStatusSnapshot.Record record, ChunkMapView.ChunkRange range) {
+        return record.x() >= range.minX() && record.x() <= range.maxX()
+                && record.z() >= range.minZ() && record.z() <= range.maxZ();
     }
 
     private static void put(Map<Long, Cell> cells, int x, int z, int bucketSize, int color) {

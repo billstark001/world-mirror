@@ -58,6 +58,13 @@ public class ModConfig implements ConfigData {
         TRANSPARENT
     }
 
+    public enum WorldChunkOverlayColorMode {
+        /** Queued captures, current-session captures, and historical coverage. */
+        SESSION,
+        /** The same capture-age, source, and live-state colors as the chunk maps. */
+        MAP
+    }
+
     /** How a setting is chosen when a mirror save is first created. */
     public enum NewWorldSettingBehavior {
         FOLLOW_CURRENT,
@@ -195,7 +202,12 @@ public class ModConfig implements ConfigData {
         /** Y coordinate of the one-block-high in-world chunk overlay boxes. */
         @ConfigEntry.Gui.Tooltip
         @ConfigEntry.BoundedDiscrete(min = -64, max = 319)
-        public int worldChunkOverlayHeight = 0;
+        public int worldChunkOverlayHeight = 96;
+
+        /** Color rules for the in-world overlay, independent of its opacity. */
+        @ConfigEntry.Gui.Tooltip
+        @ConfigEntry.Gui.EnumHandler(option = ConfigEntry.Gui.EnumHandler.EnumDisplayOption.DROPDOWN)
+        public WorldChunkOverlayColorMode worldChunkOverlayColorMode = WorldChunkOverlayColorMode.SESSION;
 
         /** Draw boundaries between adjacent tiles that have the same status. */
         @ConfigEntry.Gui.Tooltip

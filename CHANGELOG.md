@@ -14,6 +14,17 @@ also ships its own changelog in its release ZIP.
 
 ## [Unreleased]
 
+### Added
+
+- Added Session and Map color modes for the in-world overlay. Session keeps its
+  yellow/green/blue coverage palette; Map shares the built-in and Xaero maps'
+  capture-age, source, and live queue colors, including coarse aggregation.
+
+### Changed
+
+- Raised the default fixed in-world overlay height to 96. Existing configured
+  heights are preserved.
+
 ### Fixed
 
 - Include replay imports as historical blue coverage in Session mode, regardless

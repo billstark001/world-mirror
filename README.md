@@ -25,7 +25,7 @@ in Minecraft's singleplayer world list.
 | **Per-world settings** | Save location and conflict strategy can be overridden per world. Time, weather, and difficulty can also be copied manually from the current source world. |
 | **Conflict resolution** | Three built-in strategies for chunks that already exist on disk: *Overwrite* (default), *Ignore* (keep local), and *Manual* (save the server chunk to `conflict_chunks/` in MCA format for later review). |
 | **Built-in Chunk Map** | Full-screen draggable and zoomable map of recorded chunks. Viewport-indexed snapshots, low-zoom bucket aggregation, and merged boundaries keep large views responsive. Colors show freshness/source; red marks unresolved conflicts. |
-| **In-world Chunk Overlay** | Toggleable in-world chunk boxes make coverage easy to follow while exploring. Yellow marks chunks waiting to download, green marks chunks captured in the current session, and blue marks chunks downloaded in a previous session. Adjustable render distance and Y height make it easier to find missed areas and confirm full coverage. |
+| **In-world Chunk Overlay** | Toggleable in-world chunk boxes make coverage easy to follow while exploring. Choose Session colors (yellow for queued captures, green for this session, blue for historical chunks and replay imports) or Map colors matching the built-in and Xaero maps. Adjustable render distance and fixed Y height (default 96) help find missed areas and confirm full coverage. |
 | **Xaero's World Map Overlay** | Optionally render the same status layer on Xaero's fullscreen map through Xaero World Map Bridge. Xaero's World Map and the bridge are both required for this integration. |
 | **Export Nearby Region** | Snapshot all loaded chunks within a configurable radius (1–50 chunks) into a fresh singleplayer save with the spawn point set to your current position. |
 | **Native status UI** | Press **I** to open the native Minecraft status screen. It retains download/export status, mirror information, per-world settings, safe mirror relocation, and conflict actions without a LibGui dependency. |
@@ -114,7 +114,8 @@ is also available from *Mod Menu → World Mirror → Settings*.
 | In-world chunk overlay (mirror worlds) | `true` / `false` | `false` |
 | Show in-world overlay while F1 hides the GUI | `true` / `false` | `false` |
 | In-world overlay distance | 8–16384 chunks, direct input | 128 chunks |
-| In-world overlay height | -64–319 | 0 |
+| In-world overlay height | -64–319 | 96 |
+| In-world overlay colors | `Session` / `Map` | `Session` |
 | Show same-status grid lines | `true` / `false` | `true` |
 | In-world overlay opacity | 0–100% of original | 60% |
 | On join / dimension change / server-world change | `Start` / `Stop` / `Keep` | `Stop` / `Keep` / `Stop` |

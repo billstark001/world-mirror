@@ -73,15 +73,20 @@ public final class LiveChunkStatusSnapshot {
                 long key = ChunkStatusSnapshot.chunkKey(
                         Math.floorDiv(record.x(), size), Math.floorDiv(record.z(), size));
                 Record previous = buckets.get(key);
-                if (previous == null || record.state().ordinal() > previous.state().ordinal()
-                        || (record.state() == previous.state()
-                        && (!record.hasSavedRecord() && previous.hasSavedRecord()
-                        || record.hasSavedRecord() == previous.hasSavedRecord()
-                        && record.capturedAtMs() > previous.capturedAtMs()))) {
+                if (hasPriorityOver(record, previous)) {
                     buckets.put(key, record);
                 }
             }
             return Map.copyOf(buckets);
         });
+    }
+
+    /** Shared by map and world-overlay aggregation, independent of display colors. */
+    static boolean hasPriorityOver(Record record, Record previous) {
+        return previous == null || record.state().ordinal() > previous.state().ordinal()
+                || (record.state() == previous.state()
+                && (!record.hasSavedRecord() && previous.hasSavedRecord()
+                || record.hasSavedRecord() == previous.hasSavedRecord()
+                && record.capturedAtMs() > previous.capturedAtMs()));
     }
 }
