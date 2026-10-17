@@ -2,10 +2,13 @@ package io.github.billstark001.worldmirror;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import io.github.billstark001.worldmirror.config.ModConfig;
+import io.github.billstark001.worldmirror.config.EnumDropdownGui;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
 import io.github.billstark001.worldmirror.download.DownloadManager;
 import io.github.billstark001.worldmirror.download.MirrorWorldContext;
 import io.github.billstark001.worldmirror.ui.ChunkMapScreen;
+import io.github.billstark001.worldmirror.ui.ChunkWorldOverlay;
+import io.github.billstark001.worldmirror.ui.ChunkWorldOverlayGeometry;
 import io.github.billstark001.worldmirror.ui.StatusScreen;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.xaero.XaeroBridgeOverlay;
@@ -19,8 +22,10 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.KeyMapping;
+import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.SharedConstants;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.level.storage.LevelResource;
 import org.lwjgl.glfw.GLFW;
 
@@ -41,10 +46,12 @@ public class WorldMirrorClient implements ClientModInitializer {
     private static KeyMapping clearKey;
     private static KeyMapping statusKey;
     private static KeyMapping chunkMapKey;
+    private static KeyMapping worldOverlayKey;
 
     @Override
     public void onInitializeClient() {
         ModConfig.register();
+        EnumDropdownGui.register();
         ChunkDatabase.configureSqliteNativeDirectory();
         installXaeroBridgeOverlay();
 
@@ -73,6 +80,11 @@ public class WorldMirrorClient implements ClientModInitializer {
                 InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_M,
                 CATEGORY));
 
+        worldOverlayKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+                "key.worldmirror.worldOverlay",
+                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_K,
+                CATEGORY));
+
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (toggleKey.consumeClick()) {
                 DownloadManager.toggle(client);
@@ -89,12 +101,31 @@ public class WorldMirrorClient implements ClientModInitializer {
             while (chunkMapKey.consumeClick()) {
                 ChunkMapScreen.open();
             }
+            while (worldOverlayKey.consumeClick()) {
+                ChunkWorldOverlay.toggleForCurrentWorld(client);
+            }
             DownloadManager.onClientTick(client);
         });
         ClientChunkEvents.CHUNK_LOAD.register((world, chunk) ->
                 DownloadManager.queueChunkCapture(world, chunk.getPos(), "chunk-load"));
         ClientChunkEvents.CHUNK_UNLOAD.register(DownloadManager::captureChunkBeforeUnload);
         LevelRenderEvents.END_MAIN.register(context -> DownloadManager.recordWorldFrame());
+        LevelRenderEvents.END_EXTRACTION.register(context ->
+                ChunkWorldOverlay.capture(net.minecraft.client.Minecraft.getInstance(),
+                        net.minecraft.client.Minecraft.getInstance().options.hideGui));
+        LevelRenderEvents.BEFORE_GIZMOS.register(context -> {
+            ChunkWorldOverlay.OverlaySnapshot overlay =
+                    ChunkWorldOverlay.snapshot();
+            if (overlay.isEmpty() || context.levelState().cameraRenderState == null
+                    || context.levelState().cameraRenderState.pos == null) return;
+            Vec3 camera = context.levelState().cameraRenderState.pos;
+            context.submitNodeCollector().submitCustomGeometry(
+                    context.poseStack(), RenderTypes.debugFilledBox(),
+                    (pose, consumer) -> {
+                        ChunkWorldOverlayGeometry.renderFilled(pose, consumer, overlay, camera);
+                        ChunkWorldOverlayGeometry.renderTopEdges(pose, consumer, overlay, camera);
+                    });
+        });
 
         // Apply the configured on-join behaviour whenever the player enters a world.
         // ClientPlayConnectionEvents.JOIN fires after the world object is available,

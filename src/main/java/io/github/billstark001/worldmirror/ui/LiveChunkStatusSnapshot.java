@@ -8,6 +8,7 @@ import net.minecraft.world.level.Level;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /** Small, viewport-scoped copy of live chunk status, with no chunk NBT. */
 public final class LiveChunkStatusSnapshot {
@@ -57,6 +58,10 @@ public final class LiveChunkStatusSnapshot {
 
     public Record getRecord(int x, int z) {
         return records.get(ChunkStatusSnapshot.chunkKey(x, z));
+    }
+
+    public void forEachRecord(Consumer<Record> consumer) {
+        records.values().forEach(consumer);
     }
 
     /** Reuse low-zoom bucket selection for every frame of this immutable snapshot. */

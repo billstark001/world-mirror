@@ -6,6 +6,7 @@
   "key.worldmirror.toggle": "Toggle Download",
   "key.worldmirror.status": "Open Status Screen",
   "key.worldmirror.chunkMap": "Open Chunk Map",
+  "key.worldmirror.worldOverlay": "Toggle In-World Chunk Overlay",
 
   "config.worldmirror.saveLoc": "Save Location",
   "config.worldmirror.saveLoc.downloaded": "Downloaded Folder",
@@ -245,6 +246,20 @@
 
   "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells": "Xaero Overlay Max Cells",
   "text.autoconfig.worldmirror.option.chunkMap.xaeroWorldMapOverlayMaxCells.@Tooltip": "Maximum number of screen cells to draw for the Xaero overlay. Lower values improve performance at very low zoom.",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlay": "In-World Overlay (Source Worlds)",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlay.@Tooltip": "Draw chunk status in source worlds and on servers. Yellow is waiting to download, green is captured this session, and blue was downloaded previously.",
+  "text.autoconfig.worldmirror.option.chunkMap.showMirrorWorldChunkOverlay": "In-World Overlay (Mirror Worlds)",
+  "text.autoconfig.worldmirror.option.chunkMap.showMirrorWorldChunkOverlay.@Tooltip": "Draw chunk status when playing a World Mirror save. This can be toggled independently from the source-world overlay.",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlayWithHiddenGui": "Show In-World Overlay with F1",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlayWithHiddenGui.@Tooltip": "Keep the in-world chunk overlay visible while F1 hides the game interface. Off by default.",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayRenderDistance": "In-World Overlay Distance (chunks)",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayRenderDistance.@Tooltip": "Maximum square radius around the player, from 8 to 16384 chunks. Enter an exact value; distant chunks are grouped for rendering.",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayHeight": "In-World Overlay Height",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayHeight.@Tooltip": "Y coordinate of the one-block-high chunk status boxes. Higher terrain hides boxes below it.",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlayInnerGrid": "Show Same-Status Grid Lines",
+  "text.autoconfig.worldmirror.option.chunkMap.showWorldChunkOverlayInnerGrid.@Tooltip": "Show boundaries between adjacent chunks with the same status. Disable for only outer edges and status transitions. At long range, lines follow aggregated tiles.",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayOpacityPercent": "In-World Overlay Opacity (%)",
+  "text.autoconfig.worldmirror.option.chunkMap.worldChunkOverlayOpacityPercent.@Tooltip": "Scales the fill and outline opacity. 100% matches the original overlay; the 60% default is more transparent.",
 
   "text.autoconfig.worldmirror.option.lifecycle": "Lifecycle Behaviour",
 

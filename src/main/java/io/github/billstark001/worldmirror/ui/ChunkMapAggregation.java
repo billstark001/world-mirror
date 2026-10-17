@@ -75,12 +75,21 @@ public final class ChunkMapAggregation {
         return result;
     }
 
-    private static int bucketSizeFor(int minX, int maxX, int minZ, int maxZ, int maxBucketCells) {
+    public static int bucketSizeFor(int minX, int maxX, int minZ, int maxZ, int maxBucketCells) {
         double viewportCells = ((double) maxX - minX + 1.0D)
                 * ((double) maxZ - minZ + 1.0D);
-        int limit = Math.max(1, maxBucketCells);
-        return viewportCells <= limit ? 1
+        // Buckets are anchored at zero. A range crossing zero always occupies
+        // at least two buckets on that axis, regardless of bucket size.
+        int minimum = (minX < 0 && maxX >= 0 ? 2 : 1)
+                * (minZ < 0 && maxZ >= 0 ? 2 : 1);
+        int limit = Math.max(minimum, maxBucketCells);
+        int size = viewportCells <= limit ? 1
                 : Math.max(1, (int) Math.ceil(Math.sqrt(viewportCells / limit)));
+        while ((long) (Math.floorDiv(maxX, size) - Math.floorDiv(minX, size) + 1)
+                * (Math.floorDiv(maxZ, size) - Math.floorDiv(minZ, size) + 1) > limit) {
+            size++;
+        }
+        return size;
     }
 
     private static List<Boundary> buildBoundaries(HashMap<Long, Cell> cells) {
