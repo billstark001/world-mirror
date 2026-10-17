@@ -43,6 +43,11 @@ also ships its own changelog in its release ZIP.
 - Stopped in-world overlay extraction when it is hidden, including under F1
   by default. A separate setting can keep it visible under F1.
 
+### Fixed
+
+- Added opt-in development Xaero bridge runtime dependencies with
+  `-PxaeroIntegration=true`, while keeping startup without Xaero supported.
+
 ---
 
 ## [0.4.6] — 2026-10-05

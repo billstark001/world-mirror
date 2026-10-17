@@ -431,9 +431,29 @@ On this multi-target branch, select the target explicitly:
 .\scripts\Get-LatestXaerosWorldMap.ps1 -MinecraftVersion 26.3
 ```
 
-For a World Mirror-only startup smoke test, the external map and bridge can be excluded with
-`-Dfabric.debug.disableModIds=xaero_world_map_bridge,xaeroworldmap`. This does not replace a
-separate integration test with the matching published Xaero and bridge artifacts.
+The bridge is compile-only by default. Enable its matching, development-only runtime
+artifact with `-PxaeroIntegration=true`; install the matching World Map in `run/mods`
+using the helper above. For example:
+
+```powershell
+.\gradlew.bat :versions:fabric-26.3:runClient -PxaeroIntegration=true
+.\gradlew.bat syncIdeaRunConfigurations -PxaeroIntegration=true
+```
+
+For IDEA, also set `xaeroIntegration=true` in your local Gradle properties and reload
+Gradle so the module runtime classpath includes the bridge. Remove that local setting
+and reload Gradle to return to the default configuration. This does not bundle the bridge
+in the published mod or make Xaero mandatory for players.
+
+For a World Mirror-only startup smoke test, use an empty, separate run directory:
+
+```powershell
+.\gradlew.bat :versions:fabric-26.3:runClient "-PworldMirrorRunDir=build/smoke/26.3"
+```
+
+Leave `xaeroIntegration` unset and keep that directory's `mods` folder empty. Repeat
+for all four targets. This verifies actual absence of Xaero and the bridge, separately
+from integration testing. `worldMirrorRunDir` also applies to generated IDEA clients.
 
 Reloading the Gradle project refreshes the configurations automatically. They can also be rebuilt from a terminal:
 
