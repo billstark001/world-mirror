@@ -22,7 +22,7 @@ public final class LiveChunkStatusSnapshot {
     private final Map<Long, Record> records;
     private final Map<Integer, Map<Long, Record>> bucketsBySize = new HashMap<>();
 
-    private LiveChunkStatusSnapshot(Map<Long, Record> records) {
+    LiveChunkStatusSnapshot(Map<Long, Record> records) {
         this.records = Map.copyOf(records);
     }
 

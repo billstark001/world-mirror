@@ -12,6 +12,15 @@ also ships its own changelog in its release ZIP.
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- Include replay imports as historical blue coverage in Session mode, regardless
+  of their timestamps, and retain historical cached coverage between sessions.
+
+---
+
 ## [0.5.0] — 2026-10-18
 
 ### Added

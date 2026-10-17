@@ -134,19 +134,18 @@ public final class ChunkWorldOverlay {
                 range.minZ(), range.maxZ(), MAX_BUCKET_CELLS);
         Map<Long, Cell> cells = new HashMap<>();
         persistent.forEachRecordInRange(range.minX(), range.maxX(), range.minZ(), range.maxZ(), record -> {
-            if (!"world_mirror".equals(record.updateSource())) return;
-            int color = sessionStartedAtMs > 0 && record.updateTime() >= sessionStartedAtMs
+            boolean captured = "world_mirror".equals(record.updateSource());
+            if (!captured && !"replay_import".equals(record.updateSource())) return;
+            int color = captured && sessionStartedAtMs > 0 && record.updateTime() >= sessionStartedAtMs
                     ? GREEN : BLUE;
             put(cells, record.x(), record.z(), bucketSize, color);
         });
         live.forEachRecord(record -> {
             if (record.x() < range.minX() || record.x() > range.maxX()
                     || record.z() < range.minZ() || record.z() > range.maxZ()) return;
-            if (record.state() == LiveChunkStatusSnapshot.State.PENDING_CAPTURE) {
-                put(cells, record.x(), record.z(), bucketSize, YELLOW);
-            } else if (sessionStartedAtMs > 0 && record.capturedAtMs() >= sessionStartedAtMs) {
-                put(cells, record.x(), record.z(), bucketSize, GREEN);
-            }
+            int color = record.state() == LiveChunkStatusSnapshot.State.PENDING_CAPTURE ? YELLOW
+                    : sessionStartedAtMs > 0 && record.capturedAtMs() >= sessionStartedAtMs ? GREEN : BLUE;
+            put(cells, record.x(), record.z(), bucketSize, color);
         });
 
         ArrayList<Cell> sorted = new ArrayList<>(cells.values());
