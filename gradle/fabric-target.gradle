@@ -142,7 +142,7 @@ dependencies {
         modApi include("me.shedaniel.cloth:cloth-config-fabric:${target.clothConfig}") {
             exclude(group: "net.fabricmc.fabric-api")
         }
-        modImplementation files(bridgeJar)
+        modCompileOnly files(bridgeJar)
     } else {
         implementation "net.fabricmc:fabric-loader:${rootProject.loader_version}"
         implementation "net.fabricmc.fabric-api:fabric-api:${target.fabricApi}"
@@ -151,7 +151,7 @@ dependencies {
         api include("me.shedaniel.cloth:cloth-config-fabric:${target.clothConfig}") {
             exclude(group: "net.fabricmc.fabric-api")
         }
-        implementation files(bridgeJar)
+        compileOnly files(bridgeJar)
     }
 
     implementation include("org.xerial:sqlite-jdbc:${rootProject.sqlite_version}")
