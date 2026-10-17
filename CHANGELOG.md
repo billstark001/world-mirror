@@ -12,7 +12,7 @@ also ships its own changelog in its release ZIP.
 
 ---
 
-## [Unreleased]
+## [0.5.1] — 2026-10-18
 
 ### Added
 
@@ -29,6 +29,10 @@ also ships its own changelog in its release ZIP.
 
 - Include replay imports as historical blue coverage in Session mode, regardless
   of their timestamps, and retain historical cached coverage between sessions.
+
+### Known Issues
+
+- The in-world overlay does not work when shaders are enabled.
 
 ---
 
