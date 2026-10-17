@@ -47,6 +47,8 @@ also ships its own changelog in its release ZIP.
 
 - Added opt-in development Xaero bridge runtime dependencies with
   `-PxaeroIntegration=true`, while keeping startup without Xaero supported.
+- Keep chunk boxes while blending only their camera-facing shell, avoiding doubled
+  opacity from front and back faces.
 
 ---
 

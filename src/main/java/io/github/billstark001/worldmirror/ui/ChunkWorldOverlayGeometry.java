@@ -27,10 +27,17 @@ public final class ChunkWorldOverlayGeometry {
             int color = withAlpha(chunk.color(), scaledAlpha(BASE_FILL_ALPHA,
                     snapshot.opacityPercent()));
 
-            quad(pose, consumer, color,
-                    x1, y1, z1, x2, y1, z1, x2, y1, z2, x1, y1, z2);
-            quad(pose, consumer, color,
-                    x1, y2, z2, x2, y2, z2, x2, y2, z1, x1, y2, z1);
+            // Keep the closed box, but blend only its camera-facing shell. Some
+            // versions' debug layer disables culling, so emitting both caps would
+            // apply the fill opacity twice even when transparency sorting is correct.
+            if (camera.y < chunk.y()) {
+                quad(pose, consumer, color,
+                        x1, y1, z1, x2, y1, z1, x2, y1, z2, x1, y1, z2);
+            }
+            if (camera.y > chunk.y() + 1.0D) {
+                quad(pose, consumer, color,
+                        x1, y2, z2, x2, y2, z2, x2, y2, z1, x1, y2, z1);
+            }
         }
         // Only status transitions and the perimeter have vertical walls. Adjacent
         // translucent boxes otherwise leave visible stripes even with the grid off.
@@ -40,6 +47,8 @@ public final class ChunkWorldOverlayGeometry {
             float z1 = relative(edge.startChunkZ() * 16.0D, camera.z);
             float x2 = relative(edge.endChunkX() * 16.0D, camera.x);
             float z2 = relative(edge.endChunkZ() * 16.0D, camera.z);
+            double normalDistance = z1 == z2 ? -z1 : -x1;
+            if (edge.outwardPositive() ? normalDistance <= 0 : normalDistance >= 0) continue;
             float y1 = relative(edge.y(), camera.y);
             float y2 = relative(edge.y() + 1.0D, camera.y);
             int color = withAlpha(edge.color(), scaledAlpha(BASE_FILL_ALPHA,
