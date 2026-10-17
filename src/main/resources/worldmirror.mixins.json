@@ -6,7 +6,8 @@
     "ClientEntityLifecycleMixin",
     "ChunkDataMixin",
     "ContainerMixin",
-    "WorldOpenFlowsMixin"
+    "WorldOpenFlowsMixin",
+    "WorldOverlayRenderMixin"
   ],
   "injectors": {
     "defaultRequire": 1

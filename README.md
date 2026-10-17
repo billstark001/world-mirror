@@ -167,6 +167,9 @@ which parts of the world you have already covered. Use it to systematically fill
 the map and confirm that a route or region has full coverage before stopping a download
 session.
 
+The boxes keep a consistent fill opacity from above and below. Water and clouds
+behind a box no longer paint over it. Solid terrain still hides boxes behind it.
+
 The colors show exactly where each chunk is in the download lifecycle:
 
 - **Yellow** — the chunk is waiting in the capture queue and is currently downloading.

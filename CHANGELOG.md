@@ -47,6 +47,9 @@ also ships its own changelog in its release ZIP.
 
 - Added opt-in development Xaero bridge runtime dependencies with
   `-PxaeroIntegration=true`, while keeping startup without Xaero supported.
+- Render the in-world overlay after water, clouds, and transparency composition
+  on the classic path, with the grid drawn after the fill. Minecraft 26.3 retains
+  native improved-transparency rendering.
 - Keep chunk boxes while blending only their camera-facing shell, avoiding doubled
   opacity from front and back faces.
 

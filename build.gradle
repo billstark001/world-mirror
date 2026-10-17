@@ -30,6 +30,7 @@ ext.targets = [
         sharedMinecraft: "26.2",
         sharedOverrides: [
             "io/github/billstark001/worldmirror/WorldMirrorClient.java",
+            "io/github/billstark001/worldmirror/ui/ChunkWorldOverlayRenderApi.java",
             "io/github/billstark001/worldmirror/io/WorldStructureApi.java"
         ],
         commonOverrides: [

@@ -112,7 +112,8 @@ public class WorldMirrorClient implements ClientModInitializer {
         LevelRenderEvents.END_EXTRACTION.register(context ->
                 ChunkWorldOverlay.capture(net.minecraft.client.Minecraft.getInstance(),
                         net.minecraft.client.Minecraft.getInstance().gui.hud.isHidden()));
-        LevelRenderEvents.BEFORE_GIZMOS.register(context -> {
+        LevelRenderEvents.COLLECT_SUBMITS.register(context -> {
+            if (!net.minecraft.client.Minecraft.getInstance().gameRenderer.useImprovedTransparency()) return;
             ChunkWorldOverlay.OverlaySnapshot overlay =
                     ChunkWorldOverlay.snapshot();
             if (overlay.isEmpty() || context.levelState().cameraRenderState == null
