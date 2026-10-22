@@ -6,7 +6,8 @@ Run this checklist on Minecraft 1.21.11, 26.1.2, 26.2, and 26.3.
 
 1. Open Mod Menu, then World Mirror settings.
 2. Check Save Location, Download Pipeline, Conflict Strategy, all three New Mirror settings,
-   Chunk Map > Map Background, and all three Lifecycle Behaviour fields.
+   Chunk Map > Map Background and In-World Overlay Colors, and all three Lifecycle
+   Behaviour fields.
 3. For each field, click once and verify every valid translated choice is visible, the current
    value is highlighted, the control cannot be typed into, and selecting a value closes the list.
 4. Repeat inside collapsed sections near the top and bottom of the viewport. Verify the list is

@@ -1,6 +1,6 @@
 # World Mirror
 
-**Version:** 0.4.5 · **Minecraft:** 1.21.11, 26.1.2, 26.2, 26.3 · **Loader:** Fabric
+**Version:** 0.5.2 · **Minecraft:** 1.21.11, 26.1.2, 26.2, 26.3 · **Loader:** Fabric
 
 A client-side Fabric mod that mirrors the world you are playing on a multiplayer server —
 or even a singleplayer world — into a standard local save. As you explore, the mod captures
@@ -27,7 +27,7 @@ in Minecraft's singleplayer world list.
 | **Built-in Chunk Map** | Full-screen draggable and zoomable map of recorded chunks. Viewport-indexed snapshots, low-zoom bucket aggregation, and merged boundaries keep large views responsive. Colors show freshness/source; red marks unresolved conflicts. |
 | **In-world Chunk Overlay** | Toggleable in-world chunk boxes make coverage easy to follow while exploring. Choose Session colors (yellow for queued captures, green for this session, blue for historical chunks and replay imports) or Map colors matching the built-in and Xaero maps. Adjustable render distance and fixed Y height (default 96) help find missed areas and confirm full coverage. |
 | **Xaero's World Map Overlay** | Optionally render the same status layer on Xaero's fullscreen map through Xaero World Map Bridge. Xaero's World Map and the bridge are both required for this integration. |
-| **Export Nearby Region** | Snapshot all loaded chunks within a configurable radius (1–50 chunks) into a fresh singleplayer save with the spawn point set to your current position. |
+| **Export Nearby Region** | Snapshot loaded terrain and visible non-player entities within a configurable radius (1–50 chunks) into a fresh singleplayer save, starting at your current position and dimension. |
 | **Native status UI** | Press **I** to open the native Minecraft status screen. It retains download/export status, mirror information, per-world settings, safe mirror relocation, and conflict actions without a LibGui dependency. |
 | **Useful, quiet diagnostics** | Operational detail stays in `latest.log`; chat is reserved for translated action results. An opt-in performance switch adds low-frequency pipeline/heap/slow-region telemetry without per-chunk spam. |
 | **Cloth Config settings** | Global settings are available from the status screen. Installing Mod Menu also exposes the same screen from the title-screen mod list. |
@@ -44,6 +44,7 @@ in Minecraft's singleplayer world list.
 | **L** | Clear all cached chunks, entities, and containers |
 | **I** | Open the in-game status screen |
 | **M** | Open the chunk map directly |
+| **K** | Toggle the in-world chunk overlay for the current world type |
 
 All keybindings are rebindable in *Options → Controls → World Mirror*.
 
@@ -125,6 +126,12 @@ is also available from *Mod Menu → World Mirror → Settings*.
 
 Configuration is persisted in `<.minecraft>/config/worldmirror.json`.
 
+Cache age, distance, and count settings evict only data already saved successfully.
+Unsaved terrain stays available for retry and may exceed these retention limits
+while export or storage is failing. Clearing the cache with **L** explicitly
+discards live capture data. Queued or running exports retain their frozen
+snapshots and can still finish or retry.
+
 ### Optional Xaero integration
 
 The Xaero overlay is an optional integration: World Mirror runs normally without
@@ -171,17 +178,21 @@ session.
 The boxes keep a consistent fill opacity from above and below. Water and clouds
 behind a box no longer paint over it. Solid terrain still hides boxes behind it.
 
-The colors show exactly where each chunk is in the download lifecycle:
+The default **Session** colors show capture-session coverage:
 
 - **Yellow** — the chunk is waiting in the capture queue and is currently downloading.
 - **Green** — the chunk has been captured during the current download session.
 - **Blue** — the chunk was downloaded during an earlier session and is already in the
-  persistent mirror.
+  persistent mirror, or came from a replay import.
+
+Choose **Map** colors to use the capture-age gradient, source colors, and live
+capture/write queue colors described above for the built-in and Xaero maps.
 
 Both world types have separate overlay switches, disabled by default. Press **K**
 while playing to toggle the switch for the current world type, or change either
 switch in the settings menu. The choices are saved across sessions. The overlay's
-render distance (8–16384 chunks, entered directly) and Y height are adjustable in
+render distance (8–16384 chunks, entered directly) and fixed Y height (default 96)
+are adjustable in
 the same settings group, so the boxes
 can be placed where they are easiest to see without obscuring gameplay.
 F1 hides the overlay with the rest of the GUI unless the separate F1 setting is enabled.
@@ -195,6 +206,15 @@ original fill and outline strength and can be adjusted in the same settings grou
 
 ### Save locations
 
+Generated mirror names use one safe folder segment, including for names such as
+`CON` or `..` that cannot be used as ordinary folders on Windows. Invalid folder
+paths in a manually edited `mirrors.json` are ignored when previewing or selecting
+an output; existing mirror contents are not moved by that fallback.
+An export starts only after its selected folder has been saved to `mirrors.json`.
+If saving a relocation fails after the folder moves, World Mirror attempts to move
+it back and reports the operation as failed. If that rollback also fails, the log
+records both paths so the intact folder can be recovered from the destination.
+
 | Mode | Path |
 |------|------|
 | `Downloaded Folder` (default) | `<.minecraft>/downloaded_worlds/<mirror-name>/` |
@@ -204,9 +224,16 @@ original fill and outline strength and can be adjusted in the same settings grou
 
 | Strategy | Behaviour |
 |----------|-----------|
-| `Overwrite` | Server chunk always replaces the local copy |
+| `Overwrite` | Incoming chunks that pass timestamp and source-priority checks replace the local copy |
 | `Ignore` | Local copy is kept; only new chunks are written |
 | `Manual` | Local copy is kept; the incoming server chunk is saved to `conflict_chunks/<dim>/r.X.Z.mca` for review. Use the Chunk Map or the Conflicts tab bulk buttons to resolve. |
+
+Conflict storage uses the classic `region/`, `DIM-1/region/`, `DIM1/region/`, and
+`dimensions/<namespace>/<path>/region/` layout on every target. Oversized chunks
+may also have a matching `c.X.Z.mcc` file; keep it with its region file when
+copying pending conflicts. Overwrite reopens and verifies the applied chunks
+before removing their pending entries. A failed write or a newer incoming
+version remains pending for another review.
 
 ---
 
@@ -258,7 +285,33 @@ payload shapes are left untouched.
 
 Per-chunk dirty-check metadata is stored in `data/world_mirror.sqlite`. Older
 `worldmirror_meta.json` files with a legacy `chunkUpdateTimes` field are migrated
-into SQLite on the first sync after upgrade, and the JSON field is removed.
+into SQLite on the first sync after upgrade. The JSON field is removed only after
+the database commit succeeds; a failed migration retains the original data and
+stops that export for retry. Mapping and metadata JSON are replaced using
+same-directory temporary files. An upgrade or export reports failure if its
+final metadata write fails.
+Compressed world-data files are also written to a temporary file and read back
+before replacement. Serialization failures and values the NBT writer cannot
+preserve leave the previous file intact.
+Native NBT writers check Java's modified-UTF string encoding before opening a
+region output stream, preventing oversized values or keys from being silently
+replaced with empty strings.
+
+World-file mutations hold Minecraft's `session.lock` for the entire operation.
+Close the target mirror before exporting into it, applying conflicts, upgrading,
+or copying world settings. Conflict review can be performed from the original
+source world while its output mirror is closed. Read-only status queries remain
+available when a mirror is open.
+
+Failed mirror exports retain their frozen input while the client is running, even after
+leaving the source world. The first retry waits 10 seconds; further failures wait
+60 seconds and do not repeat the failure chat message. Later exports for that
+source wait their turn, while other sources can proceed. Retried metadata saves
+retain the newest already verified and indexed capture time from earlier passes.
+These snapshots are held in memory and do not survive closing the client.
+Saves with a newer `metadataSchema` are treated as future data and are not
+rewritten. A different explicit `format` marker is not adopted as a World Mirror
+save; legacy metadata without that marker remains supported.
 
 ---
 
@@ -273,11 +326,18 @@ vehicles, paintings, item frames, armour stands, and dropped items on a best-eff
 Entity output is not a server-authoritative backup. Fields never sent to the
 client—such as AI internals and unopened villager trades—cannot be reconstructed.
 UUID indexing removes stale copies when an entity or passenger tree crosses chunk or
-region boundaries. Complete observations can clear moved/despawned entities; partial
-observations only upsert what the client positively sees. When a chunk unloads, its last
+region boundaries. Move-source removals affect only their original chunk, so a delayed
+cleanup cannot erase an entity already saved at its destination. A departing passenger
+is pruned from its old tree without discarding an otherwise unobserved vehicle.
+Complete observations can clear moved/despawned entities; partial observations only
+upsert what the client positively sees. Changes that revert while an older export is
+running retain a corrective revision. When a chunk unloads, its last
 known entities are preserved because a client-side mod cannot distinguish every unload
 from a server-side removal. Failed entity-region writes retain their exact revisions for
 retry, including a stop-time snapshot deferred behind an active export.
+When several capture sessions stop while an export is busy, each frozen world
+snapshot receives a separate export pass. Captures queued in the newly opened
+world do not delay an already frozen pass from the previous world.
 
 ---
 
@@ -298,6 +358,19 @@ by the `ContainerTracker`, which intercepts inventory packets when the player op
 container during the session. Previously captured non-empty container item data is
 preserved when later client block-entity snapshots are empty, and default GUI titles such
 as `container.chest` are not persisted as custom names.
+Literal names such as `Chest` and styled or extended translated names are retained.
+Inventory capture is tied to the opened client world and block-entity type, so a
+stale chest overlay is not applied to a furnace later placed at the same position.
+Ender-chest inventories belong to the player and are not saved into world blocks.
+An explicit block update can capture the removal of a chunk's final block. These
+confirmed empty captures replace saved terrain without restoring old block
+entities. Ordinary all-air observations remain excluded because they may be
+server placeholders. Queued block changes are completed before an explicit stop.
+
+Initial and overflow-recovery scans resume from a cursor as queue space becomes
+available. A scan larger than the configured hint capacity does not repeatedly
+restart from the same corner. Authoritative changes in loaded chunks retain their
+capture intent under queue pressure and when coalesced with ordinary load hints.
 
 ---
 
@@ -316,6 +389,10 @@ particular:
   dimension metadata can differ from the source world
   ([issue #5](https://github.com/billstark001/world-mirror/issues/5)).
 
+Sources are identified by server address or local level name. Multiple logical
+worlds behind one server address share that identity; the server-world transition
+setting reacts only to a detected source-ID change.
+
 ---
 
 ## Installation
@@ -331,7 +408,7 @@ Choose the World Mirror JAR that exactly matches your Minecraft version:
 
 1. Install [Fabric Loader](https://fabricmc.net/use/) 0.19.5 or newer.
 2. Install the matching [Fabric API](https://modrinth.com/mod/fabric-api).
-3. Put the matching World Mirror 0.4.5 JAR in `mods/`.
+3. Put the matching World Mirror 0.5.2 JAR in `mods/`.
 4. *(Optional)* Install [Mod Menu](https://modrinth.com/mod/modmenu) for a title-screen settings entry.
 5. *(Optional)* For the Xaero overlay, install a Minecraft-matched
    [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map) and
@@ -346,8 +423,9 @@ and does not need to be installed.
 
 ## Typical Usage
 
-World Mirror does nothing until a download session is active unless a lifecycle setting
-explicitly starts one. The normal workflow is:
+Continuous recording requires an active download session, started with **P** or
+a lifecycle setting. Manual **O** exports can also run without a session. The
+normal workflow is:
 
 1. Join the source world and press **P once**. Confirm that the action bar says World
    Mirror is active.
@@ -363,8 +441,8 @@ explicitly starts one. The normal workflow is:
    directly in the world list.
 
 Changing the download pipeline while a session is active is intentionally safe: the new
-choice applies the next time the session starts, so two writers can never operate on the
-same mirror concurrently.
+choice applies the next time the session starts. Export requests remain serialized,
+and every offline writer acquires the target save's session lock.
 
 ### Collecting a performance log
 
@@ -393,7 +471,8 @@ around the player for capture.
 ### Starting fresh
 
 Press **L** to clear the in-memory chunk, entity, and container caches. This does not
-delete or reset any mirror data already written to disk.
+delete or reset any mirror data already written to disk. Previously frozen exports
+remain queued and can still write or retry; clearing live caches does not cancel them.
 
 ---
 

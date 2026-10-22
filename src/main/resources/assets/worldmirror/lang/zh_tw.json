@@ -197,16 +197,16 @@
   "text.autoconfig.worldmirror.option.cache": "快取控制",
 
   "text.autoconfig.worldmirror.option.cache.maxCachedChunks": "最大快取區塊數",
-  "text.autoconfig.worldmirror.option.cache.maxCachedChunks.@Tooltip": "記憶體中保留的最大區塊數。設為 0 禁用此限制。",
+  "text.autoconfig.worldmirror.option.cache.maxCachedChunks.@Tooltip": "已儲存區塊的保留數量上限。未儲存的變更會留在記憶體中，可能超過此上限。設為 0 停用。",
 
   "text.autoconfig.worldmirror.option.cache.maxCacheDistanceChunks": "最大快取距離（區塊）",
-  "text.autoconfig.worldmirror.option.cache.maxCacheDistanceChunks.@Tooltip": "超過此半徑的區塊將被驅逐。設為 0 禁用。",
+  "text.autoconfig.worldmirror.option.cache.maxCacheDistanceChunks.@Tooltip": "超過此半徑的已儲存區塊可被移出快取；未儲存的變更會保留。設為 0 停用。",
 
   "text.autoconfig.worldmirror.option.cache.maxCacheAgeSeconds": "最大快取時長（秒）",
-  "text.autoconfig.worldmirror.option.cache.maxCacheAgeSeconds.@Tooltip": "快取區塊的最大存活時間。設為 0 禁用。",
+  "text.autoconfig.worldmirror.option.cache.maxCacheAgeSeconds.@Tooltip": "已儲存區塊的快取保留時間；未儲存的變更不會因逾時而被移除。設為 0 停用。",
 
   "text.autoconfig.worldmirror.option.cache.invalidateAfterExport": "匯出後清除快取",
-  "text.autoconfig.worldmirror.option.cache.invalidateAfterExport.@Tooltip": "啟用後，區塊寫入磁碟後立即從記憶體中移除。",
+  "text.autoconfig.worldmirror.option.cache.invalidateAfterExport.@Tooltip": "區域檔案驗證與 SQLite 提交成功後，移除本次匯出的快取版本；更新的擷取結果會保留。",
 
   "text.autoconfig.worldmirror.option.performance": "效能",
   "text.autoconfig.worldmirror.option.performance.captureBudgetMicros": "擷取預算（微秒/刻）",
@@ -216,7 +216,7 @@
   "text.autoconfig.worldmirror.option.performance.adaptiveExportCooldownSeconds": "自適應匯出冷卻（秒）",
   "text.autoconfig.worldmirror.option.performance.adaptiveExportCooldownSeconds.@Tooltip": "兩次高水位匯出的最短間隔；一般同步間隔仍是持久化的最大延遲。",
   "text.autoconfig.worldmirror.option.performance.maxPendingCaptureHints": "最大擷取提示數",
-  "text.autoconfig.worldmirror.option.performance.maxPendingCaptureHints.@Tooltip": "等待主執行緒擷取的合併事件提示上限；區塊卸載時仍會執行最終擷取。",
+  "text.autoconfig.worldmirror.option.performance.maxPendingCaptureHints.@Tooltip": "一般合併擷取提示的數量上限。佇列滿時仍保留已確認的方塊變更意圖；區塊卸載前仍會進行最終擷取。",
   "text.autoconfig.worldmirror.option.performance.diagnosticPerformanceLogging": "效能診斷日誌",
   "text.autoconfig.worldmirror.option.performance.diagnosticPerformanceLogging.@Tooltip": "下載開始時記錄完整的全域與目前世界設定；之後每 30 秒記錄擷取耗時分位數與原因、各 GC 收集器、管線與匯出階段，並報告異常緩慢的 region。平時建議關閉。",
   "text.autoconfig.worldmirror.option.performance.slowRegionMillis": "慢速 Region 閾值（毫秒）",
@@ -280,13 +280,13 @@
   "text.autoconfig.worldmirror.option.lifecycle.onDimensionChange.keep":  "保持上次狀態",
 
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange": "切換伺服器世界時",
-  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.@Tooltip": "玩家在同一伺服器上被傳送至不同邏輯世界（如多世界外掛）時的下載狀態。\nSTART：自動開始下載。\nSTOP：停止下載（預設）。\nKEEP：保持目前狀態不變。",
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.@Tooltip": "偵測到伺服器位址或本機世界名稱改變時的下載狀態。同一位址下的不同邏輯世界無法區分。\nSTART：自動開始下載。\nSTOP：停止下載（預設）。\nKEEP：保持目前狀態不變。",
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.start": "開始下載",
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.stop":  "停止下載",
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.keep":  "保持上次狀態",
 
   "text.autoconfig.worldmirror.option.lifecycle.captureNearbyBeforeExport": "每次匯出前快取附近區塊",
-  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyBeforeExport.@Tooltip": "每次匯出前，先快取玩家附近已載入區塊，減少最近變更漏寫。",
+  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyBeforeExport.@Tooltip": "手動匯出前將附近已載入區塊加入擷取佇列；自動定時匯出與自適應匯出不進行此掃描。",
 
   "text.autoconfig.worldmirror.option.lifecycle.captureNearbyOnStop": "停止下載時快取附近區塊",
   "text.autoconfig.worldmirror.option.lifecycle.captureNearbyOnStop.@Tooltip": "下載停止時，額外快取一次玩家附近已載入區塊。",

@@ -41,6 +41,12 @@ the persistence step appropriate to that data: terrain also requires its SQLite 
 commit, while entity output requires post-write region and dimension-wide UUID
 verification. Failed conflict application must retain its conflict file.
 
+Capture-cache mutations, including durable acknowledgements, belong to the game
+thread. Background exporters consume frozen snapshots and dispatch their exact
+revision receipts back to that thread; they must not remove live terrain, lighting,
+entity, or container state while capture callbacks are running. Container cleanup
+must also preserve newer overlays and overlays awaiting a pending chunk capture.
+
 Entity dirtiness is independent from terrain-cache retention. Never prune entity updates
 because a terrain entry was evicted. A successfully reopened and UUID-verified
 entity-region replacement acknowledges only the exact captured revisions it represents.
@@ -115,16 +121,22 @@ changes under the format section, never as prefixed bullets under a mod
 section. Within a mod section, use an unprefixed entry when a change applies
 to every supported Minecraft build and `[fabric-<minecraft-version>]` when it
 affects only one target. Add changes to the current section in the order they
-happened within each category. Keep the copy in
+happened within each category. Retain the applicable Added, Changed, and Fixed
+headings, including in historical releases. Keep entries concise: combine related fixes,
+describe observable behavior, and leave class names, test procedures, and
+implementation details in contributor documentation or commits. Retain important
+compatibility and migration requirements when condensing historical releases.
+Record unreleased format-library changes under `## world-mirror-format [Unreleased]`
+at the top of the timeline without changing its independent version. Keep the copy in
 `world-mirror-format/CHANGELOG.md` consistent with the root format section.
 
 The format module is a standalone Java 21+ Gradle build inside this repository.
 The mod and toolkit consume its source through `includeBuild`, so development
 needs no package repository. `gradle -p world-mirror-format releaseBundle` produces
-  the versioned binary/source bundle for a GitHub Release; publish the ZIP,
-  its SHA-256 checksum, and direct binary/source JAR assets together. Keep its
-  version independent of `mod_version`. Public Gradle consumers use the
-  GitHub Release Ivy pattern documented in `world-mirror-format/README.md`.
+the versioned binary/source bundle for a GitHub Release; publish the ZIP,
+its SHA-256 checksum, and direct binary/source JAR assets together. Keep its
+version independent of `mod_version`. Public Gradle consumers use the
+GitHub Release Ivy pattern documented in `world-mirror-format/README.md`.
 Tag format releases `world-mirror-format-v<version>` to run the independent
 format release workflow; tag mod releases `v<version>` to run the mod workflow.
 

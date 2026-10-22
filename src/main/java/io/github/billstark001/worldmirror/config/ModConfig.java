@@ -222,9 +222,9 @@ public class ModConfig implements ConfigData {
     public static class CacheConfig {
 
         /**
-         * Maximum number of chunks to keep in the in-memory cache across all dimensions.
-         * When the limit is exceeded, the oldest captured chunks are evicted first.
-         * Set to 0 to disable the limit.
+         * Retention target across all dimensions. Evicts the oldest durable chunks
+         * first; unsaved changes are retained even when this target is exceeded.
+         * Set to 0 to disable count-based eviction.
          */
         @ConfigEntry.Gui.Tooltip
         @ConfigEntry.BoundedDiscrete(min = 0, max = 12800)
@@ -232,7 +232,7 @@ public class ModConfig implements ConfigData {
 
         /**
          * Maximum distance (in chunks) from the player at which cached chunks are retained.
-         * Chunks farther than this radius are evicted during the periodic sync tick.
+         * Durable chunks farther than this radius may be evicted; unsaved changes stay.
          * Set to 0 to disable distance-based eviction.
          */
         @ConfigEntry.Gui.Tooltip
@@ -240,7 +240,8 @@ public class ModConfig implements ConfigData {
         public int maxCacheDistanceChunks = 32;
 
         /**
-         * Maximum age (in seconds) of a cached chunk before it is evicted.
+         * Maximum age (in seconds) for retaining an already durable cached chunk.
+         * Unsaved changes are not evicted by age.
          * Set to 0 to disable time-based eviction.
          */
         @ConfigEntry.Gui.Tooltip
@@ -248,9 +249,8 @@ public class ModConfig implements ConfigData {
         public int maxCacheAgeSeconds = 1800;
 
         /**
-         * If {@code true}, a chunk is removed from the in-memory cache immediately after
-         * it has been successfully written to disk.  This reduces RAM usage at the cost of
-         * re-capturing the chunk if it needs to be re-exported.
+         * If {@code true}, remove the exact exported cache revision after region
+         * verification and SQLite commit. Newer captures remain in memory.
          */
         @ConfigEntry.Gui.Tooltip
         public boolean invalidateAfterExport = true;
@@ -286,18 +286,17 @@ public class ModConfig implements ConfigData {
         public TransitionBehavior onDimensionChange = TransitionBehavior.KEEP;
 
         /**
-         * Behaviour when the player is transferred to a different logical world on
-         * the same server (e.g. via a multiworld / per-world plugin such as Multiverse).
-         * Detected by a change in {@code sourceId} while still connected to the same server.
-         * Default: STOP — downloading stops to avoid mixing data from different worlds.
+         * Behaviour when a changed source ID is detected between client ticks.
+         * IDs use the server address or local level name, so logical worlds behind
+         * one address cannot be distinguished. Default: STOP.
          */
         @ConfigEntry.Gui.Tooltip
         @ConfigEntry.Gui.EnumHandler(option = ConfigEntry.Gui.EnumHandler.EnumDisplayOption.DROPDOWN)
         public TransitionBehavior onServerWorldChange = TransitionBehavior.STOP;
 
         /**
-         * If enabled, capture loaded chunks around the player right before each export.
-         * Uses a short radius to keep the game-thread cost low.
+         * If enabled, queue a short loaded-chunk scan before a manual export.
+         * Automatic periodic and adaptive exports do not run this scan.
          */
         @ConfigEntry.Gui.Tooltip
         public boolean captureNearbyBeforeExport = true;

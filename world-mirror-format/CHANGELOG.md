@@ -1,21 +1,28 @@
 # World Mirror Format changelog
 
-Releases are listed newest first by release date. Changes that belong only to a
-single consumer remain in that consumer's changelog with an artifact prefix.
+Releases are listed newest first by release date, after unreleased changes.
+Use Added, Changed, and Fixed categories where applicable. Keep the root
+`world-mirror-format` sections synchronized with this file; changes that belong
+only to one consumer remain in that consumer's changelog.
+
+## [Unreleased]
+
+### Fixed
+
+- Roll back checked and unchecked transaction failures without accidentally
+  committing after a failed rollback; preserve connection-restoration errors.
+- Ignore null keys in legacy timestamp input.
 
 ## [0.1.1] — 2026-09-27
 
 ### Changed
 
-- Published the binary and source JARs as direct GitHub Release assets so Gradle
-  consumers can resolve the version through a public Ivy repository without a
-  neighboring source checkout or Maven Central.
+- Publish binary and source JARs as direct GitHub Release assets for public
+  Gradle Ivy consumption.
 
 ## [0.1.0] — 2026-09-27
 
 ### Added
 
-- Introduced version 0.1.0 of the Java 21+ mirror-format contract, consumable
-  through a local composite build or a release ZIP without Maven Central. It
-  covers mirror paths, metadata markers, SQLite tables, source priorities,
-  durability timestamps, and legacy timestamp migration.
+- Introduce the standalone Java 21+ metadata and chunk-index contract, available
+  through composite builds and a binary/source release ZIP.

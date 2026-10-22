@@ -197,16 +197,16 @@
   "text.autoconfig.worldmirror.option.cache": "Cache Control",
 
   "text.autoconfig.worldmirror.option.cache.maxCachedChunks": "Max Cached Chunks",
-  "text.autoconfig.worldmirror.option.cache.maxCachedChunks.@Tooltip": "Maximum number of chunks kept in memory. Set to 0 to disable this limit.",
+  "text.autoconfig.worldmirror.option.cache.maxCachedChunks.@Tooltip": "Retention limit for already saved chunks. Unsaved changes stay in memory and may exceed it. Set to 0 to disable.",
 
   "text.autoconfig.worldmirror.option.cache.maxCacheDistanceChunks": "Max Cache Distance (chunks)",
-  "text.autoconfig.worldmirror.option.cache.maxCacheDistanceChunks.@Tooltip": "Chunks farther than this radius from the player are evicted. Set to 0 to disable.",
+  "text.autoconfig.worldmirror.option.cache.maxCacheDistanceChunks.@Tooltip": "Already saved chunks beyond this radius may be evicted. Unsaved changes stay in memory. Set to 0 to disable.",
 
   "text.autoconfig.worldmirror.option.cache.maxCacheAgeSeconds": "Max Cache Age (seconds)",
-  "text.autoconfig.worldmirror.option.cache.maxCacheAgeSeconds.@Tooltip": "Maximum age of a cached chunk before eviction. Set to 0 to disable.",
+  "text.autoconfig.worldmirror.option.cache.maxCacheAgeSeconds.@Tooltip": "Retention age for already saved chunks. Unsaved changes are kept. Set to 0 to disable.",
 
   "text.autoconfig.worldmirror.option.cache.invalidateAfterExport": "Invalidate After Export",
-  "text.autoconfig.worldmirror.option.cache.invalidateAfterExport.@Tooltip": "If enabled, a chunk is removed from memory immediately after being written to disk.",
+  "text.autoconfig.worldmirror.option.cache.invalidateAfterExport.@Tooltip": "Remove the exported cache version after region verification and SQLite commit. Newer captures remain in memory.",
 
   "text.autoconfig.worldmirror.option.performance": "Performance",
   "text.autoconfig.worldmirror.option.performance.captureBudgetMicros": "Capture Budget (µs/tick)",
@@ -216,7 +216,7 @@
   "text.autoconfig.worldmirror.option.performance.adaptiveExportCooldownSeconds": "Adaptive Export Cooldown (seconds)",
   "text.autoconfig.worldmirror.option.performance.adaptiveExportCooldownSeconds.@Tooltip": "Minimum delay between high-watermark exports; the normal sync interval remains the maximum durability latency.",
   "text.autoconfig.worldmirror.option.performance.maxPendingCaptureHints": "Max Capture Hints",
-  "text.autoconfig.worldmirror.option.performance.maxPendingCaptureHints.@Tooltip": "Bound on coalesced event hints waiting for main-thread capture. Unloading chunks still receive a final capture.",
+  "text.autoconfig.worldmirror.option.performance.maxPendingCaptureHints.@Tooltip": "Limit ordinary coalesced capture hints. Confirmed block changes retain their intent when full; unloading chunks receive a final capture.",
   "text.autoconfig.worldmirror.option.performance.diagnosticPerformanceLogging": "Performance Diagnostic Logging",
   "text.autoconfig.worldmirror.option.performance.diagnosticPerformanceLogging.@Tooltip": "At download start, log complete global and current-world configuration. Every 30 seconds, log capture latency percentiles and reasons, per-collector GC, pipeline/export stages, and slow regions. Leave off normally.",
   "text.autoconfig.worldmirror.option.performance.slowRegionMillis": "Slow Region Threshold (ms)",
@@ -280,13 +280,13 @@
   "text.autoconfig.worldmirror.option.lifecycle.onDimensionChange.keep":  "Keep",
 
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange": "On Server World Change",
-  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.@Tooltip": "Download state when the player is sent to a different world on the same server (e.g. Multiverse plugin).\nSTART: begin downloading automatically.\nSTOP: stop downloading (default).\nKEEP: leave state unchanged.",
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.@Tooltip": "Download state when a changed server address or local level name is detected. Logical worlds behind the same address cannot be distinguished.\nSTART: begin downloading automatically.\nSTOP: stop downloading (default).\nKEEP: leave state unchanged.",
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.start": "Start",
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.stop":  "Stop",
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.keep":  "Keep",
 
   "text.autoconfig.worldmirror.option.lifecycle.captureNearbyBeforeExport": "Capture Nearby Before Export",
-  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyBeforeExport.@Tooltip": "Capture loaded chunks around the player before each export to reduce missed recent changes.",
+  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyBeforeExport.@Tooltip": "Queue nearby loaded chunks before a manual export. Automatic periodic and adaptive exports do not run this scan.",
 
   "text.autoconfig.worldmirror.option.lifecycle.captureNearbyOnStop": "Capture Nearby On Stop",
   "text.autoconfig.worldmirror.option.lifecycle.captureNearbyOnStop.@Tooltip": "Capture loaded chunks around the player once when download stops.",

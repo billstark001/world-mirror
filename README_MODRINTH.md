@@ -46,7 +46,8 @@ Automatic export on stop is available in settings but is disabled by default, so
 | **L** | Clear the in-memory capture cache |
 
 All controls can be rebound under *Options → Controls → World Mirror*. Clearing the cache
-with **L** does not delete mirror files already written to disk.
+with **L** does not delete mirror files already written to disk or cancel exports
+already queued with their own captured data.
 
 ## What World Mirror saves
 
@@ -54,6 +55,7 @@ with **L** does not delete mirror files already written to disk.
   custom dimensions.
 - Block entities such as signs, banners, player heads, beacons, and lecterns.
 - Contents of containers you open while recording, including double chests.
+- Block changes while recording, including removal of the final block in a chunk.
 - Best-effort snapshots of client-visible mobs, vehicles, paintings, item frames, armour
   stands, dropped items, and rider/passenger groups. Moves and despawns are reconciled in
   areas the client can safely observe without deleting last-known entities from unloaded
@@ -80,6 +82,7 @@ World Mirror is not a server backup. Unopened inventories, server datapacks, str
 metadata, hidden entity state, and chunks the server never sends may be absent. Entities
 in unloaded chunks keep their last client-known state until the chunk is observed again.
 Uncaptured terrain is intentionally void in the generated save.
+Different logical worlds behind the same server address share one source identity.
 
 ## Save locations and conflicts
 
@@ -100,9 +103,22 @@ When an incoming chunk meets an existing local chunk, choose one of these strate
 - **Manual**: keep the local chunk and store the incoming version for review. Resolve it
   from the chunk map or use **Overwrite All / Discard All** on the Conflicts tab.
 
+Keep the target mirror closed while exporting, applying conflicts, upgrading it,
+or copying world settings. Review its conflicts from the original source world.
+If a mirror export fails, World Mirror keeps the captured data and retries while
+the game is running, including after you leave the source world. These pending
+retries are held in memory and do not survive closing the game.
+
+If applying a conflict fails, its incoming version remains pending. A newer version
+that arrives while you apply an older one also remains available for review.
+
 **Export Nearby Region** on the status screen creates a separate save in the Singleplayer
-folder from the chunks currently loaded around you. It is useful when you only need one
-area instead of a continuing mirror.
+folder from the chunks and visible non-player entities currently around you. You start
+at the captured position in the captured dimension, including the Nether or End. Exports
+with the same name receive different folders. It is useful when you only need one area
+instead of a continuing mirror. Custom dimensions and biomes may require the source
+server's matching data packs or mods to be available locally. Nearby exports are
+one-off operations; if one fails, start a new nearby export to try again.
 
 ## Installation
 

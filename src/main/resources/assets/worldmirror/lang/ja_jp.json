@@ -197,16 +197,16 @@
   "text.autoconfig.worldmirror.option.cache": "キャッシュ制御",
 
   "text.autoconfig.worldmirror.option.cache.maxCachedChunks": "最大キャッシュチャンク数",
-  "text.autoconfig.worldmirror.option.cache.maxCachedChunks.@Tooltip": "メモリに保持する最大チャンク数。0に設定するとこの制限を無効にします。",
+  "text.autoconfig.worldmirror.option.cache.maxCachedChunks.@Tooltip": "保存済みチャンクの保持数の上限。未保存の変更はメモリに残るため、上限を超える場合があります。0で無効。",
 
   "text.autoconfig.worldmirror.option.cache.maxCacheDistanceChunks": "最大キャッシュ距離（チャンク）",
-  "text.autoconfig.worldmirror.option.cache.maxCacheDistanceChunks.@Tooltip": "このチャンク半径を超えるとチャンクが削除されます。0に設定すると無効。",
+  "text.autoconfig.worldmirror.option.cache.maxCacheDistanceChunks.@Tooltip": "この半径を超えた保存済みチャンクはキャッシュから削除できます。未保存の変更は保持します。0で無効。",
 
   "text.autoconfig.worldmirror.option.cache.maxCacheAgeSeconds": "最大キャッシュ時間（秒）",
-  "text.autoconfig.worldmirror.option.cache.maxCacheAgeSeconds.@Tooltip": "キャッシュされたチャンクの最大生存時間。0に設定すると無効。",
+  "text.autoconfig.worldmirror.option.cache.maxCacheAgeSeconds.@Tooltip": "保存済みチャンクの保持時間。未保存の変更は時間経過で削除しません。0で無効。",
 
   "text.autoconfig.worldmirror.option.cache.invalidateAfterExport": "エクスポート後にキャッシュを無効化",
-  "text.autoconfig.worldmirror.option.cache.invalidateAfterExport.@Tooltip": "有効にすると、チャンクがディスクに書き込まれた直後にメモリから削除されます。",
+  "text.autoconfig.worldmirror.option.cache.invalidateAfterExport.@Tooltip": "リージョンの検証とSQLiteのコミット後に、書き出したキャッシュの版を削除します。より新しい取得データは保持します。",
 
   "text.autoconfig.worldmirror.option.performance": "パフォーマンス",
   "text.autoconfig.worldmirror.option.performance.captureBudgetMicros": "キャプチャ予算（µs/tick）",
@@ -216,7 +216,7 @@
   "text.autoconfig.worldmirror.option.performance.adaptiveExportCooldownSeconds": "適応エクスポート間隔（秒）",
   "text.autoconfig.worldmirror.option.performance.adaptiveExportCooldownSeconds.@Tooltip": "高水位エクスポート間の最短時間です。通常の同期間隔が永続化の最大遅延になります。",
   "text.autoconfig.worldmirror.option.performance.maxPendingCaptureHints": "最大キャプチャヒント数",
-  "text.autoconfig.worldmirror.option.performance.maxPendingCaptureHints.@Tooltip": "メインスレッドキャプチャを待つ統合イベントヒントの上限。アンロード時には最終キャプチャを行います。",
+  "text.autoconfig.worldmirror.option.performance.maxPendingCaptureHints.@Tooltip": "通常の統合取得要求の上限。キューが満杯でも確認済みのブロック変更は保持し、チャンクのアンロード前には最終取得を行います。",
   "text.autoconfig.worldmirror.option.performance.diagnosticPerformanceLogging": "パフォーマンス診断ログ",
   "text.autoconfig.worldmirror.option.performance.diagnosticPerformanceLogging.@Tooltip": "ダウンロード開始時にグローバル設定と現在のワールド設定をすべて記録します。その後30秒ごとにキャプチャ遅延の分位点と理由、GCコレクター別情報、パイプライン・エクスポート段階、遅い region を記録します。通常はオフを推奨します。",
   "text.autoconfig.worldmirror.option.performance.slowRegionMillis": "低速 Region しきい値（ms）",
@@ -280,13 +280,13 @@
   "text.autoconfig.worldmirror.option.lifecycle.onDimensionChange.keep":  "維持",
 
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange": "サーバーワールド変更時",
-  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.@Tooltip": "プレイヤーが同じサーバー上の別の論理ワールドに送られたとき（例：マルチワールドプラグイン）のダウンロード状態。\nSTART：自動的にダウンロードを開始。\nSTOP：ダウンロードを停止（デフォルト）。\nKEEP：現在の状態を維持。",
+  "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.@Tooltip": "サーバーアドレスまたはローカルワールド名の変更を検出した場合のダウンロード状態。同じアドレス内の論理ワールドは区別できません。\nSTART：自動的にダウンロードを開始。\nSTOP：ダウンロードを停止（デフォルト）。\nKEEP：現在の状態を維持。",
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.start": "開始",
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.stop":  "停止",
   "text.autoconfig.worldmirror.option.lifecycle.onServerWorldChange.keep":  "維持",
 
   "text.autoconfig.worldmirror.option.lifecycle.captureNearbyBeforeExport": "エクスポート前に周辺チャンクを取得",
-  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyBeforeExport.@Tooltip": "各エクスポート前に、プレイヤー周辺の読み込み済みチャンクを取得して直近の変更の取りこぼしを減らします。",
+  "text.autoconfig.worldmirror.option.lifecycle.captureNearbyBeforeExport.@Tooltip": "手動エクスポート前に周囲のロード済みチャンクを取得キューへ追加します。定期・適応型の自動エクスポートではこの走査を行いません。",
 
   "text.autoconfig.worldmirror.option.lifecycle.captureNearbyOnStop": "停止時に周辺チャンクを取得",
   "text.autoconfig.worldmirror.option.lifecycle.captureNearbyOnStop.@Tooltip": "ダウンロード停止時に、プレイヤー周辺の読み込み済みチャンクを1回追加で取得します。",
