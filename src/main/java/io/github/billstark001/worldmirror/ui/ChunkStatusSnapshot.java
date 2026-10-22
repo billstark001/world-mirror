@@ -35,6 +35,8 @@ public final class ChunkStatusSnapshot {
         for (ChunkDatabase.ChunkRecord record : records) {
             long chunkKey = chunkKey(record.x(), record.z());
             recordsByChunk.put(chunkKey, record);
+        }
+        for (ChunkDatabase.ChunkRecord record : recordsByChunk.values()) {
             recordsByRegion
                     .computeIfAbsent(regionKeyForChunk(record.x(), record.z()), ignored -> new ArrayList<>())
                     .add(record);
@@ -44,7 +46,7 @@ public final class ChunkStatusSnapshot {
         this.conflictsByRegion = new HashMap<>();
         for (ChunkPos pos : conflicts) {
             long chunkKey = chunkKey(pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4);
-            conflictKeys.add(chunkKey);
+            if (!conflictKeys.add(chunkKey)) continue;
             conflictsByRegion
                     .computeIfAbsent(regionKeyForChunk(
                             pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4), ignored -> new ArrayList<>())
@@ -70,7 +72,7 @@ public final class ChunkStatusSnapshot {
     }
 
     public Collection<ChunkDatabase.ChunkRecord> records() {
-        return recordsByChunk.values();
+        return Collections.unmodifiableCollection(recordsByChunk.values());
     }
 
     public boolean hasConflict(int chunkX, int chunkZ) {

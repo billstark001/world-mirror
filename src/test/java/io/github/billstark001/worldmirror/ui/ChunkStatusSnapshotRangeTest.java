@@ -12,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ChunkStatusSnapshotRangeTest {
     @Test
@@ -51,5 +52,31 @@ class ChunkStatusSnapshotRangeTest {
         assertEquals(1_875_000, range.maxX());
         assertEquals(-1_875_000, range.minZ());
         assertEquals(1_875_000, range.maxZ());
+    }
+
+    @Test
+    void recordsViewCannotInvalidateTheImmutableSnapshot() {
+        var record = new ChunkDatabase.ChunkRecord(1, 2, 3L, "world_mirror");
+        var snapshot = new ChunkStatusSnapshot(List.of(record), List.of(), 1L);
+
+        assertThrows(UnsupportedOperationException.class, () -> snapshot.records().clear());
+        assertEquals(record, snapshot.getRecord(1, 2));
+    }
+
+    @Test
+    void coordinateLookupAndRegionIterationAgreeWhenInputContainsDuplicates() {
+        var previous = new ChunkDatabase.ChunkRecord(1, 2, 3L, "world_mirror");
+        var replacement = new ChunkDatabase.ChunkRecord(1, 2, 4L, "external");
+        var snapshot = new ChunkStatusSnapshot(List.of(previous, replacement),
+                List.of(new ChunkPos(1, 2), new ChunkPos(1, 2)), 1L);
+        List<ChunkDatabase.ChunkRecord> visited = new ArrayList<>();
+        List<ChunkPos> conflicts = new ArrayList<>();
+
+        snapshot.forEachRecordInRange(0, 3, 0, 3, visited::add);
+        snapshot.forEachConflictInRange(0, 3, 0, 3, conflicts::add);
+
+        assertEquals(1, snapshot.recordCount());
+        assertEquals(List.of(replacement), visited);
+        assertEquals(List.of(new ChunkPos(1, 2)), conflicts);
     }
 }

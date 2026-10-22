@@ -1,7 +1,5 @@
 package io.github.billstark001.worldmirror.ui;
 
-import io.github.billstark001.worldmirror.download.ChunkDatabase;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -32,14 +30,11 @@ public final class ChunkMapAggregation {
                                                  int minChunkZ, int maxChunkZ,
                                                  long now, int maxBucketCells) {
         int bucketSize = bucketSizeFor(minChunkX, maxChunkX, minChunkZ, maxChunkZ, maxBucketCells);
-        int minBucketX = Math.floorDiv(minChunkX, bucketSize);
-        int maxBucketX = Math.floorDiv(maxChunkX, bucketSize);
-        int minBucketZ = Math.floorDiv(minChunkZ, bucketSize);
-        int maxBucketZ = Math.floorDiv(maxChunkZ, bucketSize);
         if (cache != null && cache.snapshot == snapshot
-                && cache.minBucketX == minBucketX && cache.maxBucketX == maxBucketX
-                && cache.minBucketZ == minBucketZ && cache.maxBucketZ == maxBucketZ
-                && cache.bucketSize == bucketSize && now - cache.createdAtMs < CACHE_MS) {
+                && cache.minChunkX == minChunkX && cache.maxChunkX == maxChunkX
+                && cache.minChunkZ == minChunkZ && cache.maxChunkZ == maxChunkZ
+                && cache.bucketSize == bucketSize
+                && now >= cache.createdAtMs && now - cache.createdAtMs < CACHE_MS) {
             return cache.result;
         }
 
@@ -71,11 +66,19 @@ public final class ChunkMapAggregation {
             }
         }
         Result result = new Result(bucketSize, List.copyOf(runs), buildBoundaries(cells));
-        cache = new CacheEntry(snapshot, minBucketX, maxBucketX, minBucketZ, maxBucketZ, bucketSize, now, result);
+        cache = new CacheEntry(snapshot, minChunkX, maxChunkX, minChunkZ, maxChunkZ, bucketSize, now, result);
         return result;
     }
 
+    /**
+     * Chooses square, zero-anchored buckets within the requested cell budget.
+     * A range crossing zero needs at least two buckets on that axis. Empty
+     * ranges use size one. If int-sized buckets cannot meet the budget at the
+     * extreme integer coordinates, the size saturates at Integer.MAX_VALUE.
+     * Sizing uses bounded searches so very thin viewports cannot stall rendering.
+     */
     public static int bucketSizeFor(int minX, int maxX, int minZ, int maxZ, int maxBucketCells) {
+        if (minX > maxX || minZ > maxZ) return 1;
         double viewportCells = ((double) maxX - minX + 1.0D)
                 * ((double) maxZ - minZ + 1.0D);
         // Buckets are anchored at zero. A range crossing zero always occupies
@@ -85,11 +88,31 @@ public final class ChunkMapAggregation {
         int limit = Math.max(minimum, maxBucketCells);
         int size = viewportCells <= limit ? 1
                 : Math.max(1, (int) Math.ceil(Math.sqrt(viewportCells / limit)));
-        while ((long) (Math.floorDiv(maxX, size) - Math.floorDiv(minX, size) + 1)
-                * (Math.floorDiv(maxZ, size) - Math.floorDiv(minZ, size) + 1) > limit) {
-            size++;
+        if (withinBudget(minX, maxX, minZ, maxZ, size, limit)) return size;
+
+        int lower = size;
+        int upper = size;
+        while (upper < Integer.MAX_VALUE
+                && !withinBudget(minX, maxX, minZ, maxZ, upper, limit)) {
+            lower = upper;
+            upper = (int) Math.min(Integer.MAX_VALUE, (long) upper * 2L);
         }
-        return size;
+        if (!withinBudget(minX, maxX, minZ, maxZ, upper, limit)) return upper;
+        // Bucket counts are not strictly monotonic because their origin is
+        // fixed. Keep a known-valid upper bound rather than assuming the
+        // smallest possible bucket size can be found by binary search.
+        while ((long) upper - lower > 1L) {
+            int middle = lower + (upper - lower) / 2;
+            if (withinBudget(minX, maxX, minZ, maxZ, middle, limit)) upper = middle;
+            else lower = middle;
+        }
+        return upper;
+    }
+
+    private static boolean withinBudget(int minX, int maxX, int minZ, int maxZ, int size, int limit) {
+        long columns = (long) Math.floorDiv(maxX, size) - Math.floorDiv(minX, size) + 1L;
+        long rows = (long) Math.floorDiv(maxZ, size) - Math.floorDiv(minZ, size) + 1L;
+        return columns <= limit / rows;
     }
 
     private static List<Boundary> buildBoundaries(HashMap<Long, Cell> cells) {
@@ -199,7 +222,7 @@ public final class ChunkMapAggregation {
         private int priority() { return conflict ? 1_000_000 : ((displayColor() >> 8) & 0xFF); }
     }
 
-    private record CacheEntry(ChunkStatusSnapshot snapshot, int minBucketX, int maxBucketX,
-                              int minBucketZ, int maxBucketZ, int bucketSize,
+    private record CacheEntry(ChunkStatusSnapshot snapshot, int minChunkX, int maxChunkX,
+                              int minChunkZ, int maxChunkZ, int bucketSize,
                               long createdAtMs, Result result) {}
 }
