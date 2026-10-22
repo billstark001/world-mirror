@@ -1,13 +1,11 @@
 package io.github.billstark001.worldmirror.conflict;
 
-import io.github.ensgijs.nbt.mca.McaRegionFile;
-import io.github.ensgijs.nbt.mca.TerrainChunk;
-import io.github.ensgijs.nbt.mca.io.McaFileHelpers;
-import io.github.ensgijs.nbt.tag.CompoundTag;
 import io.github.billstark001.worldmirror.io.ChunkExporter;
 import io.github.billstark001.worldmirror.io.McaWriteSupport;
+import io.github.billstark001.worldmirror.io.WorldWriteLock;
 import io.github.billstark001.worldmirror.util.WMLogger;
-import net.minecraft.nbt.NbtIo;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.ChunkPos;
@@ -15,344 +13,274 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.storage.RegionFile;
 import net.minecraft.world.level.chunk.storage.RegionStorageInfo;
 
-import java.io.DataOutputStream;
-import java.io.File;
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
- * Manages chunk conflict data stored in the {@code conflict_chunks/} sub-folder of the
- * mirror world directory.
- *
- * <p>When the {@link ManualResolver} encounters a conflict, it calls
- * {@link #saveConflict} to persist the incoming (server-side) chunk as an MCA file
- * under {@code conflict_chunks/}.  The folder mirrors the world's region layout:
- * <ul>
- *   <li>{@code conflict_chunks/region/r.X.Z.mca} — Overworld conflicts</li>
- *   <li>{@code conflict_chunks/DIM-1/region/r.X.Z.mca} — Nether conflicts</li>
- *   <li>{@code conflict_chunks/DIM1/region/r.X.Z.mca} — End conflicts</li>
- *   <li>{@code conflict_chunks/dimensions/<ns>/<path>/region/r.X.Z.mca} — custom dims</li>
- * </ul>
- *
- * <p>Conflicts can be resolved per-chunk or in bulk via {@link #clearAllConflicts}.
+ * Persists incoming manual conflicts under {@code conflict_chunks/}, using the
+ * classic region/DIM-1/DIM1/dimensions layout on every Minecraft target.
+ * Vanilla region I/O preserves oversized chunks stored in external .mcc files.
+ * Applying a conflict releases its source lock before acquiring the world lock;
+ * only unchanged incoming entries are removed after the world write is verified.
  */
 public final class ConflictManager {
-
-    private ConflictManager() {}
-
     static final String CONFLICT_ROOT = "conflict_chunks";
+    private static final int REGION_SIZE = 32;
+    private static final Pattern REGION_NAME = Pattern.compile("r\\.(-?\\d+)\\.(-?\\d+)\\.mca");
+    private static final Object[] RESOLUTION_LOCKS = new Object[64];
 
-    // ── Path helpers ──────────────────────────────────────────────────────────
+    static {
+        Arrays.setAll(RESOLUTION_LOCKS, ignored -> new Object());
+    }
 
-    /**
-     * Returns the region directory for conflict files of the given dimension,
-     * mirroring the layout used by {@link ChunkExporter#regionDirForDimension}.
-     */
+    private ConflictManager() { }
+
+    /** Returns the conflict region directory without creating it. */
     public static Path getConflictDir(Path worldFolder, ResourceKey<Level> dimension) {
-        Identifier id = dimension.identifier();
-        Identifier OVERWORLD = Identifier.fromNamespaceAndPath("minecraft", "overworld");
-        Identifier NETHER    = Identifier.fromNamespaceAndPath("minecraft", "the_nether");
-        Identifier END       = Identifier.fromNamespaceAndPath("minecraft", "the_end");
         Path root = worldFolder.resolve(CONFLICT_ROOT);
-        if (id.equals(OVERWORLD)) {
-            return root.resolve("region");
-        } else if (id.equals(NETHER)) {
-            return root.resolve("DIM-1").resolve("region");
-        } else if (id.equals(END)) {
-            return root.resolve("DIM1").resolve("region");
-        } else {
-            return root.resolve("dimensions")
-                    .resolve(id.getNamespace())
-                    .resolve(id.getPath())
-                    .resolve("region");
+        if (dimension.equals(Level.OVERWORLD)) return root.resolve("region");
+        if (dimension.equals(Level.NETHER)) return root.resolve("DIM-1/region");
+        if (dimension.equals(Level.END)) return root.resolve("DIM1/region");
+        return ChunkExporter.namespacedDimensionDirectory(root, dimension).resolve("region");
+    }
+
+    /** Returns true only after the incoming chunk has been reopened and verified. */
+    public static boolean saveConflict(Path worldFolder, ChunkPos pos,
+                                       CompoundTag chunkNbt, ResourceKey<Level> dimension) {
+        Path file = regionFor(worldFolder, pos, dimension).file();
+        try {
+            McaWriteSupport.writeChunks(file, dimension, Map.of(pos, chunkNbt));
+            return true;
+        } catch (Exception error) {
+            WMLogger.warn("Conflict save failed chunk=" + pos + " dimension=" + dimension.identifier(), error);
+            return false;
         }
     }
 
-    // ── Conflict persistence ──────────────────────────────────────────────────
+    /** Whether the region header contains a pending entry, including an external payload. */
+    public static boolean hasConflict(Path worldFolder, ChunkPos pos, ResourceKey<Level> dimension) {
+        return listCoordinates(regionFor(worldFolder, pos, dimension)).contains(pos);
+    }
+
+    /** Returns pending chunk positions in the requested dimension. */
+    public static Set<ChunkPos> listConflicts(Path worldFolder, ResourceKey<Level> dimension) {
+        Set<ChunkPos> result = new HashSet<>();
+        Path directory = getConflictDir(worldFolder, dimension);
+        for (ConflictRegion region : findRegions(directory, directory, dimension)) {
+            result.addAll(listCoordinates(region));
+        }
+        return result;
+    }
+
+    /** Counts pending entries across dimensions without decoding their NBT payloads. */
+    public static int countAllConflicts(Path worldFolder) {
+        Path root = worldFolder.resolve(CONFLICT_ROOT);
+        int count = 0;
+        for (ConflictRegion region : findRegions(root, root, null)) count += listCoordinates(region).size();
+        return count;
+    }
 
     /**
-     * Saves the incoming server-side {@code chunkNbt} for {@code pos} as a conflict
-     * entry in the appropriate MCA file under {@code conflict_chunks/}.
+     * Applies a frozen incoming version, or discards the pending entry when
+     * overwrite is false. Failed writes and newer conflicts remain available.
      */
-    public static boolean saveConflict(Path worldFolder, ChunkPos pos,
-                                       net.minecraft.nbt.CompoundTag chunkNbt,
-                                       ResourceKey<Level> dimension) {
-        Path conflictDir = getConflictDir(worldFolder, dimension);
-        try {
-            Files.createDirectories(conflictDir);
-            int regionX = pos.getRegionX();
-            int regionZ = pos.getRegionZ();
-            Path regionFile = conflictDir.resolve(
-                    String.format("r.%d.%d.mca", regionX, regionZ));
+    public static void resolveConflict(Path worldFolder, ChunkPos pos,
+                                       ResourceKey<Level> dimension, boolean overwrite) {
+        ConflictRegion region = regionFor(worldFolder, pos, dimension);
+        synchronized (resolutionLock(region)) {
+            try {
+                if (overwrite) applySnapshot(worldFolder, region, readSnapshot(region, pos));
+                else removeEntries(region, Set.of(pos), null);
+            } catch (Exception error) {
+                WMLogger.warn("Conflict resolution failed chunk=" + pos + " overwrite=" + overwrite, error);
+            }
+        }
+    }
 
-            synchronized (McaWriteSupport.lockFor(regionFile)) {
-                RegionStorageInfo storageInfo =
-                        new RegionStorageInfo("world_mirror_conflicts", dimension, "chunk");
-                try (RegionFile vanillaRegion =
-                             new RegionFile(storageInfo, regionFile, conflictDir, false)) {
-                    try (DataOutputStream output = vanillaRegion.getChunkDataOutputStream(pos)) {
-                        NbtIo.write(chunkNbt, output);
-                    }
-                    vanillaRegion.flush();
+    /**
+     * Applies or discards conflicts one region at a time. Overwrite retains a
+     * region's pending entries until every copied chunk has been verified.
+     */
+    public static void clearAllConflicts(Path worldFolder, boolean overwrite) {
+        Path root = worldFolder.resolve(CONFLICT_ROOT);
+        for (ConflictRegion region : findRegions(root, root, null)) {
+            synchronized (resolutionLock(region)) {
+                try {
+                    if (overwrite) applySnapshot(worldFolder, region, readSnapshot(region, null));
+                    else removeEntries(region, listCoordinates(region), null);
+                } catch (Exception error) {
+                    WMLogger.warn("Conflict region cleanup failed file=" + region.file()
+                            + " overwrite=" + overwrite + "; remaining entries retained", error);
                 }
             }
-            return true;
-        } catch (Exception e) {
-            WMLogger.warn("Conflict save failed chunk=" + pos
-                    + " dimension=" + dimension.identifier(), e);
-            return false;
+        }
+        deleteEmptyDirectories(root);
+    }
+
+    private static Object resolutionLock(ConflictRegion region) {
+        // These decision locks are separate from file locks: exporters never
+        // acquire one, so waiting for a world file cannot form a lock cycle.
+        int hash = region.file().toAbsolutePath().normalize().hashCode();
+        return RESOLUTION_LOCKS[Math.floorMod(hash, RESOLUTION_LOCKS.length)];
+    }
+
+    private static void applySnapshot(Path worldFolder, ConflictRegion region,
+                                      Map<ChunkPos, CompoundTag> snapshot) throws IOException {
+        if (snapshot.isEmpty()) return;
+        Path target = ChunkExporter.regionDirForDimension(worldFolder, region.dimension())
+                .resolve(region.file().getFileName());
+        // Never hold the conflict lock while waiting for the world lock: an
+        // exporter can hold that world lock while persisting another conflict.
+        try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
+            McaWriteSupport.writeChunks(target, region.dimension(), snapshot);
+            removeEntries(region, snapshot.keySet(), snapshot);
         }
     }
 
-    // ── Conflict queries ──────────────────────────────────────────────────────
-
-    /** Returns {@code true} if a conflict entry exists for the given chunk. */
-    public static boolean hasConflict(Path worldFolder, ChunkPos pos,
-                                      ResourceKey<Level> dimension) {
-        Path conflictDir = getConflictDir(worldFolder, dimension);
-        int regionX = pos.getRegionX();
-        int regionZ = pos.getRegionZ();
-        Path regionFile = conflictDir.resolve(String.format("r.%d.%d.mca", regionX, regionZ));
-        if (!regionFile.toFile().exists()) return false;
-        try {
-            McaRegionFile mca = McaFileHelpers.readAuto(regionFile.toFile());
-            return mca.getChunk(pos.getRegionLocalX(), pos.getRegionLocalZ()) != null;
-        } catch (Exception e) {
-            WMLogger.warnRateLimited("conflict-presence-read", 30_000L,
-                    "Conflict presence check failed file=" + regionFile + " chunk=" + pos, e);
-            return false;
-        }
-    }
-
-    /**
-     * Returns all chunk positions that have a conflict entry for the given dimension.
-     */
-    public static Set<ChunkPos> listConflicts(Path worldFolder,
-                                              ResourceKey<Level> dimension) {
-        Path conflictDir = getConflictDir(worldFolder, dimension);
-        Set<ChunkPos> result = new HashSet<>();
-        File dir = conflictDir.toFile();
-        if (!dir.exists()) return result;
-        File[] mcaFiles = dir.listFiles((d, name) -> name.matches("r\\.-?\\d+\\.-?\\d+\\.mca"));
-        if (mcaFiles == null) return result;
-        for (File f : mcaFiles) {
-            try {
-                String name = f.getName(); // "r.X.Z.mca"
-                String[] parts = name.substring(2, name.length() - 4).split("\\.");
-                int regionX = Integer.parseInt(parts[0]);
-                int regionZ = Integer.parseInt(parts[1]);
-                McaRegionFile mca = McaFileHelpers.readAuto(f);
-                for (int lx = 0; lx < 32; lx++) {
-                    for (int lz = 0; lz < 32; lz++) {
-                        if (mca.getChunk(lx, lz) != null) {
-                            result.add(new ChunkPos(regionX * 32 + lx, regionZ * 32 + lz));
-                        }
-                    }
+    private static Map<ChunkPos, CompoundTag> readSnapshot(ConflictRegion region, ChunkPos selected)
+            throws IOException {
+        synchronized (McaWriteSupport.lockFor(region.file())) {
+            if (!Files.isRegularFile(region.file())) return Map.of();
+            Map<ChunkPos, CompoundTag> chunks = new HashMap<>();
+            try (RegionFile reader = openRegion(region)) {
+                for (ChunkPos pos : coordinates(reader, region)) {
+                    if (selected != null && !selected.equals(pos)) continue;
+                    CompoundTag chunk = McaWriteSupport.readChunk(reader, pos);
+                    if (chunk == null) throw new IOException("Unreadable conflict chunk=" + pos);
+                    chunks.put(pos, chunk);
                 }
-            } catch (Exception e) {
+            }
+            return chunks;
+        }
+    }
+
+    private static Set<ChunkPos> listCoordinates(ConflictRegion region) {
+        synchronized (McaWriteSupport.lockFor(region.file())) {
+            if (!Files.isRegularFile(region.file())) return Set.of();
+            try {
+                return McaWriteSupport.listChunkPositions(region.file(), region.x(), region.z());
+            } catch (Exception error) {
                 WMLogger.warnRateLimited("conflict-list-read", 30_000L,
-                        "Conflict index read failed file=" + f.getName(), e);
+                        "Conflict index read failed file=" + region.file(), error);
+                return Set.of();
+            }
+        }
+    }
+
+    private static Set<ChunkPos> coordinates(RegionFile reader, ConflictRegion region) {
+        Set<ChunkPos> result = new HashSet<>();
+        for (int z = 0; z < REGION_SIZE; z++) {
+            for (int x = 0; x < REGION_SIZE; x++) {
+                ChunkPos pos = new ChunkPos(region.x() * REGION_SIZE + x, region.z() * REGION_SIZE + z);
+                if (reader.hasChunk(pos)) result.add(pos);
             }
         }
         return result;
     }
 
-    /** Returns the total number of conflict entries across all dimensions. */
-    public static int countAllConflicts(Path worldFolder) {
-        Path root = worldFolder.resolve(CONFLICT_ROOT);
-        if (!root.toFile().exists()) return 0;
-        int[] count = {0};
-        try (Stream<Path> stream = Files.walk(root)) {
-            stream.filter(p -> p.toString().endsWith(".mca")).forEach(mcaPath -> {
+    private static void removeEntries(ConflictRegion region, Set<ChunkPos> selected,
+                                      Map<ChunkPos, CompoundTag> expected) throws IOException {
+        synchronized (McaWriteSupport.lockFor(region.file())) {
+            if (!Files.isRegularFile(region.file())) return;
+            boolean empty;
+            try (RegionFile file = openRegion(region)) {
+                for (ChunkPos pos : selected) {
+                    if (expected == null || expected.get(pos).equals(McaWriteSupport.readChunk(file, pos))) {
+                        file.clear(pos);
+                    }
+                }
+                file.flush();
+                empty = coordinates(file, region).isEmpty();
+            }
+            if (empty) Files.deleteIfExists(region.file());
+        }
+    }
+
+    private static RegionFile openRegion(ConflictRegion region) throws IOException {
+        McaWriteSupport.validateRegion(region.file(), region.x(), region.z());
+        return new RegionFile(new RegionStorageInfo("world_mirror_conflicts", region.dimension(), "chunk"),
+                region.file(), region.file().getParent(), false);
+    }
+
+    private static ConflictRegion regionFor(Path world, ChunkPos pos, ResourceKey<Level> dimension) {
+        return new ConflictRegion(getConflictDir(world, dimension).resolve(
+                "r." + pos.getRegionX() + "." + pos.getRegionZ() + ".mca"),
+                pos.getRegionX(), pos.getRegionZ(), dimension);
+    }
+
+    private static List<ConflictRegion> findRegions(Path directory, Path root, ResourceKey<Level> dimension) {
+        if (!Files.isDirectory(directory)) return List.of();
+        List<ConflictRegion> result = new ArrayList<>();
+        try (Stream<Path> paths = dimension == null ? Files.walk(directory) : Files.list(directory)) {
+            for (Path file : paths.filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)).toList()) {
+                Matcher name = REGION_NAME.matcher(file.getFileName().toString());
+                if (!name.matches()) continue;
                 try {
-                    McaRegionFile mca = McaFileHelpers.readAuto(mcaPath.toFile());
-                    for (int lx = 0; lx < 32; lx++) {
-                        for (int lz = 0; lz < 32; lz++) {
-                            if (mca.getChunk(lx, lz) != null) count[0]++;
-                        }
-                    }
-                } catch (Exception ignored) {}
-            });
-        } catch (IOException e) {
-            WMLogger.warnRateLimited("conflict-count", 30_000L,
-                    "Conflict count failed world=" + worldFolder, e);
-        }
-        return count[0];
-    }
-
-    // ── Conflict resolution ───────────────────────────────────────────────────
-
-    /**
-     * Resolves a single conflict for the given chunk.
-     *
-     * @param overwrite If {@code true}, the conflict (server) chunk is applied to
-     *                  the world's region file.  If {@code false}, the conflict
-     *                  entry is simply removed (keeping the existing local chunk).
-     */
-    public static void resolveConflict(Path worldFolder, ChunkPos pos,
-                                       ResourceKey<Level> dimension, boolean overwrite) {
-        Path conflictDir = getConflictDir(worldFolder, dimension);
-        int regionX = pos.getRegionX();
-        int regionZ = pos.getRegionZ();
-        Path conflictFile = conflictDir.resolve(
-                String.format("r.%d.%d.mca", regionX, regionZ));
-        if (!conflictFile.toFile().exists()) return;
-
-        try {
-            synchronized (McaWriteSupport.lockFor(conflictFile)) {
-                McaRegionFile conflictMca = McaFileHelpers.readAuto(conflictFile.toFile());
-                int localX = pos.getRegionLocalX();
-                int localZ = pos.getRegionLocalZ();
-                TerrainChunk conflictChunk = conflictMca.getChunk(localX, localZ);
-
-                if (overwrite && conflictChunk != null) {
-                    // Apply conflict chunk to the live world region file
-                    Path worldRegionDir = ChunkExporter.regionDirForDimension(worldFolder, dimension);
-                    Path worldRegionFile = worldRegionDir.resolve(
-                            String.format("r.%d.%d.mca", regionX, regionZ));
-                    synchronized (McaWriteSupport.lockFor(worldRegionFile)) {
-                        McaRegionFile worldMca;
-                        if (worldRegionFile.toFile().exists()) {
-                            worldMca = McaFileHelpers.readAuto(worldRegionFile.toFile());
-                        } else {
-                            Files.createDirectories(worldRegionDir);
-                            worldMca = new McaRegionFile(regionX, regionZ);
-                        }
-                        worldMca.setChunk(localX, localZ, conflictChunk);
-                        McaWriteSupport.writeAtomicallyLocked(worldMca, worldRegionFile);
-                    }
-                }
-
-                // Remove the conflict entry
-                conflictMca.setChunk(localX, localZ, null);
-                boolean empty = isRegionEmpty(conflictMca);
-                if (empty) {
-                    Files.deleteIfExists(conflictFile);
-                } else {
-                    McaWriteSupport.writeAtomicallyLocked(conflictMca, conflictFile);
+                    ResourceKey<Level> key = dimension == null ? dimensionFor(root.relativize(file)) : dimension;
+                    if (key != null) result.add(new ConflictRegion(file, Integer.parseInt(name.group(1)),
+                            Integer.parseInt(name.group(2)), key));
+                } catch (IllegalArgumentException error) {
+                    WMLogger.warnRateLimited("conflict-region-name", 30_000L,
+                            "Invalid conflict region path=" + file, error);
                 }
             }
-        } catch (Exception e) {
-            WMLogger.warn("Conflict resolution failed chunk=" + pos
-                    + " overwrite=" + overwrite, e);
+        } catch (IOException | UncheckedIOException error) {
+            WMLogger.warnRateLimited("conflict-list-files", 30_000L,
+                    "Conflict directory read failed path=" + directory, error);
         }
+        return result;
     }
 
-    /**
-     * Resolves all conflicts across every dimension in the mirror world.
-     *
-     * @param overwrite If {@code true}, all conflict chunks are applied to the world
-     *                  before the conflict files are deleted.  If {@code false}, all
-     *                  conflict entries are simply discarded.
-     */
-    public static void clearAllConflicts(Path worldFolder, boolean overwrite) {
-        Path conflictRoot = worldFolder.resolve(CONFLICT_ROOT);
-        if (!conflictRoot.toFile().exists()) return;
+    private static ResourceKey<Level> dimensionFor(Path relative) {
+        int count = relative.getNameCount();
+        if (count == 2 && relative.getName(0).toString().equals("region")) return Level.OVERWORLD;
+        if (count == 3 && relative.getName(1).toString().equals("region")) {
+            return switch (relative.getName(0).toString()) {
+                case "DIM-1" -> Level.NETHER;
+                case "DIM1" -> Level.END;
+                default -> null;
+            };
+        }
+        if (count >= 5 && relative.getName(0).toString().equals("dimensions")
+                && relative.getName(count - 2).toString().equals("region")) {
+            String path = relative.subpath(2, count - 2).toString().replace('\\', '/');
+            return ResourceKey.create(Registries.DIMENSION,
+                    Identifier.fromNamespaceAndPath(relative.getName(1).toString(), path));
+        }
+        return null;
+    }
 
-        try (Stream<Path> stream = Files.walk(conflictRoot)) {
-            List<Path> mcaFiles = stream
-                    .filter(p -> p.toString().endsWith(".mca"))
-                    .toList();
-
-            for (Path conflictMcaPath : mcaFiles) {
-                synchronized (McaWriteSupport.lockFor(conflictMcaPath)) {
-                    if (overwrite) {
-                        Path worldMcaPath = worldFileForConflictFile(
-                                worldFolder, conflictRoot, conflictMcaPath);
-                        if (!applyConflictRegionToWorld(conflictMcaPath, worldMcaPath)) {
-                            continue;
-                        }
-                    }
-                    Files.deleteIfExists(conflictMcaPath);
+    private static void deleteEmptyDirectories(Path root) {
+        if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) return;
+        try (Stream<Path> paths = Files.walk(root)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) continue;
+                try {
+                    Files.deleteIfExists(path);
+                } catch (DirectoryNotEmptyException ignored) {
+                    // New conflicts, retained failures, and unrelated files keep their directory.
                 }
             }
-        } catch (IOException e) {
-            WMLogger.warn("Conflict cleanup failed world=" + worldFolder
-                    + " overwrite=" + overwrite, e);
-        }
-
-        // Clean up any empty directories left behind
-        deleteEmptyDirs(conflictRoot.toFile());
-    }
-
-    // ── Internals ─────────────────────────────────────────────────────────────
-
-    private static boolean applyConflictRegionToWorld(Path conflictFile, Path worldFile) {
-        try {
-            McaRegionFile conflictMca = McaFileHelpers.readAuto(conflictFile.toFile());
-            synchronized (McaWriteSupport.lockFor(worldFile)) {
-                McaRegionFile worldMca;
-                if (worldFile.toFile().exists()) {
-                    worldMca = McaFileHelpers.readAuto(worldFile.toFile());
-                } else {
-                    Files.createDirectories(worldFile.getParent());
-                    // Derive region coords from file name
-                    String name = worldFile.getFileName().toString();
-                    String[] parts = name.substring(2, name.length() - 4).split("\\.");
-                    int rx = Integer.parseInt(parts[0]);
-                    int rz = Integer.parseInt(parts[1]);
-                    worldMca = new McaRegionFile(rx, rz);
-                }
-                for (int lx = 0; lx < 32; lx++) {
-                    for (int lz = 0; lz < 32; lz++) {
-                        TerrainChunk chunk = conflictMca.getChunk(lx, lz);
-                        if (chunk != null) {
-                            worldMca.setChunk(lx, lz, chunk);
-                        }
-                    }
-                }
-                McaWriteSupport.writeAtomicallyLocked(worldMca, worldFile);
-            }
-            return true;
-        } catch (Exception e) {
-            WMLogger.warn("Conflict region apply failed source=" + conflictFile
-                    + " target=" + worldFile, e);
-            return false;
+        } catch (IOException | UncheckedIOException error) {
+            WMLogger.warnRateLimited("conflict-cleanup-directories", 30_000L,
+                    "Conflict directory cleanup failed path=" + root, error);
         }
     }
 
-    private static Path worldFileForConflictFile(Path worldFolder, Path conflictRoot, Path conflictFile) {
-        Path relPath = conflictRoot.relativize(conflictFile);
-        if (relPath.getNameCount() >= 2) {
-            String first = relPath.getName(0).toString();
-            String second = relPath.getName(1).toString();
-            String fileName = conflictFile.getFileName().toString();
-            if ("region".equals(first)) {
-                return ChunkExporter.regionDirForDimension(worldFolder, Level.OVERWORLD).resolve(fileName);
-            }
-            if ("DIM-1".equals(first) && "region".equals(second)) {
-                return ChunkExporter.regionDirForDimension(worldFolder, Level.NETHER).resolve(fileName);
-            }
-            if ("DIM1".equals(first) && "region".equals(second)) {
-                return ChunkExporter.regionDirForDimension(worldFolder, Level.END).resolve(fileName);
-            }
-        }
-        return worldFolder.resolve(relPath);
-    }
-
-    private static boolean isRegionEmpty(McaRegionFile mca) {
-        for (int lx = 0; lx < 32; lx++) {
-            for (int lz = 0; lz < 32; lz++) {
-                if (mca.getChunk(lx, lz) != null) return false;
-            }
-        }
-        return true;
-    }
-
-    private static void deleteEmptyDirs(File dir) {
-        if (!dir.isDirectory()) return;
-        File[] children = dir.listFiles();
-        if (children != null) {
-            for (File child : children) {
-                deleteEmptyDirs(child);
-            }
-        }
-        File[] remaining = dir.listFiles();
-        if (remaining != null && remaining.length == 0) {
-            dir.delete();
-        }
-    }
+    private record ConflictRegion(Path file, int x, int z, ResourceKey<Level> dimension) { }
 }
