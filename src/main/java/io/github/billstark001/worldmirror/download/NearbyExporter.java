@@ -9,6 +9,7 @@ import io.github.billstark001.worldmirror.io.ChunkSerializer;
 import io.github.billstark001.worldmirror.io.MirrorWorldgenAssets;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
 import io.github.billstark001.worldmirror.io.WorldSettingsSnapshot;
+import io.github.billstark001.worldmirror.io.WorldWriteLock;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.util.WMPlayerMessages;
 import net.fabricmc.loader.api.FabricLoader;
@@ -28,14 +29,20 @@ import net.minecraft.world.level.chunk.status.ChunkStatus;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.FileAlreadyExistsException;
+import java.io.IOException;
 import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Objects;
 
 /** Captures nearby chunks and materializes them as a separate playable save. */
 public final class NearbyExporter {
+    public static final int MIN_RADIUS_CHUNKS = 1;
+    public static final int MAX_RADIUS_CHUNKS = 50;
+
     public enum Choice { INHERIT_ORIGINAL, CURRENT_MIRROR, INDEPENDENT }
 
     public record Lineage(String sourceId, String sourceType, String parentMirrorId) { }
@@ -44,25 +51,26 @@ public final class NearbyExporter {
 
     public static Lineage resolveLineage(Choice choice, WorldMetadata currentMirror,
                                          String fallbackSourceId, String fallbackSourceType) {
-        if (currentMirror == null) {
-            return new Lineage(fallbackSourceId, fallbackSourceType, null);
-        }
-        if (currentMirror.mirrorId == null || currentMirror.mirrorId.isBlank()) {
-            throw new IllegalArgumentException("current mirror must have a persistent mirrorId");
+        Objects.requireNonNull(choice, "choice");
+        if (choice != Choice.INDEPENDENT) {
+            if (currentMirror == null) return new Lineage(fallbackSourceId, fallbackSourceType, null);
+            if (currentMirror.mirrorId == null || currentMirror.mirrorId.isBlank()) {
+                throw new IllegalArgumentException("current mirror must have a persistent mirrorId");
+            }
         }
         return switch (choice) {
             case INHERIT_ORIGINAL -> new Lineage(currentMirror.sourceId,
                     currentMirror.sourceType, currentMirror.mirrorId);
             case CURRENT_MIRROR -> new Lineage("mirror:" + currentMirror.mirrorId,
                     "mirror", currentMirror.mirrorId);
-            case INDEPENDENT -> new Lineage("snapshot:" + UUID.randomUUID(),
-                    "nearby_export", null);
+            case INDEPENDENT -> new Lineage("snapshot:" + UUID.randomUUID(), "nearby_export", null);
         };
     }
 
     /** Captures on the game thread, then writes the new save in a dedicated worker. */
     public static void export(Minecraft client, String worldName, int radiusChunks,
                               Choice lineageChoice) {
+        Objects.requireNonNull(lineageChoice, "lineageChoice");
         ClientLevel world = client.level;
         if (world == null || client.player == null) {
             WMPlayerMessages.sendSystemMessage(client.player,
@@ -70,6 +78,7 @@ public final class NearbyExporter {
                             .withStyle(ChatFormatting.RED));
             return;
         }
+        radiusChunks = Math.clamp(radiusChunks, MIN_RADIUS_CHUNKS, MAX_RADIUS_CHUNKS);
 
         ResourceKey<Level> dimension = world.dimension();
         int playerCX = client.player.getBlockX() >> 4;
@@ -104,38 +113,51 @@ public final class NearbyExporter {
 
         ChunkListener.DirtySnapshot snapshot = ChunkListener.snapshotOf(
                 Map.of(dimension, nearbyChunks));
-        Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> entitySnapshot = Map.of();
+        Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> entitySnapshot = Map.of(
+                dimension, EntityTracker.snapshotVisibleEntities(world, nearbyChunks.keySet()));
         Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> containerSnapshot =
                 ContainerTracker.snapshotSavedData();
 
-        String safeName = worldName.isBlank() ? "NearbyExport" : worldName;
+        String safeName = worldName == null || worldName.isBlank() ? "NearbyExport" : worldName;
         Path base = FabricLoader.getInstance().getGameDir().resolve("saves");
-        Path outFolder = nextAvailableFolder(base, sanitiseFolderName(safeName));
         MirrorWorldContext.Snapshot currentMirror = MirrorWorldContext.current();
-        ensureCurrentMirrorIdentity(currentMirror);
+        if (lineageChoice != Choice.INDEPENDENT && !ensureCurrentMirrorIdentity(currentMirror)) {
+            notifyFailure(client);
+            return;
+        }
         Lineage lineage = resolveLineage(lineageChoice,
                 currentMirror.isMirror() ? currentMirror.metadata() : null,
                 WorldMetadata.detectSourceId(client), WorldMetadata.detectSourceType(client));
         WorldSettingsSnapshot worldSettings = WorldStructureCreator.resolveNewWorldSettings(
                 WorldStructureCreator.captureWorldSettings(world));
 
+        Path outFolder;
+        try {
+            outFolder = claimOutputFolder(base, MirrorMapping.sanitiseFolderName(safeName, "NearbyExport"));
+        } catch (IOException error) {
+            WMLogger.warn("Nearby export directory claim failed base=" + base, error);
+            notifyFailure(client);
+            return;
+        }
+
         WMLogger.info("Exporting " + nearbyChunks.size() + " nearby chunk(s) to '"
                 + outFolder.getFileName() + "'...");
         Thread worker = new Thread(() -> writeSave(client, safeName, outFolder,
-                playerBX, playerBY, playerBZ, snapshot, entitySnapshot, containerSnapshot,
+                dimension, playerBX, playerBY, playerBZ, snapshot, entitySnapshot, containerSnapshot,
                 lineage, worldSettings), "WM-NearbyExport");
         worker.setDaemon(false);
         worker.start();
     }
 
     private static void writeSave(Minecraft client, String worldName, Path output,
+                                  ResourceKey<Level> spawnDimension,
                                   int spawnX, int spawnY, int spawnZ,
                                   ChunkListener.DirtySnapshot snapshot,
                                   Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> entities,
                                   Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> containers,
                                   Lineage lineage,
                                   WorldSettingsSnapshot worldSettings) {
-        try {
+        try (WorldWriteLock ignored = WorldWriteLock.acquire(output)) {
             Files.createDirectories(output);
             long latestCaptureTime;
             try (ChunkDatabase database = ChunkDatabase.open(output, lineage.sourceId())) {
@@ -152,7 +174,7 @@ public final class NearbyExporter {
                         .max().orElse(0L);
             }
             if (!WorldStructureCreator.createLoadableWorldWithSpawn(
-                    output, worldName, spawnX, spawnY, spawnZ, worldSettings)) {
+                    output, worldName, spawnDimension, spawnX, spawnY, spawnZ, worldSettings)) {
                 throw new IllegalStateException("Could not create nearby-export world structure");
             }
             WorldMetadata metadata = WorldMetadata.create(
@@ -161,17 +183,24 @@ public final class NearbyExporter {
             metadata.markWorldgenCurrent(
                     SharedConstants.getCurrentVersion().dataVersion().version(),
                     MirrorWorldgenAssets.ASSET_REVISION);
-            metadata.markSyncComplete(output, latestCaptureTime);
+            if (!metadata.markSyncComplete(output, latestCaptureTime)) {
+                notifyFailure(client);
+                return;
+            }
             WMLogger.info("Nearby export complete: " + output.toAbsolutePath());
             client.execute(() -> WMPlayerMessages.sendSystemMessage(client.player,
                     Component.translatable("msg.worldmirror.nearbyDone", output.getFileName())
                             .withStyle(ChatFormatting.GREEN)));
         } catch (Exception e) {
             WMLogger.warn("Nearby export failed output=" + output, e);
-            client.execute(() -> WMPlayerMessages.sendSystemMessage(client.player,
-                    Component.translatable("msg.worldmirror.nearbyFailed")
-                            .withStyle(ChatFormatting.RED)));
+            notifyFailure(client);
         }
+    }
+
+    private static void notifyFailure(Minecraft client) {
+        client.execute(() -> WMPlayerMessages.sendSystemMessage(client.player,
+                Component.translatable("msg.worldmirror.nearbyFailed")
+                        .withStyle(ChatFormatting.RED)));
     }
 
     private static void commitDurabilityIndex(ChunkDatabase database,
@@ -195,27 +224,36 @@ public final class NearbyExporter {
         }
     }
 
-    private static Path nextAvailableFolder(Path base, String folderName) {
-        Path candidate = base.resolve(folderName);
-        int suffix = 1;
-        while (candidate.toFile().exists()) {
-            candidate = base.resolve(folderName + "_" + suffix++);
+    /** Claims a fresh save directory atomically, even when exports use the same name concurrently. */
+    static Path claimOutputFolder(Path base, String folderName) throws IOException {
+        MirrorMapping.requireFolderName(folderName);
+        Files.createDirectories(base);
+        for (int suffix = 0; suffix < Integer.MAX_VALUE; suffix++) {
+            Path candidate = base.resolve(suffix == 0 ? folderName : folderName + '_' + suffix);
+            try {
+                return Files.createDirectory(candidate);
+            } catch (FileAlreadyExistsException occupied) {
+                // Another export or existing save owns this directory.
+            }
         }
-        return candidate;
+        throw new IOException("No unused nearby-export folder is available");
     }
 
-    private static void ensureCurrentMirrorIdentity(MirrorWorldContext.Snapshot currentMirror) {
+    static boolean ensureCurrentMirrorIdentity(MirrorWorldContext.Snapshot currentMirror) {
         if (!currentMirror.isMirror() || currentMirror.metadata() == null
-                || currentMirror.worldFolder() == null) return;
+                || currentMirror.worldFolder() == null) return true;
         WorldMetadata metadata = currentMirror.metadata();
-        if (metadata.mirrorId != null && !metadata.mirrorId.isBlank()) return;
+        if (metadata.mirrorId != null && !metadata.mirrorId.isBlank()) return true;
+        if (currentMirror.state() == MirrorWorldContext.State.FUTURE) {
+            WMLogger.warn("Nearby export cannot assign lineage to future mirror metadata path="
+                    + currentMirror.worldFolder());
+            return false;
+        }
+        String previousId = metadata.mirrorId;
         metadata.ensureMirrorId();
-        metadata.save(currentMirror.worldFolder());
+        if (metadata.save(currentMirror.worldFolder())) return true;
+        metadata.mirrorId = previousId;
+        return false;
     }
 
-    private static String sanitiseFolderName(String name) {
-        return name.replaceAll("[\\\\/:*?\"<>|]", "_")
-                .replaceAll("\\.\\.", "_")
-                .strip();
-    }
 }
