@@ -40,6 +40,9 @@ public final class MirrorMigrationPlan {
         Path metadataFile = normalized.resolve(WorldMetadata.FILE_NAME);
         boolean hasLevelDat = Files.isRegularFile(normalized.resolve("level.dat"));
         if (!Files.isRegularFile(metadataFile)) {
+            if (Files.exists(metadataFile)) {
+                return new Inspection(normalized, State.UNREADABLE, null, false, false, false);
+            }
             return new Inspection(normalized, hasLevelDat ? State.UNMANAGED : State.NEW,
                     null, false, false, false);
         }
@@ -49,10 +52,14 @@ public final class MirrorMigrationPlan {
             return new Inspection(normalized, State.UNREADABLE, null, false, false, false);
         }
         WorldMetadata metadata = loaded.get();
+        if (!WorldMetadata.FORMAT.equals(metadata.format)) {
+            return new Inspection(normalized, State.UNMANAGED, metadata, false, false, false);
+        }
         if (metadata.sourceId == null || metadata.sourceId.isBlank()) {
             return new Inspection(normalized, State.UNREADABLE, metadata, false, false, false);
         }
-        if (metadata.hasFutureWorldgenSchema()
+        if (metadata.metadataSchema > WorldMetadata.CURRENT_METADATA_SCHEMA
+                || metadata.hasFutureWorldgenSchema()
                 || metadata.hasFutureWorldgenAssets(dataVersion,
                         MirrorWorldgenAssets.ASSET_REVISION)) {
             return new Inspection(normalized, State.FUTURE, metadata, false, false, false);

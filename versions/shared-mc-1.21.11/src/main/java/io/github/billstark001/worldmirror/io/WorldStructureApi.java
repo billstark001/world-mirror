@@ -8,6 +8,9 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.StringTag;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.packs.PackType;
+import net.minecraft.world.level.Level;
 
 import java.nio.file.Path;
 import java.util.UUID;
@@ -17,7 +20,7 @@ final class WorldStructureApi {
     private WorldStructureApi() { }
 
     static int dataPackFormat() {
-        return SharedConstants.DATA_PACK_FORMAT_MAJOR;
+        return SharedConstants.getCurrentVersion().packVersion(PackType.SERVER_DATA).major();
     }
 
     static String[] worldSubdirectories() {
@@ -42,11 +45,14 @@ final class WorldStructureApi {
     }
 
     static void writeSpawnedLevelData(Path worldFolder, String levelName, UUID playerId,
+                                      ResourceKey<Level> spawnDimension,
                                       int spawnX, int spawnY, int spawnZ,
                                       CompoundTag worldGenSettings,
                                       WorldSettingsSnapshot settings) throws Exception {
-        writeLevelData(worldFolder.resolve("level.dat"),
-                createLevelData(levelName, spawnX, spawnY, spawnZ, worldGenSettings, settings));
+        CompoundTag data = createLevelData(levelName, spawnX, spawnY, spawnZ, worldGenSettings, settings);
+        data.put("spawn", createSpawnSettings(spawnDimension, spawnX, spawnY, spawnZ));
+        data.put("Player", WorldStructureCreator.createPlayerData(spawnDimension, spawnX, spawnY, spawnZ));
+        writeLevelData(worldFolder.resolve("level.dat"), data);
     }
 
     static void updateOwnedLevelData(Path worldFolder, boolean migrateWorldgen,
@@ -159,8 +165,12 @@ final class WorldStructureApi {
     }
 
     private static CompoundTag createSpawnSettings(int x, int y, int z) {
+        return createSpawnSettings(Level.OVERWORLD, x, y, z);
+    }
+
+    private static CompoundTag createSpawnSettings(ResourceKey<Level> dimension, int x, int y, int z) {
         CompoundTag spawn = new CompoundTag();
-        spawn.putString("dimension", "minecraft:overworld");
+        spawn.putString("dimension", dimension.identifier().toString());
         spawn.putFloat("pitch", 0.0F);
         spawn.putFloat("yaw", 0.0F);
         spawn.put("pos", new IntArrayTag(new int[] {x, y, z}));

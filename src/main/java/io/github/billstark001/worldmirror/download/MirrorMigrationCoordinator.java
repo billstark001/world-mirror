@@ -4,6 +4,7 @@ import io.github.billstark001.worldmirror.io.LegacyVoidChunkCleanup;
 import io.github.billstark001.worldmirror.io.MirrorWorldgenAssets;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
 import io.github.billstark001.worldmirror.io.WorldSettingsSnapshot;
+import io.github.billstark001.worldmirror.io.WorldWriteLock;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.minecraft.SharedConstants;
 
@@ -11,8 +12,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Locale;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -21,7 +21,6 @@ import java.util.zip.ZipOutputStream;
  * coordinator; they never invoke migration implicitly.
  */
 public final class MirrorMigrationCoordinator {
-    private static final Map<Path, Object> LOCKS = new ConcurrentHashMap<>();
 
     public record Result(boolean success, boolean changed, Path backup, String failure) {
         static Result success(boolean changed, Path backup) {
@@ -64,14 +63,18 @@ public final class MirrorMigrationCoordinator {
 
     public static Result migrateApproved(Path worldFolder, ProgressListener progress) {
         Path normalized = worldFolder.toAbsolutePath().normalize();
-        Object lock = LOCKS.computeIfAbsent(normalized, ignored -> new Object());
-        synchronized (lock) {
+        MirrorMigrationPlan.Inspection initial = inspect(normalized);
+        if (initial.state() == MirrorMigrationPlan.State.CURRENT) return Result.success(false, null);
+        if (initial.state() != MirrorMigrationPlan.State.OUTDATED || initial.metadata() == null) {
+            return Result.failure("mirror_not_migratable:" + initial.state().name().toLowerCase(Locale.ROOT));
+        }
+        try (WorldWriteLock ignored = WorldWriteLock.acquire(normalized)) {
             MirrorMigrationPlan.Inspection plan = inspect(normalized);
             if (plan.state() == MirrorMigrationPlan.State.CURRENT) {
                 return Result.success(false, null);
             }
             if (plan.state() != MirrorMigrationPlan.State.OUTDATED || plan.metadata() == null) {
-                return Result.failure("mirror_not_migratable:" + plan.state().name().toLowerCase());
+                return Result.failure("mirror_not_migratable:" + plan.state().name().toLowerCase(Locale.ROOT));
             }
 
             LegacyVoidChunkCleanup.Plan voidCleanup;
@@ -125,8 +128,11 @@ public final class MirrorMigrationCoordinator {
             metadata.markWorldgenCurrent(
                     SharedConstants.getCurrentVersion().dataVersion().version(),
                     MirrorWorldgenAssets.ASSET_REVISION);
-            metadata.save(normalized);
+            if (!metadata.save(normalized)) return Result.failure("metadata_write_failed");
             return Result.success(true, backup);
+        } catch (IOException error) {
+            WMLogger.warn("Cannot acquire or release mirror migration session lock world=" + normalized, error);
+            return Result.failure("world_locked");
         }
     }
 

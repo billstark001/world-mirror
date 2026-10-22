@@ -10,6 +10,7 @@ import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.server.Bootstrap;
+import net.minecraft.util.DirectoryLock;
 import net.minecraft.world.level.levelgen.NoiseGeneratorSettings;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -83,5 +84,49 @@ class MirrorWorldgenUpgradeTest {
                     .getCompoundOrEmpty("generator").getCompoundOrEmpty("settings");
             NoiseGeneratorSettings.DIRECT_CODEC.parse(NbtOps.INSTANCE, settings).getOrThrow();
         }
+    }
+
+    @Test
+    void reportsFailureWhenTheFinalMetadataMarkerCannotBeWritten(@TempDir Path world) throws Exception {
+        assertTrue(WorldStructureCreator.createLoadableWorld(
+                world, "test", true, true, WorldSettingsSnapshot.defaults()));
+        WorldMetadata metadata = WorldMetadata.create("local:test", "singleplayer", "synchronized");
+        metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), 2);
+        metadata.save(world);
+
+        var result = MirrorMigrationCoordinator.migrateApproved(world, (phase, completed, total) -> {
+            if (phase == MirrorMigrationCoordinator.Phase.WRITING_WORLD_DATA && completed == total) {
+                try {
+                    Path marker = world.resolve(WorldMetadata.FILE_NAME);
+                    Files.delete(marker);
+                    Files.createDirectory(marker);
+                } catch (java.io.IOException error) {
+                    throw new java.io.UncheckedIOException(error);
+                }
+            }
+        });
+
+        assertFalse(result.success());
+        assertEquals("metadata_write_failed", result.failure());
+        try (var backups = Files.list(world.resolve("backups"))) {
+            assertEquals(1, backups.count());
+        }
+    }
+
+    @Test
+    void cannotMigrateAWorldAlreadyOpenedByVanilla(@TempDir Path world) throws Exception {
+        assertTrue(WorldStructureCreator.createLoadableWorld(world, "test", true, true, WorldSettingsSnapshot.defaults()));
+        WorldMetadata metadata = WorldMetadata.create("local:test", "singleplayer", "synchronized");
+        metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), 2);
+        assertTrue(metadata.save(world));
+        byte[] original = Files.readAllBytes(world.resolve("level.dat"));
+        try (DirectoryLock vanilla = DirectoryLock.create(world)) {
+            var result = MirrorMigrationCoordinator.migrateApproved(world);
+            assertFalse(result.success());
+            assertEquals("world_locked", result.failure());
+            org.junit.jupiter.api.Assertions.assertArrayEquals(original, Files.readAllBytes(world.resolve("level.dat")));
+            assertFalse(Files.exists(world.resolve("backups")));
+        }
+        assertTrue(MirrorMigrationCoordinator.migrateApproved(world).success());
     }
 }

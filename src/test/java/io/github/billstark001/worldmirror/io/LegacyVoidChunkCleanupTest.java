@@ -41,6 +41,30 @@ class LegacyVoidChunkCleanupTest {
     }
 
     @Test
+    void preservesChunksWithSavedBlockEntitiesEvenWhenTerrainIsAir() {
+        CompoundTag chunk = blankVoidChunk();
+        CompoundTag chest = new CompoundTag();
+        chest.putString("id", "minecraft:chest");
+        chunk.put("block_entities", new ListTag<>(List.of(chest)));
+        assertFalse(LegacyVoidChunkCleanup.isLegacyVoidChunk(chunk));
+    }
+
+    @Test
+    void ignoresPaletteLikeFieldsOutsideTerrainSections() {
+        CompoundTag chunk = new CompoundTag();
+        chunk.put("custom_payload", blankVoidChunk());
+        assertFalse(LegacyVoidChunkCleanup.isLegacyVoidChunk(chunk));
+    }
+
+    @Test
+    void preservesMalformedSectionsInsteadOfInferringThatTheyAreAir() {
+        CompoundTag chunk = blankVoidChunk();
+        CompoundTag section = (CompoundTag) ((ListTag<?>) chunk.get("sections")).get(0);
+        section.remove("block_states");
+        assertFalse(LegacyVoidChunkCleanup.isLegacyVoidChunk(chunk));
+    }
+
+    @Test
     void skipsZeroByteRegionFilesInEveryDimension(@TempDir Path world) throws Exception {
         for (Path dimension : List.of(
                 Path.of("region"),

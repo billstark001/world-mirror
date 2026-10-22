@@ -10,10 +10,18 @@ import net.minecraft.world.level.levelgen.NoiseGeneratorSettings;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.world.level.Level;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
+import java.util.UUID;
+import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -91,6 +99,25 @@ class WorldSettingsCreationTest {
                     world.resolve("data/minecraft/weather.dat"));
             assertTrue(weather.getBooleanOr("raining", false));
             assertFalse(weather.getBooleanOr("thundering", true));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"minecraft:overworld", "minecraft:the_nether", "minecraft:the_end"})
+    void nearbyWorldSpawnAndPlayerStayInTheCapturedDimension(String id, @TempDir Path world) throws Exception {
+        ResourceKey<Level> dimension = ResourceKey.create(Registries.DIMENSION, Identifier.parse(id));
+        assertTrue(WorldStructureCreator.createLoadableWorldWithSpawn(world, "test", dimension,
+                123, 72, -456, WorldSettingsSnapshot.defaults()));
+
+        CompoundTag data = readLevelData(world);
+        assertEquals(id, data.getCompoundOrEmpty("spawn").getStringOr("dimension", ""));
+        UUID playerId = UUID.nameUUIDFromBytes("worldmirror:test".getBytes(StandardCharsets.UTF_8));
+        CompoundTag player = NbtIo.readCompressed(WorldStructureApi.playerDataPath(world, playerId),
+                NbtAccounter.unlimitedHeap());
+        assertEquals(id, player.getStringOr("Dimension", ""));
+        assertEquals(123.5D, player.getListOrEmpty("Pos").getDoubleOr(0, Double.NaN));
+        if (data.contains("Player")) {
+            assertEquals(id, data.getCompoundOrEmpty("Player").getStringOr("Dimension", ""));
         }
     }
 

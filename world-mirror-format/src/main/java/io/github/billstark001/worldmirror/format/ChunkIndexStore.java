@@ -11,7 +11,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-/** JDBC operations for the World Mirror chunk durability index. The host owns the connection. */
+/**
+ * JDBC operations for the World Mirror chunk durability index. The host owns the
+ * connection and must serialize its use. Mutations require auto-commit mode and
+ * roll back on checked and unchecked failures. If rollback or connection-state
+ * restoration fails, discard the connection rather than reusing it.
+ */
 public final class ChunkIndexStore {
     private static final String UPSERT = "INSERT INTO chunks "
             + "(source, dimension, x, y, update_time, update_source) VALUES (?, ?, ?, ?, ?, ?) "
@@ -144,8 +149,9 @@ public final class ChunkIndexStore {
                             + "VALUES (?, ?, ?, ?, ?, 'world_mirror')")) {
                 for (Map.Entry<String, Long> entry : legacyTimes.entrySet()) {
                     String key = entry.getKey();
+                    if (key == null || entry.getValue() == null) continue;
                     int separator = key.lastIndexOf('|');
-                    if (separator < 0 || entry.getValue() == null) continue;
+                    if (separator < 0) continue;
                     String[] coords = key.substring(separator + 1).split(",", 2);
                     if (coords.length != 2) continue;
                     try {
@@ -211,14 +217,31 @@ public final class ChunkIndexStore {
             throw new SQLException("ChunkIndexStore requires a connection outside another transaction");
         }
         connection.setAutoCommit(false);
+        Throwable failure = null;
+        boolean safeToRestore = true;
         try {
             action.run();
             connection.commit();
-        } catch (SQLException failure) {
-            try { connection.rollback(); } catch (SQLException rollback) { failure.addSuppressed(rollback); }
-            throw failure;
+        } catch (SQLException | RuntimeException | Error writeFailure) {
+            failure = writeFailure;
+            try {
+                connection.rollback();
+            } catch (SQLException | RuntimeException | Error rollback) {
+                writeFailure.addSuppressed(rollback);
+                // JDBC commits the current transaction when auto-commit is
+                // enabled. An unsuccessful rollback must never take that path.
+                safeToRestore = false;
+            }
+            throw writeFailure;
         } finally {
-            connection.setAutoCommit(true);
+            if (safeToRestore) {
+                try {
+                    connection.setAutoCommit(true);
+                } catch (SQLException | RuntimeException | Error restore) {
+                    if (failure == null) throw restore;
+                    failure.addSuppressed(restore);
+                }
+            }
         }
     }
 }

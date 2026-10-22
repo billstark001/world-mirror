@@ -19,6 +19,7 @@ import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.packs.PackType;
 import net.minecraft.resources.RegistryOps;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.Difficulty;
@@ -81,7 +82,7 @@ final class WorldStructureApi {
     private WorldStructureApi() { }
 
     static int dataPackFormat() {
-        return SharedConstants.DATA_PACK_FORMAT_MAJOR;
+        return SharedConstants.getCurrentVersion().packVersion(PackType.SERVER_DATA).major();
     }
 
     static String[] worldSubdirectories() {
@@ -123,11 +124,14 @@ final class WorldStructureApi {
     }
 
     static void writeSpawnedLevelData(Path worldFolder, String levelName, UUID playerId,
+                                      ResourceKey<Level> spawnDimension,
                                       int spawnX, int spawnY, int spawnZ,
                                       CompoundTag worldGenSettings,
                                       WorldSettingsSnapshot settings) throws Exception {
-        writeLevelData(worldFolder.resolve("level.dat"),
-                createLevelData(levelName, spawnX, spawnY, spawnZ, settings), playerId);
+        PrimaryLevelData data = createLevelData(levelName, spawnX, spawnY, spawnZ, settings);
+        data.setSpawn(LevelData.RespawnData.of(spawnDimension,
+                new BlockPos(spawnX, spawnY, spawnZ), 0.0F, 0.0F));
+        writeLevelData(worldFolder.resolve("level.dat"), data, playerId);
     }
 
     static void updateOwnedLevelData(Path worldFolder, boolean migrateWorldgen,

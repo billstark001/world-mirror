@@ -10,12 +10,15 @@ import net.minecraft.nbt.DoubleTag;
 import net.minecraft.nbt.FloatTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtIo;
+import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtUtils;
 import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.Level;
 
 import java.io.File;
-import java.io.FileOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -79,14 +82,23 @@ public final class WorldStructureCreator {
     public static boolean createLoadableWorldWithSpawn(Path worldFolder, String levelName,
                                                         int spawnX, int spawnY, int spawnZ,
                                                         WorldSettingsSnapshot settings) {
-        try {
+        return createLoadableWorldWithSpawn(worldFolder, levelName, Level.OVERWORLD,
+                spawnX, spawnY, spawnZ, settings);
+    }
+
+    /** Creates a nearby save whose initial player and world spawn use the captured dimension. */
+    public static boolean createLoadableWorldWithSpawn(Path worldFolder, String levelName,
+                                                        ResourceKey<Level> spawnDimension,
+                                                        int spawnX, int spawnY, int spawnZ,
+                                                        WorldSettingsSnapshot settings) {
+        try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
             if (!createLoadableWorld(worldFolder, levelName, true, true, settings)) return false;
             UUID playerId = singleplayerUuid(levelName);
             WorldStructureApi.writeSpawnedLevelData(
-                    worldFolder, levelName, playerId, spawnX, spawnY, spawnZ,
+                    worldFolder, levelName, playerId, spawnDimension, spawnX, spawnY, spawnZ,
                     createMirrorWorldGenSettings(), settings);
             writeCompressed(WorldStructureApi.playerDataPath(worldFolder, playerId).toFile(),
-                    createPlayerData(spawnX, spawnY, spawnZ));
+                    createPlayerData(spawnDimension, spawnX, spawnY, spawnZ));
             WMLogger.debug("Nearby-export world created at: " + worldFolder.toAbsolutePath());
             return true;
         } catch (Exception e) {
@@ -99,7 +111,7 @@ public final class WorldStructureCreator {
                                               boolean migrateWorldgen, boolean refreshAssets,
                                               WorldSettingsSnapshot settings) {
         File folder = worldFolder.toFile();
-        try {
+        try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
             boolean firstTime = !worldFolder.resolve("level.dat").toFile().exists();
             if (!folder.exists()) folder.mkdirs();
             for (String directory : WorldStructureApi.worldSubdirectories()) {
@@ -136,7 +148,8 @@ public final class WorldStructureCreator {
     public static boolean syncWorldSetting(Path worldFolder,
                                            WorldSettingsSnapshot settings,
                                            Setting setting) {
-        try {
+        if (!Files.isRegularFile(worldFolder.resolve("level.dat"))) return false;
+        try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
             WorldStructureApi.syncWorldSetting(worldFolder, settings, setting);
             return true;
         } catch (Exception e) {
@@ -151,33 +164,46 @@ public final class WorldStructureCreator {
     }
 
     static void writeCompressed(File file, CompoundTag tag) throws Exception {
-        File parent = file.getParentFile();
-        if (parent != null) parent.mkdirs();
-        try (FileOutputStream output = new FileOutputStream(file)) {
-            NbtIo.writeCompressed(tag, output);
-        }
+        writeCompressedAtomically(file.toPath(), tag);
     }
 
+    /** Replaces a world-data file only after its compressed NBT round-trips without loss. */
     static void writeCompressedAtomically(Path file, CompoundTag tag) throws Exception {
+        file = file.toAbsolutePath().normalize();
         Files.createDirectories(file.getParent());
         Path temporary = Files.createTempFile(file.getParent(), file.getFileName().toString(), ".tmp");
         try {
-            writeCompressed(temporary.toFile(), tag);
+            NbtWriteSupport.validateStrings(tag);
+            try (var output = Files.newOutputStream(temporary)) {
+                NbtIo.writeCompressed(tag, output);
+            }
+            if (!tag.equals(NbtIo.readCompressed(temporary, NbtAccounter.unlimitedHeap()))) {
+                throw new IOException("World-data NBT verification failed file=" + file);
+            }
             try {
                 Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE,
                         StandardCopyOption.REPLACE_EXISTING);
             } catch (AtomicMoveNotSupportedException unsupported) {
                 Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
             }
-        } finally {
-            Files.deleteIfExists(temporary);
+        } catch (Exception | Error failure) {
+            try {
+                Files.deleteIfExists(temporary);
+            } catch (IOException cleanup) {
+                failure.addSuppressed(cleanup);
+            }
+            throw failure;
         }
     }
 
     static CompoundTag createPlayerData(int x, int y, int z) {
+        return createPlayerData(Level.OVERWORLD, x, y, z);
+    }
+
+    static CompoundTag createPlayerData(ResourceKey<Level> dimension, int x, int y, int z) {
         CompoundTag player = new CompoundTag();
         NbtUtils.addCurrentDataVersion(player);
-        player.putString("Dimension", "minecraft:overworld");
+        player.putString("Dimension", dimension.identifier().toString());
 
         ListTag pos = new ListTag();
         pos.add(DoubleTag.valueOf(x + 0.5D));

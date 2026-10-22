@@ -5,10 +5,9 @@ import io.github.billstark001.worldmirror.util.JsonSupport;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.loader.api.FabricLoader;
 
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.Reader;
-import java.io.Writer;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -77,11 +76,27 @@ public class MirrorMapping {
 
     /** Characters that are NOT safe for folder names and will be replaced with underscores. */
     private static final Pattern UNSAFE = Pattern.compile("[^a-zA-Z0-9._\\-]");
+    private static final Pattern REPEATED_UNDERSCORES = Pattern.compile("_+");
+    private static final Pattern EDGE_UNDERSCORES = Pattern.compile("^_+|_+$");
+    private static final Pattern TRAILING_DOTS = Pattern.compile("[. ]+$");
+    private static final Pattern INVALID_FOLDER_CHARACTERS = Pattern.compile("[\\\\/:*?\"<>|\\p{Cntrl}]");
+    private static final Pattern RESERVED_FOLDER_NAME = Pattern.compile(
+            "(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\\..*)?", Pattern.CASE_INSENSITIVE);
+    private static final int MAX_GENERATED_FOLDER_LENGTH = 64;
 
     /** Separator used inside compound map keys (not valid in sourceId or location names). */
     private static final char KEY_SEP = '\0';
 
     private static volatile MirrorMapping instance;
+    private transient Path storageFile;
+    private transient Path gameDirectory;
+
+    public MirrorMapping() { }
+
+    MirrorMapping(Path storageFile, Path gameDirectory) {
+        this.storageFile = storageFile;
+        this.gameDirectory = gameDirectory;
+    }
 
     /** Returns the singleton, loading from disk lazily. */
     public static synchronized MirrorMapping getInstance() {
@@ -92,42 +107,64 @@ public class MirrorMapping {
     }
 
     private static MirrorMapping loadOrCreate() {
-        Path configDir = configDir();
-        try {
-            Files.createDirectories(configDir);
-        } catch (Exception e) {
-            WMLogger.warn("Mirror mapping directory creation failed path=" + configDir, e);
-        }
+        return load(configDir().resolve("mirrors.json"), null);
+    }
 
-        Path file = configDir.resolve("mirrors.json");
+    /** Loads a mapping without creating its directory or changing the process-wide Fabric environment. */
+    static MirrorMapping load(Path file, Path gameDirectory) {
         if (file.toFile().exists()) {
-            try (Reader r = new FileReader(file.toFile())) {
+            try (Reader r = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
                 MirrorMapping m = JsonSupport.fromJson(r, MirrorMapping.class);
                 if (m != null) {
                     if (m.entries == null) m.entries = new HashMap<>();
                     if (m.resolvedFolderNames == null) m.resolvedFolderNames = new HashMap<>();
                     if (m.perWorldSaveLocation == null) m.perWorldSaveLocation = new HashMap<>();
                     if (m.perWorldConflictStrategy == null) m.perWorldConflictStrategy = new HashMap<>();
+                    m.storageFile = file;
+                    m.gameDirectory = gameDirectory;
                     return m;
                 }
             } catch (Exception e) {
                 WMLogger.warn("Mirror mapping load failed file=" + file, e);
             }
         }
-        return new MirrorMapping();
+        return new MirrorMapping(file, gameDirectory);
     }
 
-    /** Persists the current mapping to disk. */
-    public synchronized void save() {
-        Path configDir = configDir();
-        Path file = configDir.resolve("mirrors.json");
+    /** Persists the current mapping, returning false if its document could not be replaced. */
+    public synchronized boolean save() {
+        Path file = storageFile != null ? storageFile : configDir().resolve("mirrors.json");
         try {
-            Files.createDirectories(configDir);
-            try (Writer w = new FileWriter(file.toFile())) {
-                JsonSupport.writePrettyJson(w, this);
-            }
+            JsonSupport.writePrettyJsonAtomically(file, this);
+            return true;
         } catch (Exception e) {
             WMLogger.warn("Mirror mapping save failed file=" + file, e);
+            return false;
+        }
+    }
+
+    /** Publishes an in-memory mutation only when its replacement document was saved. */
+    private boolean changeAndSave(Runnable change) {
+        Map<String, String> oldEntries = entries;
+        Map<String, String> oldResolved = resolvedFolderNames;
+        Map<String, String> oldLocations = perWorldSaveLocation;
+        Map<String, String> oldStrategies = perWorldConflictStrategy;
+        entries = new HashMap<>(entries);
+        resolvedFolderNames = new HashMap<>(resolvedFolderNames);
+        perWorldSaveLocation = new HashMap<>(perWorldSaveLocation);
+        perWorldConflictStrategy = new HashMap<>(perWorldConflictStrategy);
+        boolean saved = false;
+        try {
+            change.run();
+            saved = save();
+            return saved;
+        } finally {
+            if (!saved) {
+                entries = oldEntries;
+                resolvedFolderNames = oldResolved;
+                perWorldSaveLocation = oldLocations;
+                perWorldConflictStrategy = oldStrategies;
+            }
         }
     }
 
@@ -139,7 +176,7 @@ public class MirrorMapping {
      */
     public synchronized String previewBaseFolderName(String sourceId) {
         String existing = entries.get(sourceId);
-        if (existing != null && !existing.isBlank()) {
+        if (isUsableFolderName(existing)) {
             return existing;
         }
         return generateFolderName(sourceId);
@@ -161,7 +198,7 @@ public class MirrorMapping {
             String sourceId, String saveLocationName) {
         String key = sourceId + KEY_SEP + saveLocationName;
         String v = resolvedFolderNames.get(key);
-        return v == null || v.isBlank() ? null : v;
+        return isUsableFolderName(v) ? v : null;
     }
 
     /**
@@ -174,22 +211,30 @@ public class MirrorMapping {
      * @param saveLocationName the enum name of the save-location
      * @param resolvedName    the folder name that was chosen (relative to the location root)
      */
-    public synchronized void recordResolvedFolderName(
+    public synchronized boolean recordResolvedFolderName(
             String sourceId, String saveLocationName, String resolvedName) {
-        entries.putIfAbsent(sourceId, generateFolderName(sourceId));
-        resolvedFolderNames.put(sourceId + KEY_SEP + saveLocationName, resolvedName);
-        save();
+        requireSourceId(sourceId);
+        ModConfig.SaveLocation.valueOf(saveLocationName);
+        requireFolderName(resolvedName);
+        return changeAndSave(() -> {
+            entries.putIfAbsent(sourceId, generateFolderName(sourceId));
+            resolvedFolderNames.put(sourceId + KEY_SEP + saveLocationName, resolvedName);
+        });
     }
 
     /** Records a per-world location and its resolved folder in one durable write. */
-    public synchronized void recordMirrorLocation(
+    public synchronized boolean recordMirrorLocation(
             String sourceId, String locationName, String resolvedName) {
-        entries.putIfAbsent(sourceId, generateFolderName(sourceId));
-        perWorldSaveLocation.put(sourceId, locationName);
-        resolvedFolderNames.entrySet().removeIf(
-                entry -> entry.getKey().startsWith(sourceId + KEY_SEP));
-        resolvedFolderNames.put(sourceId + KEY_SEP + locationName, resolvedName);
-        save();
+        requireSourceId(sourceId);
+        ModConfig.SaveLocation.valueOf(locationName);
+        requireFolderName(resolvedName);
+        return changeAndSave(() -> {
+            entries.putIfAbsent(sourceId, generateFolderName(sourceId));
+            perWorldSaveLocation.put(sourceId, locationName);
+            resolvedFolderNames.entrySet().removeIf(
+                    entry -> entry.getKey().startsWith(sourceId + KEY_SEP));
+            resolvedFolderNames.put(sourceId + KEY_SEP + locationName, resolvedName);
+        });
     }
 
     // ── Per-world save location ───────────────────────────────────────────────
@@ -227,9 +272,40 @@ public class MirrorMapping {
         return outputRoot(saveLocation).resolve(resolved == null ? baseName : resolved);
     }
 
-    void setSaveLocation(String sourceId, ModConfig.SaveLocation saveLocation) {
+    boolean setSaveLocation(String sourceId, ModConfig.SaveLocation saveLocation) {
         Path target = selectOutputPath(sourceId, saveLocation);
-        recordMirrorLocation(sourceId, saveLocation.name(), target.getFileName().toString());
+        return recordMirrorLocation(sourceId, saveLocation.name(), target.getFileName().toString());
+    }
+
+    record MoveResult(boolean success, String failureCode, Path source, Path target) { }
+
+    /** Moves an owned directory and rolls it back if the new routing cannot be persisted. */
+    synchronized MoveResult moveToLocation(String sourceId, ModConfig.SaveLocation location) {
+        Path source = selectOutputPath(sourceId, effectiveSaveLocation(sourceId));
+        Path target = selectOutputPath(sourceId, location);
+        if (!Files.isDirectory(source)) return new MoveResult(false, "source_missing", source, target);
+        if (source.toAbsolutePath().normalize().equals(target.toAbsolutePath().normalize())) {
+            boolean saved = recordMirrorLocation(sourceId, location.name(), target.getFileName().toString());
+            return new MoveResult(saved, saved ? null : "io_error", source, target);
+        }
+        if (Files.exists(target)) return new MoveResult(false, "target_exists", source, target);
+        try {
+            Files.createDirectories(target.getParent());
+            Files.move(source, target);
+        } catch (IOException error) {
+            WMLogger.warn("Mirror relocation failed source=" + source + " target=" + target, error);
+            return new MoveResult(false, "io_error", source, target);
+        }
+        if (recordMirrorLocation(sourceId, location.name(), target.getFileName().toString())) {
+            return new MoveResult(true, null, source, target);
+        }
+        try {
+            Files.move(target, source);
+        } catch (IOException rollback) {
+            WMLogger.warn("Mirror relocation rollback failed source=" + source + " target=" + target
+                    + "; mirror contents remain at target", rollback);
+        }
+        return new MoveResult(false, "io_error", source, target);
     }
 
     Path selectOutputPath(String sourceId, ModConfig.SaveLocation saveLocation) {
@@ -250,9 +326,11 @@ public class MirrorMapping {
 
         String baseName = previewBaseFolderName(sourceId);
         Path candidate = selectOutputPath(sourceId, saveLocation);
+        boolean created = false;
         while (true) {
             try {
                 Files.createDirectory(candidate);
+                created = true;
                 break;
             } catch (java.nio.file.FileAlreadyExistsException raced) {
                 if (WorldMetadata.isOwnedBy(candidate, sourceId)) break;
@@ -261,7 +339,13 @@ public class MirrorMapping {
         }
 
         String resolvedName = candidate.getFileName().toString();
-        recordResolvedFolderName(sourceId, saveLocation.name(), resolvedName);
+        if (!recordResolvedFolderName(sourceId, saveLocation.name(), resolvedName)) {
+            IOException failure = new IOException("Could not persist claimed mirror directory " + candidate);
+            if (created) {
+                try { Files.delete(candidate); } catch (IOException cleanup) { failure.addSuppressed(cleanup); }
+            }
+            throw failure;
+        }
         if (!resolvedName.equals(baseName)) {
             WMLogger.debug("Folder name collision resolved: '"
                     + baseName + "' → '" + resolvedName + "'");
@@ -284,13 +368,15 @@ public class MirrorMapping {
      * Sets a per-world conflict-strategy override.
      * Pass {@code null} or an empty string to remove the override.
      */
-    public synchronized void setPerWorldConflictStrategy(String sourceId, String strategyName) {
-        if (strategyName == null || strategyName.isBlank()) {
-            perWorldConflictStrategy.remove(sourceId);
-        } else {
-            perWorldConflictStrategy.put(sourceId, strategyName);
+    public synchronized boolean setPerWorldConflictStrategy(String sourceId, String strategyName) {
+        requireSourceId(sourceId);
+        if (strategyName != null && !strategyName.isBlank()) {
+            ModConfig.ConflictStrategy.valueOf(strategyName);
         }
-        save();
+        return changeAndSave(() -> {
+            if (strategyName == null || strategyName.isBlank()) perWorldConflictStrategy.remove(sourceId);
+            else perWorldConflictStrategy.put(sourceId, strategyName);
+        });
     }
 
     // ── Internal ─────────────────────────────────────────────────────────────
@@ -306,20 +392,45 @@ public class MirrorMapping {
         } else if (sourceId.startsWith("local:")) {
             name = sourceId.substring("local:".length());
         }
-        // Replace dots/colons with underscores, then replace remaining unsafe chars
+        // Replace separators and reserved characters before trimming the base name.
         name = name.replace(':', '_').replace('/', '_');
         name = UNSAFE.matcher(name).replaceAll("_");
         // Collapse multiple underscores
-        name = name.replaceAll("_+", "_").replaceAll("^_+|_+$", "");
-        if (name.isBlank()) name = "unnamed";
-        if (name.length() > 64) name = name.substring(0, 64);
-        return name;
+        name = EDGE_UNDERSCORES.matcher(REPEATED_UNDERSCORES.matcher(name).replaceAll("_")).replaceAll("");
+        return sanitiseFolderName(name, "unnamed");
     }
 
-    private static Path outputRoot(ModConfig.SaveLocation saveLocation) {
+    /** Filename policy shared by persistent mirrors and one-shot nearby exports. */
+    static String sanitiseFolderName(String name, String fallback) {
+        name = INVALID_FOLDER_CHARACTERS.matcher(name).replaceAll("_").strip();
+        int end = Math.min(name.length(), MAX_GENERATED_FOLDER_LENGTH);
+        if (end < name.length() && end > 0 && Character.isHighSurrogate(name.charAt(end - 1))) end--;
+        name = TRAILING_DOTS.matcher(name.substring(0, end)).replaceAll("");
+        if (name.isBlank()) name = fallback;
+        return RESERVED_FOLDER_NAME.matcher(name).matches() ? '_' + name : name;
+    }
+
+    static boolean isUsableFolderName(String name) {
+        return name != null && !name.isBlank() && name.length() <= 255
+                && !name.endsWith(".") && !name.endsWith(" ")
+                && !INVALID_FOLDER_CHARACTERS.matcher(name).find()
+                && !RESERVED_FOLDER_NAME.matcher(name).matches();
+    }
+
+    static void requireFolderName(String name) {
+        if (!isUsableFolderName(name)) throw new IllegalArgumentException("Invalid mirror folder name");
+    }
+
+    private static void requireSourceId(String sourceId) {
+        if (sourceId == null || sourceId.isBlank() || sourceId.indexOf(KEY_SEP) >= 0) {
+            throw new IllegalArgumentException("Invalid source identifier");
+        }
+    }
+
+    private Path outputRoot(ModConfig.SaveLocation saveLocation) {
+        Path game = gameDirectory != null ? gameDirectory : FabricLoader.getInstance().getGameDir();
         return saveLocation == ModConfig.SaveLocation.SAVES
-                ? FabricLoader.getInstance().getGameDir().resolve("saves")
-                : FabricLoader.getInstance().getGameDir().resolve("downloaded_worlds");
+                ? game.resolve("saves") : game.resolve("downloaded_worlds");
     }
 
     private static Path resolveOutputPath(Path base, String folderName, String sourceId) {

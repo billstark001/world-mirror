@@ -38,6 +38,35 @@ class MirrorWorldContextTest {
     }
 
     @Test
+    void protectsFutureMetadataEvenWhenWorldgenIsCurrent(@TempDir Path world) {
+        WorldMetadata metadata = metadata();
+        metadata.markWorldgenCurrent(100, MirrorWorldgenAssets.ASSET_REVISION);
+        metadata.metadataSchema = WorldMetadata.CURRENT_METADATA_SCHEMA + 1;
+        assertTrue(metadata.save(world));
+
+        assertEquals(MirrorWorldContext.State.FUTURE, MirrorWorldContext.inspect(world, 100).state());
+        assertFalse(MirrorMigrationPlan.inspect(world, 100).mayCreateOrWriteWithoutMigration());
+    }
+
+    @Test
+    void doesNotAdoptMetadataFromAnotherFormat(@TempDir Path world) {
+        WorldMetadata metadata = metadata();
+        metadata.format = "another-tool";
+        metadata.markWorldgenCurrent(100, MirrorWorldgenAssets.ASSET_REVISION);
+        assertTrue(metadata.save(world));
+
+        assertEquals(MirrorMigrationPlan.State.UNMANAGED, MirrorMigrationPlan.inspect(world, 100).state());
+        assertFalse(WorldMetadata.isOwnedBy(world, metadata.sourceId));
+        assertFalse(MirrorWorldContext.inspect(world, 100).isMirror());
+    }
+
+    @Test
+    void aNonFileMetadataPathIsUnreadableInsteadOfANewSave(@TempDir Path world) throws Exception {
+        Files.createDirectory(world.resolve(WorldMetadata.FILE_NAME));
+        assertEquals(MirrorMigrationPlan.State.UNREADABLE, MirrorMigrationPlan.inspect(world, 100).state());
+    }
+
+    @Test
     void classifiesFreshAndUnmanagedFoldersSeparately(@TempDir Path root) throws Exception {
         Path fresh = root.resolve("fresh");
         Files.createDirectories(fresh);

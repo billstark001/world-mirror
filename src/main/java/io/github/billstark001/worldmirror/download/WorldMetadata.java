@@ -10,7 +10,6 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -149,24 +148,16 @@ public class WorldMetadata {
         }
     }
 
-    /** Writes this metadata to {@code worldFolder/worldmirror_meta.json}. */
-    public void save(Path worldFolder) {
+    /** Atomically writes the metadata, returning false if the document could not be replaced. */
+    public boolean save(Path worldFolder) {
         ensureMirrorId();
         Path metadataFile = worldFolder.resolve(FILE_NAME);
-        Path temporaryFile = metadataFile.resolveSibling(FILE_NAME + ".tmp");
         try {
-            Files.createDirectories(worldFolder);
-            Files.writeString(temporaryFile, JsonSupport.toPrettyJson(this),
-                    StandardCharsets.UTF_8);
-            try {
-                Files.move(temporaryFile, metadataFile,
-                        StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } catch (java.nio.file.AtomicMoveNotSupportedException ignored) {
-                Files.move(temporaryFile, metadataFile, StandardCopyOption.REPLACE_EXISTING);
-            }
+            JsonSupport.writePrettyJsonAtomically(metadataFile, this);
+            return true;
         } catch (Exception e) {
             WMLogger.warn("World metadata save failed file=" + metadataFile, e);
-            try { Files.deleteIfExists(temporaryFile); } catch (Exception ignored) {}
+            return false;
         }
     }
 
@@ -178,19 +169,21 @@ public class WorldMetadata {
      * and then clears the field so it is not written back to JSON.
      * <p>
      * Safe to call even if migration has already been performed (idempotent).
+     * Failed database or metadata writes retain the legacy field for retry.
      *
      * @param db          open {@link ChunkDatabase} to migrate into
      * @param worldFolder mirror-world root (used to re-save cleaned JSON)
+     * @return true if migration and removal of the legacy field both succeeded
      */
     @SuppressWarnings("deprecation")
-    public void migrateAndCleanChunkTimes(ChunkDatabase db, Path worldFolder) {
-        if (chunkUpdateTimes != null && !chunkUpdateTimes.isEmpty()) {
-            db.migrateFromChunkUpdateTimes(chunkUpdateTimes);
-        }
-        if (chunkUpdateTimes != null) {
-            chunkUpdateTimes = null; // null → GSON skips field on next save
-            save(worldFolder);      // write clean JSON without chunkUpdateTimes
-        }
+    public boolean migrateAndCleanChunkTimes(ChunkDatabase db, Path worldFolder) {
+        if (chunkUpdateTimes == null) return true;
+        Map<String, Long> legacyTimes = chunkUpdateTimes;
+        if (!legacyTimes.isEmpty() && !db.migrateFromChunkUpdateTimes(legacyTimes)) return false;
+        chunkUpdateTimes = null; // null → GSON skips field on next save
+        if (save(worldFolder)) return true;
+        chunkUpdateTimes = legacyTimes;
+        return false;
     }
 
     /** Whether the dimension generator itself must be replaced. */
@@ -236,13 +229,13 @@ public class WorldMetadata {
 
     /**
      * Returns {@code true} if a {@code worldmirror_meta.json} exists in {@code worldFolder}
-     * and its {@code sourceId} field matches the given value.
+     * and its format marker and {@code sourceId} field match this writer.
      * Returns {@code false} if the file does not exist or cannot be read.
      * Safe to call from any thread.
      */
     public static boolean isOwnedBy(Path worldFolder, String sourceId) {
         return loadIfPresent(worldFolder)
-                .map(meta -> sourceId.equals(meta.sourceId))
+                .map(meta -> FORMAT.equals(meta.format) && sourceId != null && sourceId.equals(meta.sourceId))
                 .orElse(false);
     }
 
@@ -261,18 +254,16 @@ public class WorldMetadata {
             meta.lastSyncTime = Math.max(meta.lastSyncTime, latestCaptureTime);
         }
         meta.modVersion = currentModVersion();
-        meta.chunkUpdateTimes = null; // ensure legacy field is not written back
         meta.save(worldFolder);
     }
 
     /** Records the newest durably saved capture time without rewriting older metadata values. */
-    public void markSyncComplete(Path worldFolder, long latestCaptureTime) {
+    public boolean markSyncComplete(Path worldFolder, long latestCaptureTime) {
         if (latestCaptureTime > 0L) {
             lastSyncTime = Math.max(lastSyncTime, latestCaptureTime);
         }
         modVersion = currentModVersion();
-        chunkUpdateTimes = null;
-        save(worldFolder);
+        return save(worldFolder);
     }
 
     // ── Source detection (call on game thread) ────────────────────────────────

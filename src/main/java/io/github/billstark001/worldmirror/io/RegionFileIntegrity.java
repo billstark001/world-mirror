@@ -23,19 +23,19 @@ final class RegionFileIntegrity {
 
     private RegionFileIntegrity() {}
 
-    record Inspection(boolean usable, Set<ChunkPos> invalidChunks, String failure) {
-        static Inspection valid(Set<ChunkPos> invalidChunks) {
-            return new Inspection(true, Set.copyOf(invalidChunks), null);
+    record Inspection(boolean usable, Set<ChunkPos> invalidChunks, Set<ChunkPos> presentChunks, String failure) {
+        static Inspection valid(Set<ChunkPos> invalidChunks, Set<ChunkPos> presentChunks) {
+            return new Inspection(true, Set.copyOf(invalidChunks), Set.copyOf(presentChunks), null);
         }
 
         static Inspection unusable(String failure) {
-            return new Inspection(false, Set.of(), failure);
+            return new Inspection(false, Set.of(), Set.of(), failure);
         }
     }
 
     static Inspection inspect(Path regionFile, int regionX, int regionZ) throws IOException {
         if (Files.notExists(regionFile) || Files.size(regionFile) == 0L) {
-            return Inspection.valid(Set.of());
+            return Inspection.valid(Set.of(), Set.of());
         }
 
         long fileSize = Files.size(regionFile);
@@ -58,6 +58,7 @@ final class RegionFileIntegrity {
         locations.flip();
 
         Set<ChunkPos> invalid = new HashSet<>();
+        Set<ChunkPos> present = new HashSet<>();
         Map<Integer, ChunkPos> sectorOwners = new HashMap<>();
         for (int index = 0; index < LOCATION_COUNT; index++) {
             int packed = locations.getInt();
@@ -66,6 +67,7 @@ final class RegionFileIntegrity {
             int sectorOffset = packed >>> 8;
             int sectorCount = packed & 0xFF;
             ChunkPos chunk = chunkPos(regionX, regionZ, index);
+            present.add(chunk);
             long endOffset = ((long) sectorOffset + sectorCount) * SECTOR_BYTES;
             if (sectorOffset < 2 || sectorCount == 0 || endOffset > fileSize) {
                 invalid.add(chunk);
@@ -80,7 +82,7 @@ final class RegionFileIntegrity {
                 }
             }
         }
-        return Inspection.valid(invalid);
+        return Inspection.valid(invalid, present);
     }
 
     private static ChunkPos chunkPos(int regionX, int regionZ, int index) {

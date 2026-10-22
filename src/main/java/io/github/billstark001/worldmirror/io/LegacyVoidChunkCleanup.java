@@ -26,7 +26,8 @@ import java.util.List;
  * This deliberately preserves any chunk containing blocks, while letting
  * Minecraft regenerate the blank legacy chunks with the schema-1 generator.
  * The same legacy generator affected all three vanilla dimensions, so each
- * dimension's region directory is inspected.</p>
+ * dimension's region directory is inspected. Saved block entities, legacy
+ * entities, scheduled ticks, and malformed terrain sections are preserved.</p>
  */
 public final class LegacyVoidChunkCleanup {
     private static final List<Path> REGION_DIRECTORIES = List.of(
@@ -39,6 +40,9 @@ public final class LegacyVoidChunkCleanup {
             Path.of("dimensions", "minecraft", "the_nether", "region"),
             Path.of("dimensions", "minecraft", "the_end", "region"));
     private static final String VOID_BIOME = "minecraft:the_void";
+    private static final List<String> PRESERVED_LISTS = List.of(
+            "block_entities", "TileEntities", "Entities", "entities",
+            "block_ticks", "fluid_ticks", "TileTicks", "LiquidTicks");
     private static final int FILE_REPLACE_ATTEMPTS = 10;
     private static final long FILE_REPLACE_RETRY_MILLIS = 200L;
 
@@ -222,8 +226,24 @@ public final class LegacyVoidChunkCleanup {
     }
 
     static boolean isLegacyVoidChunk(CompoundTag chunk) {
-        return hasOnlyVoidBiomePalettes(chunk)
-                && hasOnlyAirBlockStatePalettes(chunk);
+        for (String key : PRESERVED_LISTS) {
+            Tag<?> value = chunk.get(key);
+            if (value != null && (!(value instanceof ListTag<?> list) || !list.isEmpty())) return false;
+        }
+        if (!(chunk.get("sections") instanceof ListTag<?> sections) || sections.isEmpty()) return false;
+        boolean foundTerrain = false;
+        for (Tag<?> entry : sections) {
+            if (!(entry instanceof CompoundTag section)) return false;
+            Tag<?> biomes = section.get("biomes");
+            Tag<?> blocks = section.get("block_states");
+            // Light-only sections outside the build height carry no terrain.
+            if (biomes == null && blocks == null) continue;
+            if (!(biomes instanceof CompoundTag biomeData) || !(blocks instanceof CompoundTag blockData)
+                    || !paletteContainsOnly(biomeData, VOID_BIOME, false)
+                    || !paletteContainsOnly(blockData, null, true)) return false;
+            foundTerrain = true;
+        }
+        return foundTerrain;
     }
 
     private static List<Path> findRegionFiles(Path worldFolder) throws IOException {
@@ -260,27 +280,6 @@ public final class LegacyVoidChunkCleanup {
         return percent;
     }
 
-    private static boolean hasOnlyVoidBiomePalettes(Tag<?> tag) {
-        PaletteCheck check = new PaletteCheck();
-        visit(tag, (key, value) -> {
-            if ("biomes".equals(key) && value instanceof CompoundTag biomes) {
-                check.found = true;
-                if (!paletteContainsOnly(biomes, VOID_BIOME, false)) check.valid = false;
-            }
-        });
-        return check.found && check.valid;
-    }
-
-    private static boolean hasOnlyAirBlockStatePalettes(Tag<?> tag) {
-        PaletteCheck check = new PaletteCheck();
-        visit(tag, (key, value) -> {
-            if ("block_states".equals(key) && value instanceof CompoundTag blocks) {
-                if (!paletteContainsOnly(blocks, null, true)) check.valid = false;
-            }
-        });
-        return check.valid;
-    }
-
     private static boolean paletteContainsOnly(CompoundTag container, String exactName, boolean airOnly) {
         Tag<?> paletteTag = container.get("palette");
         if (!(paletteTag instanceof ListTag<?> palette) || palette.isEmpty()) return false;
@@ -306,23 +305,4 @@ public final class LegacyVoidChunkCleanup {
                 || "minecraft:void_air".equals(block);
     }
 
-    private static void visit(Tag<?> tag, TagVisitor visitor) {
-        if (tag instanceof CompoundTag compound) {
-            for (var entry : compound.entrySet()) {
-                visitor.visit(entry.getKey(), entry.getValue());
-                visit(entry.getValue(), visitor);
-            }
-        } else if (tag instanceof ListTag<?> list) {
-            for (Tag<?> child : list) visit(child, visitor);
-        }
-    }
-
-    private interface TagVisitor {
-        void visit(String key, Tag<?> value);
-    }
-
-    private static final class PaletteCheck {
-        private boolean found;
-        private boolean valid = true;
-    }
 }

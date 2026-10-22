@@ -8,9 +8,11 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ChunkDatabaseDurabilityTest {
@@ -54,6 +56,34 @@ class ChunkDatabaseDurabilityTest {
                     "world_mirror", 50L));
             assertTrue(db.shouldSkipUpdate("minecraft:overworld", 3, 4,
                     "world_mirror", 50L));
+        }
+    }
+
+    @Test
+    void preservesFullChunkCoordinatesWithoutBlockCoordinateOverflow(@TempDir Path world) throws Exception {
+        ChunkPos chunk = new ChunkPos(Integer.MAX_VALUE, Integer.MIN_VALUE);
+        try (ChunkDatabase db = ChunkDatabase.open(world, "server:test")) {
+            assertTrue(db.recordUpdates("minecraft:overworld", Map.of(chunk, 100L), "world_mirror"));
+            assertTrue(db.shouldSkipUpdate("minecraft:overworld", Integer.MAX_VALUE, Integer.MIN_VALUE,
+                    "world_mirror", 50L));
+            assertTrue(db.shouldSkipUpdate("minecraft:overworld", chunk, "world_mirror", 50L));
+            assertTrue(db.removeUnreadableUpdates("minecraft:overworld", Set.of(chunk)));
+            assertTrue(db.queryAll("minecraft:overworld").isEmpty());
+        }
+    }
+
+    @Test
+    void importsValidLegacyEntriesAlongsideMalformedOrNullKeys(@TempDir Path world) throws Exception {
+        Map<String, Long> entries = new HashMap<>();
+        entries.put(null, 1L);
+        entries.put("bad", 2L);
+        entries.put("minecraft:overworld|1,2", 100L);
+        entries.put("minecraft:overworld|3,4", null);
+        entries.put("minecraft:overworld|5,6,7", 200L);
+        try (ChunkDatabase db = ChunkDatabase.open(world, "server:test")) {
+            assertTrue(db.migrateFromChunkUpdateTimes(entries));
+            assertEquals(1, db.queryAll("minecraft:overworld").size());
+            assertTrue(db.shouldSkipUpdate("minecraft:overworld", 1, 2, "world_mirror", 50L));
         }
     }
 }

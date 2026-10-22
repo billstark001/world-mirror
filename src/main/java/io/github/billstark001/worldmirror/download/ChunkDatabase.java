@@ -18,6 +18,7 @@ import java.sql.Statement;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -44,6 +45,8 @@ public class ChunkDatabase implements Closeable {
 
     /** Opens an index and seeds the shared contract's default update sources. */
     public static ChunkDatabase open(Path worldFolder, String sourceId) throws SQLException {
+        Objects.requireNonNull(worldFolder, "worldFolder");
+        Objects.requireNonNull(sourceId, "sourceId");
         Path database = worldFolder.resolve(MirrorFormat.DATABASE_FILE);
         try {
             Files.createDirectories(database.getParent());
@@ -70,6 +73,12 @@ public class ChunkDatabase implements Closeable {
                     "Chunk durability lookup failed; allowing writes until recovery", e);
             return false;
         }
+    }
+
+    public boolean shouldSkipUpdate(String dimension, ChunkPos chunk,
+                                    String newUpdateSource, long newTimestamp) {
+        ChunkCoordinate position = coordinate(chunk);
+        return shouldSkipUpdate(dimension, position.x(), position.z(), newUpdateSource, newTimestamp);
     }
 
     /** A database row is recorded only after the region entry has been verified. */
@@ -102,19 +111,26 @@ public class ChunkDatabase implements Closeable {
         }
     }
 
-    public void migrateFromChunkUpdateTimes(Map<String, Long> chunkUpdateTimes) {
+    /** Returns true only after the legacy timestamps have committed to SQLite. */
+    public boolean migrateFromChunkUpdateTimes(Map<String, Long> chunkUpdateTimes) {
         try {
             int migrated = store.migrateLegacyTimes(chunkUpdateTimes);
             if (migrated > 0) {
                 WMLogger.debug("Migrated " + migrated + " chunk timestamps from JSON to SQLite.");
             }
+            return true;
         } catch (SQLException e) {
             WMLogger.warn("Legacy chunk timestamp migration failed", e);
+            return false;
         }
     }
 
     private static ChunkCoordinate coordinate(ChunkPos chunk) {
-        return new ChunkCoordinate(chunk.getMinBlockX() >> 4, chunk.getMinBlockZ() >> 4);
+        // Region and local accessors are stable across the ChunkPos class/record
+        // transition, and unlike block coordinates retain all 32 coordinate bits.
+        return new ChunkCoordinate(
+                chunk.getRegionX() * ChunkPos.REGION_SIZE + chunk.getRegionLocalX(),
+                chunk.getRegionZ() * ChunkPos.REGION_SIZE + chunk.getRegionLocalZ());
     }
 
     public record ChunkRecord(int x, int z, long updateTime, String updateSource) { }
