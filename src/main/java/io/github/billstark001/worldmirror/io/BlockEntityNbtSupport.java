@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import io.github.billstark001.worldmirror.core.ContainerTracker;
+import io.github.billstark001.worldmirror.util.ContainerNameSupport;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.core.BlockPos;
@@ -38,6 +39,12 @@ public final class BlockEntityNbtSupport {
         return BlockEntity.loadStatic(pos, state, nbt, registryLookup);
     }
 
+    /**
+     * Enriches client-known block entities with older fields the server omitted.
+     * Position and type must match before fields are merged. Missing entries are
+     * conservatively restored because an absent client payload is not proof of
+     * block removal; repeated source positions never create duplicate entries.
+     */
     public static void mergeChunkBlockEntities(CompoundTag targetChunk, CompoundTag sourceChunk) {
         ListTag sourceBlockEntities = sourceChunk.getListOrEmpty(BLOCK_ENTITIES_KEY);
         if (sourceBlockEntities.isEmpty()) {
@@ -51,9 +58,6 @@ public final class BlockEntityNbtSupport {
         });
 
         Map<BlockPos, CompoundTag> targetByPos = indexBlockEntitiesByPos(targetBlockEntities);
-        int restored = 0;
-        int enriched = 0;
-
         for (int i = 0; i < sourceBlockEntities.size(); i++) {
             java.util.Optional<CompoundTag> sourceEntry = sourceBlockEntities.getCompound(i);
             if (sourceEntry.isEmpty()) {
@@ -62,21 +66,22 @@ public final class BlockEntityNbtSupport {
 
             CompoundTag sourceBlockEntity = sourceEntry.get();
             BlockPos pos = blockEntityPos(sourceBlockEntity);
-            if (pos == null) {
+            String sourceType = sourceBlockEntity.getStringOr("id", "");
+            if (pos == null || sourceType.isBlank()) {
                 continue;
             }
 
             CompoundTag targetBlockEntity = targetByPos.get(pos);
             if (targetBlockEntity == null) {
-                targetBlockEntities.add(sanitizedCopy(sourceBlockEntity));
-                restored++;
+                CompoundTag restored = sanitizedCopy(sourceBlockEntity);
+                targetBlockEntities.add(restored);
+                targetByPos.put(pos, restored);
                 continue;
             }
+            if (!sourceType.equals(targetBlockEntity.getStringOr("id", ""))) continue;
 
             sanitizeBlockEntity(targetBlockEntity);
-            if (mergePreservedKeys(sourceBlockEntity, targetBlockEntity)) {
-                enriched++;
-            }
+            mergePreservedKeys(sourceBlockEntity, targetBlockEntity);
         }
 
     }
@@ -137,6 +142,8 @@ public final class BlockEntityNbtSupport {
         if (containerData == null) {
             return;
         }
+        String containerType = containerData.getStringOr("id", "");
+        if (!containerType.isEmpty() && !containerType.equals(blockEntityNbt.getStringOr("id", ""))) return;
 
         copyTagIfPresent(containerData, blockEntityNbt, "Items");
         copyCustomNameIfPresent(containerData, blockEntityNbt);
@@ -173,14 +180,10 @@ public final class BlockEntityNbtSupport {
     }
 
     private static BlockPos blockEntityPos(CompoundTag blockEntity) {
-        if (!blockEntity.contains("x") || !blockEntity.contains("y") || !blockEntity.contains("z")) {
-            return null;
-        }
-        return new BlockPos(
-                blockEntity.getIntOr("x", 0),
-                blockEntity.getIntOr("y", 0),
-                blockEntity.getIntOr("z", 0)
-        );
+        Integer x = blockEntity.getInt("x").orElse(null);
+        Integer y = blockEntity.getInt("y").orElse(null);
+        Integer z = blockEntity.getInt("z").orElse(null);
+        return x == null || y == null || z == null ? null : new BlockPos(x, y, z);
     }
 
     private static CompoundTag sanitizedCopy(CompoundTag source) {
@@ -196,8 +199,7 @@ public final class BlockEntityNbtSupport {
         }
     }
 
-    private static boolean mergePreservedKeys(CompoundTag source, CompoundTag target) {
-        boolean changed = false;
+    private static void mergePreservedKeys(CompoundTag source, CompoundTag target) {
         for (String key : source.keySet()) {
             Tag value = source.get(key);
             if (value == null) {
@@ -207,7 +209,6 @@ public final class BlockEntityNbtSupport {
             if ("CustomName".equals(key)) {
                 if (!target.contains(key) && !isDefaultContainerName(value)) {
                     target.put(key, value.copy());
-                    changed = true;
                 }
                 continue;
             }
@@ -215,17 +216,14 @@ public final class BlockEntityNbtSupport {
             if ("Items".equals(key)) {
                 if (hasItems(value) && !hasItems(target.get(key))) {
                     target.put(key, value.copy());
-                    changed = true;
                 }
                 continue;
             }
 
             if (!target.contains(key)) {
                 target.put(key, value.copy());
-                changed = true;
             }
         }
-        return changed;
     }
 
     private static boolean hasItems(Tag tag) {
@@ -233,14 +231,6 @@ public final class BlockEntityNbtSupport {
     }
 
     private static boolean isDefaultContainerName(Tag tag) {
-        if (tag instanceof CompoundTag customName) {
-            String translate = customName.getStringOr("translate", "");
-            return "container.chest".equals(translate)
-                    || "container.chestDouble".equals(translate);
-        }
-
-        String name = tag.asString().orElse("");
-        return name.contains("\"translate\":\"container.chest\"")
-                || name.contains("\"translate\":\"container.chestDouble\"");
+        return ContainerNameSupport.isDefaultChestName(tag);
     }
 }

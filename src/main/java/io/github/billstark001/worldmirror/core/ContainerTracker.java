@@ -7,56 +7,74 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import com.mojang.serialization.DataResult;
 import io.github.billstark001.worldmirror.util.WMLogger;
+import io.github.billstark001.worldmirror.util.ContainerNameSupport;
 import io.github.billstark001.worldmirror.download.DownloadManager;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.ComponentSerialization;
-import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.EnderChestBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.ChestType;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 
 @Environment(EnvType.CLIENT)
-public class ContainerTracker {
+public final class ContainerTracker {
     private record ContainerKey(ResourceKey<Level> dimension, BlockPos pos) { }
 
     private record OpenContainer(
+            ClientLevel world,
             BlockPos pos,
+            String blockEntityType,
             Component name,
             Map<Integer, ItemStack> slots,
             int containerSize
-    ) { }
+    ) {
+        OpenContainer withSlots(Map<Integer, ItemStack> slots, int size) {
+            return new OpenContainer(world, pos, blockEntityType, name, new ConcurrentHashMap<>(slots), size);
+        }
+    }
 
     private record DoubleChestPositions(BlockPos first, BlockPos second) { }
 
     private static final Map<Integer, OpenContainer> openContainers = new ConcurrentHashMap<>();
     private static final Map<ContainerKey, CompoundTag> savedContainerData = new ConcurrentHashMap<>();
 
+    private ContainerTracker() { }
+
+    /** Binds inventory packets to the exact client world and block-entity type opened by the player. */
     public static void onContainerOpened(int syncId, Component name) {
+        openContainers.remove(syncId);
         Minecraft client = Minecraft.getInstance();
+        if (client.level == null) return;
         HitResult hitResult = client.hitResult;
         if (hitResult instanceof BlockHitResult blockHit) {
             BlockPos pos = blockHit.getBlockPos();
-            openContainers.put(syncId, new OpenContainer(pos, name, new ConcurrentHashMap<>(), 0));
+            BlockEntity blockEntity = client.level.getBlockEntity(pos);
+            // Ender-chest contents belong to the player, not to this world block.
+            if (blockEntity == null || blockEntity instanceof EnderChestBlockEntity) return;
+            openContainers.put(syncId, new OpenContainer(client.level, pos.immutable(),
+                    typeId(blockEntity), name == null ? null : name.copy(), new ConcurrentHashMap<>(), 0));
             WMLogger.debug("Container opened position=" + pos + " syncId=" + syncId);
         }
     }
 
     public static void onSlotUpdate(int syncId, int slot, ItemStack stack) {
-        OpenContainer container = openContainers.get(syncId);
+        OpenContainer container = currentContainer(syncId);
         if (container == null || slot < 0) {
             return;
         }
@@ -70,16 +88,15 @@ public class ContainerTracker {
             container.slots().put(slot, stack.copy());
         }
 
-        ResourceKey<Level> dimension = currentDimension();
         if (container.containerSize() == 54
-                && saveDoubleChestOverlay(dimension, container.pos(), container.name(), container.slots())) {
+                && saveDoubleChestOverlay(container, container.slots())) {
             return;
         }
-        saveOverlay(dimension, container.pos(), container.name(), container.slots());
+        saveOverlay(container, container.pos(), container.slots());
     }
 
     public static void onInventoryUpdate(int syncId, List<ItemStack> contents) {
-        OpenContainer container = openContainers.get(syncId);
+        OpenContainer container = currentContainer(syncId);
         if (container == null) {
             return;
         }
@@ -88,52 +105,38 @@ public class ContainerTracker {
         int containerSlots = determineContainerSlots(totalSlots);
 
         if (containerSlots == 54) {
-            handleDoubleChest(container, contents);
+            handleDoubleChest(syncId, container, contents);
         } else {
-            handleRegularContainer(container, contents, containerSlots);
+            handleRegularContainer(syncId, container, contents, containerSlots);
         }
     }
 
     private static void handleRegularContainer(
+            int syncId,
             OpenContainer container,
             List<ItemStack> contents,
             int containerSlots) {
-        ResourceKey<Level> dimension = currentDimension();
-        if (dimension == null) {
-            return;
-        }
-
         Map<Integer, ItemStack> slots = copyContainerSlots(contents, containerSlots);
-        openContainers.replaceAll((syncId, open) -> open == container
-                ? new OpenContainer(open.pos(), open.name(), new ConcurrentHashMap<>(slots), containerSlots)
-                : open);
-        saveOverlay(dimension, container.pos(), container.name(), slots);
+        openContainers.replace(syncId, container, container.withSlots(slots, containerSlots));
+        saveOverlay(container, container.pos(), slots);
 
         int nonEmptySlots = slots.size();
         WMLogger.debug("Saved regular container at " + container.pos()
                 + " with " + nonEmptySlots + "/" + containerSlots + " filled slots");
     }
 
-    private static void handleDoubleChest(OpenContainer container, List<ItemStack> contents) {
-        Minecraft client = Minecraft.getInstance();
-        if (client.level == null) {
-            handleRegularContainer(container, contents, 54);
-            return;
-        }
-
+    private static void handleDoubleChest(int syncId, OpenContainer container, List<ItemStack> contents) {
         BlockPos pos = container.pos();
-        BlockState blockState = client.level.getBlockState(pos);
+        BlockState blockState = container.world().getBlockState(pos);
         if (!(blockState.getBlock() instanceof ChestBlock)) {
-            handleRegularContainer(container, contents, 54);
+            handleRegularContainer(syncId, container, contents, 54);
             return;
         }
 
         try {
             ChestType chestType = blockState.getValue(ChestBlock.TYPE);
-            ResourceKey<Level> dimension = client.level.dimension();
-
             if (chestType == ChestType.SINGLE) {
-                handleRegularContainer(container, contents, 27);
+                handleRegularContainer(syncId, container, contents, 27);
                 return;
             }
 
@@ -144,13 +147,11 @@ public class ContainerTracker {
             Map<Integer, ItemStack> secondSlots = copyContainerSlots(
                     contents.subList(Math.min(27, contents.size()), Math.min(54, contents.size())), 27);
 
-            saveOverlay(dimension, positions.first(), container.name(), firstSlots);
-            saveOverlay(dimension, positions.second(), container.name(), secondSlots);
+            saveOverlay(container, positions.first(), firstSlots);
+            saveOverlay(container, positions.second(), secondSlots);
 
             Map<Integer, ItemStack> combinedSlots = copyContainerSlots(contents, 54);
-            openContainers.replaceAll((syncId, open) -> open == container
-                    ? new OpenContainer(open.pos(), open.name(), new ConcurrentHashMap<>(combinedSlots), 54)
-                    : open);
+            openContainers.replace(syncId, container, container.withSlots(combinedSlots, 54));
 
             WMLogger.debug("Saved double chest at " + positions.first() + "/"
                     + positions.second() + " with " + firstSlots.size() + "+"
@@ -158,7 +159,7 @@ public class ContainerTracker {
         } catch (Exception e) {
             WMLogger.warnRateLimited("container-double-chest", 30_000L,
                     "Double-chest capture failed; falling back to a single container", e);
-            handleRegularContainer(container, contents, 54);
+            handleRegularContainer(syncId, container, contents, 54);
         }
     }
 
@@ -174,20 +175,10 @@ public class ContainerTracker {
     }
 
     private static boolean saveDoubleChestOverlay(
-            ResourceKey<Level> dimension,
-            BlockPos pos,
-            Component name,
+            OpenContainer container,
             Map<Integer, ItemStack> combinedSlots) {
-        if (dimension == null || pos == null) {
-            return false;
-        }
-
-        Minecraft client = Minecraft.getInstance();
-        if (client.level == null) {
-            return false;
-        }
-
-        BlockState blockState = client.level.getBlockState(pos);
+        BlockPos pos = container.pos();
+        BlockState blockState = container.world().getBlockState(pos);
         if (!(blockState.getBlock() instanceof ChestBlock)) {
             return false;
         }
@@ -198,8 +189,8 @@ public class ContainerTracker {
         }
 
         DoubleChestPositions positions = doubleChestPositions(pos, blockState, chestType);
-        saveOverlay(dimension, positions.first(), name, copySlotRange(combinedSlots, 0, 27));
-        saveOverlay(dimension, positions.second(), name, copySlotRange(combinedSlots, 27, 27));
+        saveOverlay(container, positions.first(), copySlotRange(combinedSlots, 0, 27));
+        saveOverlay(container, positions.second(), copySlotRange(combinedSlots, 27, 27));
         return true;
     }
 
@@ -233,18 +224,17 @@ public class ContainerTracker {
     }
 
     private static void saveOverlay(
-            ResourceKey<Level> dimension,
+            OpenContainer container,
             BlockPos pos,
-            Component name,
             Map<Integer, ItemStack> slots) {
-        if (dimension == null || pos == null) {
-            return;
-        }
-
+        BlockEntity blockEntity = container.world().getBlockEntity(pos);
+        if (blockEntity == null || !container.blockEntityType().equals(typeId(blockEntity))) return;
+        ResourceKey<Level> dimension = container.world().dimension();
         CompoundTag overlay = new CompoundTag();
-        overlay.put("Items", serializeItems(slots));
-        serializeCustomName(name).ifPresent(customName -> overlay.put("CustomName", customName));
-        savedContainerData.put(new ContainerKey(dimension, pos), overlay);
+        overlay.putString("id", container.blockEntityType());
+        overlay.put("Items", serializeItems(container.world(), slots));
+        ContainerNameSupport.encodeCustomName(container.name()).ifPresent(customName -> overlay.put("CustomName", customName));
+        rememberOverlay(dimension, pos, overlay);
         Minecraft client = Minecraft.getInstance();
         if (client.level != null && client.level.dimension().equals(dimension)) {
             DownloadManager.queueChunkCapture(client.level,
@@ -252,14 +242,9 @@ public class ContainerTracker {
         }
     }
 
-    private static ListTag serializeItems(Map<Integer, ItemStack> slots) {
+    private static ListTag serializeItems(ClientLevel world, Map<Integer, ItemStack> slots) {
         ListTag items = new ListTag();
-        Minecraft client = Minecraft.getInstance();
-        if (client.level == null) {
-            return items;
-        }
-
-        var ops = client.level.registryAccess().createSerializationContext(NbtOps.INSTANCE);
+        var ops = world.registryAccess().createSerializationContext(NbtOps.INSTANCE);
         for (Map.Entry<Integer, ItemStack> entry : slots.entrySet()) {
             ItemStack stack = entry.getValue();
             if (stack.isEmpty()) {
@@ -280,34 +265,6 @@ public class ContainerTracker {
         return items;
     }
 
-    private static java.util.Optional<Tag> serializeCustomName(Component name) {
-        if (isDefaultContainerTitle(name)) {
-            return java.util.Optional.empty();
-        }
-
-        return ComponentSerialization.CODEC.encodeStart(NbtOps.INSTANCE, name)
-                .resultOrPartial(error -> WMLogger.warnRateLimited(
-                        "container-name-encode", 30_000L,
-                        "Failed to encode a container name: " + error));
-    }
-
-    private static boolean isDefaultContainerTitle(Component name) {
-        if (name == null || name.getString().isEmpty()) {
-            return true;
-        }
-
-        if (name.getContents() instanceof TranslatableContents translatable
-                && translatable.getArgs().length == 0
-                && name.getSiblings().isEmpty()
-                && translatable.getKey().startsWith("container.")) {
-            return true;
-        }
-
-        String text = name.getString();
-        return "Chest".equals(text)
-                || "Large Chest".equals(text);
-    }
-
     private static int determineContainerSlots(int totalSlots) {
         return Math.max(0, totalSlots - 36);
     }
@@ -319,9 +276,11 @@ public class ContainerTracker {
         }
     }
 
+    /** Returns a caller-owned copy so inventory overlays cannot be changed outside this tracker. */
     public static CompoundTag getContainerData(ResourceKey<Level> dimension, BlockPos pos) {
         if (dimension == null || pos == null) return null;
-        return savedContainerData.get(new ContainerKey(dimension, pos));
+        CompoundTag data = savedContainerData.get(new ContainerKey(dimension, pos));
+        return data == null ? null : data.copy();
     }
 
     public static Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> snapshotSavedData() {
@@ -349,26 +308,38 @@ public class ContainerTracker {
         return savedContainerData.size();
     }
 
+    /** Takes ownership of a freshly serialized overlay on the game thread. */
+    static void rememberOverlay(ResourceKey<Level> dimension, BlockPos pos, CompoundTag overlay) {
+        savedContainerData.put(new ContainerKey(dimension, pos.immutable()), overlay);
+        ChunkListener.markChunkDirty(dimension, new ChunkPos(pos.getX() >> 4, pos.getZ() >> 4));
+    }
+
     public static void evictForChunks(Map<ResourceKey<Level>, ? extends java.util.Collection<ChunkPos>> evictedByDim) {
+        evictForChunks(evictedByDim, null);
+    }
+
+    /** Export cleanup removes only the overlay version actually included in that export. */
+    public static void evictForChunks(
+            Map<ResourceKey<Level>, ? extends java.util.Collection<ChunkPos>> evictedByDim,
+            Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> exported) {
         if (evictedByDim == null || evictedByDim.isEmpty()) return;
 
         Map<ResourceKey<Level>, java.util.Set<ChunkPos>> normalized = new java.util.HashMap<>();
         for (Map.Entry<ResourceKey<Level>, ? extends java.util.Collection<ChunkPos>> entry : evictedByDim.entrySet()) {
             java.util.Collection<ChunkPos> chunks = entry.getValue();
             if (chunks == null || chunks.isEmpty()) continue;
-            normalized.put(entry.getKey(), chunks instanceof java.util.Set<?>
-                    ? (java.util.Set<ChunkPos>) chunks
-                    : new java.util.HashSet<>(chunks));
+            normalized.put(entry.getKey(), new java.util.HashSet<>(chunks));
         }
         if (normalized.isEmpty()) return;
 
         int removed = 0;
-        java.util.Iterator<ContainerKey> it = savedContainerData.keySet().iterator();
-        while (it.hasNext()) {
-            ContainerKey key = it.next();
+        for (var entry : savedContainerData.entrySet()) {
+            ContainerKey key = entry.getKey();
             java.util.Set<ChunkPos> chunkSet = normalized.get(key.dimension());
-            if (chunkSet != null && chunkSet.contains(new ChunkPos(key.pos().getX() >> 4, key.pos().getZ() >> 4))) {
-                it.remove();
+            if (chunkSet == null || !chunkSet.contains(new ChunkPos(key.pos().getX() >> 4, key.pos().getZ() >> 4))) continue;
+            CompoundTag expected = exported == null ? entry.getValue()
+                    : exported.getOrDefault(key.dimension(), Map.of()).get(key.pos());
+            if (entry.getValue().equals(expected) && savedContainerData.remove(key, entry.getValue())) {
                 removed++;
             }
         }
@@ -378,8 +349,18 @@ public class ContainerTracker {
         }
     }
 
-    private static ResourceKey<Level> currentDimension() {
-        Minecraft client = Minecraft.getInstance();
-        return client.level != null ? client.level.dimension() : null;
+    private static String typeId(BlockEntity blockEntity) {
+        return BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(blockEntity.getType()).toString();
+    }
+
+    private static OpenContainer currentContainer(int syncId) {
+        OpenContainer container = openContainers.get(syncId);
+        if (container == null) return null;
+        if (Minecraft.getInstance().level == container.world()) {
+            BlockEntity blockEntity = container.world().getBlockEntity(container.pos());
+            if (blockEntity != null && container.blockEntityType().equals(typeId(blockEntity))) return container;
+        }
+        openContainers.remove(syncId, container);
+        return null;
     }
 }
