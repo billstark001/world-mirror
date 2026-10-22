@@ -5,7 +5,7 @@ Use Added, Changed, and Fixed categories where applicable. Keep the root
 `world-mirror-format` sections synchronized with this file; changes that belong
 only to one consumer remain in that consumer's changelog.
 
-## [Unreleased]
+## [0.1.2] — 2026-10-23
 
 ### Fixed
 

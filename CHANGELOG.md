@@ -16,7 +16,7 @@ changes without dropping compatibility requirements or migration guidance.
 
 ---
 
-## world-mirror-format [Unreleased]
+## world-mirror-format [0.1.2] — 2026-10-23
 
 ### Fixed
 
