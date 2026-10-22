@@ -6,6 +6,7 @@ import io.github.billstark001.worldmirror.core.ContainerTracker;
 import io.github.billstark001.worldmirror.core.EntityTracker;
 import io.github.billstark001.worldmirror.io.ChunkExporter;
 import io.github.billstark001.worldmirror.io.ChunkSerializer;
+import io.github.billstark001.worldmirror.io.WorldSettingsSnapshot;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.util.WMPlayerMessages;
 import io.github.billstark001.worldmirror.ui.ClientDialogs;
@@ -23,7 +24,6 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.chunk.LevelChunk;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
@@ -85,8 +85,8 @@ public final class DownloadManager {
 
     /**
      * The sourceId observed on the previous client tick.
-     * Used to detect server-side world changes (e.g. Multiverse world switch)
-     * while remaining connected to the same server address.
+     * Detects an observed address or local level-name change. Multiple logical
+     * worlds behind the same server address cannot be distinguished this way.
      */
     private static volatile String lastSourceId = null;
     private static volatile String lastSourceType = null;
@@ -154,6 +154,12 @@ public final class DownloadManager {
         captureQueue.queueChunk(world, pos, reason);
     }
 
+    /** Captures authoritative block changes, including removal of the final block in a chunk. */
+    public static void queueBlockChange(ClientLevel world, ChunkPos pos, String reason) {
+        if (!currentActive.get() || world == null || pos == null) return;
+        captureQueue.queueBlockChange(world, pos, reason);
+    }
+
     /** Last-chance main-thread capture before Fabric removes a loaded chunk. */
     public static void captureChunkBeforeUnload(ClientLevel world, LevelChunk chunk) {
         if (!currentActive.get() || world == null || chunk == null) return;
@@ -173,9 +179,8 @@ public final class DownloadManager {
     }
 
     /**
-     * Coalesces repeated light-only packets before marking their cached chunk
-     * dirty.  The overlay itself is updated immediately; only export dirtiness
-     * waits for the short fixed window.
+     * Coalesces repeated light-only packets before allowing export. The overlay
+     * and its revision change immediately; export waits for the short window.
      */
     public static void markLightUpdateDirty(ClientLevel world, ChunkPos pos) {
         if (!currentActive.get()) return;
@@ -187,11 +192,12 @@ public final class DownloadManager {
     /**
      * Toggles downloading on/off.
      * When enabling, all currently loaded chunks in the active dimension are
-     * immediately captured so that the player does not need to reload them.
+     * queued for capture across subsequent ticks so the player need not reload them.
      */
     public static void toggle(Minecraft client) {
         if (currentActive.get()) {
             currentActive.set(false);
+            finishPendingBlockChanges(client);
             clearPendingCaptureState();
             finalizeCaptureOnStop(client, "manual-toggle");
             WMPlayerMessages.sendOverlayMessage(client.player,
@@ -235,7 +241,7 @@ public final class DownloadManager {
 
     /** Clears all in-memory caches. */
     public static void clearAll(Minecraft client) {
-        clearPendingCaptureState();
+        clearPendingCaptureState(false);
         int chunks     = ChunkListener.getTotalCount();
         int entities   = EntityTracker.getTotalTrackedEntities();
         int containers = ContainerTracker.getTotalSavedContainers();
@@ -257,9 +263,8 @@ public final class DownloadManager {
      */
     public static void onJoinWorld(Minecraft client) {
         downloadSessionStartedAtMs = 0L;
-        clearPendingCaptureState();
+        clearPendingCaptureState(false);
         clearCapturedWorldState();
-        ContainerTracker.clear();
         mirrorCaptureWarningShown = false;
         applyTransition(client, ModConfig.get().lifecycle.onJoinWorld, "join-world");
 
@@ -278,6 +283,7 @@ public final class DownloadManager {
     public static void onLeaveWorld(Minecraft client) {
         if (currentActive.get()) {
             currentActive.set(false);
+            finishPendingBlockChanges(client);
             clearPendingCaptureState();
             finalizeCaptureOnStop(client, "leave-world");
         } else {
@@ -317,16 +323,16 @@ public final class DownloadManager {
     }
 
     private static void processClientTick(Minecraft client) {
-        if (client.level == null) return;
-
-        captureQueue.tick(client);
-        exportCoordinator.tryStartDeferred(client);
+        if (client.level == null) {
+            exportCoordinator.tryStartDeferred(client);
+            return;
+        }
 
         ResourceKey<Level> currentDim = client.level.dimension();
         String currentSourceId = WorldMetadata.detectSourceId(client);
         String currentSourceType = WorldMetadata.detectSourceType(client);
 
-        // ── Detect server-side world change (same address, different logical world) ──
+        // ── Detect source-identifier change before processing queued captures ──
         // Must be checked BEFORE dimension change, as a world change also implies
         // a dimension change.
         if (lastSourceId != null && !lastSourceId.equals(currentSourceId)) {
@@ -341,7 +347,6 @@ public final class DownloadManager {
             lastDimension = currentDim;
             // Re-capture loaded chunks according to the new active state
             if (currentActive.get()) captureLoadedChunksAsync(client);
-            if (!currentActive.get()) return;
         }
 
         // ── Detect dimension change (Overworld ↔ Nether ↔ End, etc.) ──────────
@@ -360,6 +365,9 @@ public final class DownloadManager {
         if (lastDimension == null) lastDimension = currentDim;
         if (lastSourceId  == null) lastSourceId  = currentSourceId;
         if (lastSourceType == null) lastSourceType = currentSourceType;
+
+        captureQueue.tick(client);
+        exportCoordinator.tryStartDeferred(client);
 
         if (!currentActive.get()) return;
 
@@ -411,6 +419,7 @@ public final class DownloadManager {
         }
 
         currentActive.set(false);
+        finishPendingBlockChanges(client);
         clearPendingCaptureState();
         finalizeCaptureOnStop(client, eventName);
 
@@ -445,8 +454,8 @@ public final class DownloadManager {
      * Resolving and storing the exact folder name here ensures later downloads do
      * not continue using a stale location from a previous configuration.
      */
-    public static void setMirrorSaveLocation(String sourceId, ModConfig.SaveLocation saveLocation) {
-        MirrorMapping.getInstance().setSaveLocation(sourceId, saveLocation);
+    public static boolean setMirrorSaveLocation(String sourceId, ModConfig.SaveLocation saveLocation) {
+        return MirrorMapping.getInstance().setSaveLocation(sourceId, saveLocation);
     }
 
     /**
@@ -462,35 +471,11 @@ public final class DownloadManager {
             return MirrorMoveResult.failure("export_in_progress");
         }
         String sourceId = WorldMetadata.detectSourceId(client);
-        MirrorMapping mapping = MirrorMapping.getInstance();
-        Path source = mapping.selectOutputPath(sourceId, mapping.effectiveSaveLocation(sourceId));
-        if (!Files.isDirectory(source)) {
-            return MirrorMoveResult.failure("source_missing");
-        }
-        Path target = mapping.selectOutputPath(sourceId, targetLocation);
-        if (source.normalize().equals(target.normalize())) {
-            setMirrorSaveLocation(sourceId, targetLocation);
-            return MirrorMoveResult.success(source, target);
-        }
-        try {
-            if (Files.exists(target)) {
-                return MirrorMoveResult.failure("target_exists");
-            }
-            Files.createDirectories(target.getParent());
-            Files.move(source, target);
-            setMirrorSaveLocation(sourceId, targetLocation);
-            return MirrorMoveResult.success(source, target);
-        } catch (Exception e) {
-            WMLogger.warn("Could not move mirror world from " + source + " to " + target, e);
-            return MirrorMoveResult.failure("io_error");
-        }
+        MirrorMapping.MoveResult result = MirrorMapping.getInstance().moveToLocation(sourceId, targetLocation);
+        return new MirrorMoveResult(result.success(), result.failureCode(), result.source(), result.target());
     }
 
     public record MirrorMoveResult(boolean success, String failureCode, Path source, Path target) {
-        private static MirrorMoveResult success(Path source, Path target) {
-            return new MirrorMoveResult(true, null, source, target);
-        }
-
         private static MirrorMoveResult failure(String failureCode) {
             return new MirrorMoveResult(false, failureCode, null, null);
         }
@@ -600,10 +585,10 @@ public final class DownloadManager {
         ResourceKey<Level> dimension = world.dimension();
         int playerCX = client.player.getBlockX() >> 4;
         int playerCZ = client.player.getBlockZ() >> 4;
-        int queued = captureQueue.queueLoaded(world, playerCX, playerCZ, INITIAL_CAPTURE_RANGE,
+        boolean scheduled = captureQueue.queueLoaded(world, playerCX, playerCZ, INITIAL_CAPTURE_RANGE,
                 "initial-capture");
-        if (queued > 0) {
-            WMLogger.debug("Queued " + queued + " loaded chunks for incremental capture in ["
+        if (scheduled) {
+            WMLogger.debug("Queued a loaded-chunk scan for incremental capture in ["
                     + dimension.identifier() + "]...");
         }
     }
@@ -657,22 +642,44 @@ public final class DownloadManager {
      */
     private static void finalizeCaptureOnStop(Minecraft client, String reason) {
         ModConfig.LifecycleConfig lifecycle = ModConfig.get().lifecycle;
-        if (lifecycle.captureNearbyOnStop) {
+        boolean sourceStillAvailable = lastSourceId == null
+                || lastSourceId.equals(WorldMetadata.detectSourceId(client));
+        if (lifecycle.captureNearbyOnStop && sourceStillAvailable) {
             captureNearbyLoadedChunksSync(client, "stop-" + reason);
         }
 
         if (lifecycle.exportAllCachedOnStop) {
+            if (!sourceStillAvailable) {
+                // The client already exposes a different source. Freeze only
+                // old cached data, without sampling the new world's entities
+                // or world settings into the previous source's output.
+                exportCoordinator.start(client, new DownloadExportCoordinator.Request(
+                        DownloadExportCoordinator.Trigger.STOP, false, true,
+                        lastSourceId, lastSourceType, ContainerTracker.snapshotSavedData(),
+                        EntityTracker.snapshot(), ChunkListener.snapshotDirtyState(),
+                        WorldSettingsSnapshot.defaults()));
+                return;
+            }
             exportCoordinator.start(client, new DownloadExportCoordinator.Request(
                     DownloadExportCoordinator.Trigger.STOP, false, true,
                     lastSourceId, lastSourceType, null));
         }
     }
 
-    /**
-     * Prepares a snapshot on the game thread, then hands it off to a background
-     * background thread for the actual I/O work.
-     */
+    /** Finishes applied lighting before dropping pending capture and unprepared export requests. */
     private static void clearPendingCaptureState() {
+        clearPendingCaptureState(true);
+    }
+
+    private static void finishPendingBlockChanges(Minecraft client) {
+        if (client.level != null && (lastSourceId == null
+                || lastSourceId.equals(WorldMetadata.detectSourceId(client)))) {
+            captureQueue.finishBlockChanges(client.level);
+        }
+    }
+
+    private static void clearPendingCaptureState(boolean preserveLightUpdates) {
+        if (preserveLightUpdates) captureQueue.finishLightUpdates();
         captureQueue.clear();
         exportCoordinator.clearDeferred();
     }
@@ -681,6 +688,8 @@ public final class DownloadManager {
     private static void clearCapturedWorldState() {
         ChunkListener.clear();
         EntityTracker.clear();
+        ContainerTracker.clear();
+        exportCoordinator.markEntitiesDirty();
     }
 
     /**

@@ -20,8 +20,6 @@ final class WorldSaveLayout {
         if (id.equals(Level.END.identifier())) {
             return worldFolder.resolve("DIM1");
         }
-        return worldFolder.resolve("dimensions")
-                .resolve(id.getNamespace())
-                .resolve(id.getPath());
+        return ChunkExporter.namespacedDimensionDirectory(worldFolder, dimension);
     }
 }

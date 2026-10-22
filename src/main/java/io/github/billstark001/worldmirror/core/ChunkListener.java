@@ -1,6 +1,7 @@
 package io.github.billstark001.worldmirror.core;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,20 +24,29 @@ import net.minecraft.world.level.Level;
 @Environment(EnvType.CLIENT)
 public class ChunkListener {
 
+    // Capture, lighting, eviction, acknowledgements, and clear all run on the
+    // game thread. Export workers only materialize independent DirtySnapshots.
+
     /**
-     * A single captured chunk: the serialised NBT and the time it was received.
+     * A captured chunk and its process-local revision. The cache owns this NBT;
+     * callers must materialize an export copy before mutating it.
      */
     public record CapturedChunk(
             CompoundTag nbt,
             long capturedAtMs,
-            long revision
-    ) { }
+            long revision,
+            boolean authoritativeEmpty
+    ) {
+        public CapturedChunk(CompoundTag nbt, long capturedAtMs, long revision) {
+            this(nbt, capturedAtMs, revision, false);
+        }
+    }
 
     /**
-     * Immutable export view of dirty chunk references and the lighting overlays
-     * that belong to the same capture session.  Keeping the overlay references
-     * here lets a background export finish safely after the live cache has been
-     * cleared for a newly joined source.
+     * Immutable export view of dirty chunk references and frozen lighting maps.
+     * Later light packets, recaptures, or a source transition cannot change the
+     * lighting paired with an export's terrain revision. Chunk NBT is copied
+     * only when the background exporter materializes that chunk.
      */
     public static final class DirtySnapshot {
         private final Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> chunks;
@@ -60,7 +70,7 @@ public class ChunkListener {
             CompoundTag nbt = overlay == null
                     ? captured.nbt().copy()
                     : overlay.materialize(captured.nbt());
-            return new CapturedChunk(nbt, captured.capturedAtMs(), captured.revision());
+            return new CapturedChunk(nbt, captured.capturedAtMs(), captured.revision(), captured.authoritativeEmpty());
         }
     }
 
@@ -73,66 +83,78 @@ public class ChunkListener {
     private static final ConcurrentHashMap<ResourceKey<Level>, ConcurrentHashMap<ChunkPos, LightingOverlay>>
             dimLighting = new ConcurrentHashMap<>();
     // Highest in-memory revision known to have reached both the MCA file and
-    // the SQLite durability index.  Revisions are session-local and are never
-    // persisted; capturedAtMs remains the cross-session/database ordering key.
+    // the SQLite durability index. Revisions increase across source resets but
+    // are never persisted; capturedAtMs orders cross-session/database updates.
     private static final ConcurrentHashMap<ResourceKey<Level>, ConcurrentHashMap<ChunkPos, Long>>
             dimDurableRevisions = new ConcurrentHashMap<>();
     private static final AtomicLong nextRevision = new AtomicLong();
     private static final AtomicLong nextCaptureTimestamp = new AtomicLong();
     private static final AtomicInteger dirtyCount = new AtomicInteger();
 
+    /** Takes ownership of fresh chunk NBT on the game thread and assigns a new dirty revision. */
     public static void addChunkNbt(ResourceKey<Level> dimension, ChunkPos pos, CompoundTag chunkNbt) {
+        addChunkNbt(dimension, pos, chunkNbt, false);
+    }
+
+    /**
+     * An authoritative empty capture follows a block-change packet and has no
+     * non-air blocks or block entities. Missing old block entities must not be
+     * restored into that confirmed empty terrain.
+     */
+    public static void addChunkNbt(ResourceKey<Level> dimension, ChunkPos pos, CompoundTag chunkNbt,
+                                    boolean authoritativeEmpty) {
         ConcurrentHashMap<ChunkPos, LightingOverlay> lightingByChunk =
                 dimLighting.computeIfAbsent(dimension, k -> new ConcurrentHashMap<>());
-        AtomicBoolean becameDirty = new AtomicBoolean();
         dimChunks.computeIfAbsent(dimension, k -> new ConcurrentHashMap<>())
                  .compute(pos, (ignored, previous) -> {
-                     if (previous == null || isClean(dimension, pos, previous)) {
-                         becameDirty.set(true);
-                     }
+                     boolean becameDirty = previous == null || isClean(dimension, pos, previous);
                      CompoundTag mergedNbt = chunkNbt;
-                     if (previous != null) {
+                     if (previous != null && !authoritativeEmpty) {
                          BlockEntityNbtSupport.mergeChunkBlockEntities(mergedNbt, previous.nbt());
                      }
                      lightingByChunk.computeIfAbsent(pos, ignoredKey -> new LightingOverlay())
                              .absorbAndStrip(mergedNbt);
-                     return new CapturedChunk(mergedNbt,
-                             nextTimestamp(previous), nextRevision.incrementAndGet());
+                     CapturedChunk captured = new CapturedChunk(mergedNbt,
+                             nextTimestamp(previous), nextRevision.incrementAndGet(), authoritativeEmpty);
+                     if (becameDirty) dirtyCount.incrementAndGet();
+                     return captured;
                  });
-        if (becameDirty.get()) dirtyCount.incrementAndGet();
     }
 
     /**
      * Records a light-only packet against an existing base chunk.  Returns
      * {@code false} when no base chunk is cached and the caller should queue a
-     * normal chunk capture instead.
+     * normal chunk capture instead. Assigns a revision immediately so an older
+     * export cannot invalidate light waiting in the export coalescing window.
      */
     public static boolean applyLightUpdate(
             ResourceKey<Level> dimension,
             ChunkPos pos,
             LightingUpdate update) {
         ConcurrentHashMap<ChunkPos, CapturedChunk> chunks = dimChunks.get(dimension);
-        if (chunks == null || !chunks.containsKey(pos)) {
-            return false;
-        }
-
-        dimLighting.computeIfAbsent(dimension, ignored -> new ConcurrentHashMap<>())
-                .computeIfAbsent(pos, ignored -> new LightingOverlay())
-                .applyUpdate(update);
-        return true;
+        if (chunks == null) return false;
+        AtomicBoolean applied = new AtomicBoolean();
+        chunks.computeIfPresent(pos, (ignored, previous) -> {
+            dimLighting.computeIfAbsent(dimension, key -> new ConcurrentHashMap<>())
+                    .computeIfAbsent(pos, key -> new LightingOverlay()).applyUpdate(update);
+            CapturedChunk captured = new CapturedChunk(previous.nbt(), nextTimestamp(previous),
+                    nextRevision.incrementAndGet(), previous.authoritativeEmpty());
+            if (isClean(dimension, pos, previous)) dirtyCount.incrementAndGet();
+            applied.set(true);
+            return captured;
+        });
+        return applied.get();
     }
 
     /** Marks a chunk dirty after its light-update coalescing window has elapsed. */
     public static void markChunkDirty(ResourceKey<Level> dimension, ChunkPos pos) {
         ConcurrentHashMap<ChunkPos, CapturedChunk> chunks = dimChunks.get(dimension);
         if (chunks == null) return;
-        AtomicBoolean becameDirty = new AtomicBoolean();
         chunks.computeIfPresent(pos, (ignored, previous) -> {
-            if (isClean(dimension, pos, previous)) becameDirty.set(true);
+            if (isClean(dimension, pos, previous)) dirtyCount.incrementAndGet();
             return new CapturedChunk(previous.nbt(), nextTimestamp(previous),
-                    nextRevision.incrementAndGet());
+                    nextRevision.incrementAndGet(), previous.authoritativeEmpty());
         });
-        if (becameDirty.get()) dirtyCount.incrementAndGet();
     }
 
     /**
@@ -144,7 +166,7 @@ public class ChunkListener {
         return snapshotDirtyState().chunks();
     }
 
-    /** Captures dirty references together with their session-local lighting overlays. */
+    /** Captures dirty references and freezes their session-local lighting overlays. */
     public static DirtySnapshot snapshotDirtyState() {
         Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> result = new HashMap<>();
         Map<ResourceKey<Level>, Map<ChunkPos, LightingOverlay>> lighting = new HashMap<>();
@@ -158,7 +180,7 @@ public class ChunkListener {
                     dirty.put(entry.getKey(), entry.getValue());
                     if (liveLighting != null) {
                         LightingOverlay overlay = liveLighting.get(entry.getKey());
-                        if (overlay != null) dimensionLighting.put(entry.getKey(), overlay);
+                        if (overlay != null) dimensionLighting.put(entry.getKey(), overlay.snapshot());
                     }
                 }
             }
@@ -192,13 +214,13 @@ public class ChunkListener {
         CompoundTag nbt = lighting == null
                 ? captured.nbt().copy()
                 : lighting.materialize(captured.nbt());
-        return new CapturedChunk(nbt, captured.capturedAtMs(), captured.revision());
+        return new CapturedChunk(nbt, captured.capturedAtMs(), captured.revision(), captured.authoritativeEmpty());
     }
 
-    /** Live map for a single dimension (used for existence checks on the game thread). */
+    /** Read-only live map for game-thread queries; use DirtySnapshot for background exports. */
     public static Map<ChunkPos, CapturedChunk> getDimension(ResourceKey<Level> dim) {
         Map<ChunkPos, CapturedChunk> chunks = dimChunks.get(dim);
-        return chunks == null ? Map.of() : chunks;
+        return chunks == null ? Map.of() : Collections.unmodifiableMap(chunks);
     }
 
     /** Lightweight viewport state for maps; serialized chunk NBT never leaves the cache. */
@@ -245,10 +267,10 @@ public class ChunkListener {
     }
 
     /**
-     * Acknowledges exact revisions after durable MCA and database commits.
+     * Acknowledges exact revisions on the game thread after durable MCA and database commits.
      * A newer revision that arrived while the writer was running is retained.
      */
-    public static void acknowledge(
+    public static Map<ResourceKey<Level>, Set<ChunkPos>> acknowledge(
             Map<ResourceKey<Level>, ? extends Map<ChunkPos, Long>> revisionsByDim,
             boolean invalidateCleanEntries) {
         int invalidated = 0;
@@ -256,21 +278,23 @@ public class ChunkListener {
         for (Map.Entry<ResourceKey<Level>, ? extends Map<ChunkPos, Long>> dimEntry
                 : revisionsByDim.entrySet()) {
             ResourceKey<Level> dimension = dimEntry.getKey();
+            ConcurrentHashMap<ChunkPos, CapturedChunk> chunks = dimChunks.get(dimension);
+            if (chunks == null) continue;
             ConcurrentHashMap<ChunkPos, Long> durable =
                     dimDurableRevisions.computeIfAbsent(dimension, ignored -> new ConcurrentHashMap<>());
-            ConcurrentHashMap<ChunkPos, CapturedChunk> chunks = dimChunks.get(dimension);
             for (Map.Entry<ChunkPos, Long> entry : dimEntry.getValue().entrySet()) {
                 ChunkPos pos = entry.getKey();
                 long revision = entry.getValue();
+                CapturedChunk current = chunks.get(pos);
+                if (current == null) continue;
                 long previousDurable = durable.getOrDefault(pos, 0L);
                 long acknowledgedRevision = durable.merge(pos, revision, Math::max);
-                CapturedChunk current = chunks == null ? null : chunks.get(pos);
                 if (current != null
                         && previousDurable < current.revision()
                         && acknowledgedRevision >= current.revision()) {
                     decrementDirtyCount();
                 }
-                if (!invalidateCleanEntries || chunks == null) continue;
+                if (!invalidateCleanEntries) continue;
 
                 current = chunks.get(pos);
                 if (current != null && current.revision() <= revision && chunks.remove(pos, current)) {
@@ -284,8 +308,8 @@ public class ChunkListener {
         }
         if (invalidated > 0) {
             WMLogger.debug("Invalidated " + invalidated + " durably exported chunks from cache.");
-            ContainerTracker.evictForChunks(invalidatedByDim);
         }
+        return invalidatedByDim;
     }
 
     /**

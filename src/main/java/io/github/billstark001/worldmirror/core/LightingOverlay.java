@@ -22,6 +22,14 @@ final class LightingOverlay {
     private final Map<Integer, LayerValue> blockLight = new HashMap<>();
     private final Map<Integer, LayerValue> skyLight = new HashMap<>();
 
+    /** Freezes the section maps; immutable layer values can safely be shared. */
+    synchronized LightingOverlay snapshot() {
+        LightingOverlay snapshot = new LightingOverlay();
+        snapshot.blockLight.putAll(blockLight);
+        snapshot.skyLight.putAll(skyLight);
+        return snapshot;
+    }
+
     /**
      * Moves all known light arrays out of a freshly captured chunk NBT and
      * into this overlay.  Tags which are absent remain unknown and therefore
@@ -84,7 +92,9 @@ final class LightingOverlay {
                 if (!updateIterator.hasNext()) {
                     throw new IllegalArgumentException("Light packet update mask has too few arrays");
                 }
-                target.put(minLightSection + index, LayerValue.data(updateIterator.next()));
+                // LightingUpdate accessors already return independent arrays;
+                // transfer ownership instead of cloning every section again.
+                target.put(minLightSection + index, new LayerValue(updateIterator.next(), false));
             } else if (emptyMask.get(index)) {
                 target.put(minLightSection + index, LayerValue.zero());
             }

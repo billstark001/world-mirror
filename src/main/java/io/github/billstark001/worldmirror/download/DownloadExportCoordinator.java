@@ -12,6 +12,7 @@ import io.github.billstark001.worldmirror.io.ChunkExporter;
 import io.github.billstark001.worldmirror.io.MirrorWorldgenAssets;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
 import io.github.billstark001.worldmirror.io.WorldSettingsSnapshot;
+import io.github.billstark001.worldmirror.io.WorldWriteLock;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.util.WMPlayerMessages;
 import net.minecraft.ChatFormatting;
@@ -27,8 +28,12 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
 import java.nio.file.Path;
 import java.sql.SQLException;
+import java.util.ArrayDeque;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Iterator;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -36,12 +41,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
+import java.util.function.Consumer;
 
 /** Serializes export requests and owns the complete background durability transaction. */
 final class DownloadExportCoordinator {
     enum Trigger {
         MANUAL(false, 2),
         STOP(false, 3),
+        RETRY(false, 1),
         PERIODIC(true, 0),
         ADAPTIVE_HIGH_WATERMARK(true, 0),
         ADAPTIVE_MAX_LATENCY(true, 0);
@@ -60,7 +67,17 @@ final class DownloadExportCoordinator {
                    Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> containerSnapshot,
                    Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> entitySnapshot,
                    ChunkListener.DirtySnapshot terrainSnapshot,
-                   WorldSettingsSnapshot worldSettings) {
+                   WorldSettingsSnapshot worldSettings,
+                   long knownDurableCaptureTime) {
+        Request(Trigger trigger, boolean shouldNotify, boolean preCaptureAlreadyDone,
+                String preferredSourceId, String preferredSourceType,
+                Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> containerSnapshot,
+                Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> entitySnapshot,
+                ChunkListener.DirtySnapshot terrainSnapshot, WorldSettingsSnapshot worldSettings) {
+            this(trigger, shouldNotify, preCaptureAlreadyDone, preferredSourceId, preferredSourceType,
+                    containerSnapshot, entitySnapshot, terrainSnapshot, worldSettings, 0L);
+        }
+
         Request(Trigger trigger, boolean shouldNotify, boolean preCaptureAlreadyDone,
                 String preferredSourceId, String preferredSourceType,
                 Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> containerSnapshot,
@@ -89,6 +106,7 @@ final class DownloadExportCoordinator {
 
     private final DownloadCaptureQueue captureQueue;
     private final Supplier<DownloadPipeline> pipelineSupplier;
+    private final Consumer<Runnable> clientExecutor;
     private final AtomicBoolean inProgress = new AtomicBoolean();
     private final AtomicLong entityRevision = new AtomicLong(1L);
     private final AtomicLong durableEntityRevision = new AtomicLong();
@@ -97,7 +115,60 @@ final class DownloadExportCoordinator {
     private final AtomicLong deferredCoalesced = new AtomicLong();
     private final AtomicLong workerWallMillis = new AtomicLong();
     private final Object requestLock = new Object();
-    private Request pending;
+    private final DeferredRequests deferred = new DeferredRequests();
+
+    /** Guarded by requestLock. Each frozen world is retained until it gets its own worker pass. */
+    static final class DeferredRequests {
+        private record Scheduled(Request request, long readyAtNs) { }
+        private final ArrayDeque<Scheduled> frozen = new ArrayDeque<>();
+        private Request live;
+
+        boolean offer(Request request) {
+            if (hasPreparedWorldSnapshot(request)) {
+                frozen.addLast(new Scheduled(request, Long.MIN_VALUE));
+                return false;
+            }
+            boolean coalesced = live != null;
+            live = coalesced ? mergeDeferredRequests(live, request) : request;
+            return coalesced;
+        }
+
+        Request poll(boolean capturesPending) {
+            return poll(capturesPending, System.nanoTime());
+        }
+
+        Request poll(boolean capturesPending, long nowNs) {
+            Set<String> blockedSources = new HashSet<>();
+            Iterator<Scheduled> iterator = frozen.iterator();
+            while (iterator.hasNext()) {
+                Scheduled scheduled = iterator.next();
+                String source = scheduled.request().preferredSourceId();
+                if (blockedSources.contains(source)) continue;
+                if (scheduled.readyAtNs() == Long.MIN_VALUE || nowNs - scheduled.readyAtNs() >= 0L) {
+                    iterator.remove();
+                    return scheduled.request();
+                }
+                blockedSources.add(source);
+            }
+            if (capturesPending || live == null || blockedSources.contains(live.preferredSourceId())) return null;
+            Request request = live;
+            live = null;
+            return request;
+        }
+
+        void retry(Request request, long readyAtNs) {
+            if (!hasPreparedWorldSnapshot(request)) throw new IllegalArgumentException("A retry needs frozen input");
+            frozen.addFirst(new Scheduled(request, readyAtNs));
+        }
+
+        boolean hasFrozenForSource(String sourceId) {
+            return frozen.stream().anyMatch(item -> Objects.equals(sourceId, item.request().preferredSourceId()));
+        }
+
+        void clearLive() {
+            live = null;
+        }
+    }
 
     private volatile long lastExportMillis;
     private volatile int lastWritten;
@@ -115,8 +186,15 @@ final class DownloadExportCoordinator {
 
     DownloadExportCoordinator(DownloadCaptureQueue captureQueue,
                               Supplier<DownloadPipeline> pipelineSupplier) {
+        this(captureQueue, pipelineSupplier, task -> Minecraft.getInstance().execute(task));
+    }
+
+    DownloadExportCoordinator(DownloadCaptureQueue captureQueue,
+                              Supplier<DownloadPipeline> pipelineSupplier,
+                              Consumer<Runnable> clientExecutor) {
         this.captureQueue = captureQueue;
         this.pipelineSupplier = pipelineSupplier;
+        this.clientExecutor = clientExecutor;
     }
 
     boolean isInProgress() {
@@ -158,16 +236,23 @@ final class DownloadExportCoordinator {
 
     void clearDeferred() {
         synchronized (requestLock) {
-            if (pending != null && pending.entitySnapshot() == null
-                    && pending.terrainSnapshot() == null) {
-                pending = null;
-            }
+            deferred.clearLive();
         }
     }
 
     boolean start(Minecraft client, Request request) {
+        return start(client, request, false);
+    }
+
+    private boolean start(Minecraft client, Request request, boolean fromDeferredQueue) {
         request = withWorldSettings(client, request);
-        if (inProgress.get()) {
+        request = withSourceIdentity(request, WorldMetadata.detectSourceId(client),
+                WorldMetadata.detectSourceType(client));
+        boolean previousSourceWork;
+        synchronized (requestLock) {
+            previousSourceWork = !fromDeferredQueue && deferred.hasFrozenForSource(request.preferredSourceId());
+        }
+        if (inProgress.get() || previousSourceWork) {
             if (request.trigger().automatic) {
                 automaticSuppressed.incrementAndGet();
                 return false;
@@ -176,7 +261,7 @@ final class DownloadExportCoordinator {
                     ? withPreparedSnapshots(client, request) : request;
             defer(withContainerSnapshot(deferred));
             WMLogger.debug("Export already in progress; queued trigger="
-                    + request.trigger() + " for one deferred pass.");
+                    + request.trigger() + " for a deferred pass.");
             return false;
         }
 
@@ -191,13 +276,13 @@ final class DownloadExportCoordinator {
                 && client.level != null && client.player != null) {
             int playerCX = client.player.getBlockX() >> 4;
             int playerCZ = client.player.getBlockZ() >> 4;
-            int queued = captureQueue.queueLoaded(client.level, playerCX, playerCZ,
+            boolean scheduled = captureQueue.queueLoaded(client.level, playerCX, playerCZ,
                     8, "pre-export");
-            if (queued > 0 || captureQueue.isCaptureInProgress()) {
+            if (scheduled || captureQueue.isCaptureInProgress()) {
                 defer(new Request(request.trigger(), request.shouldNotify(), true,
                         request.preferredSourceId(), request.preferredSourceType(),
                         request.containerSnapshot(), request.entitySnapshot(),
-                        request.terrainSnapshot(), request.worldSettings()));
+                        request.terrainSnapshot(), request.worldSettings(), request.knownDurableCaptureTime()));
                 return false;
             }
         }
@@ -216,20 +301,18 @@ final class DownloadExportCoordinator {
                 request.containerSnapshot() != null
                         ? request.containerSnapshot() : ContainerTracker.snapshotSavedData();
 
-        String sourceId = request.preferredSourceId();
-        String sourceType = request.preferredSourceType();
-        if (isUnknownSourceId(sourceId)) sourceId = WorldMetadata.detectSourceId(client);
-        if (isBlank(sourceType)) sourceType = WorldMetadata.detectSourceType(client);
-        if (isUnknownSourceId(sourceId)) sourceId = "unknown";
-        if (isBlank(sourceType)) sourceType = "server";
-        final String finalSourceId = sourceId;
-        final String finalSourceType = sourceType;
+        final String finalSourceId = request.preferredSourceId();
+        final String finalSourceType = request.preferredSourceType();
 
         Path worldFolder;
         try {
             worldFolder = MirrorMapping.getInstance().claimOutputDirectory(finalSourceId);
         } catch (Exception e) {
             WMLogger.warn("Export output directory preparation failed source=" + finalSourceId, e);
+            failures.incrementAndGet();
+            notifyFailure(request);
+            retainForRetry(request, snapshot, entitySnapshot, containerSnapshot,
+                    finalSourceId, finalSourceType, request.knownDurableCaptureTime());
             return false;
         }
 
@@ -255,11 +338,11 @@ final class DownloadExportCoordinator {
     void tryStartDeferred(Minecraft client) {
         Request request;
         synchronized (requestLock) {
-            if (captureQueue.hasWork() || inProgress.get() || pending == null) return;
-            request = pending;
-            pending = null;
+            if (inProgress.get()) return;
+            request = deferred.poll(captureQueue.hasWork() || client.level == null);
+            if (request == null) return;
         }
-        start(client, request);
+        start(client, request, true);
     }
 
     private void runWorker(Request request, ChunkListener.DirtySnapshot snapshot,
@@ -273,12 +356,14 @@ final class DownloadExportCoordinator {
         ChunkDatabase db = null;
         long startedNs = System.nanoTime();
         long startedCpuNs = currentThreadCpuTimeNs();
-        try {
+        boolean completedSuccessfully = false;
+        long latestDurableCaptureTime = request.knownDurableCaptureTime();
+        try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
             MirrorMigrationPlan.Inspection readiness = MirrorMigrationCoordinator.inspect(worldFolder);
             if (!readiness.mayCreateOrWriteWithoutMigration()) {
                 WMLogger.warn("Mirror requires an explicit upgrade or is not writable ("
                         + readiness.state() + "); export aborted without modifying it.");
-                notifyFailure(request.shouldNotify());
+                notifyFailure(request);
                 return;
             }
 
@@ -290,31 +375,36 @@ final class DownloadExportCoordinator {
                     worldFolder, sourceId, createFreshWorld, createFreshWorld, worldSettings);
             if (!worldgenReady) {
                 WMLogger.warn("World generation setup failed; export aborted before writing chunks.");
-                notifyFailure(request.shouldNotify());
+                notifyFailure(request);
                 return;
             }
             if (createFreshWorld) {
                 metadata.markWorldgenCurrent(
                         net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version(),
                         MirrorWorldgenAssets.ASSET_REVISION);
-                metadata.save(worldFolder);
+                if (!metadata.save(worldFolder)) {
+                    notifyFailure(request);
+                    return;
+                }
             }
 
             try {
                 db = ChunkDatabase.open(worldFolder, sourceId);
             } catch (SQLException e) {
                 WMLogger.warn("Chunk database open failed; export aborted world=" + worldFolder, e);
-                notifyFailure(request.shouldNotify());
+                notifyFailure(request);
                 return;
             }
-            metadata.migrateAndCleanChunkTimes(db, worldFolder);
+            if (!metadata.migrateAndCleanChunkTimes(db, worldFolder)) {
+                notifyFailure(request);
+                return;
+            }
             ChunkExporter.ExportResult result = ChunkExporter.exportChunks(
                     worldFolder, snapshot, entitySnapshot, containerSnapshot,
                     buildResolver(sourceId), db);
             lastTimings = result.timings();
 
             Map<ResourceKey<Level>, Map<ChunkPos, Long>> durableWritten = new HashMap<>();
-            long latestDurableCaptureTime = 0L;
             boolean durabilityIndexSuccessful = true;
             long durabilityStartedNs = System.nanoTime();
             for (Map.Entry<ResourceKey<Level>, Set<ChunkPos>> dimension
@@ -351,17 +441,12 @@ final class DownloadExportCoordinator {
             lastDurabilityIndexMillis = (System.nanoTime() - durabilityStartedNs) / 1_000_000L;
 
             boolean invalidate = ModConfig.get().cache.invalidateAfterExport;
-            ChunkListener.acknowledge(result.settledRevisions(), invalidate);
-            ChunkListener.acknowledge(durableWritten, invalidate);
-            EntityTracker.acknowledge(result.entityRevisions());
-            if (result.entityWritesSuccessful()) {
-                durableEntityRevision.accumulateAndGet(entitySnapshotRevision, Math::max);
-            }
+            dispatchAcknowledgements(request, entitySnapshotRevision, result, durableWritten, containerSnapshot, invalidate);
 
             boolean successful = result.chunkWritesSuccessful()
                     && result.entityWritesSuccessful() && durabilityIndexSuccessful;
-            if (successful) metadata.markSyncComplete(worldFolder, latestDurableCaptureTime);
-            else failures.incrementAndGet();
+            if (successful) successful = metadata.markSyncComplete(worldFolder, latestDurableCaptureTime);
+            completedSuccessfully = successful;
 
             int written = result.totalWritten();
             int unreadable = result.unreadableChunks().values().stream().mapToInt(Set::size).sum();
@@ -375,7 +460,6 @@ final class DownloadExportCoordinator {
                     + " pipeline=" + pipelineMode + " trigger=" + request.trigger()
                     + " dirtySnapshot=" + totalChunks + " written=" + written
                     + " unreadable=" + unreadable + " settled=" + lastSettled
-                    + " dirtyRemaining=" + ChunkListener.getDirtyCount()
                     + " elapsedMs=" + elapsedMs);
 
             if (request.shouldNotify() && successful) {
@@ -383,47 +467,80 @@ final class DownloadExportCoordinator {
                         Minecraft.getInstance().player,
                         Component.translatable("msg.worldmirror.exportDone")));
             } else if (request.shouldNotify()) {
-                notifyFailure(true);
+                notifyFailure(request);
             }
         } catch (Exception e) {
-            failures.incrementAndGet();
+            completedSuccessfully = false;
             WMLogger.warn("Export pass failed trigger=" + request.trigger()
                     + " world=" + worldFolder, e);
-            notifyFailure(request.shouldNotify());
+            notifyFailure(request);
         } finally {
             lastExportMillis = (System.nanoTime() - startedNs) / 1_000_000L;
             if (diagnosticExport) workerWallMillis.addAndGet(lastExportMillis);
             if (db != null) db.close();
+            if (!completedSuccessfully) {
+                failures.incrementAndGet();
+                retainForRetry(request, snapshot, entitySnapshot, containerSnapshot,
+                        sourceId, sourceType, latestDurableCaptureTime);
+            }
             inProgress.set(false);
-            Minecraft.getInstance().execute(() -> tryStartDeferred(Minecraft.getInstance()));
+            clientExecutor.accept(() -> tryStartDeferred(Minecraft.getInstance()));
         }
     }
 
     private void defer(Request request) {
         synchronized (requestLock) {
-            if (pending == null) {
-                pending = request;
-                return;
-            }
-            deferredCoalesced.incrementAndGet();
-            pending = mergeDeferredRequests(pending, request);
+            if (deferred.offer(request)) deferredCoalesced.incrementAndGet();
+        }
+    }
+
+    private void retainForRetry(Request request, ChunkListener.DirtySnapshot terrain,
+                                 Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> entities,
+                                 Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> containers,
+                                 String sourceId, String sourceType, long durableCaptureTime) {
+        Request retry = new Request(Trigger.RETRY, request.shouldNotify(), true, sourceId, sourceType,
+                containers, entities, terrain, request.worldSettings(), durableCaptureTime);
+        long delaySeconds = request.trigger() == Trigger.RETRY ? 60L : 10L;
+        synchronized (requestLock) {
+            deferred.retry(retry, System.nanoTime() + TimeUnit.SECONDS.toNanos(delaySeconds));
+        }
+        WMLogger.debug("Retained frozen export source=" + sourceId + " for retry after " + delaySeconds + "s");
+    }
+
+    /** Cache mutations share the game thread with capture, lighting packets, and source resets. */
+    void dispatchAcknowledgements(Request request, long capturedEntityRevision,
+                                  ChunkExporter.ExportResult result,
+                                  Map<ResourceKey<Level>, Map<ChunkPos, Long>> durableWritten,
+                                  Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> containerSnapshot,
+                                  boolean invalidate) {
+        Map<ResourceKey<Level>, Map<ChunkPos, Long>> written = new HashMap<>();
+        durableWritten.forEach((dimension, revisions) -> written.put(dimension, Map.copyOf(revisions)));
+        Map<ResourceKey<Level>, Map<ChunkPos, Long>> settled = result.settledRevisions();
+        clientExecutor.accept(() -> {
+            Map<ResourceKey<Level>, Set<ChunkPos>> invalidated = new HashMap<>();
+            ChunkListener.acknowledge(settled, invalidate).forEach((dimension, chunks) ->
+                    invalidated.computeIfAbsent(dimension, ignored -> new HashSet<>()).addAll(chunks));
+            ChunkListener.acknowledge(written, invalidate).forEach((dimension, chunks) ->
+                    invalidated.computeIfAbsent(dimension, ignored -> new HashSet<>()).addAll(chunks));
+            invalidated.forEach((dimension, chunks) ->
+                    chunks.removeIf(pos -> captureQueue.hasPendingChunkWork(dimension, pos)));
+            ContainerTracker.evictForChunks(invalidated, containerSnapshot);
+            EntityTracker.acknowledge(result.entityRevisions());
+            acknowledgeEntityWork(request, capturedEntityRevision, result.entityWritesSuccessful());
+            WMLogger.debug("Export revisions acknowledged; dirtyRemaining=" + ChunkListener.getDirtyCount());
+        });
+    }
+
+    /** Frozen requests cannot acknowledge capture signals from the currently live source. */
+    void acknowledgeEntityWork(Request request, long capturedRevision, boolean successful) {
+        if (successful && request.entitySnapshot() == null) {
+            durableEntityRevision.accumulateAndGet(capturedRevision, Math::max);
         }
     }
 
     static Request mergeDeferredRequests(Request pending, Request request) {
-        if (hasPreparedWorldSnapshot(pending)) {
-            return new Request(preferredTrigger(request.trigger(), pending.trigger()),
-                    pending.shouldNotify() || request.shouldNotify(), true,
-                    pending.preferredSourceId(), pending.preferredSourceType(),
-                    pending.containerSnapshot(), pending.entitySnapshot(),
-                    pending.terrainSnapshot(), pending.worldSettings());
-        }
-        if (hasPreparedWorldSnapshot(request)) {
-            return new Request(preferredTrigger(request.trigger(), pending.trigger()),
-                    pending.shouldNotify() || request.shouldNotify(), true,
-                    request.preferredSourceId(), request.preferredSourceType(),
-                    request.containerSnapshot(), request.entitySnapshot(),
-                    request.terrainSnapshot(), request.worldSettings());
+        if (hasPreparedWorldSnapshot(pending) || hasPreparedWorldSnapshot(request)) {
+            throw new IllegalArgumentException("Frozen world snapshots require separate export passes");
         }
         return new Request(preferredTrigger(request.trigger(), pending.trigger()),
                     pending.shouldNotify() || request.shouldNotify(),
@@ -437,7 +554,8 @@ final class DownloadExportCoordinator {
                     request.terrainSnapshot() != null
                             ? request.terrainSnapshot() : pending.terrainSnapshot(),
                     request.worldSettings() != null
-                            ? request.worldSettings() : pending.worldSettings());
+                            ? request.worldSettings() : pending.worldSettings(),
+                    Math.max(request.knownDurableCaptureTime(), pending.knownDurableCaptureTime()));
     }
 
     private static boolean hasPreparedWorldSnapshot(Request request) {
@@ -449,7 +567,7 @@ final class DownloadExportCoordinator {
         return new Request(request.trigger(), request.shouldNotify(), request.preCaptureAlreadyDone(),
                 request.preferredSourceId(), request.preferredSourceType(),
                 ContainerTracker.snapshotSavedData(), request.entitySnapshot(),
-                request.terrainSnapshot(), request.worldSettings());
+                request.terrainSnapshot(), request.worldSettings(), request.knownDurableCaptureTime());
     }
 
     /** Captures stop-time state before a running export can outlive the client world. */
@@ -464,7 +582,7 @@ final class DownloadExportCoordinator {
                 ? request.terrainSnapshot() : ChunkListener.snapshotDirtyState();
         return new Request(request.trigger(), request.shouldNotify(), true,
                 request.preferredSourceId(), request.preferredSourceType(),
-                request.containerSnapshot(), entities, terrain, request.worldSettings());
+                request.containerSnapshot(), entities, terrain, request.worldSettings(), request.knownDurableCaptureTime());
     }
 
     private static Request withWorldSettings(Minecraft client, Request request) {
@@ -474,7 +592,22 @@ final class DownloadExportCoordinator {
         return new Request(request.trigger(), request.shouldNotify(),
                 request.preCaptureAlreadyDone(), request.preferredSourceId(),
                 request.preferredSourceType(), request.containerSnapshot(),
-                request.entitySnapshot(), request.terrainSnapshot(), captured);
+                request.entitySnapshot(), request.terrainSnapshot(), captured, request.knownDurableCaptureTime());
+    }
+
+    /** Resolves identity before deferral so a later client world cannot relabel frozen data. */
+    static Request withSourceIdentity(Request request, String detectedId, String detectedType) {
+        boolean unresolved = isBlank(request.preferredSourceId())
+                || (!hasPreparedWorldSnapshot(request) && isUnknownSourceId(request.preferredSourceId()));
+        String sourceId = unresolved
+                ? detectedId : request.preferredSourceId();
+        String sourceType = isBlank(request.preferredSourceType())
+                ? detectedType : request.preferredSourceType();
+        return new Request(request.trigger(), request.shouldNotify(), request.preCaptureAlreadyDone(),
+                isUnknownSourceId(sourceId) ? "unknown" : sourceId,
+                isBlank(sourceType) ? "server" : sourceType,
+                request.containerSnapshot(), request.entitySnapshot(), request.terrainSnapshot(), request.worldSettings(),
+                request.knownDurableCaptureTime());
     }
 
     private static ConflictResolver buildResolver(String sourceId) {
@@ -512,8 +645,8 @@ final class DownloadExportCoordinator {
                 + " workerCpuMs=" + cpuMs + " elapsedMs=" + elapsedMs);
     }
 
-    private static void notifyFailure(boolean notify) {
-        if (!notify) return;
+    private static void notifyFailure(Request request) {
+        if (!request.shouldNotify() || request.trigger() == Trigger.RETRY) return;
         Minecraft.getInstance().execute(() -> WMPlayerMessages.sendSystemMessage(
                 Minecraft.getInstance().player,
                 Component.translatable("msg.worldmirror.exportFailed")

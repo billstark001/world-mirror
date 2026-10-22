@@ -51,7 +51,7 @@ public abstract class ChunkDataMixin {
     @Inject(method = "handleBlockUpdate", at = @At("TAIL"))
     private void onBlockUpdate(ClientboundBlockUpdatePacket packet, CallbackInfo ci) {
         ClientLevel world = this.getLevel();
-        if (world != null) DownloadManager.queueChunkCapture(world,
+        if (world != null) DownloadManager.queueBlockChange(world,
                 new ChunkPos(packet.getPos().getX() >> 4, packet.getPos().getZ() >> 4),
                 "block-update");
     }
@@ -60,7 +60,7 @@ public abstract class ChunkDataMixin {
     private void onSectionBlocksUpdate(ClientboundSectionBlocksUpdatePacket packet, CallbackInfo ci) {
         ClientLevel world = this.getLevel();
         if (world == null || !DownloadManager.isActive()) return;
-        packet.runUpdates((pos, state) -> DownloadManager.queueChunkCapture(
+        packet.runUpdates((pos, state) -> DownloadManager.queueBlockChange(
                 world, new ChunkPos(pos.getX() >> 4, pos.getZ() >> 4),
                 "section-block-update"));
     }

@@ -31,8 +31,9 @@ public class ChunkSerializer {
 
     /**
      * Returns {@code true} if the chunk has no non-air blocks and no block entities,
-     * which means the server sent an empty placeholder chunk (e.g. beyond its own
-     * render distance). Such chunks are not worth caching or exporting.
+     * which may be a server placeholder beyond its render distance. Ordinary
+     * observations skip these chunks; explicit block-change captures may save
+     * the empty result to remove previously recorded terrain.
      */
     public static boolean isChunkEmpty(ChunkAccess chunk) {
         for (LevelChunkSection section : chunk.getSections()) {
