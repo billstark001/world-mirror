@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
+import java.util.HashMap;
 import java.util.Set;
 import java.util.UUID;
 
@@ -34,6 +35,30 @@ class EntitySnapshotStoreTest {
         assertEquals(EntityTracker.Observation.COMPLETE, update.observation());
         assertTrue(update.upserts().isEmpty());
         assertTrue(update.tombstones().isEmpty());
+    }
+
+    @Test
+    void revertingToPersistedEmptyStateRetainsACorrectionForAnOlderInFlightSnapshot() {
+        EntitySnapshotStore store = new EntitySnapshotStore();
+        ChunkPos chunk = new ChunkPos(0, 0);
+        store.capture(Map.of(), Set.of(chunk));
+        store.acknowledge(Map.of(chunk, store.snapshot().get(chunk).revision()));
+        UUID uuid = new UUID(50L, 1L);
+        store.capture(observed(chunk, record(uuid)), Set.of(chunk));
+        long inFlight = store.snapshot().get(chunk).revision();
+
+        store.capture(Map.of(), Set.of(chunk));
+
+        assertTrue(store.hasPending(), "a previous snapshot may still write the now-despawned entity");
+        var correction = store.snapshot().get(chunk);
+        assertEquals(EntityTracker.Observation.COMPLETE, correction.observation());
+        assertTrue(correction.upserts().isEmpty());
+        assertTrue(correction.revision() > inFlight);
+        store.acknowledge(Map.of(chunk, inFlight));
+        assertTrue(store.hasPending());
+        store.acknowledge(Map.of(chunk, correction.revision()));
+        store.capture(Map.of(), Set.of(chunk));
+        assertFalse(store.hasPending());
     }
 
     @Test
@@ -126,6 +151,64 @@ class EntitySnapshotStoreTest {
         record.nbt().putInt("MutatedOutsideRecord", 1);
 
         assertFalse(record.nbt().contains("MutatedOutsideRecord"));
+    }
+
+    @Test
+    void smallCompleteObservationsStayCleanWithLargeHistoricalEntityCoverage() {
+        EntitySnapshotStore store = new EntitySnapshotStore();
+        Map<ChunkPos, Map<UUID, EntityTracker.EntityRecord>> history = new HashMap<>();
+        for (int x = 0; x < 5_000; x++) {
+            Map<UUID, EntityTracker.EntityRecord> records = new HashMap<>();
+            for (int entity = 0; entity < 4; entity++) {
+                UUID uuid = new UUID(x, entity);
+                records.put(uuid, record(uuid));
+            }
+            history.put(new ChunkPos(x, 0), records);
+        }
+        store.capture(history, history.keySet());
+        Map<ChunkPos, Long> revisions = new HashMap<>();
+        store.snapshot().forEach((chunk, update) -> revisions.put(chunk, update.revision()));
+        store.acknowledge(revisions);
+        Map<ChunkPos, Map<UUID, EntityTracker.EntityRecord>> nearby = new HashMap<>();
+        history.forEach((chunk, records) -> {
+            if ((chunk.getMinBlockX() >> 4) < 25) nearby.put(chunk, records);
+        });
+
+        for (int observation = 0; observation < 100; observation++) {
+            store.capture(nearby, nearby.keySet());
+            assertFalse(store.hasPending());
+        }
+        assertEquals(20_000, store.knownEntityCount());
+
+        store.capture(Map.of(), nearby.keySet());
+        assertEquals(19_900, store.knownEntityCount());
+        assertEquals(25, store.snapshot().size());
+    }
+
+    @Test
+    void completeMoveAndDespawnDoNotLeaveHistoricalIndexEntries() {
+        EntitySnapshotStore store = new EntitySnapshotStore();
+        ChunkPos source = new ChunkPos(0, 0);
+        ChunkPos target = new ChunkPos(1, 0);
+        UUID uuid = new UUID(14, 32);
+        store.capture(observed(source, record(uuid)), Set.of(source));
+        store.acknowledge(Map.of(source, store.snapshot().get(source).revision()));
+
+        store.capture(observed(target, record(uuid)), Set.of(source, target));
+        var moved = store.snapshot();
+        store.acknowledge(Map.of(target, moved.get(target).revision()));
+        store.acknowledge(Map.of(source, moved.get(source).revision()));
+        store.capture(observed(target, record(uuid)), Set.of(source, target));
+        assertFalse(store.hasPending());
+        assertEquals(1, store.knownEntityCount());
+
+        store.capture(Map.of(), Set.of(target));
+        store.acknowledge(Map.of(target, store.snapshot().get(target).revision()));
+        store.capture(Map.of(), Set.of(source, target));
+        assertFalse(store.hasPending());
+        assertEquals(0, store.knownEntityCount());
+        store.capture(observed(source, record(uuid)), Set.of());
+        assertTrue(store.hasPending());
     }
 
     private static Map<ChunkPos, Map<UUID, EntityTracker.EntityRecord>> observed(

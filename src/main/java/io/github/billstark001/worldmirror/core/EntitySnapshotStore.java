@@ -27,8 +27,8 @@ final class EntitySnapshotStore {
     }
 
     private final Map<ChunkPos, MutableUpdate> pending = new HashMap<>();
-    private final Map<UUID, ChunkPos> knownLocations = new HashMap<>();
-    private final Map<UUID, ChunkPos> persistedLocations = new HashMap<>();
+    private final Locations knownLocations = new Locations();
+    private final Locations persistedLocations = new Locations();
     private final Map<UUID, EntityTracker.EntityRecord> persistedRecords = new HashMap<>();
     private final Set<ChunkPos> persistedCompleteChunks = new HashSet<>();
 
@@ -39,7 +39,7 @@ final class EntitySnapshotStore {
         observed.forEach((chunk, records) -> records.keySet().forEach(uuid -> currentLocations.put(uuid, chunk)));
         currentLocations.forEach((uuid, chunk) -> {
             ChunkPos previous = knownLocations.get(uuid);
-            if (previous != null && !previous.equals(chunk)) remove(uuid, previous);
+            if (previous != null && !previous.equals(chunk)) removeFromChunk(uuid, previous);
         });
 
         for (ChunkPos chunk : completeChunks) {
@@ -47,18 +47,18 @@ final class EntitySnapshotStore {
             MutableUpdate current = pending.get(chunk);
             if (current == null || current.observation != EntityTracker.Observation.COMPLETE
                     || !current.upserts.equals(records) || !current.tombstones.isEmpty()) {
-                if (persistedCompleteChunks.contains(chunk)
-                        && persistedRecordsForChunk(chunk).equals(records)) {
-                    pending.remove(chunk);
-                } else {
+                // A reversion needs a correction if an older intent could
+                // still be in flight, even when the durable contents match.
+                boolean alreadyPersisted = current == null && persistedCompleteChunks.contains(chunk)
+                        && persistedRecordsForChunk(chunk).equals(records);
+                if (!alreadyPersisted) {
                     MutableUpdate update = new MutableUpdate(
                             nextRevision(), EntityTracker.Observation.COMPLETE);
                     records.forEach((uuid, record) -> update.upserts.put(uuid, record.copy()));
                     pending.put(chunk, update);
                 }
             }
-            knownLocations.entrySet().removeIf(entry ->
-                    entry.getValue().equals(chunk) && !records.containsKey(entry.getKey()));
+            knownLocations.retainChunk(chunk, records.keySet());
         }
 
         observed.forEach((chunk, records) -> {
@@ -69,7 +69,7 @@ final class EntitySnapshotStore {
         });
     }
 
-    void remove(UUID uuid, ChunkPos chunk) {
+    private void removeFromChunk(UUID uuid, ChunkPos chunk) {
         MutableUpdate update = pending.computeIfAbsent(chunk,
                 ignored -> new MutableUpdate(0L, EntityTracker.Observation.PARTIAL));
         if (update.upserts.get(uuid) == null && update.tombstones.contains(uuid)) return;
@@ -92,8 +92,7 @@ final class EntitySnapshotStore {
             if (current == null || current.revision != revision) return;
 
             if (current.observation == EntityTracker.Observation.COMPLETE) {
-                persistedLocations.entrySet().removeIf(entry -> entry.getValue().equals(chunk));
-                persistedRecords.keySet().removeIf(uuid -> !persistedLocations.containsKey(uuid));
+                for (UUID uuid : persistedLocations.removeChunk(chunk)) persistedRecords.remove(uuid);
                 persistedCompleteChunks.add(chunk);
             }
             current.tombstones.forEach(uuid -> {
@@ -132,10 +131,61 @@ final class EntitySnapshotStore {
 
     private Map<UUID, EntityTracker.EntityRecord> persistedRecordsForChunk(ChunkPos chunk) {
         Map<UUID, EntityTracker.EntityRecord> result = new HashMap<>();
-        persistedLocations.forEach((uuid, location) -> {
-            if (location.equals(chunk)) result.put(uuid, persistedRecords.get(uuid));
-        });
+        for (UUID uuid : persistedLocations.inChunk(chunk)) result.put(uuid, persistedRecords.get(uuid));
         return result;
+    }
+
+    /** Bidirectional root-entity index; chunk-local reconciliations never scan world history. */
+    private static final class Locations {
+        private final Map<UUID, ChunkPos> byUuid = new HashMap<>();
+        private final Map<ChunkPos, Set<UUID>> byChunk = new HashMap<>();
+
+        ChunkPos get(UUID uuid) {
+            return byUuid.get(uuid);
+        }
+
+        int size() {
+            return byUuid.size();
+        }
+
+        Set<UUID> inChunk(ChunkPos chunk) {
+            return byChunk.getOrDefault(chunk, Set.of());
+        }
+
+        void put(UUID uuid, ChunkPos chunk) {
+            ChunkPos previous = byUuid.put(uuid, chunk);
+            if (previous != null && !previous.equals(chunk)) removeFromChunk(uuid, previous);
+            byChunk.computeIfAbsent(chunk, ignored -> new HashSet<>()).add(uuid);
+        }
+
+        boolean remove(UUID uuid, ChunkPos chunk) {
+            if (!byUuid.remove(uuid, chunk)) return false;
+            removeFromChunk(uuid, chunk);
+            return true;
+        }
+
+        Set<UUID> removeChunk(ChunkPos chunk) {
+            Set<UUID> removed = byChunk.remove(chunk);
+            if (removed == null) return Set.of();
+            for (UUID uuid : removed) byUuid.remove(uuid, chunk);
+            return removed;
+        }
+
+        void retainChunk(ChunkPos chunk, Set<UUID> retained) {
+            Set<UUID> uuids = byChunk.get(chunk);
+            if (uuids == null) return;
+            uuids.removeIf(uuid -> {
+                if (retained.contains(uuid)) return false;
+                byUuid.remove(uuid, chunk);
+                return true;
+            });
+            if (uuids.isEmpty()) byChunk.remove(chunk);
+        }
+
+        private void removeFromChunk(UUID uuid, ChunkPos chunk) {
+            Set<UUID> uuids = byChunk.get(chunk);
+            if (uuids != null && uuids.remove(uuid) && uuids.isEmpty()) byChunk.remove(chunk);
+        }
     }
 
     private static long nextRevision() {

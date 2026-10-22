@@ -256,6 +256,121 @@ class EntityRegionWriterTest {
         return new EntitiesChunk(chunk);
     }
 
+    @Test
+    void rejectsDuplicatedUuidInsideASinglePassengerTree() {
+        UUID uuid = new UUID(18L, 46L);
+        net.minecraft.nbt.CompoundTag root = record("minecraft:pig", uuid, Set.of(uuid)).nbt();
+        net.minecraft.nbt.ListTag passengers = new net.minecraft.nbt.ListTag();
+        passengers.add(root.copy());
+        root.put("Passengers", passengers);
+        var invalid = new EntityTracker.EntityRecord(uuid, Set.of(uuid), root);
+        var update = new EntityTracker.ChunkUpdate(19L, EntityTracker.Observation.PARTIAL,
+                Map.of(uuid, invalid), Set.of());
+
+        var written = EntityRegionWriter.write(tempDir,
+                Map.of(Level.OVERWORLD, Map.of(new ChunkPos(0, 0), update)));
+
+        assertTrue(written.isEmpty());
+        assertFalse(Files.exists(entitiesDir().resolve("r.0.0.mca")));
+    }
+
+    @Test
+    void rejectsARecordWhoseAdvertisedRootIsActuallyAPassenger() {
+        UUID root = new UUID(44L, 1L);
+        UUID rider = new UUID(44L, 2L);
+        var nbt = record("minecraft:boat", root, Set.of(root)).nbt();
+        net.minecraft.nbt.ListTag passengers = new net.minecraft.nbt.ListTag();
+        passengers.add(record("minecraft:pig", rider, Set.of(rider)).nbt());
+        nbt.put("Passengers", passengers);
+        var invalid = new EntityTracker.EntityRecord(rider, Set.of(root, rider), nbt);
+        assertRejected(invalid);
+    }
+
+    @Test
+    void rejectsAPassengerWithoutAUuidInsteadOfAcknowledgingItsLoss() {
+        UUID root = new UUID(45L, 1L);
+        var nbt = record("minecraft:boat", root, Set.of(root)).nbt();
+        net.minecraft.nbt.CompoundTag missingUuid = new net.minecraft.nbt.CompoundTag();
+        missingUuid.putString("id", "minecraft:pig");
+        net.minecraft.nbt.ListTag passengers = new net.minecraft.nbt.ListTag();
+        passengers.add(missingUuid);
+        nbt.put("Passengers", passengers);
+        assertRejected(new EntityTracker.EntityRecord(root, Set.of(root), nbt));
+    }
+
+    @Test
+    void oversizedStringsCannotBeSilentlyDroppedDuringEntityNbtConversion() {
+        UUID root = new UUID(46L, 1L);
+        var nbt = record("minecraft:pig", root, Set.of(root)).nbt();
+        nbt.putString("mod_payload", "x".repeat(70_000));
+        assertRejected(new EntityTracker.EntityRecord(root, Set.of(root), nbt));
+    }
+
+    private void assertRejected(EntityTracker.EntityRecord record) {
+        var update = new EntityTracker.ChunkUpdate(19L, EntityTracker.Observation.PARTIAL,
+                Map.of(record.rootUuid(), record), Set.of());
+        var written = EntityRegionWriter.write(tempDir,
+                Map.of(Level.OVERWORLD, Map.of(new ChunkPos(0, 0), update)));
+        assertTrue(written.isEmpty());
+        assertFalse(Files.exists(entitiesDir().resolve("r.0.0.mca")));
+    }
+
+    @Test
+    void storedUuidCollectionDoesNotConsumeTheCallStackForDeepPassengerTrees() {
+        CompoundTag root = querzEntity("minecraft:pig", new UUID(0L, 0L));
+        CompoundTag current = root;
+        for (int index = 1; index < 10_000; index++) {
+            CompoundTag child = querzEntity("minecraft:pig", new UUID(0L, index));
+            ListTag<CompoundTag> passengers = new ListTag<>(CompoundTag.class);
+            passengers.add(child);
+            current.put("Passengers", passengers);
+            current = child;
+        }
+        assertEquals(10_000, EntityRegionWriter.collectUuids(root).size());
+    }
+
+    @Test
+    void aDelayedSourceTombstoneCannotDeleteTheAlreadySavedDestination() throws Exception {
+        UUID uuid = new UUID(52L, 1L);
+        ChunkPos source = new ChunkPos(0, 0);
+        ChunkPos destination = new ChunkPos(32, 0);
+        var arrival = new EntityTracker.ChunkUpdate(1L, EntityTracker.Observation.PARTIAL,
+                Map.of(uuid, record("minecraft:pig", uuid, Set.of(uuid))), Set.of());
+        assertEquals(1L, EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(destination, arrival)))
+                .get(Level.OVERWORLD).get(destination));
+        var cleanup = new EntityTracker.ChunkUpdate(2L, EntityTracker.Observation.PARTIAL, Map.of(), Set.of(uuid));
+
+        var written = EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(source, cleanup)));
+
+        assertEquals(2L, written.get(Level.OVERWORLD).get(source));
+        var roots = McaFileHelpers.readEntities(entitiesDir().resolve("r.1.0.mca"))
+                .getChunk(0, 0).getHandle().getCompoundList("Entities");
+        assertEquals(1, roots.size());
+        assertEquals(Set.of(uuid), EntityRegionWriter.collectUuids(roots.get(0)));
+    }
+
+    @Test
+    void detachingAPassengerPreservesItsUnobservedVehicle() throws Exception {
+        UUID vehicle = new UUID(53L, 1L);
+        UUID passenger = new UUID(53L, 2L);
+        CompoundTag root = querzEntity("minecraft:boat", vehicle);
+        ListTag<CompoundTag> passengers = new ListTag<>(CompoundTag.class);
+        passengers.add(querzEntity("minecraft:pig", passenger));
+        root.put("Passengers", passengers);
+        writeInitialRegion(new ChunkPos(0, 0), List.of(root));
+        ChunkPos destination = new ChunkPos(32, 0);
+        var arrival = new EntityTracker.ChunkUpdate(2L, EntityTracker.Observation.PARTIAL,
+                Map.of(passenger, record("minecraft:pig", passenger, Set.of(passenger))), Set.of());
+
+        assertEquals(2L, EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(destination, arrival)))
+                .get(Level.OVERWORLD).get(destination));
+
+        var remaining = McaFileHelpers.readEntities(entitiesDir().resolve("r.0.0.mca"))
+                .getChunk(0, 0).getHandle().getCompoundList("Entities");
+        assertEquals(1, remaining.size(), "moving a rider must not erase the parked vehicle");
+        assertEquals(Set.of(vehicle), EntityRegionWriter.collectUuids(remaining.get(0)));
+    }
+
     private static EntityTracker.EntityRecord record(
             String id, UUID uuid, Set<UUID> contained) {
         net.minecraft.nbt.CompoundTag nbt = new net.minecraft.nbt.CompoundTag();

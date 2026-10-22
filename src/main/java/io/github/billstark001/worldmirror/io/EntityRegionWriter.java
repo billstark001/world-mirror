@@ -12,6 +12,7 @@ import io.github.ensgijs.nbt.mca.io.McaFileHelpers;
 import io.github.ensgijs.nbt.tag.CompoundTag;
 import io.github.ensgijs.nbt.tag.ListTag;
 import net.minecraft.nbt.IntArrayTag;
+import net.minecraft.core.UUIDUtil;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
@@ -25,6 +26,7 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -86,7 +88,7 @@ final class EntityRegionWriter {
 
         Map<ChunkPos, MutableUpdate> updates = new HashMap<>();
         sourceUpdates.forEach((chunk, update) -> updates.put(chunk, new MutableUpdate(update)));
-        Set<UUID> affectedUuids = validateIncomingAndCollectUuids(sourceUpdates);
+        Set<UUID> affectedUuids = validateIncomingUpserts(sourceUpdates);
 
         // Rebuild the relevant part of the UUID index from disk on every pass.
         // It makes a restart self-healing and also removes duplicates produced by
@@ -126,12 +128,10 @@ final class EntityRegionWriter {
         return allSucceeded && verifyAffectedUuidCounts(entitiesDir, sourceUpdates);
     }
 
-    private static Set<UUID> validateIncomingAndCollectUuids(
+    private static Set<UUID> validateIncomingUpserts(
             Map<ChunkPos, EntityTracker.ChunkUpdate> updates) throws IOException {
-        Set<UUID> all = new HashSet<>();
         Set<UUID> upserted = new HashSet<>();
         for (EntityTracker.ChunkUpdate update : updates.values()) {
-            all.addAll(update.tombstones());
             for (Map.Entry<UUID, EntityTracker.EntityRecord> entry : update.upserts().entrySet()) {
                 EntityTracker.EntityRecord record = entry.getValue();
                 if (!entry.getKey().equals(record.rootUuid())
@@ -140,12 +140,10 @@ final class EntityRegionWriter {
                             + record.rootUuid());
                 }
                 net.minecraft.nbt.CompoundTag serializedNbt = record.nbt();
-                if (!serializedNbt.contains("id") || !serializedNbt.contains("UUID")) {
-                    throw new IOException("Entity NBT is missing id or UUID: " + record.rootUuid());
-                }
-                Set<UUID> serializedUuids = collectUuids(
-                        convertToQuerz(serializedNbt));
-                if (!serializedUuids.equals(record.containedUuids())) {
+                Set<UUID> serializedUuids = EntityTracker.serializedUuids(serializedNbt);
+                UUID serializedRoot = serializedNbt.getIntArray("UUID")
+                        .map(UUIDUtil::uuidFromIntArray).orElseThrow();
+                if (!serializedRoot.equals(record.rootUuid()) || !serializedUuids.equals(record.containedUuids())) {
                     throw new IOException("Entity UUID index does not match serialized NBT: "
                             + record.rootUuid());
                 }
@@ -153,11 +151,10 @@ final class EntityRegionWriter {
                     if (!upserted.add(uuid)) {
                         throw new IOException("Duplicate UUID in incoming entity snapshot: " + uuid);
                     }
-                    all.add(uuid);
                 }
             }
         }
-        return all;
+        return upserted;
     }
 
     private static void addOnDiskDuplicateRemovals(
@@ -270,15 +267,29 @@ final class EntityRegionWriter {
 
         Set<UUID> replaced = new HashSet<>(update.tombstones);
         update.upserts.values().forEach(record -> replaced.addAll(record.containedUuids()));
-        result.removeIf(root -> {
-            Set<UUID> existingUuids = collectUuids(root);
-            existingUuids.retainAll(replaced);
-            return !existingUuids.isEmpty();
-        });
+        result.removeIf(root -> pruneReplacedEntities(root, replaced));
 
         update.upserts.values().forEach(record ->
                 result.add(convertToQuerz(record.nbt()).clone()));
         return result;
+    }
+
+    /** A moved passenger is removed from its branch without deleting its unobserved vehicle. */
+    private static boolean pruneReplacedEntities(CompoundTag root, Set<UUID> replaced) {
+        if (replaced.contains(UUIDUtil.uuidFromIntArray(root.getIntArray("UUID")))) return true;
+        ArrayDeque<CompoundTag> parents = new ArrayDeque<>();
+        parents.push(root);
+        while (!parents.isEmpty()) {
+            ListTag<CompoundTag> passengers = parents.pop().getCompoundList("Passengers");
+            if (passengers == null) continue;
+            var iterator = passengers.iterator();
+            while (iterator.hasNext()) {
+                CompoundTag child = iterator.next();
+                if (replaced.contains(UUIDUtil.uuidFromIntArray(child.getIntArray("UUID")))) iterator.remove();
+                else parents.push(child);
+            }
+        }
+        return false;
     }
 
     private static EntitiesChunk createChunk(ChunkPos pos, List<CompoundTag> entities) {
@@ -299,23 +310,26 @@ final class EntityRegionWriter {
 
     static Set<UUID> collectUuids(CompoundTag entity) {
         Set<UUID> result = new HashSet<>();
-        collectUuids(entity, result);
-        return result;
-    }
-
-    private static void collectUuids(CompoundTag entity, Set<UUID> result) {
-        int[] raw = entity.getIntArray("UUID");
-        if (raw.length == 4) {
-            long most = ((long) raw[0] << 32) | (raw[1] & 0xffffffffL);
-            long least = ((long) raw[2] << 32) | (raw[3] & 0xffffffffL);
-            result.add(new UUID(most, least));
+        ArrayDeque<CompoundTag> pending = new ArrayDeque<>();
+        pending.push(entity);
+        while (!pending.isEmpty()) {
+            CompoundTag current = pending.pop();
+            int[] raw = current.getIntArray("UUID");
+            if (raw.length != 4 || current.getString("id").isBlank()) {
+                throw new IllegalArgumentException("Missing identity in stored entity passenger tree");
+            }
+            if (!result.add(UUIDUtil.uuidFromIntArray(raw))) {
+                throw new IllegalArgumentException("Duplicate UUID within an entity passenger tree");
+            }
+            ListTag<CompoundTag> passengers = current.getCompoundList("Passengers");
+            if (passengers != null) passengers.forEach(pending::push);
         }
-        ListTag<CompoundTag> passengers = entity.getCompoundList("Passengers");
-        if (passengers != null) passengers.forEach(passenger -> collectUuids(passenger, result));
+        return result;
     }
 
     private static CompoundTag convertToQuerz(net.minecraft.nbt.CompoundTag minecraftNbt) {
         try {
+            NbtWriteSupport.validateStrings(minecraftNbt);
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             try (DataOutputStream output = new DataOutputStream(bytes)) {
                 net.minecraft.nbt.NbtIo.writeUnnamedTagWithFallback(minecraftNbt, output);
@@ -387,21 +401,16 @@ final class EntityRegionWriter {
         }
     }
 
-    /** Confirms the dimension-wide UUID invariant established by the pre-write scan. */
+    /** Upserts are unique dimension-wide; local tombstones were verified in their own chunks. */
     private static boolean verifyAffectedUuidCounts(
             Path entitiesDir,
             Map<ChunkPos, EntityTracker.ChunkUpdate> sourceUpdates) {
         Set<UUID> expectedPresent = new HashSet<>();
-        Set<UUID> expectedAbsent = new HashSet<>();
         sourceUpdates.values().forEach(update -> {
-            expectedAbsent.addAll(update.tombstones());
             update.upserts().values().forEach(record ->
                     expectedPresent.addAll(record.containedUuids()));
         });
-        expectedAbsent.removeAll(expectedPresent);
-        Set<UUID> affected = new HashSet<>(expectedPresent);
-        affected.addAll(expectedAbsent);
-        if (affected.isEmpty()) return true;
+        if (expectedPresent.isEmpty()) return true;
 
         Map<UUID, Integer> counts = new HashMap<>();
         try (DirectoryStream<Path> files = Files.newDirectoryStream(entitiesDir, "r.*.*.mca")) {
@@ -419,17 +428,12 @@ final class EntityRegionWriter {
                                 + file.getFileName());
                     }
                     ListTag<CompoundTag> roots = entityList(chunk);
-                    if (roots != null) mergeUuidCounts(counts, roots, affected);
+                    if (roots != null) mergeUuidCounts(counts, roots, expectedPresent);
                 }
             }
             for (UUID uuid : expectedPresent) {
                 if (counts.getOrDefault(uuid, 0) != 1) {
                     throw new IOException("Entity UUID occurrence count is not one: " + uuid);
-                }
-            }
-            for (UUID uuid : expectedAbsent) {
-                if (counts.getOrDefault(uuid, 0) != 0) {
-                    throw new IOException("Removed entity UUID still exists: " + uuid);
                 }
             }
             return true;

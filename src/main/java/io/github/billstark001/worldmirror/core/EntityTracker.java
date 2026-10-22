@@ -5,7 +5,10 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.UUIDUtil;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.util.ProblemReporter;
 import net.minecraft.world.entity.Entity;
@@ -21,6 +24,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.ArrayDeque;
+import java.util.function.Predicate;
 
 /** Tracks client-known entity snapshots independently from the terrain cache. */
 @Environment(EnvType.CLIENT)
@@ -40,8 +45,9 @@ public final class EntityTracker {
             nbt = nbt.copy();
         }
 
+        /** The value is immutable, so sharing it preserves snapshot isolation without copying NBT again. */
         public EntityRecord copy() {
-            return new EntityRecord(rootUuid, containedUuids, nbt);
+            return this;
         }
 
         @Override
@@ -50,16 +56,17 @@ public final class EntityTracker {
         }
     }
 
-    /** Immutable, versioned write intent for one entity chunk. */
+    /**
+     * Immutable, versioned intent for one entity chunk. Tombstones remove only
+     * this chunk's copies; upserts replace matching UUIDs across the dimension.
+     */
     public record ChunkUpdate(
             long revision,
             Observation observation,
             Map<UUID, EntityRecord> upserts,
             Set<UUID> tombstones) {
         public ChunkUpdate {
-            Map<UUID, EntityRecord> copied = new LinkedHashMap<>();
-            upserts.forEach((uuid, record) -> copied.put(uuid, record.copy()));
-            upserts = Map.copyOf(copied);
+            upserts = Map.copyOf(upserts);
             tombstones = Set.copyOf(tombstones);
         }
 
@@ -92,23 +99,40 @@ public final class EntityTracker {
 
         ResourceKey<Level> dimension = world.dimension();
         EntitySnapshotStore store = dimensions.computeIfAbsent(dimension, ignored -> new EntitySnapshotStore());
-        Map<ChunkPos, Map<UUID, EntityRecord>> observed = new HashMap<>();
-        int total = 0;
-
-        for (Entity entity : world.entitiesForRendering()) {
-            if (entity == null || entity instanceof Player || entity.isPassenger()) continue;
-            EntityRecord record = serializeEntity(world, entity);
-            if (record == null) continue;
-            observed.computeIfAbsent(entity.chunkPosition(), ignored -> new LinkedHashMap<>())
-                    .put(record.rootUuid(), record);
-            total++;
-        }
+        Map<ChunkPos, Map<UUID, EntityRecord>> observed = observeEntities(world, ignored -> true);
+        int total = observed.values().stream().mapToInt(Map::size).sum();
 
         long now = System.currentTimeMillis();
         Set<ChunkPos> completeChunks = collectCompletelyObservedChunks(world, now);
         store.capture(observed, completeChunks);
         WMLogger.debug("Captured " + total + " root entities and " + completeChunks.size()
                 + " complete entity chunk(s) for [" + dimension.identifier() + "]");
+    }
+
+    /**
+     * Captures visible roots in selected chunks for a fresh nearby save. Call on
+     * the game thread. This snapshot does not change or acknowledge live session
+     * state, and includes entities even when their session copy is already durable.
+     */
+    public static Map<ChunkPos, ChunkUpdate> snapshotVisibleEntities(ClientLevel world, Set<ChunkPos> chunks) {
+        if (world == null || chunks.isEmpty()) return Map.of();
+        EntitySnapshotStore snapshot = new EntitySnapshotStore();
+        snapshot.capture(observeEntities(world, chunks::contains), Set.of());
+        return snapshot.snapshot();
+    }
+
+    private static Map<ChunkPos, Map<UUID, EntityRecord>> observeEntities(
+            ClientLevel world, Predicate<ChunkPos> selected) {
+        Map<ChunkPos, Map<UUID, EntityRecord>> observed = new HashMap<>();
+        for (Entity entity : world.entitiesForRendering()) {
+            if (entity == null || entity instanceof Player || entity.isPassenger()) continue;
+            ChunkPos chunk = entity.chunkPosition();
+            if (!selected.test(chunk)) continue;
+            EntityRecord record = serializeEntity(world, entity);
+            if (record != null) observed.computeIfAbsent(chunk, ignored -> new LinkedHashMap<>())
+                    .put(record.rootUuid(), record);
+        }
+        return observed;
     }
 
     public static synchronized Map<ResourceKey<Level>, Map<ChunkPos, ChunkUpdate>> snapshot() {
@@ -166,14 +190,41 @@ public final class EntityTracker {
                                 + " report=" + problems.getReport());
             }
 
-            Set<UUID> contained = new HashSet<>();
-            entity.getSelfAndPassengers().forEach(passenger -> contained.add(passenger.getUUID()));
-            return new EntityRecord(entity.getUUID(), contained, nbt);
+            // Vanilla deliberately omits passengers that cannot be saved, such
+            // as players. Index the serialized tree rather than live riders.
+            return new EntityRecord(entity.getUUID(), serializedUuids(nbt), nbt);
         } catch (Exception e) {
             WMLogger.warnRateLimited("entity-serialize", 30_000L,
                     "Entity serialization failed type=" + entity.getType(), e);
             return null;
         }
+    }
+
+    /** Returns every saved UUID, rejecting missing identities and malformed or duplicate passengers. */
+    public static Set<UUID> serializedUuids(CompoundTag root) {
+        Set<UUID> result = new HashSet<>();
+        ArrayDeque<CompoundTag> pending = new ArrayDeque<>();
+        pending.push(root);
+        while (!pending.isEmpty()) {
+            CompoundTag entity = pending.pop();
+            if (entity.getStringOr("id", "").isBlank()) {
+                throw new IllegalArgumentException("Missing id in serialized entity tree");
+            }
+            UUID uuid = entity.getIntArray("UUID").filter(raw -> raw.length == 4)
+                    .map(UUIDUtil::uuidFromIntArray)
+                    .orElseThrow(() -> new IllegalArgumentException("Invalid UUID in serialized entity tree"));
+            if (!result.add(uuid)) throw new IllegalArgumentException("Duplicate UUID in serialized entity tree");
+            Tag passengerTag = entity.get("Passengers");
+            if (passengerTag == null) continue;
+            if (!(passengerTag instanceof ListTag passengers)) {
+                throw new IllegalArgumentException("Invalid passenger list in serialized entity tree");
+            }
+            for (int index = 0; index < passengers.size(); index++) {
+                pending.push(passengers.getCompound(index).orElseThrow(() ->
+                        new IllegalArgumentException("Invalid passenger in serialized entity tree")));
+            }
+        }
+        return Set.copyOf(result);
     }
 
     private static Set<ChunkPos> collectCompletelyObservedChunks(ClientLevel world, long now) {
