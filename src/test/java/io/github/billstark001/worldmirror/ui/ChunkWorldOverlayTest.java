@@ -9,6 +9,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static io.github.billstark001.worldmirror.config.ModConfig.WorldChunkOverlayColorMode.MAP;
@@ -232,7 +233,7 @@ class ChunkWorldOverlayTest {
     private static LiveChunkStatusSnapshot live(LiveChunkStatusSnapshot.Record... records) {
         var indexed = new HashMap<Long, LiveChunkStatusSnapshot.Record>();
         for (var record : records) indexed.put(ChunkBounds.key(record.x(), record.z()), record);
-        return new LiveChunkStatusSnapshot(indexed);
+        return new LiveChunkStatusSnapshot(indexed, Map.of());
     }
 
     @Test

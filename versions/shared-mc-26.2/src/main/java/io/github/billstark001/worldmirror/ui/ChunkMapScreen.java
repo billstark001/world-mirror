@@ -208,9 +208,10 @@ public class ChunkMapScreen extends Screen {
                     "replay_import".equals(rec.updateSource())
                             ? Component.translatable("screen.worldmirror.chunkmap.source.replayImport")
                             : Component.literal(rec.updateSource())));
-        } else if (live == null) {
+        } else if (live == null && liveSnapshot.exportAt(chunkX, chunkZ) == null) {
             lines.add(Component.translatable("screen.worldmirror.chunkmap.notDownloaded"));
         }
+        ExportStatusText.append(lines, liveSnapshot.exportAt(chunkX, chunkZ), rec != null);
         if (hasConflict) {
             lines.add(Component.translatable("screen.worldmirror.chunkmap.conflict"));
             lines.add(Component.translatable("screen.worldmirror.chunkmap.clickResolve"));

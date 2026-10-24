@@ -131,6 +131,12 @@ metadata save fails, the retry carries the verified capture-time floor without
 rewriting already committed terrain. Entity success is verified through entity
 regions and UUIDs, not inferred from a `chunks` row.
 
+The map's five export states are process-local observations of those receipts,
+scoped by source, dimension, chunk, and terrain/entity revision. They do not change
+the database schema, durability acknowledgements, or cache eviction rules. Metadata
+failure remains a separate obligation until its verified capture-time floor commits.
+Historical rows alone cannot establish entity completion.
+
 JDBC mutations roll back on checked and unchecked failures. If rollback itself
 fails, the connection is left outside auto-commit mode so restoring it cannot
 implicitly commit a partial batch; discard that connection. Failure to restore

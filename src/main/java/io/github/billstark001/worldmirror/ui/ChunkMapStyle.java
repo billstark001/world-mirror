@@ -5,7 +5,7 @@ import io.github.billstark001.worldmirror.download.ChunkDatabase.ChunkRecord;
 
 /** Color and status policies, independent of spatial indexing and drawing APIs. */
 public final class ChunkMapStyle {
-    static final int CONFLICT = 0xFFFF3030;
+    static final int CONFLICT = ExportStatusMarkers.CONFLICT;
     private static final int EXTERNAL = 0xFFFF9000;
     private static final long AGE_MIN_MS = 10L * 60 * 1000;
     private static final long AGE_MAX_MS = 30L * 24 * 3600 * 1000;

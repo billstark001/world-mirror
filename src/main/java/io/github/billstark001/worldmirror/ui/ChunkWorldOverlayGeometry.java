@@ -96,6 +96,7 @@ public final class ChunkWorldOverlayGeometry {
                                       VertexConsumer consumer,
                                       ChunkWorldOverlay.OverlaySnapshot snapshot,
                                       Vec3 camera) {
+        renderMarks(pose, consumer, snapshot, camera);
         for (ChunkWorldOverlay.OverlayEdge edge : snapshot.edges()) {
             if (!snapshot.showInnerGrid() && edge.sameColorInterior()) continue;
             float x1 = relative(edge.startChunkX() * 16.0D, camera.x);
@@ -116,6 +117,26 @@ public final class ChunkWorldOverlayGeometry {
                         x1 - EDGE_HALF_WIDTH, y, z1, x1 - EDGE_HALF_WIDTH, y, z2,
                         x1 + EDGE_HALF_WIDTH, y, z2, x1 + EDGE_HALF_WIDTH, y, z1);
             }
+        }
+    }
+
+    private static void renderMarks(PoseStack.Pose pose, VertexConsumer consumer,
+                                    ChunkWorldOverlay.OverlaySnapshot snapshot, Vec3 camera) {
+        for (var mark : snapshot.marks()) {
+            boolean below = camera.y < mark.y();
+            float y = relative(below ? mark.y() - .02 : mark.y() + 1.02, camera.y);
+            double x = mark.startChunkX() * 16.0, z = mark.startChunkZ() * 16.0;
+            double width = (mark.endChunkX() - mark.startChunkX()) * 16.0;
+            double depth = (mark.endChunkZ() - mark.startChunkZ()) * 16.0;
+            ExportStatusMarkers.Rects emit = (left, top, right, bottom, color) -> {
+                float x1 = relative(x + left * width, camera.x), x2 = relative(x + right * width, camera.x);
+                float z1 = relative(z + top * depth, camera.z), z2 = relative(z + bottom * depth, camera.z);
+                int rgba = withAlpha(color, scaledAlpha(BASE_EDGE_ALPHA, snapshot.opacityPercent()));
+                if (below) quad(pose, consumer, rgba, x1, y, z1, x2, y, z1, x2, y, z2, x1, y, z2);
+                else quad(pose, consumer, rgba, x1, y, z2, x2, y, z2, x2, y, z1, x1, y, z1);
+            };
+            if (width > 16.0 || depth > 16.0) ExportStatusMarkers.drawCompact(mark.counts(), mark.conflict(), emit);
+            else ExportStatusMarkers.draw(mark.counts(), mark.conflict(), emit);
         }
     }
 

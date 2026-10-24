@@ -65,9 +65,12 @@ already queued with their own captured data.
 
 The built-in map shows recorded chunks and unresolved conflicts. Drag to pan, use the
 mouse wheel to zoom, and hover a chunk for its coordinates, age, and source.
-Red marks unresolved conflicts. Orange marks other data sources, including known
-third-party tools. Waiting, writing, and failed writes currently share the same
-pending colors. Saved terrain colors do not confirm that entities also saved.
+Purple borders mark unresolved conflicts. Orange marks other data sources, including
+known third-party tools. Separate corner markers show queued exports (yellow angle),
+writing (light gray), all writes failed (red cross), partial success (red/green), and
+complete success (green check). Hover for terrain/entity and metadata details.
+Markers survive live-cache eviction during this client run; historical terrain rows
+do not imply entity completion after restarting the client.
 
 Enable the in-world chunk overlay in Chunk Map settings, or press **K**, to show
 one-block-high coverage boxes at an adjustable height. Source worlds and mirror
@@ -80,6 +83,16 @@ fill opacity from above and below; water and clouds behind them no longer erase
 their color. Solid terrain still hides boxes behind it. Session colors show what
 you have captured, including unsaved data; they are not a save-success indicator.
 At long distances, a single tile can summarize several chunks.
+The five export markers appear in both overlay modes and Xaero, preserving their
+base colors. Failures take priority in coarse tiles; a red accent persists during
+retry, and conflict borders remain purple.
+Coarse world tiles use compact colored squares; partial failure remains light red.
+Wide views refresh less often to bound work with large histories.
+
+Automatic and manual export failures appear in chat and top-right toasts, merged
+per source with 30-second reminders. Escalation and recovery can arrive sooner;
+deliveries are spaced by at least two seconds. The status screen shows persistent
+counts and the failure stage. Unfinished data is retained for retry.
 
 ### What it cannot save perfectly
 
@@ -112,9 +125,9 @@ Keep the target mirror closed while exporting, applying conflicts, upgrading it,
 or copying world settings. Review its conflicts from the original source world.
 If a mirror export fails, World Mirror keeps the unfinished data and retries while
 the game is running, including after you leave the source world. An entity failure
-does not prevent terrain from continuing to save. Manual exports report partial
-success when terrain is saved but entities remain pending; failures from periodic or adaptive
-exports currently appear in `latest.log` without a dedicated chat or toast alert.
+does not prevent terrain from continuing to save. Terrain saved with entities still
+pending appears as partial success. Periodic, adaptive, and manual failures all use
+the merged chat/toast notices and status-screen health described above.
 
 On exit, World Mirror lets accepted writes finish and makes a final attempt at
 queued captured data. This does not guarantee recovery from a continuing storage

@@ -17,7 +17,6 @@ public final class ChunkMapView {
 
     private static final int CHUNK_BLOCK_SIZE = 16;
     private static final int MAX_WORLD_CHUNK = 1_875_000;
-    private static final int COLOR_CONFLICT_BORDER = 0xFFFF3030;
     private static final int COLOR_GRID = 0x14FFFFFF;
     private static final int COLOR_BACKGROUND = 0xFF101010;
     private static final int COLOR_DIALOG_BACKGROUND = 0xFF202020;
@@ -25,7 +24,6 @@ public final class ChunkMapView {
     private static final int COLOR_PLAYER = 0xFFFFFFFF;
     private static final int TRANSPARENT_FILL_ALPHA = 0x7F;
     private static final int OVERLAY_ALPHA = 0x5F;
-    private static final int OVERLAY_CONFLICT_COLOR = 0x66FF3030;
     private static final int DIALOG_WIDTH = 220;
     private static final int DIALOG_HEIGHT = 90;
 
@@ -88,6 +86,9 @@ public final class ChunkMapView {
         } else {
             renderDense(canvas, projection, snapshot, live, viewport, range, now);
         }
+        boolean dense = viewport.cellSize() > clampSparseThreshold(sparseThreshold);
+        renderMarks(canvas, projection.get(snapshot, live, range, now, 4096, dense),
+                viewport::screenX, viewport::screenZ, 1, viewport.width(), viewport.height());
         return range;
     }
 
@@ -147,18 +148,42 @@ public final class ChunkMapView {
         }
         renderProjectedLive(canvas, screenX, screenY, aggregate.live(), range,
                 bucketSize, blockSize, width, height, now);
-        for (ChunkTileGeometry.Run run : aggregate.runs()) {
-            if (!run.conflict()) continue;
-            int x1 = screenX.project((double) run.startBucketX() * blockSize);
-            int y1 = screenY.project((double) run.bucketZ() * blockSize);
-            int x2 = Math.max(x1 + 1, screenX.project((double) (run.endBucketX() + 1) * blockSize));
-            int y2 = Math.max(y1 + 1, screenY.project((double) (run.bucketZ() + 1) * blockSize));
-            if (x2 <= 0 || y2 <= 0 || x1 >= width || y1 >= height) continue;
-            canvas.fill(Math.max(0, x1), Math.max(0, y1),
-                    Math.min(width, x2), Math.min(height, y2), OVERLAY_CONFLICT_COLOR);
-        }
         renderProjectedBoundaries(canvas, screenX, screenY, aggregate, blockSize,
                 width, height);
+        renderMarks(canvas, aggregate, screenX, screenY, CHUNK_BLOCK_SIZE, width, height);
+    }
+
+    private static void renderMarks(Canvas canvas, ChunkMapProjection.Frame frame,
+                                    CoordinateProjection screenX, CoordinateProjection screenY,
+                                    int scale, int width, int height) {
+        double size = (double) frame.bucketSize() * scale;
+        frame.marks().forEach((key, summary) -> {
+            double x = ChunkBounds.x(key) * size, z = ChunkBounds.z(key) * size;
+            if (screenX.project(x + size) < 0 || screenY.project(z + size) < 0
+                    || screenX.project(x) >= width || screenY.project(z) >= height) return;
+            int pixelRight = Math.max(screenX.project(x) + 1, screenX.project(x + size));
+            int pixelBottom = Math.max(screenY.project(z) + 1, screenY.project(z + size));
+            if (pixelRight - screenX.project(x) < 4 || pixelBottom - screenY.project(z) < 4) {
+                if (summary.conflict()) {
+                    int left = Math.max(0, screenX.project(x)), top = Math.max(0, screenY.project(z));
+                    if (left < width && top < height) canvas.fill(left, top, Math.min(width, left + 1),
+                            Math.min(height, top + 1), ExportStatusMarkers.CONFLICT);
+                }
+                if (summary.exports().total() > 0) {
+                    int left = Math.max(0, pixelRight - 1), top = Math.max(0, pixelBottom - 1);
+                    if (left < width && top < height) canvas.fill(left, top, Math.min(width, pixelRight), Math.min(height, pixelBottom),
+                            ExportStatusMarkers.compact(summary.exports()));
+                }
+                return;
+            }
+            ExportStatusMarkers.draw(summary.exports(), summary.conflict(), (left, top, right, bottom, color) -> {
+                int x1 = Math.max(0, screenX.project(x + left * size));
+                int z1 = Math.max(0, screenY.project(z + top * size));
+                int x2 = Math.min(width, Math.max(x1 + 1, screenX.project(x + right * size)));
+                int z2 = Math.min(height, Math.max(z1 + 1, screenY.project(z + bottom * size)));
+                if (x2 > x1 && z2 > z1) canvas.fill(x1, z1, x2, z2, color);
+            });
+        });
     }
 
     private static void renderProjectedLive(Canvas canvas,
@@ -261,9 +286,6 @@ public final class ChunkMapView {
         renderLive(canvas, dense.live(), viewport, range, now, 1);
         renderGrid(canvas, viewport, range, gridIntervalForCellSize(viewport.cellSize()));
         for (var boundary : dense.boundaries()) renderAggregatedBoundary(canvas, viewport, boundary, 1);
-        snapshot.forEachConflictCoordinatesInRange(range.minX(), range.maxX(), range.minZ(), range.maxZ(),
-                (x, z) -> drawConflictBorder(
-                        canvas, viewport.screenX(x), viewport.screenZ(z), viewport.cellSize()));
     }
 
     private static void renderSparse(Canvas canvas, ChunkMapProjection projection,
@@ -285,15 +307,6 @@ public final class ChunkMapView {
             canvas.fill(x1, z1, Math.max(x1 + 1, x2), Math.max(z1 + 1, z2), fill);
         }
         renderLive(canvas, aggregate.live(), viewport, range, now, bucketSize);
-        for (ChunkTileGeometry.Run run : aggregate.runs()) {
-            if (!run.conflict()) continue;
-            int x1 = viewport.screenX((double) run.startBucketX() * bucketSize);
-            int z1 = viewport.screenZ((double) run.bucketZ() * bucketSize);
-            int x2 = viewport.screenX((double) (run.endBucketX() + 1) * bucketSize);
-            int z2 = viewport.screenZ((double) (run.bucketZ() + 1) * bucketSize);
-            canvas.fill(x1, z1, Math.max(x1 + 1, x2), Math.max(z1 + 1, z2),
-                    COLOR_CONFLICT_BORDER);
-        }
         for (ChunkTileGeometry.Boundary boundary : aggregate.boundaries()) {
             renderAggregatedBoundary(canvas, viewport, boundary, bucketSize);
         }
@@ -387,17 +400,6 @@ public final class ChunkMapView {
             int screenZ = viewport.screenZ(z);
             canvas.fill(left, screenZ, right, screenZ + 1, COLOR_GRID);
         }
-    }
-
-    private static void drawConflictBorder(Canvas canvas, int x, int z, int size) {
-        if (size < 3) {
-            canvas.fill(x, z, x + size, z + size, COLOR_CONFLICT_BORDER);
-            return;
-        }
-        canvas.fill(x + 1, z + 1, x + size - 1, z + 2, COLOR_CONFLICT_BORDER);
-        canvas.fill(x + 1, z + size - 2, x + size - 1, z + size - 1, COLOR_CONFLICT_BORDER);
-        canvas.fill(x + 1, z + 1, x + 2, z + size - 1, COLOR_CONFLICT_BORDER);
-        canvas.fill(x + size - 2, z + 1, x + size - 1, z + size - 1, COLOR_CONFLICT_BORDER);
     }
 
     private static int gridIntervalForCellSize(int size) {

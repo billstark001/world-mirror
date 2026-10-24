@@ -24,12 +24,12 @@ in Minecraft's singleplayer world list.
 | **World–mirror mapping** | Every detected server address or singleplayer world name is persistently mapped to a sanitised local folder name in `config/worldmirror/mirrors.json`. Different aliases for the same server are currently separate source IDs. |
 | **Per-world settings** | Save location and conflict strategy can be overridden per world. Time, weather, and difficulty can also be copied manually from the current source world. |
 | **Conflict resolution** | Three built-in strategies for chunks that already exist on disk: *Overwrite* (default), *Ignore* (keep local), and *Manual* (save the server chunk to `conflict_chunks/` in MCA format for later review). |
-| **Built-in Chunk Map** | Full-screen draggable and zoomable map of recorded chunks. Viewport-indexed snapshots, low-zoom bucket aggregation, and merged boundaries keep large views responsive. Colors show freshness/source; red marks unresolved conflicts. |
+| **Built-in Chunk Map** | Full-screen draggable and zoomable map of recorded chunks. Shared spatial buckets keep large views responsive. Base colors show freshness/source; corner markers show export progress, with purple conflict borders. |
 | **In-world Chunk Overlay** | Toggleable in-world chunk boxes make coverage easy to follow while exploring. Choose Session colors (yellow for queued captures, green for this session, blue for historical chunks and replay imports) or Map colors matching the built-in and Xaero maps. Adjustable render distance and fixed Y height (default 96) help find missed areas and confirm full coverage. |
 | **Xaero's World Map Overlay** | Optionally render the same status layer on Xaero's fullscreen map through Xaero World Map Bridge. Xaero's World Map and the bridge are both required for this integration. |
 | **Export Nearby Region** | Snapshot loaded terrain and visible non-player entities within a configurable radius (1–50 chunks) into a fresh singleplayer save, starting at your current position and dimension. |
 | **Native status UI** | Press **I** to open the native Minecraft status screen. It retains download/export status, mirror information, per-world settings, safe mirror relocation, and conflict actions without a LibGui dependency. |
-| **Diagnostics** | Storage failures and export outcomes are recorded in `latest.log`. Explicit export actions receive translated chat results; scheduled exports currently have no dedicated chat or toast failure alert. Optional performance logging adds pipeline, heap, and slow-region telemetry. |
+| **Diagnostics** | Storage failures and export outcomes are recorded in `latest.log`. Automatic and manual export failures produce merged chat/toast notices, with current health on the status screen. Optional performance logging adds pipeline, heap, and slow-region telemetry. |
 | **Cloth Config settings** | Global settings are available from the status screen. Installing Mod Menu also exposes the same screen from the title-screen mod list. |
 | **Internationalisation** | UI strings are translated into English (`en_us`), Simplified Chinese (`zh_cn`), Traditional Chinese (`zh_tw`), and Japanese (`ja_jp`). |
 
@@ -156,14 +156,43 @@ saved record already exists while the new capture waits to be saved. After terra
 and its index commit, chunks return to the green-to-blue capture-age gradient.
 Orange identifies sources other than `world_mirror` and `replay_import`, including
 registered third-party sources; it does not mean only an unknown source.
-Red marks unresolved conflicts. A pending light update can also temporarily appear
+Purple marks unresolved conflicts. A pending light update can also temporarily appear
 as waiting for capture.
 
-Queueing, active writing, and failed writing currently share the pending-write
-colors. Entity completion is not represented: terrain can show as saved while
-entities are still pending. Frozen retry queues have no separate map marker.
-Map refreshes are asynchronous, and a coarse tile summarizes several chunks rather
-than showing every chunk's independent state.
+All chunk maps and both world-overlay modes add independent export corner markers:
+
+| Marker | Export state |
+| --- | --- |
+| Yellow angle | Captured data queued for export |
+| Light gray square | Writing |
+| Red cross | All required writes failed |
+| Red/green split | Partially saved, with unfinished work retained |
+| Green check | Export completed under the selected source/conflict policy |
+
+Completion includes verified records kept by the source/conflict policy; a purple
+conflict can still await a decision. These markers preserve the age/source and
+Session coverage base colors. A red
+accent remains during a retry until its previous failure is resolved; purple
+conflict borders can coexist with failures. Hover the built-in map for separate
+terrain/entity results and metadata status. Frozen work stays visible after its
+live cache is cleared. Coarse tiles prioritize failures and summarize all five
+states; use a closer zoom to inspect individual chunks. Coarse world tiles use
+compact colored squares, with light red for partial failure.
+
+Export observations last for the current client process. Existing database rows
+prove historical terrain coverage, not entity completion, so reopening the client
+does not invent a fully-saved marker for historical records. Map refreshes remain
+asynchronous: stable views refresh changed live data at most every 0.5, 1, or 5
+seconds as their chunk extent grows. Status readers use immutable region pages;
+an export updates only the changed pages. Observed chunk metadata still grows
+with the number of chunks seen during this client run, without retaining NBT.
+
+Automatic and manual export failures produce merged chat and top-right toast
+notifications. Repeated notices for one source are limited to once per 30 seconds;
+escalation and recovery can arrive sooner, with at least two seconds between
+deliveries. The status screen keeps the current counts and failure stage visible.
+Partial failures log at WARN; blocked exports and index/metadata failures log at
+ERROR. Unfinished work remains available for retry.
 
 ![World Mirror overlay on Xaero's World Map](assets/xaero-map-overlay.png)
 
@@ -197,9 +226,8 @@ The default **Session** colors show capture-session coverage:
 - **Blue** — historical captured coverage, including older in-memory captures,
   or a replay import.
 
-Session colors describe coverage, not completion of terrain or entity writes.
-They do not distinguish queued, active, failed, partially saved, and fully saved
-exports.
+Session base colors describe coverage, including unsaved data. The independent
+export markers above distinguish write progress and results in both color modes.
 
 Choose **Map** colors to use the capture-age gradient, source colors, and live
 capture/write queue colors described above for the built-in and Xaero maps.

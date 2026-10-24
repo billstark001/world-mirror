@@ -1,6 +1,8 @@
 package io.github.billstark001.worldmirror.ui;
 
-import java.util.HashMap;
+import io.github.billstark001.worldmirror.util.ChunkRegionIndex;
+
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -9,7 +11,7 @@ public final class ChunkMapProjection {
     private static final long COLOR_REFRESH_MS = 1_000L;
     private record Key(ChunkStatusSnapshot saved, LiveChunkStatusSnapshot live, ChunkBucketLayout layout, boolean dense) { }
     record Frame(int bucketSize, List<ChunkTileGeometry.Run> runs, List<ChunkTileGeometry.Boundary> boundaries,
-                 Map<Long, LiveChunkStatusSnapshot.Record> live) { }
+                 Map<Long, LiveChunkStatusSnapshot.Record> live, Map<Long, ChunkBucketIndex.Summary> marks) { }
     private Key key;
     private Frame frame;
     private long createdAt;
@@ -20,8 +22,8 @@ public final class ChunkMapProjection {
         Key next = new Key(saved, live, layout, dense);
         if (next.equals(key) && now >= createdAt && now < validUntil) return frame;
         Map<Long, ChunkBucketIndex.Summary> summaries = ChunkBucketIndex.combine(saved.index(), live.index(), layout);
-        Map<Long, ChunkTileGeometry.Cell> cells = new HashMap<>();
-        Map<Long, LiveChunkStatusSnapshot.Record> selectedLive = new HashMap<>();
+        Map<Long, ChunkTileGeometry.Cell> cells = new Long2ObjectOpenHashMap<>();
+        Map<Long, LiveChunkStatusSnapshot.Record> selectedLive = new Long2ObjectOpenHashMap<>();
         long deadline = dense ? Long.MAX_VALUE : now + COLOR_REFRESH_MS;
         for (var entry : summaries.entrySet()) {
             long coordinate = entry.getKey();
@@ -33,7 +35,11 @@ public final class ChunkMapProjection {
         }
         List<ChunkTileGeometry.Boundary> boundaries = ChunkTileGeometry.boundaries(cells, false, false);
         if (dense) boundaries = boundaries.stream().filter(boundary -> boundary.intersects(range)).toList();
-        frame = new Frame(layout.size(), ChunkTileGeometry.runs(cells), boundaries, Map.copyOf(selectedLive));
+        Map<Long, ChunkBucketIndex.Summary> marks = new Long2ObjectOpenHashMap<>();
+        summaries.forEach((coordinate, summary) -> {
+            if (summary.exports().total() > 0 || summary.conflict()) marks.put(coordinate, summary);
+        });
+        frame = new Frame(layout.size(), ChunkTileGeometry.runs(cells), boundaries, ChunkRegionIndex.copyCoordinates(selectedLive), ChunkRegionIndex.copyCoordinates(marks));
         key = next;
         createdAt = now;
         validUntil = deadline;

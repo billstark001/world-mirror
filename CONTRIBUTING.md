@@ -75,16 +75,30 @@ the shared orchestrator.
 - `ChunkRegionIndex` supports mutable game-thread metadata and immutable indices
   published after construction. `ChunkStatusSnapshot` and `LiveChunkStatusSnapshot`
   expose data; `ChunkBucketIndex` owns bounded, color-independent bucket summaries.
-- A summary retains independent newest-record, session-coverage, conflict, and live
+  `Publication` stages writer-owned changes and publishes immutable region pages;
+  readers never wait for a bulk export or traverse a mutable page. Do not copy the
+  full history when one region changes.
+  Packed coordinate keys have collision-heavy boxed hashes; use Minecraft's
+  existing fastutil maps and `copyCoordinates`, preserving defensive copies and
+  read-only entries instead of freezing coordinate maps with `Map.copyOf`.
+- A summary retains independent newest-record, session-coverage, conflict, export-state counts, and live
   priority facts. MAP's newest-record rule and SESSION's coverage priority must not
   discard each other's inputs. Equal timestamps use deterministic coordinate ties.
 - `ChunkMapStyle` projects facts into display colors; `ChunkTileGeometry` builds
   shared runs, rectangles, and edges. World overlays add height and facing without
   expanding a finished 2-D map back into cells.
+- `ExportStatusStore` observes exact terrain/entity receipts without granting any
+  acknowledgement. Retain failures across retry and live-cache eviction, and never
+  infer entity completion from SQLite terrain rows. `ExportStatusMarkers` supplies
+  the same corner glyphs to all maps and both overlay modes without changing base colors.
+  Coarse world tiles use compact markers to bound vertex work. Update source counts
+  incrementally and allocate published health only for changed sources.
 - `ChunkViewportCache` owns per-view live capture and context invalidation;
   `ChunkMapProjection` owns per-view derived map geometry. Complete-bucket caches
   are shared through source indices. Source changes and dimension resets invalidate
   relevant caches; color ageing must continue without rebuilding source snapshots.
+  Live refresh intervals grow with viewport extent (0.5/1/5 seconds); region progress
+  must not bypass this cadence for wide overlays.
 
 Unit tests check display semantics, clipped and sparse views, cache bounds, and
 candidate work counts. These tests do not establish in-game GPU frame rates; use
@@ -257,6 +271,7 @@ Choose the lowest level that still makes the event actionable:
 | `info` | A session or export milestone that explains what World Mirror did | Packet-, chunk-, entity-, or container-level activity |
 | `warn` | A recoverable failure, lost operation, disabled integration, or durability risk requiring investigation | Expected lifecycle states such as a world being absent during disconnect |
 | `warnRateLimited` | A warning that can recur for packets, chunks, regions, codecs, or database lookups | Unique failures that should always be visible |
+| `errorRateLimited` | A blocked export or failed index/metadata commit, including automatic exports | Successful or merely queued work |
 
 Use a stable, low-cardinality rate-limit key and normally a 30-second interval.
 The next emitted warning includes `suppressed=<count>`. Pass the `Throwable` to
@@ -280,11 +295,15 @@ when they help identify the failed operation.
 
 ### Player messages
 
-Logs and player messages are separate interfaces. Operational logs never enter
-chat automatically. Use `WMPlayerMessages.sendSystemMessage` or
-`WMPlayerMessages.sendOverlayMessage` only at an
-explicit command or lifecycle boundary, and only with a translated component.
-Keep the message short; detailed exception data belongs in `latest.log`.
+Logs and player messages are separate interfaces. `ExportNotifications` turns typed
+export health into translated chat and toast notices, including automatic failures.
+Coalesce per source, retain undelivered failures while no player exists, limit
+reminders to 30 seconds, allow escalation/recovery, and space global deliveries by
+two seconds. Only report recovery once all related work has settled. Other player
+messages use `WMPlayerMessages` at explicit command or lifecycle boundaries.
+Detailed exception data belongs in `latest.log`; worker completion never waits for UI delivery.
+The notification tick uses event/deadline wakeups and forgets recovered sources;
+healthy play must not repeatedly scan source history.
 
 ### Performance diagnostics
 

@@ -28,12 +28,21 @@ changes without dropping compatibility requirements or migration guidance.
 
 ## [0.5.2] — 2026-10-23
 
+### Added
+
+- Show queued, writing, failed, partially saved, and fully saved export markers
+  across chunk maps and world overlays; retain their existing base colors.
+- Surface automatic and manual export failures through merged, rate-limited chat
+  and toast notices, with current health on the status screen.
+
 ### Changed
 
 - Reduce entity snapshot copying and index reconciliation by chunk, keeping
   small observations fast even after a long capture session.
 - Share spatial queries and bucket summaries across chunk maps and world
-  overlays, reducing repeated scans and geometry work with large capture histories.
+  overlays; publish changed export-state regions and bound coarse-view refresh
+  and marker work with large capture histories.
+- Use purple conflict borders, reserving red export markers for failures.
 
 ### Fixed
 
@@ -43,8 +52,8 @@ changes without dropping compatibility requirements or migration guidance.
 - Retry only unfinished mirror data, including after disconnecting. Preserve
   each source's terrain/entity order while letting newer terrain proceed past
   entity-only failures.
-- Protect open saves with Minecraft's session lock. Validate world-data and
-  region writes, preserve previous files on failed replacement, and retain
+- Protect open saves with Minecraft's session lock across Windows and Linux.
+  Validate world-data and region writes, preserve previous files on failed replacement, and retain
   legacy timestamps when migration or metadata persistence fails.
 - Resolve conflicts without lock-order deadlocks, support external chunk files,
   and retain failed or newer incoming conflicts for review.

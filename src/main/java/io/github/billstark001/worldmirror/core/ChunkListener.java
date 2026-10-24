@@ -254,7 +254,7 @@ public class ChunkListener {
     }
 
     /** Lightweight viewport state for maps; serialized chunk NBT never leaves the cache. */
-    public record MapChunkStatus(int x, int z, long capturedAtMs, boolean pendingWrite) { }
+    public record MapChunkStatus(int x, int z, long capturedAtMs, boolean pendingWrite, long revision) { }
 
     public static List<MapChunkStatus> snapshotMapStatusInRange(
             ResourceKey<Level> dimension, int minX, int maxX, int minZ, int maxZ) {
@@ -272,7 +272,7 @@ public class ChunkListener {
         int x = pos.getRegionX() * 32 + pos.getRegionLocalX();
         int z = pos.getRegionZ() * 32 + pos.getRegionLocalZ();
         if (mapStatus.computeIfAbsent(dimension, ignored -> new ChunkRegionIndex<>())
-                .put(x, z, new MapChunkStatus(x, z, captured.capturedAtMs(), !isClean(dimension, pos, captured)))) {
+                .put(x, z, new MapChunkStatus(x, z, captured.capturedAtMs(), !isClean(dimension, pos, captured), captured.revision()))) {
             mapStatusVersions.put(dimension, mapStatusVersion.incrementAndGet());
         }
     }

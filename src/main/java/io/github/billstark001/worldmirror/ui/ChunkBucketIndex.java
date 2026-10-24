@@ -1,10 +1,11 @@
 package io.github.billstark001.worldmirror.ui;
 
 import io.github.billstark001.worldmirror.download.ChunkDatabase.ChunkRecord;
+import io.github.billstark001.worldmirror.download.ExportStatus;
 import io.github.billstark001.worldmirror.util.ChunkRegionIndex;
 
 import java.util.Collection;
-import java.util.HashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -17,21 +18,21 @@ final class ChunkBucketIndex {
     private final Map<BucketKey, Summary> buckets = new LinkedHashMap<>(128, 0.75F, true);
     private long visits;
 
-    record Fact(int x, int z, ChunkRecord saved, boolean conflict, LiveChunkStatusSnapshot.Record live) { }
+    record Fact(int x, int z, ChunkRecord saved, boolean conflict, LiveChunkStatusSnapshot.Record live, ExportStatus.Chunk export) { }
     private record BucketKey(int size, int x, int z) { }
 
     /** Preserve independent winners for latest-record MAP and priority-based SESSION. */
     record Summary(ChunkRecord newest, long newestMirrorTime, boolean historicalCoverage,
                    boolean conflict, LiveChunkStatusSnapshot.Record live,
-                   long newestLiveTime, boolean pendingCapture) {
-        static final Summary EMPTY = new Summary(null, Long.MIN_VALUE, false, false, null, Long.MIN_VALUE, false);
-        boolean isEmpty() { return newest == null && !conflict && live == null; }
+                   long newestLiveTime, boolean pendingCapture, ExportStatus.Counts exports) {
+        static final Summary EMPTY = new Summary(null, Long.MIN_VALUE, false, false, null, Long.MIN_VALUE, false, ExportStatus.Counts.EMPTY);
+        boolean isEmpty() { return newest == null && !conflict && live == null && exports.total() == 0; }
 
         Summary merge(Summary other) {
             return new Summary(newer(newest, other.newest), Math.max(newestMirrorTime, other.newestMirrorTime),
                     historicalCoverage || other.historicalCoverage, conflict || other.conflict,
                     preferredLive(live, other.live), Math.max(newestLiveTime, other.newestLiveTime),
-                    pendingCapture || other.pendingCapture);
+                    pendingCapture || other.pendingCapture, exports.plus(other.exports));
         }
     }
 
@@ -49,14 +50,14 @@ final class ChunkBucketIndex {
     /** Partial edge buckets are computed from their exact intersection and never cached. */
     synchronized Map<Long, Summary> query(ChunkBucketLayout layout) {
         if (empty || layout.bounds().isEmpty()) return Map.of();
-        Map<Long, Summary> result = new HashMap<>();
-        Map<Long, Builder> cold = new HashMap<>();
+        Map<Long, Summary> result = new Long2ObjectOpenHashMap<>();
+        Map<Long, Builder> cold = new Long2ObjectOpenHashMap<>();
         ChunkBounds range = layout.bounds();
         int size = layout.size();
         if (size == 1) {
             visits += facts.forEachInRange(range.minX(), range.maxX(), range.minZ(), range.maxZ(),
                     fact -> result.put(ChunkBounds.key(fact.x(), fact.z()), summarize(fact)));
-            return Map.copyOf(result);
+            return ChunkRegionIndex.copyCoordinates(result);
         }
         for (long x = Math.floorDiv(range.minX(), size); x <= Math.floorDiv(range.maxX(), size); x++) {
             for (long z = Math.floorDiv(range.minZ(), size); z <= Math.floorDiv(range.maxZ(), size); z++) {
@@ -102,11 +103,11 @@ final class ChunkBucketIndex {
             });
             while (buckets.size() > MAX_CACHED_BUCKETS) buckets.remove(buckets.keySet().iterator().next());
         }
-        return Map.copyOf(result);
+        return ChunkRegionIndex.copyCoordinates(result);
     }
 
     static Map<Long, Summary> combine(ChunkBucketIndex saved, ChunkBucketIndex live, ChunkBucketLayout layout) {
-        Map<Long, Summary> combined = new HashMap<>(saved.query(layout));
+        Map<Long, Summary> combined = new Long2ObjectOpenHashMap<>(saved.query(layout));
         live.query(layout).forEach((key, summary) -> combined.merge(key, summary, Summary::merge));
         return combined;
     }
@@ -131,7 +132,8 @@ final class ChunkBucketIndex {
         boolean replay = saved != null && "replay_import".equals(saved.updateSource());
         return new Summary(saved, mirror ? saved.updateTime() : Long.MIN_VALUE, mirror || replay,
                 fact.conflict(), live, live == null ? Long.MIN_VALUE : live.capturedAtMs(),
-                live != null && live.state() == LiveChunkStatusSnapshot.State.PENDING_CAPTURE);
+                live != null && live.state() == LiveChunkStatusSnapshot.State.PENDING_CAPTURE,
+                fact.export() == null ? ExportStatus.Counts.EMPTY : fact.export().counts());
     }
 
     private static ChunkRecord newer(ChunkRecord a, ChunkRecord b) {

@@ -3,7 +3,7 @@ package io.github.billstark001.worldmirror.ui;
 import io.github.billstark001.worldmirror.download.ChunkDatabase.ChunkRecord;
 import net.minecraft.world.level.ChunkPos;
 import java.util.Collection;
-import java.util.HashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -17,9 +17,9 @@ public final class ChunkStatusSnapshot {
     private final int conflictCount;
 
     public ChunkStatusSnapshot(Collection<ChunkRecord> records, Collection<ChunkPos> conflicts) {
-        Map<Long, ChunkBucketIndex.Fact> facts = new HashMap<>();
+        Map<Long, ChunkBucketIndex.Fact> facts = new Long2ObjectOpenHashMap<>();
         for (ChunkRecord record : records) facts.put(ChunkBounds.key(record.x(), record.z()),
-                new ChunkBucketIndex.Fact(record.x(), record.z(), record, false, null));
+                new ChunkBucketIndex.Fact(record.x(), record.z(), record, false, null, null));
         int count = 0;
         for (ChunkPos pos : conflicts) {
             int x = pos.getRegionX() * 32 + pos.getRegionLocalX(), z = pos.getRegionZ() * 32 + pos.getRegionLocalZ();
@@ -27,7 +27,7 @@ public final class ChunkStatusSnapshot {
             var previous = facts.get(key);
             if (previous != null && previous.conflict()) continue;
             count++;
-            facts.put(key, new ChunkBucketIndex.Fact(x, z, previous == null ? null : previous.saved(), true, null));
+            facts.put(key, new ChunkBucketIndex.Fact(x, z, previous == null ? null : previous.saved(), true, null, null));
         }
         this.records = facts.values().stream().map(ChunkBucketIndex.Fact::saved).filter(java.util.Objects::nonNull).toList();
         this.index = new ChunkBucketIndex(facts.values());

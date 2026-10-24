@@ -102,7 +102,7 @@ class ChunkBucketIndexTest {
     @Test
     void completeBucketMemoizationIsBoundedAndExtremeCoordinatesRemainDistinct() {
         var index = new ChunkBucketIndex(List.of(new ChunkBucketIndex.Fact(1_000_000, 0,
-                new ChunkRecord(1_000_000, 0, 1, "world_mirror"), false, null)));
+                new ChunkRecord(1_000_000, 0, 1, "world_mirror"), false, null, null)));
         for (int x = 0; x < 17_000; x++) index.query(new ChunkBucketLayout(new ChunkBounds(x * 2, x * 2 + 1, 0, 1), 2));
         assertEquals(16_384, index.cachedBuckets());
         var saved = new ChunkStatusSnapshot(List.of(new ChunkRecord(Integer.MIN_VALUE, Integer.MAX_VALUE, 1, "world_mirror"),
@@ -128,6 +128,6 @@ class ChunkBucketIndexTest {
     private static LiveChunkStatusSnapshot live(LiveChunkStatusSnapshot.Record... records) {
         Map<Long, LiveChunkStatusSnapshot.Record> byChunk = new HashMap<>();
         for (var record : records) byChunk.put(ChunkBounds.key(record.x(), record.z()), record);
-        return new LiveChunkStatusSnapshot(byChunk);
+        return new LiveChunkStatusSnapshot(byChunk, Map.of());
     }
 }

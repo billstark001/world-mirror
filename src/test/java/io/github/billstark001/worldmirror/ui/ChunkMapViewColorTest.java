@@ -2,6 +2,7 @@ package io.github.billstark001.worldmirror.ui;
 
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
 import org.junit.jupiter.api.Test;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -11,18 +12,18 @@ class ChunkMapViewColorTest {
     void transparentMapsKeepSavedLiveAndConflictCompositingOrder() {
         var saved = new ChunkStatusSnapshot(java.util.List.of(new ChunkDatabase.ChunkRecord(0, 0, 100, "world_mirror")), java.util.Set.of(new net.minecraft.world.level.ChunkPos(0, 0)));
         var live = new LiveChunkStatusSnapshot(java.util.Map.of(0L,
-                new LiveChunkStatusSnapshot.Record(0, 0, 0, LiveChunkStatusSnapshot.State.PENDING_CAPTURE, true)));
+                new LiveChunkStatusSnapshot.Record(0, 0, 0, LiveChunkStatusSnapshot.State.PENDING_CAPTURE, true)), Map.of());
         for (int sparseThreshold : new int[] {1, 16}) {
             var colors = new java.util.ArrayList<Integer>();
             ChunkMapView.renderBuiltIn((x1, z1, x2, z2, color) -> colors.add(color), new ChunkMapProjection(),
                     saved, live, new ChunkMapView.BuiltInViewport(100, 100, 0, 0, 6, true), 200, sparseThreshold);
-            assertBefore(colors, 0x7F00C800, 0x7FD8DC30, 0xFFFF3030);
+            assertBefore(colors, 0x7F00C800, 0x7FD8DC30, ExportStatusMarkers.CONFLICT);
         }
         var colors = new java.util.ArrayList<Integer>();
         ChunkMapView.renderOverlay((x1, z1, x2, z2, color) -> colors.add(color), new ChunkMapProjection(),
                 coordinate -> 50 + (int) coordinate, coordinate -> 50 + (int) coordinate,
                 saved, live, 100, 100, 0, 0, 1, 200, 4096);
-        assertBefore(colors, 0x5F00C800, 0x5FD8DC30, 0x66FF3030);
+        assertBefore(colors, 0x5F00C800, 0x5FD8DC30, ExportStatusMarkers.CONFLICT);
     }
 
     private static void assertBefore(java.util.List<Integer> colors, int saved, int live, int conflict) {

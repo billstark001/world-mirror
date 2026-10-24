@@ -334,6 +334,9 @@ public class StatusScreen extends StatusScreenApi {
         graphics.text(Component.translatable(DownloadManager.isExportInProgress()
                 ? "screen.worldmirror.status.exportRunning"
                 : "screen.worldmirror.status.exportIdle"), x + 182, 104, 0xFFE0E0E0);
+        var health = io.github.billstark001.worldmirror.download.ExportStatusStore.global().health(sourceId);
+        graphics.text(ExportStatusText.health(health), x, 128, health.degraded() ? 0xFFFF6060 : 0xFFE0E0E0);
+        if (health.degraded()) graphics.text(ExportStatusText.stage(health), x, 190, 0xFFFF6060);
         MirrorWorldContext.Snapshot mirror = MirrorWorldContext.current();
         if (mirror.isMirror()) {
             graphics.centered(Component.translatable("screen.worldmirror.status.currentMirror."

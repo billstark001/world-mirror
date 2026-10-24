@@ -23,7 +23,7 @@ class ChunkWorldOverlayGeometryTest {
             org.junit.jupiter.api.Assertions.assertFalse(state.needsUpload(BOX, new Vec3(1, 80, 2)));
         }
         assertTrue(state.needsUpload(BOX, new Vec3(1.01, 80, 2)), "moving the camera must preserve exact sorting and offsets");
-        assertTrue(state.needsUpload(new ChunkWorldOverlay.OverlaySnapshot(BOX.chunks(), BOX.edges(), true, 30), camera));
+        assertTrue(state.needsUpload(new ChunkWorldOverlay.OverlaySnapshot(BOX.chunks(), BOX.edges(), true, 30, List.of()), camera));
         state.clear();
         assertTrue(state.needsUpload(BOX, camera), "renderer recreation invalidates GPU handles");
     }
@@ -34,7 +34,7 @@ class ChunkWorldOverlayGeometryTest {
                     new ChunkWorldOverlay.OverlayEdge(0, 0, 0, 1, 64, 0xFF20E060, false, false),
                     new ChunkWorldOverlay.OverlayEdge(1, 0, 1, 1, 64, 0xFF20E060, false, true),
                     new ChunkWorldOverlay.OverlayEdge(0, 1, 1, 1, 64, 0xFF20E060, false, true)),
-            true, 60);
+            true, 60, List.of());
 
     @Test
     void aboveAndBelowBlendExactlyOneCap() {
