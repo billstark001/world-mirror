@@ -13,6 +13,26 @@ public final class ChunkWorldOverlayGeometry {
 
     private ChunkWorldOverlayGeometry() {}
 
+    /** Reuse uploaded geometry only when both its data and camera-relative vertices are identical. */
+    public static final class UploadState {
+        private ChunkWorldOverlay.OverlaySnapshot snapshot;
+        private Vec3 camera;
+
+        public boolean needsUpload(ChunkWorldOverlay.OverlaySnapshot next, Vec3 nextCamera) {
+            return snapshot != next || !nextCamera.equals(camera);
+        }
+
+        public void uploaded(ChunkWorldOverlay.OverlaySnapshot next, Vec3 nextCamera) {
+            snapshot = next;
+            camera = nextCamera;
+        }
+
+        public void clear() {
+            snapshot = null;
+            camera = null;
+        }
+    }
+
     public static void renderFilled(PoseStack.Pose pose,
                                     VertexConsumer consumer,
                                     ChunkWorldOverlay.OverlaySnapshot snapshot,

@@ -13,6 +13,20 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ChunkWorldOverlayGeometryTest {
+    @Test
+    void uploadedGeometryIsReusedOnlyWhileCameraRelativeVerticesAreUnchanged() {
+        var state = new ChunkWorldOverlayGeometry.UploadState();
+        Vec3 camera = new Vec3(1, 80, 2);
+        assertTrue(state.needsUpload(BOX, camera));
+        state.uploaded(BOX, camera);
+        for (int frame = 0; frame < 120; frame++) {
+            org.junit.jupiter.api.Assertions.assertFalse(state.needsUpload(BOX, new Vec3(1, 80, 2)));
+        }
+        assertTrue(state.needsUpload(BOX, new Vec3(1.01, 80, 2)), "moving the camera must preserve exact sorting and offsets");
+        assertTrue(state.needsUpload(new ChunkWorldOverlay.OverlaySnapshot(BOX.chunks(), BOX.edges(), true, 30), camera));
+        state.clear();
+        assertTrue(state.needsUpload(BOX, camera), "renderer recreation invalidates GPU handles");
+    }
     private static final ChunkWorldOverlay.OverlaySnapshot BOX = new ChunkWorldOverlay.OverlaySnapshot(
             List.of(new ChunkWorldOverlay.OverlayChunk(0, 1, 0, 1, 64, 0xFF20E060)),
             List.of(

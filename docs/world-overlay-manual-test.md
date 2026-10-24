@@ -82,3 +82,13 @@ transparent intersections on Minecraft 26.3.
 Automatic regression tests cover CPU work counts and these data projections.
 Measure actual frame spacing separately; a passing headless test is not an FPS
 benchmark or a completed shader/OIT compatibility check.
+
+## Retained classic-renderer geometry
+
+On Minecraft 26.2 and the classic path in 26.3, keep the camera position fixed
+while looking around: uploaded geometry can be reused while view uniforms change.
+Then move the camera across and below the overlay, change opacity, and replace
+coverage. Geometry must update, retain sorting and camera-facing walls, and avoid
+stale vertices. Toggle the overlay off and reload the renderer to check resource
+release. Repeat the earlier 26.3 OIT checks; retained classic buffers do not replace
+native improved-transparency submission.
