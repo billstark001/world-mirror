@@ -62,9 +62,10 @@ final class EntityRegionWriter {
 
     static Map<ResourceKey<Level>, Map<ChunkPos, Long>> write(
             Path worldFolder,
-            Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> snapshot) {
+            Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> snapshot, ExportProgress progress) {
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> written = new HashMap<>();
         snapshot.forEach((dimension, updates) -> {
+            progress.start(ExportProgress.Part.ENTITIES, dimension, updates.keySet());
             Path entitiesDir = ChunkExporter.dimensionDirForDimension(worldFolder, dimension).resolve("entities");
             try {
                 Files.createDirectories(entitiesDir);

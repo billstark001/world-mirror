@@ -47,6 +47,8 @@ class ExportTransactionTest {
         entity.putIntArray("UUID", net.minecraft.core.UUIDUtil.uuidToIntArray(uuid));
         var update = new EntityTracker.ChunkUpdate(1, EntityTracker.Observation.PARTIAL,
                 Map.of(uuid, new EntityTracker.EntityRecord(uuid, Set.of(uuid), entity)), Set.of());
+        var status = new ExportStatusStore();
+        ExportWork.Frozen remaining = null;
         for (int revision = 1; revision <= 2; revision++) {
             var base = terrain(revision);
             var work = new ExportWork.Frozen(
@@ -57,7 +59,19 @@ class ExportTransactionTest {
                     base.settings(),
                     0,
                     OptionalLong.empty());
-            var outcome = DownloadExportCoordinator.write(job(work, world, new OverwriteResolver()));
+            status.queued(work);
+            var phases = new java.util.ArrayList<io.github.billstark001.worldmirror.io.ExportProgress.Part>();
+            var outcome = DownloadExportCoordinator.write(new DownloadExportCoordinator.ExportJob(work, world,
+                    ModConfig.DownloadPipelineMode.STABLE_PERIODIC, false, false, new OverwriteResolver(), -1L,
+                    (part, dimension, chunks) -> {
+                        status.writing(work, part, dimension, chunks);
+                        phases.add(part);
+                        assertEquals(ExportStatus.State.WRITING, status.inRange(work.context().source().id(), dimension,0,0,0,0).getFirst().state());
+                    }));
+            assertEquals(java.util.List.of(io.github.billstark001.worldmirror.io.ExportProgress.Part.TERRAIN,
+                    io.github.billstark001.worldmirror.io.ExportProgress.Part.ENTITIES), phases);
+            assertEquals(1, status.finish(work, outcome).counts().partial());
+            remaining = outcome.remaining();
             assertTrue(outcome.result().chunkWritesSuccessful());
             assertFalse(outcome.result().entityWritesSuccessful());
             assertTrue(outcome.indexCommitted());
@@ -67,15 +81,29 @@ class ExportTransactionTest {
             assertEquals(revision * 100L, WorldMetadata.loadIfPresent(world).orElseThrow().lastSyncTime);
             assertArrayEquals(corrupt, Files.readAllBytes(entities));
         }
+        Files.delete(entities);
+        var retry = remaining.retry();
+        assertFalse(retry.hasTerrain(), "entity recovery must not rewrite committed terrain");
+        status.queued(retry);
+        var recovered = DownloadExportCoordinator.write(job(retry, world, new OverwriteResolver()));
+        assertTrue(recovered.successful());
+        assertEquals(0, recovered.result().totalWritten());
+        assertTrue(status.finish(retry, recovered).settled());
+        assertEquals(1, status.health(retry.context().source().id()).counts().succeeded());
     }
 
     @Test
     void indexFailureRetainsVerifiedTerrainUntilItsReceiptIsCommitted(@TempDir Path world) throws Exception {
+        var status = new ExportStatusStore();
         assertTrue(DownloadExportCoordinator.write(job(terrain(1), world, new OverwriteResolver())).successful());
         Path database = world.resolve(io.github.billstark001.worldmirror.format.MirrorFormat.DATABASE_FILE);
         try (var connection = DriverManager.getConnection("jdbc:sqlite:" + database.toAbsolutePath()); var sql = connection.createStatement()) {
             sql.execute("CREATE TRIGGER reject_capture BEFORE INSERT ON chunks BEGIN SELECT RAISE(FAIL, 'injected'); END");
-            var failed = DownloadExportCoordinator.write(job(terrain(2), world, new OverwriteResolver()));
+            var work = terrain(2);
+            status.queued(work);
+            var failed = DownloadExportCoordinator.write(job(work, world, new OverwriteResolver()));
+            assertEquals(1, status.finish(work, failed).counts().failed());
+            assertEquals(ExportStatus.FailureStage.INDEX, status.health(work.context().source().id()).stage());
             assertTrue(failed.result().chunkWritesSuccessful());
             assertFalse(failed.indexCommitted());
             assertTrue(failed.durableWritten().isEmpty());
@@ -86,11 +114,13 @@ class ExportTransactionTest {
             assertTrue(retry.successful());
             assertFalse(retry.remaining().hasTerrain());
             assertEquals(200L, WorldMetadata.loadIfPresent(world).orElseThrow().lastSyncTime);
+            assertTrue(status.finish(failed.remaining(), retry).settled());
         }
     }
 
     @Test
     void metadataFailureKeepsOnlyTheDurableTimeForAMetadataOnlyRetry(@TempDir Path world) throws Exception {
+        var status = new ExportStatusStore();
         assertTrue(DownloadExportCoordinator.write(job(terrain(1), world, new OverwriteResolver())).successful());
         Path metadata = world.resolve(WorldMetadata.FILE_NAME), backup = world.resolve("metadata-backup.json");
         ConflictResolver obstructMetadataAfterInspection = context -> {
@@ -101,7 +131,13 @@ class ExportTransactionTest {
             } catch (java.io.IOException failure) { throw new UncheckedIOException(failure); }
             return true;
         };
-        var failed = DownloadExportCoordinator.write(job(terrain(2), world, obstructMetadataAfterInspection));
+        var work = terrain(2);
+        status.queued(work);
+        var failed = DownloadExportCoordinator.write(job(work, world, obstructMetadataAfterInspection));
+        var health = status.finish(work, failed);
+        assertEquals(1, health.counts().partial());
+        assertTrue(health.blocked());
+        assertEquals(ExportStatus.FailureStage.METADATA, health.stage());
         assertTrue(failed.result().chunkWritesSuccessful());
         assertTrue(failed.indexCommitted());
         assertFalse(failed.metadataCommitted());
@@ -114,6 +150,7 @@ class ExportTransactionTest {
         assertTrue(retry.successful());
         assertEquals(0, retry.result().totalWritten());
         assertEquals(200L, WorldMetadata.loadIfPresent(world).orElseThrow().lastSyncTime);
+        assertTrue(status.finish(failed.remaining(), retry).settled());
     }
 
     private static ExportWork.Frozen terrain(int revision) {
@@ -134,6 +171,6 @@ class ExportTransactionTest {
 
     private static DownloadExportCoordinator.ExportJob job(ExportWork.Frozen work, Path world, ConflictResolver resolver) {
         return new DownloadExportCoordinator.ExportJob(work, world, ModConfig.DownloadPipelineMode.STABLE_PERIODIC,
-                false, false, resolver, -1L);
+                false, false, resolver, -1L, io.github.billstark001.worldmirror.io.ExportProgress.NONE);
     }
 }

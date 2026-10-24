@@ -10,12 +10,12 @@ import io.github.billstark001.worldmirror.core.ContainerTracker;
 import io.github.billstark001.worldmirror.core.EntityTracker;
 import io.github.billstark001.worldmirror.download.ExportWork.*;
 import io.github.billstark001.worldmirror.io.ChunkExporter;
+import io.github.billstark001.worldmirror.io.ExportProgress;
 import io.github.billstark001.worldmirror.io.MirrorWorldgenAssets;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
 import io.github.billstark001.worldmirror.io.WorldWriteLock;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.util.WMPlayerMessages;
-import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
@@ -238,12 +238,14 @@ final class DownloadExportCoordinator {
     }
 
     record ExportJob(Frozen work, Path worldFolder, ModConfig.DownloadPipelineMode mode,
-                     boolean diagnostic, boolean invalidate, ConflictResolver resolver, long slowRegionThresholdMs) {
+                     boolean diagnostic, boolean invalidate, ConflictResolver resolver, long slowRegionThresholdMs,
+                     ExportProgress progress) {
         ExportJob {
             Objects.requireNonNull(work);
             Objects.requireNonNull(worldFolder);
             Objects.requireNonNull(mode);
             Objects.requireNonNull(resolver);
+            Objects.requireNonNull(progress);
         }
     }
     record ExportOutcome(ChunkExporter.ExportResult result,
@@ -257,6 +259,14 @@ final class DownloadExportCoordinator {
             durableWritten = Map.copyOf(copy);
         }
         boolean successful() { return result.chunkWritesSuccessful() && result.entityWritesSuccessful() && indexCommitted && metadataCommitted; }
+        ExportStatus.FailureStage failureStage() {
+            if (!indexCommitted && !result.chunkWritesSuccessful() && !result.entityWritesSuccessful()
+                    && result.written().isEmpty() && result.entityRevisions().isEmpty()) return ExportStatus.FailureStage.PREPARATION;
+            if (!indexCommitted) return ExportStatus.FailureStage.INDEX;
+            if (!result.chunkWritesSuccessful()) return ExportStatus.FailureStage.TERRAIN;
+            if (!result.entityWritesSuccessful()) return ExportStatus.FailureStage.ENTITIES;
+            return metadataCommitted ? ExportStatus.FailureStage.NONE : ExportStatus.FailureStage.METADATA;
+        }
         static ExportOutcome failed(Frozen work) {
             return new ExportOutcome(new ChunkExporter.ExportResult(Map.of(), Map.of(), Map.of(), Map.of(), false, false, emptyTimings()),
                     Map.of(), work, false, false, 0L);
@@ -308,16 +318,18 @@ final class DownloadExportCoordinator {
     }
 
     private Optional<ExportJob> prepareJob(Frozen work) {
+        observe(() -> ExportStatusStore.global().queued(work));
         try {
             Path folder = MirrorMapping.getInstance().claimOutputDirectory(work.context().source().id());
             return Optional.of(new ExportJob(work, folder, pipelineSupplier.get().mode(),
                     ModConfig.get().performance.diagnosticPerformanceLogging, ModConfig.get().cache.invalidateAfterExport,
                     buildResolver(work.context().source().id()), ModConfig.get().performance.diagnosticPerformanceLogging
-                    ? Math.max(0L, ModConfig.get().performance.slowRegionMillis) : -1L));
+                    ? Math.max(0L, ModConfig.get().performance.slowRegionMillis) : -1L,
+                    (part, dimension, chunks) -> ExportStatusStore.global().writing(work, part, dimension, chunks)));
         } catch (Exception failure) {
             WMLogger.warn("Export output preparation failed source=" + work.context().source().id(), failure);
             failures.incrementAndGet();
-            notifyFailure(work.context());
+            observe(() -> ExportNotifications.global().observe(ExportStatusStore.global().finish(work, ExportOutcome.failed(work))));
             retainForRetry(work);
             return Optional.empty();
         }
@@ -366,15 +378,15 @@ final class DownloadExportCoordinator {
             boolean successful = outcome.successful() && !pendingEntities;
             long elapsedMs = (System.nanoTime() - startedNs) / 1_000_000L;
             if (job.diagnostic()) logPerformance(work.context(), job.mode(), work.terrainCount(), lastWritten, lastUnreadable, elapsedMs, cpuStartedNs, result.timings());
-            WMLogger.info("Export pass complete: status=" + (successful ? "success" : "partial")
+            String summary = "Export pass complete: status=" + (successful ? "success" : "partial")
                     + " pipeline=" + job.mode() + " trigger=" + work.context().trigger() + " dirtySnapshot=" + work.terrainCount()
-                    + " written=" + lastWritten + " unreadable=" + lastUnreadable + " settled=" + lastSettled + " elapsedMs=" + elapsedMs);
-            if (!stopping.get() && work.context().notifyPlayer()) {
-                if (successful) notifyPlayer("msg.worldmirror.exportDone");
-                else if (pendingEntities && result.chunkWritesSuccessful() && outcome.indexCommitted() && outcome.metadataCommitted()) notifyPlayer("msg.worldmirror.exportPartialEntities");
-                else notifyFailure(work.context());
-            }
+                    + " written=" + lastWritten + " unreadable=" + lastUnreadable + " settled=" + lastSettled + " elapsedMs=" + elapsedMs;
+            if (successful) WMLogger.info(summary);
+            else WMLogger.debug(summary);
+            if (!stopping.get() && work.context().notifyPlayer() && successful) notifyPlayer("msg.worldmirror.exportDone");
         } finally {
+            ExportOutcome completed = outcome;
+            observe(() -> ExportNotifications.global().observe(ExportStatusStore.global().finish(work, completed)));
             lastExportMillis = (System.nanoTime() - startedNs) / 1_000_000L;
             if (job.diagnostic()) workerWallMillis.addAndGet(lastExportMillis);
             if (!outcome.successful()) { failures.incrementAndGet(); retainForRetry(outcome.remaining()); }
@@ -436,7 +448,7 @@ final class DownloadExportCoordinator {
             }
             result = ChunkExporter.exportChunks(
                     worldFolder, snapshot, entitySnapshot, containerSnapshot,
-                    job.resolver(), db, job.slowRegionThresholdMs());
+                    job.resolver(), db, job.slowRegionThresholdMs(), job.progress());
 
             indexCommitted = true;
             long durabilityStartedNs = System.nanoTime();
@@ -483,12 +495,22 @@ final class DownloadExportCoordinator {
     }
 
     private void defer(ExportWork work) {
+        if (work instanceof Frozen frozen) observe(() -> ExportStatusStore.global().queued(frozen));
         synchronized (requestLock) { if (deferred.offer(work)) deferredCoalesced.incrementAndGet(); }
     }
     private void retainForRetry(Frozen work) {
         long seconds = work.context().trigger() == Trigger.RETRY ? 60L : 10L;
         synchronized (requestLock) { deferred.retry(work.retry(), System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds)); }
         WMLogger.debug("Retained frozen export source=" + work.context().source().id() + " for retry after " + seconds + "s");
+    }
+
+    /** UI observations cannot prevent acknowledgement dispatch, retries, or shutdown draining. */
+    private static void observe(Runnable update) {
+        try { update.run(); }
+        catch (RuntimeException failure) {
+            WMLogger.warnRateLimited("export-status-observer", 30_000L,
+                    "Export status observation failed; native export and retry processing continue", failure);
+        }
     }
 
     void dispatchAcknowledgements(Frozen work, ExportOutcome outcome, boolean invalidate) {
@@ -556,12 +578,6 @@ final class DownloadExportCoordinator {
     private void notifyPlayer(String key) {
         clientExecutor.accept(() -> WMPlayerMessages.sendSystemMessage(Minecraft.getInstance().player, Component.translatable(key)));
     }
-    private void notifyFailure(Context context) {
-        if (stopping.get() || !context.notifyPlayer() || context.trigger() == Trigger.RETRY) return;
-        clientExecutor.accept(() -> WMPlayerMessages.sendSystemMessage(Minecraft.getInstance().player,
-                Component.translatable("msg.worldmirror.exportFailed").withStyle(ChatFormatting.RED)));
-    }
-
     private static long currentThreadCpuTimeNs() {
         ThreadMXBean bean = ManagementFactory.getThreadMXBean();
         return bean.isCurrentThreadCpuTimeSupported() && bean.isThreadCpuTimeEnabled()

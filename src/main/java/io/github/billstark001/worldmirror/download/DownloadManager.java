@@ -307,6 +307,7 @@ public final class DownloadManager {
      * applies cache-eviction rules, and detects dimension / server-world changes.
      */
     public static void onClientTick(Minecraft client) {
+        ExportNotifications.global().tick(client, System.nanoTime() / 1_000_000L);
         long startedNs = System.nanoTime();
         boolean shouldRecordPerformance = currentActive.get()
                 && ModConfig.get().performance.diagnosticPerformanceLogging;

@@ -166,7 +166,7 @@ public final class NearbyExporter {
                 ChunkExporter.ExportResult result = ChunkExporter.exportChunks(
                         output, snapshot, entities, containers,
                         new OverwriteResolver(), database, ModConfig.get().performance.diagnosticPerformanceLogging
-                        ? Math.max(0L, ModConfig.get().performance.slowRegionMillis) : -1L);
+                        ? Math.max(0L, ModConfig.get().performance.slowRegionMillis) : -1L, io.github.billstark001.worldmirror.io.ExportProgress.NONE);
                 commitDurabilityIndex(database, result);
                 if (!result.chunkWritesSuccessful() || !result.entityWritesSuccessful()) {
                     throw new java.io.IOException("One or more nearby-export region writes failed");

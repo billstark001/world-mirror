@@ -44,7 +44,7 @@ class EntityRegionWriterTest {
                 7L, EntityTracker.Observation.COMPLETE, Map.of(), Set.of());
 
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> result = EntityRegionWriter.write(
-                tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)));
+                tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)), ExportProgress.NONE);
 
         assertEquals(7L, result.get(Level.OVERWORLD).get(pos));
         EntitiesChunk written = McaFileHelpers.readEntities(
@@ -65,7 +65,7 @@ class EntityRegionWriterTest {
                 Map.of(uuid, record("minecraft:pig", uuid, Set.of(uuid))), Set.of());
 
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> result = EntityRegionWriter.write(
-                tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)));
+                tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)), ExportProgress.NONE);
 
         assertEquals(9L, result.get(Level.OVERWORLD).get(pos));
         assertEquals(0L, Files.size(legacyPlaceholder));
@@ -86,7 +86,7 @@ class EntityRegionWriterTest {
                 Map.of(uuid, record("minecraft:cow", uuid, Set.of(uuid))), Set.of());
 
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> result = EntityRegionWriter.write(
-                tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)));
+                tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)), ExportProgress.NONE);
 
         assertEquals(10L, result.get(Level.OVERWORLD).get(pos));
         assertTrue(Files.size(destination) >= 8_192L);
@@ -114,7 +114,7 @@ class EntityRegionWriterTest {
         var update = new EntityTracker.ChunkUpdate(71L, EntityTracker.Observation.PARTIAL,
                 Map.of(fresh, record("minecraft:cow", fresh, Set.of(fresh))), Set.of());
 
-        var written = EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(destination, update)));
+        var written = EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(destination, update)), ExportProgress.NONE);
 
         assertEquals(71L, written.get(Level.OVERWORLD).get(destination));
         assertArrayEquals(original, Files.readAllBytes(entitiesDir().resolve("r.0.0.mca")));
@@ -131,7 +131,7 @@ class EntityRegionWriterTest {
         var update = new EntityTracker.ChunkUpdate(73L, EntityTracker.Observation.PARTIAL,
                 Map.of(uuid, record("minecraft:pig", uuid, Set.of(uuid))), Set.of());
 
-        var written = EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(destination, update)));
+        var written = EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(destination, update)), ExportProgress.NONE);
 
         assertEquals(73L, written.get(Level.OVERWORLD).get(destination));
         assertTrue(McaFileHelpers.readEntities(entitiesDir().resolve("r.0.0.mca"))
@@ -154,7 +154,7 @@ class EntityRegionWriterTest {
                 3L, EntityTracker.Observation.PARTIAL, Map.of(uuid, record), Set.of());
 
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> result = EntityRegionWriter.write(
-                tempDir, Map.of(Level.OVERWORLD, Map.of(a, from, b, to)));
+                tempDir, Map.of(Level.OVERWORLD, Map.of(a, from, b, to)), ExportProgress.NONE);
 
         assertEquals(2, result.get(Level.OVERWORLD).size());
         McaEntitiesFile oldRegion = McaFileHelpers.readEntities(entitiesDir().resolve("r.0.0.mca"));
@@ -189,7 +189,7 @@ class EntityRegionWriterTest {
                 4L, EntityTracker.Observation.PARTIAL,
                 Map.of(incomingUuid, incoming), Set.of());
 
-        EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)));
+        EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)), ExportProgress.NONE);
 
         ListTag<CompoundTag> written = McaFileHelpers.readEntities(
                 entitiesDir().resolve("r.0.0.mca")).getChunk(0, 0)
@@ -212,7 +212,7 @@ class EntityRegionWriterTest {
                 5L, EntityTracker.Observation.PARTIAL, Map.of(uuid, invalid), Set.of());
 
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> result = EntityRegionWriter.write(
-                tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)));
+                tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)), ExportProgress.NONE);
 
         assertTrue(result.isEmpty());
         assertFalse(Files.exists(entitiesDir().resolve("r.0.0.mca")));
@@ -232,7 +232,7 @@ class EntityRegionWriterTest {
                 Map.of(indexedUuid, rekeyed), Set.of());
 
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> result = EntityRegionWriter.write(
-                tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)));
+                tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)), ExportProgress.NONE);
 
         assertTrue(result.isEmpty());
         assertFalse(Files.exists(entitiesDir().resolve("r.0.0.mca")));
@@ -252,7 +252,7 @@ class EntityRegionWriterTest {
                 Map.of(uuid, record("minecraft:item", uuid, Set.of(uuid))), Set.of());
 
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> result = EntityRegionWriter.write(
-                tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)));
+                tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)), ExportProgress.NONE);
 
         assertTrue(result.isEmpty());
         assertArrayEquals(original, Files.readAllBytes(corrupt));
@@ -271,7 +271,7 @@ class EntityRegionWriterTest {
                 Map.of(uuid, record("minecraft:pig", uuid, Set.of(uuid))), Set.of());
 
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> result = EntityRegionWriter.write(
-                tempDir, Map.of(Level.OVERWORLD, Map.of(destination, update)));
+                tempDir, Map.of(Level.OVERWORLD, Map.of(destination, update)), ExportProgress.NONE);
 
         assertTrue(result.isEmpty());
         assertArrayEquals(original, Files.readAllBytes(malformed));
@@ -312,7 +312,7 @@ class EntityRegionWriterTest {
                 Map.of(uuid, invalid), Set.of());
 
         var written = EntityRegionWriter.write(tempDir,
-                Map.of(Level.OVERWORLD, Map.of(new ChunkPos(0, 0), update)));
+                Map.of(Level.OVERWORLD, Map.of(new ChunkPos(0, 0), update)), ExportProgress.NONE);
 
         assertTrue(written.isEmpty());
         assertFalse(Files.exists(entitiesDir().resolve("r.0.0.mca")));
@@ -354,7 +354,7 @@ class EntityRegionWriterTest {
         var update = new EntityTracker.ChunkUpdate(19L, EntityTracker.Observation.PARTIAL,
                 Map.of(record.rootUuid(), record), Set.of());
         var written = EntityRegionWriter.write(tempDir,
-                Map.of(Level.OVERWORLD, Map.of(new ChunkPos(0, 0), update)));
+                Map.of(Level.OVERWORLD, Map.of(new ChunkPos(0, 0), update)), ExportProgress.NONE);
         assertTrue(written.isEmpty());
         assertFalse(Files.exists(entitiesDir().resolve("r.0.0.mca")));
     }
@@ -380,11 +380,11 @@ class EntityRegionWriterTest {
         ChunkPos destination = new ChunkPos(32, 0);
         var arrival = new EntityTracker.ChunkUpdate(1L, EntityTracker.Observation.PARTIAL,
                 Map.of(uuid, record("minecraft:pig", uuid, Set.of(uuid))), Set.of());
-        assertEquals(1L, EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(destination, arrival)))
+        assertEquals(1L, EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(destination, arrival)), ExportProgress.NONE)
                 .get(Level.OVERWORLD).get(destination));
         var cleanup = new EntityTracker.ChunkUpdate(2L, EntityTracker.Observation.PARTIAL, Map.of(), Set.of(uuid));
 
-        var written = EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(source, cleanup)));
+        var written = EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(source, cleanup)), ExportProgress.NONE);
 
         assertEquals(2L, written.get(Level.OVERWORLD).get(source));
         var roots = McaFileHelpers.readEntities(entitiesDir().resolve("r.1.0.mca"))
@@ -406,7 +406,7 @@ class EntityRegionWriterTest {
         var arrival = new EntityTracker.ChunkUpdate(2L, EntityTracker.Observation.PARTIAL,
                 Map.of(passenger, record("minecraft:pig", passenger, Set.of(passenger))), Set.of());
 
-        assertEquals(2L, EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(destination, arrival)))
+        assertEquals(2L, EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(destination, arrival)), ExportProgress.NONE)
                 .get(Level.OVERWORLD).get(destination));
 
         var remaining = McaFileHelpers.readEntities(entitiesDir().resolve("r.0.0.mca"))

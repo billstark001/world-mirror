@@ -107,6 +107,7 @@ public class ChunkExporter {
      * @param resolver       Conflict resolver for chunks that already exist on disk.
      * @param db             Chunk database for dirty-check and priority enforcement.
      * @param slowRegionThresholdMs Slow-region diagnostics threshold, or -1 to disable.
+     * @param progress Observes region/dimension write starts; cannot grant acknowledgements or abort writes.
      * @return Exact revisions durably written, plus revisions settled without a write.
      */
     public static ExportResult exportChunks(
@@ -114,10 +115,10 @@ public class ChunkExporter {
             ChunkListener.DirtySnapshot snapshot,
             Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> entitySnapshot,
             Map<ResourceKey<Level>, Map<BlockPos, net.minecraft.nbt.CompoundTag>> containerSnapshot,
-            ConflictResolver resolver, ChunkDatabase db, long slowRegionThresholdMs) throws Exception {
+            ConflictResolver resolver, ChunkDatabase db, long slowRegionThresholdMs, ExportProgress progress) throws Exception {
         try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
             return exportChunksLocked(worldFolder, snapshot, entitySnapshot, containerSnapshot,
-                    resolver, db, slowRegionThresholdMs);
+                    resolver, db, slowRegionThresholdMs, progress);
         }
     }
 
@@ -125,7 +126,7 @@ public class ChunkExporter {
             Path worldFolder, ChunkListener.DirtySnapshot snapshot,
             Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> entitySnapshot,
             Map<ResourceKey<Level>, Map<BlockPos, net.minecraft.nbt.CompoundTag>> containerSnapshot,
-            ConflictResolver resolver, ChunkDatabase db, long slowRegionThresholdMs) throws Exception {
+            ConflictResolver resolver, ChunkDatabase db, long slowRegionThresholdMs, ExportProgress progress) throws Exception {
 
         Map<ResourceKey<Level>, Map<ChunkPos, WriteStamp>> allWritten = new HashMap<>();
         Map<ResourceKey<Level>, Map<ChunkPos, WriteStamp>> allSettled = new HashMap<>();
@@ -144,7 +145,7 @@ public class ChunkExporter {
 
             DimensionResult dimensionResult = exportDimensionChunks(
                     regionDir, dimChunks, containerSnapshot, resolver, db,
-                    dimension, worldFolder, snapshot, slowRegionThresholdMs);
+                    dimension, worldFolder, snapshot, slowRegionThresholdMs, progress);
             chunkWritesSuccessful &= dimensionResult.successful();
             allWritten.put(dimension, dimensionResult.written());
             allSettled.put(dimension, dimensionResult.settledWithoutWrite());
@@ -159,7 +160,7 @@ public class ChunkExporter {
         }
         long entityStartedNs = System.nanoTime();
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> entityRevisions =
-                EntityRegionWriter.write(worldFolder, entitySnapshot);
+                EntityRegionWriter.write(worldFolder, entitySnapshot, progress);
         entityNs = System.nanoTime() - entityStartedNs;
         boolean entityWritesSuccessful = entitySnapshot.entrySet().stream().allMatch(entry -> {
             Map<ChunkPos, Long> written = entityRevisions.get(entry.getKey());
@@ -182,7 +183,7 @@ public class ChunkExporter {
             ChunkDatabase db,
             ResourceKey<Level> dimension,
             Path worldFolder,
-            ChunkListener.DirtySnapshot snapshot, long slowRegionThresholdMs) {
+            ChunkListener.DirtySnapshot snapshot, long slowRegionThresholdMs, ExportProgress progress) {
 
         Map<RegionKey, List<Map.Entry<ChunkPos, ChunkListener.CapturedChunk>>> chunksByRegion =
                 new HashMap<>();
@@ -202,6 +203,8 @@ public class ChunkExporter {
 
         for (Map.Entry<RegionKey, List<Map.Entry<ChunkPos, ChunkListener.CapturedChunk>>> regionEntry
                 : chunksByRegion.entrySet()) {
+            progress.start(ExportProgress.Part.TERRAIN, dimension,
+                    regionEntry.getValue().stream().map(Map.Entry::getKey).toList());
             int regionX = regionEntry.getKey().x();
             int regionZ = regionEntry.getKey().z();
             Path regionFile = regionDir.resolve("r." + regionX + "." + regionZ + ".mca");
