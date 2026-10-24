@@ -10,6 +10,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.channels.OverlappingFileLockException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -88,11 +89,11 @@ class WorldWriteLockTest {
     }
 
     private static void assertVanillaCannotOpen(Path world) {
-        assertThrows(IOException.class, () -> {
-            try (DirectoryLock ignored = DirectoryLock.create(world)) {
-                // isLocked probes can throw OverlappingFileLockException in the
-                // same JVM; opening a vanilla session exercises the real gate.
-            }
-        });
+        try (DirectoryLock ignored = DirectoryLock.create(world)) {
+            org.junit.jupiter.api.Assertions.fail("Vanilla opened a world held by World Mirror");
+        } catch (IOException | OverlappingFileLockException expected) {
+            // Windows can reject the channel write first; Linux reaches tryLock.
+            // Both are native rejections, independent of our IOException facade.
+        }
     }
 }

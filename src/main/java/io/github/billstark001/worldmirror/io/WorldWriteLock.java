@@ -4,6 +4,7 @@ import net.minecraft.util.DirectoryLock;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.channels.OverlappingFileLockException;
 import java.util.Arrays;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -53,11 +54,26 @@ public final class WorldWriteLock implements AutoCloseable {
         ReentrantLock guard = LOCKS[Math.floorMod(world.hashCode(), LOCKS.length)];
         guard.lock();
         try {
-            Ownership acquired = new Ownership(world, guard, DirectoryLock.create(world));
+            Ownership acquired = new Ownership(world, guard, acquireDirectory(world));
             OWNED.set(acquired);
             return new WorldWriteLock(acquired);
         } catch (IOException | RuntimeException | Error failure) {
             guard.unlock();
+            throw failure;
+        }
+    }
+
+    private static DirectoryLock acquireDirectory(Path world) throws IOException {
+        try {
+            // The probe closes its channel even on a same-JVM overlap. Vanilla's
+            // create() only cleans up IOExceptions, so avoid that path when busy.
+            if (DirectoryLock.isLocked(world)) throw DirectoryLock.LockException.alreadyLocked(world.resolve(DirectoryLock.LOCK_FILE));
+            // The probe is only a fast rejection; this native lock remains the
+            // authority if another process opens the world between the two calls.
+            return DirectoryLock.create(world);
+        } catch (OverlappingFileLockException overlap) {
+            var failure = DirectoryLock.LockException.alreadyLocked(world.resolve(DirectoryLock.LOCK_FILE));
+            failure.initCause(overlap);
             throw failure;
         }
     }
