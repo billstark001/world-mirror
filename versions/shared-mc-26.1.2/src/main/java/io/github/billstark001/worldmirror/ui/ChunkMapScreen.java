@@ -3,7 +3,6 @@ package io.github.billstark001.worldmirror.ui;
 import io.github.billstark001.worldmirror.conflict.ConflictManager;
 import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
-import io.github.billstark001.worldmirror.download.DownloadManager;
 import io.github.billstark001.worldmirror.ui.ChunkStatusCache.StatusTarget;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
@@ -55,9 +54,8 @@ public class ChunkMapScreen extends Screen {
 
     private ChunkStatusSnapshot statusSnapshot = ChunkStatusSnapshot.EMPTY;
     private LiveChunkStatusSnapshot liveSnapshot = LiveChunkStatusSnapshot.EMPTY;
-    private ChunkMapView.ChunkRange liveCaptureRange;
-    private ResourceKey<Level> liveDimension;
-    private long nextLiveRefreshMs;
+    private final ChunkViewportCache viewportCache = new ChunkViewportCache();
+    private final ChunkMapProjection projection = new ChunkMapProjection();
     private Path worldFolder;
     private boolean viewingCurrentMirror;
     private ResourceKey<Level> currentDimension;
@@ -152,7 +150,7 @@ public class ChunkMapScreen extends Screen {
         if (currentDimension == null) currentDimension = Level.OVERWORLD;
 
         statusSnapshot = ChunkStatusCache.getOrScheduleRefresh(client, currentDimension, 0L);
-        liveCaptureRange = null;
+        viewportCache.clear();
     }
 
     // ── Rendering ─────────────────────────────────────────────────────────────
@@ -164,9 +162,9 @@ public class ChunkMapScreen extends Screen {
         long now = System.currentTimeMillis();
         ChunkMapView.BuiltInViewport viewport = viewport(
                 mapConfig.background == ModConfig.ChunkMapBackground.TRANSPARENT);
-        refreshLiveSnapshot(ChunkMapView.visibleRange(viewport), now);
+        liveSnapshot = viewportCache.get(this.minecraft, currentDimension, ChunkMapView.visibleRange(viewport), statusSnapshot, now);
         ChunkMapView.renderBuiltIn(
-                ctx::fill, statusSnapshot, liveSnapshot, viewport, now,
+                ctx::fill, projection, statusSnapshot, liveSnapshot, viewport, now,
                 mapConfig.sparseRenderCellThreshold);
         hoveredChunk = chunkAt(viewport, mx, my);
 
@@ -218,23 +216,6 @@ public class ChunkMapScreen extends Screen {
             lines.add(Component.translatable("screen.worldmirror.chunkmap.clickResolve"));
         }
         ctx.setComponentTooltipForNextFrame(this.font, lines, mx, my);
-    }
-
-    private void refreshLiveSnapshot(ChunkMapView.ChunkRange visible, long now) {
-        if (liveCaptureRange != null && currentDimension.equals(liveDimension)
-                && now < nextLiveRefreshMs
-                && visible.minX() >= liveCaptureRange.minX()
-                && visible.maxX() <= liveCaptureRange.maxX()
-                && visible.minZ() >= liveCaptureRange.minZ()
-                && visible.maxZ() <= liveCaptureRange.maxZ()) return;
-        int margin = 16;
-        liveCaptureRange = new ChunkMapView.ChunkRange(
-                visible.minX() - margin, visible.maxX() + margin,
-                visible.minZ() - margin, visible.maxZ() + margin);
-        liveSnapshot = LiveChunkStatusSnapshot.capture(currentDimension, liveCaptureRange,
-                statusSnapshot);
-        liveDimension = currentDimension;
-        nextLiveRefreshMs = now + 500L;
     }
 
     // ── Dialog ────────────────────────────────────────────────────────────────

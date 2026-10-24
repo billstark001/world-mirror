@@ -176,6 +176,10 @@ public final class DownloadManager {
         return captureQueue.pendingChunkPositions(dimension, minX, maxX, minZ, maxZ);
     }
 
+    public static long pendingCaptureStatusVersion(ResourceKey<Level> dimension) {
+        return captureQueue.statusVersion(dimension);
+    }
+
     /**
      * Coalesces repeated light-only packets before allowing export. The overlay
      * and its revision change immediately; export waits for the short window.

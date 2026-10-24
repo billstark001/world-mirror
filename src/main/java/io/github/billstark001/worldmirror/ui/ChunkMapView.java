@@ -1,6 +1,5 @@
 package io.github.billstark001.worldmirror.ui;
 
-import io.github.billstark001.worldmirror.download.ChunkDatabase;
 
 import java.util.Map;
 
@@ -18,13 +17,6 @@ public final class ChunkMapView {
 
     private static final int CHUNK_BLOCK_SIZE = 16;
     private static final int MAX_WORLD_CHUNK = 1_875_000;
-    private static final int COLOR_FRESH_GREEN = 0xFF00C800;
-    private static final int COLOR_OLD_BLUE = 0xFF0000C8;
-    private static final int COLOR_EXTERNAL = 0xFFFF9000;
-    private static final int COLOR_PENDING_CAPTURE_NEW = 0xFFFFD21F;
-    private static final int COLOR_PENDING_CAPTURE_SAVED = 0xFFD8DC30;
-    private static final int COLOR_PENDING_WRITE_NEW = 0xFF91E633;
-    private static final int COLOR_PENDING_WRITE_SAVED = 0xFF20E060;
     private static final int COLOR_CONFLICT_BORDER = 0xFFFF3030;
     private static final int COLOR_GRID = 0x14FFFFFF;
     private static final int COLOR_BACKGROUND = 0xFF101010;
@@ -34,8 +26,6 @@ public final class ChunkMapView {
     private static final int TRANSPARENT_FILL_ALPHA = 0x7F;
     private static final int OVERLAY_ALPHA = 0x5F;
     private static final int OVERLAY_CONFLICT_COLOR = 0x66FF3030;
-    private static final long AGE_MAX_MS = 30L * 24 * 3600 * 1000;
-    private static final long AGE_MIN_MS = 10L * 60 * 1000;
     private static final int DIALOG_WIDTH = 220;
     private static final int DIALOG_HEIGHT = 90;
 
@@ -71,8 +61,6 @@ public final class ChunkMapView {
         }
     }
 
-    public record ChunkRange(int minX, int maxX, int minZ, int maxZ) {}
-
     public record ChunkCoordinate(int x, int z) {}
 
     public record DialogBounds(int left, int top, int right, int bottom) {
@@ -85,16 +73,7 @@ public final class ChunkMapView {
         }
     }
 
-    public static ChunkRange renderBuiltIn(Canvas canvas,
-                                           ChunkStatusSnapshot snapshot,
-                                           BuiltInViewport viewport,
-                                           long now,
-                                           int sparseThreshold) {
-        return renderBuiltIn(canvas, snapshot, LiveChunkStatusSnapshot.EMPTY,
-                viewport, now, sparseThreshold);
-    }
-
-    public static ChunkRange renderBuiltIn(Canvas canvas,
+    public static ChunkBounds renderBuiltIn(Canvas canvas, ChunkMapProjection projection,
                                            ChunkStatusSnapshot snapshot,
                                            LiveChunkStatusSnapshot live,
                                            BuiltInViewport viewport,
@@ -103,31 +82,16 @@ public final class ChunkMapView {
         if (!viewport.transparentBackground()) {
             canvas.fill(0, 0, viewport.width(), viewport.height(), COLOR_BACKGROUND);
         }
-        ChunkRange range = visibleRange(viewport);
+        ChunkBounds range = visibleRange(viewport);
         if (viewport.cellSize() <= clampSparseThreshold(sparseThreshold)) {
-            renderSparse(canvas, snapshot, live, viewport, range, now);
+            renderSparse(canvas, projection, snapshot, live, viewport, range, now);
         } else {
-            renderDense(canvas, snapshot, live, viewport, range, now);
+            renderDense(canvas, projection, snapshot, live, viewport, range, now);
         }
         return range;
     }
 
-    public static void renderOverlay(Canvas canvas,
-                                     CoordinateProjection screenX,
-                                     CoordinateProjection screenY,
-                                     ChunkStatusSnapshot snapshot,
-                                     int width,
-                                     int height,
-                                     double cameraX,
-                                     double cameraZ,
-                                     double pixelsPerBlock,
-                                     long now,
-                                     int maxCells) {
-        renderOverlay(canvas, screenX, screenY, snapshot, LiveChunkStatusSnapshot.EMPTY,
-                width, height, cameraX, cameraZ, pixelsPerBlock, now, maxCells);
-    }
-
-    public static ChunkRange overlayVisibleRange(int width, int height,
+    public static ChunkBounds overlayVisibleRange(int width, int height,
                                                  double cameraX, double cameraZ,
                                                  double pixelsPerBlock) {
         if (width <= 0 || height <= 0 || !Double.isFinite(cameraX)
@@ -145,10 +109,10 @@ public final class ChunkMapView {
         int maxX = (int) Math.min(MAX_WORLD_CHUNK, maxChunkX);
         int minZ = (int) Math.max(-MAX_WORLD_CHUNK, minChunkZ);
         int maxZ = (int) Math.min(MAX_WORLD_CHUNK, maxChunkZ);
-        return new ChunkRange(minX, maxX, minZ, maxZ);
+        return new ChunkBounds(minX, maxX, minZ, maxZ);
     }
 
-    public static void renderOverlay(Canvas canvas,
+    public static void renderOverlay(Canvas canvas, ChunkMapProjection projection,
                                      CoordinateProjection screenX,
                                      CoordinateProjection screenY,
                                      ChunkStatusSnapshot snapshot,
@@ -160,15 +124,13 @@ public final class ChunkMapView {
                                      double pixelsPerBlock,
                                      long now,
                                      int maxCells) {
-        ChunkRange range = overlayVisibleRange(width, height, cameraX, cameraZ, pixelsPerBlock);
+        ChunkBounds range = overlayVisibleRange(width, height, cameraX, cameraZ, pixelsPerBlock);
         if (range == null) return;
-        ChunkMapAggregation.Result aggregate = ChunkMapAggregation.aggregate(
-                snapshot, range.minX(), range.maxX(), range.minZ(), range.maxZ(),
-                now, clampOverlayMaxCells(maxCells));
+        ChunkMapProjection.Frame aggregate = projection.get(snapshot, live, range, now, clampOverlayMaxCells(maxCells), false);
         int bucketSize = aggregate.bucketSize();
         double blockSize = (double) bucketSize * CHUNK_BLOCK_SIZE;
 
-        for (ChunkMapAggregation.Run run : aggregate.runs()) {
+        for (ChunkTileGeometry.Run run : aggregate.runs()) {
             int x1 = screenX.project((double) run.startBucketX() * blockSize);
             int y1 = screenY.project((double) run.bucketZ() * blockSize);
             int x2 = screenX.project((double) (run.endBucketX() + 1) * blockSize);
@@ -183,9 +145,9 @@ public final class ChunkMapView {
             int bottom = Math.min(height, y2);
             canvas.fill(left, top, right, bottom, withAlpha(run.color(), OVERLAY_ALPHA));
         }
-        renderProjectedLive(canvas, screenX, screenY, live, range,
+        renderProjectedLive(canvas, screenX, screenY, aggregate.live(), range,
                 bucketSize, blockSize, width, height, now);
-        for (ChunkMapAggregation.Run run : aggregate.runs()) {
+        for (ChunkTileGeometry.Run run : aggregate.runs()) {
             if (!run.conflict()) continue;
             int x1 = screenX.project((double) run.startBucketX() * blockSize);
             int y1 = screenY.project((double) run.bucketZ() * blockSize);
@@ -202,8 +164,8 @@ public final class ChunkMapView {
     private static void renderProjectedLive(Canvas canvas,
                                             CoordinateProjection screenX,
                                             CoordinateProjection screenY,
-                                            LiveChunkStatusSnapshot live,
-                                            ChunkRange range,
+                                            Map<Long, LiveChunkStatusSnapshot.Record> live,
+                                            ChunkBounds range,
                                             int bucketSize,
                                             double blockSize,
                                             int width,
@@ -214,7 +176,7 @@ public final class ChunkMapView {
         int maxBucketX = Math.floorDiv(range.maxX(), bucketSize);
         int minBucketZ = Math.floorDiv(range.minZ(), bucketSize);
         int maxBucketZ = Math.floorDiv(range.maxZ(), bucketSize);
-        for (Map.Entry<Long, LiveChunkStatusSnapshot.Record> entry : live.bucketRecords(bucketSize).entrySet()) {
+        for (Map.Entry<Long, LiveChunkStatusSnapshot.Record> entry : live.entrySet()) {
             int bucketX = (int) (entry.getKey() >> 32);
             int bucketZ = (int) (long) entry.getKey();
             if (bucketX < minBucketX || bucketX > maxBucketX
@@ -226,7 +188,7 @@ public final class ChunkMapView {
             if (x2 <= 0 || y2 <= 0 || x1 >= width || y1 >= height) continue;
             canvas.fill(Math.max(0, x1), Math.max(0, y1),
                     Math.min(width, x2), Math.min(height, y2),
-                    withAlpha(liveColor(entry.getValue(), now), OVERLAY_ALPHA));
+                    withAlpha(ChunkMapStyle.live(entry.getValue(), now), OVERLAY_ALPHA));
         }
     }
 
@@ -268,47 +230,24 @@ public final class ChunkMapView {
         return Math.max(CELL_SIZE_MIN, Math.min(CELL_SIZE_MAX, current + delta));
     }
 
-    public static int computeColor(ChunkDatabase.ChunkRecord record, long now) {
-        if (record == null) return 0;
-        if (usesCaptureTimeGradient(record.updateSource())) {
-            return interpolateGreenBlue(now - record.updateTime());
-        }
-        return COLOR_EXTERNAL;
-    }
-
-    public static boolean usesCaptureTimeGradient(String updateSource) {
-        return "world_mirror".equals(updateSource) || "replay_import".equals(updateSource);
-    }
-
-    public static int interpolateGreenBlue(long ageMs) {
-        if (ageMs <= AGE_MIN_MS) return COLOR_FRESH_GREEN;
-        if (ageMs >= AGE_MAX_MS) return COLOR_OLD_BLUE;
-        double progress = Math.log((double) ageMs / AGE_MIN_MS)
-                / Math.log((double) AGE_MAX_MS / AGE_MIN_MS);
-        progress = Math.max(0.0D, Math.min(1.0D, progress));
-        int green = (int) (200 * (1.0D - progress));
-        int blue = (int) (200 * progress);
-        return 0xFF000000 | (green << 8) | blue;
-    }
-
-    public static ChunkRange visibleRange(BuiltInViewport viewport) {
+    public static ChunkBounds visibleRange(BuiltInViewport viewport) {
         int visibleX = viewport.width() / viewport.cellSize() / 2 + 2;
         int visibleZ = viewport.height() / viewport.cellSize() / 2 + 2;
-        return new ChunkRange(
+        return new ChunkBounds(
                 (int) Math.floor(viewport.centerChunkX()) - visibleX,
                 (int) Math.ceil(viewport.centerChunkX()) + visibleX,
                 (int) Math.floor(viewport.centerChunkZ()) - visibleZ,
                 (int) Math.ceil(viewport.centerChunkZ()) + visibleZ);
     }
 
-    private static void renderDense(Canvas canvas,
+    private static void renderDense(Canvas canvas, ChunkMapProjection projection,
                                     ChunkStatusSnapshot snapshot,
                                     LiveChunkStatusSnapshot live,
                                     BuiltInViewport viewport,
-                                    ChunkRange range,
+                                    ChunkBounds range,
                                     long now) {
         snapshot.forEachRecordInRange(range.minX(), range.maxX(), range.minZ(), range.maxZ(), record -> {
-            int fill = computeColor(record, now);
+            int fill = ChunkMapStyle.saved(record, now);
             if (viewport.transparentBackground()) {
                 fill = withAlpha(fill, TRANSPARENT_FILL_ALPHA);
             }
@@ -318,25 +257,24 @@ public final class ChunkMapView {
                 canvas.fill(x, z, x + viewport.cellSize(), z + viewport.cellSize(), fill);
             }
         });
-        renderLive(canvas, live, viewport, range, now, 1);
+        var dense = projection.get(snapshot, live, range, now, 4096, true);
+        renderLive(canvas, dense.live(), viewport, range, now, 1);
         renderGrid(canvas, viewport, range, gridIntervalForCellSize(viewport.cellSize()));
-        snapshot.forEachBoundaryInRange(range.minX(), range.maxX(), range.minZ(), range.maxZ(),
-                boundary -> renderBoundary(canvas, viewport, boundary));
+        for (var boundary : dense.boundaries()) renderAggregatedBoundary(canvas, viewport, boundary, 1);
         snapshot.forEachConflictCoordinatesInRange(range.minX(), range.maxX(), range.minZ(), range.maxZ(),
                 (x, z) -> drawConflictBorder(
                         canvas, viewport.screenX(x), viewport.screenZ(z), viewport.cellSize()));
     }
 
-    private static void renderSparse(Canvas canvas,
+    private static void renderSparse(Canvas canvas, ChunkMapProjection projection,
                                      ChunkStatusSnapshot snapshot,
                                      LiveChunkStatusSnapshot live,
                                      BuiltInViewport viewport,
-                                     ChunkRange range,
+                                     ChunkBounds range,
                                      long now) {
-        ChunkMapAggregation.Result aggregate = ChunkMapAggregation.aggregate(
-                snapshot, range.minX(), range.maxX(), range.minZ(), range.maxZ(), now);
+        ChunkMapProjection.Frame aggregate = projection.get(snapshot, live, range, now, 4096, false);
         int bucketSize = aggregate.bucketSize();
-        for (ChunkMapAggregation.Run run : aggregate.runs()) {
+        for (ChunkTileGeometry.Run run : aggregate.runs()) {
             int x1 = viewport.screenX((double) run.startBucketX() * bucketSize);
             int z1 = viewport.screenZ((double) run.bucketZ() * bucketSize);
             int x2 = viewport.screenX((double) (run.endBucketX() + 1) * bucketSize);
@@ -346,8 +284,8 @@ public final class ChunkMapView {
                     : run.color();
             canvas.fill(x1, z1, Math.max(x1 + 1, x2), Math.max(z1 + 1, z2), fill);
         }
-        renderLive(canvas, live, viewport, range, now, bucketSize);
-        for (ChunkMapAggregation.Run run : aggregate.runs()) {
+        renderLive(canvas, aggregate.live(), viewport, range, now, bucketSize);
+        for (ChunkTileGeometry.Run run : aggregate.runs()) {
             if (!run.conflict()) continue;
             int x1 = viewport.screenX((double) run.startBucketX() * bucketSize);
             int z1 = viewport.screenZ((double) run.bucketZ() * bucketSize);
@@ -356,14 +294,14 @@ public final class ChunkMapView {
             canvas.fill(x1, z1, Math.max(x1 + 1, x2), Math.max(z1 + 1, z2),
                     COLOR_CONFLICT_BORDER);
         }
-        for (ChunkMapAggregation.Boundary boundary : aggregate.boundaries()) {
+        for (ChunkTileGeometry.Boundary boundary : aggregate.boundaries()) {
             renderAggregatedBoundary(canvas, viewport, boundary, bucketSize);
         }
         renderGrid(canvas, viewport, range, sparseGridIntervalForCellSize(viewport.cellSize()));
     }
 
-    private static void renderLive(Canvas canvas, LiveChunkStatusSnapshot live,
-                                   BuiltInViewport viewport, ChunkRange range,
+    private static void renderLive(Canvas canvas, Map<Long, LiveChunkStatusSnapshot.Record> live,
+                                   BuiltInViewport viewport, ChunkBounds range,
                                    long now, int bucketSize) {
         if (live.isEmpty()) return;
         int minBucketX = Math.floorDiv(range.minX(), bucketSize);
@@ -371,7 +309,7 @@ public final class ChunkMapView {
         int minBucketZ = Math.floorDiv(range.minZ(), bucketSize);
         int maxBucketZ = Math.floorDiv(range.maxZ(), bucketSize);
         for (Map.Entry<Long, LiveChunkStatusSnapshot.Record> entry
-                : live.bucketRecords(bucketSize).entrySet()) {
+                : live.entrySet()) {
             int bucketX = (int) (entry.getKey() >> 32);
             int bucketZ = (int) (long) entry.getKey();
             if (bucketX < minBucketX || bucketX > maxBucketX
@@ -381,42 +319,15 @@ public final class ChunkMapView {
             int x2 = viewport.screenX((double) (bucketX + 1) * bucketSize);
             int z2 = viewport.screenZ((double) (bucketZ + 1) * bucketSize);
             LiveChunkStatusSnapshot.Record record = entry.getValue();
-            int color = liveColor(record, now);
+            int color = ChunkMapStyle.live(record, now);
             if (viewport.transparentBackground()) color = withAlpha(color, TRANSPARENT_FILL_ALPHA);
             canvas.fill(x1, z1, Math.max(x1 + 1, x2), Math.max(z1 + 1, z2), color);
         }
     }
 
-    static int liveColor(LiveChunkStatusSnapshot.Record record, long now) {
-        return switch (record.state()) {
-            case PENDING_CAPTURE -> record.hasSavedRecord()
-                    ? COLOR_PENDING_CAPTURE_SAVED : COLOR_PENDING_CAPTURE_NEW;
-            case PENDING_WRITE -> record.hasSavedRecord()
-                    ? COLOR_PENDING_WRITE_SAVED : COLOR_PENDING_WRITE_NEW;
-            case CACHED -> interpolateGreenBlue(now - record.capturedAtMs());
-        };
-    }
-
-    private static void renderBoundary(Canvas canvas,
-                                       BuiltInViewport viewport,
-                                       ChunkStatusSnapshot.BoundarySegment boundary) {
-        int color = boundaryColor(boundary.color());
-        if (boundary.vertical()) {
-            int x = viewport.screenX(boundary.fixed());
-            int z1 = viewport.screenZ(boundary.start());
-            int z2 = viewport.screenZ(boundary.end());
-            canvas.fill(x, z1, x + 1, z2, color);
-        } else {
-            int x1 = viewport.screenX(boundary.start());
-            int x2 = viewport.screenX(boundary.end());
-            int z = viewport.screenZ(boundary.fixed());
-            canvas.fill(x1, z, x2, z + 1, color);
-        }
-    }
-
     private static void renderAggregatedBoundary(Canvas canvas,
                                                  BuiltInViewport viewport,
-                                                 ChunkMapAggregation.Boundary boundary,
+                                                 ChunkTileGeometry.Boundary boundary,
                                                  int bucketSize) {
         int color = boundaryColor(boundary.color());
         if (boundary.vertical()) {
@@ -435,10 +346,10 @@ public final class ChunkMapView {
     private static void renderProjectedBoundaries(Canvas canvas,
                                                   CoordinateProjection screenX,
                                                   CoordinateProjection screenY,
-                                                  ChunkMapAggregation.Result aggregate,
+                                                  ChunkMapProjection.Frame aggregate,
                                                   double blockSize,
                                                   int width, int height) {
-        for (ChunkMapAggregation.Boundary boundary : aggregate.boundaries()) {
+        for (ChunkTileGeometry.Boundary boundary : aggregate.boundaries()) {
             int color = boundaryColor(boundary.color());
             if (boundary.vertical()) {
                 int x = screenX.project((double) boundary.fixed() * blockSize);
@@ -460,7 +371,7 @@ public final class ChunkMapView {
 
     private static void renderGrid(Canvas canvas,
                                    BuiltInViewport viewport,
-                                   ChunkRange range,
+                                   ChunkBounds range,
                                    int interval) {
         int top = viewport.screenZ(range.minZ());
         int bottom = viewport.screenZ(range.maxZ() + 1);

@@ -21,8 +21,7 @@ class ChunkStatusSnapshotRangeTest {
                 -1_500_000, 0, 1L, "world_mirror");
         ChunkDatabase.ChunkRecord east = new ChunkDatabase.ChunkRecord(
                 1_500_000, 0, 2L, "world_mirror");
-        ChunkStatusSnapshot snapshot = new ChunkStatusSnapshot(
-                List.of(west, east), List.of(new ChunkPos(1_500_000, 0)), 1L);
+        ChunkStatusSnapshot snapshot = new ChunkStatusSnapshot(List.of(west, east), List.of(new ChunkPos(1_500_000, 0)));
 
         assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
             List<ChunkDatabase.ChunkRecord> records = new ArrayList<>();
@@ -35,8 +34,8 @@ class ChunkStatusSnapshotRangeTest {
             assertEquals(1, conflicts.size());
         });
 
-        List<ChunkStatusSnapshot.BoundarySegment> nearby = new ArrayList<>();
-        snapshot.forEachBoundaryInRange(-1_500_000, -1_500_000, 0, 0, nearby::add);
+        var nearby = new ChunkMapProjection().get(snapshot, LiveChunkStatusSnapshot.EMPTY,
+                new ChunkBounds(-1_500_000, -1_500_000, 0, 0), 0L, 4096, true).boundaries();
         assertEquals(4, nearby.size());
     }
 
@@ -45,7 +44,7 @@ class ChunkStatusSnapshotRangeTest {
         assertNull(ChunkMapView.overlayVisibleRange(100, 100, Double.NaN, 0, 1));
         assertNull(ChunkMapView.overlayVisibleRange(100, 100, 0, 0, 0));
         assertNull(ChunkMapView.overlayVisibleRange(0, 100, 0, 0, 1));
-        ChunkMapView.ChunkRange range = ChunkMapView.overlayVisibleRange(
+        ChunkBounds range = ChunkMapView.overlayVisibleRange(
                 100, 100, 0, 0, Double.MIN_VALUE);
         assertNotNull(range);
         assertEquals(-1_875_000, range.minX());
@@ -57,7 +56,7 @@ class ChunkStatusSnapshotRangeTest {
     @Test
     void recordsViewCannotInvalidateTheImmutableSnapshot() {
         var record = new ChunkDatabase.ChunkRecord(1, 2, 3L, "world_mirror");
-        var snapshot = new ChunkStatusSnapshot(List.of(record), List.of(), 1L);
+        var snapshot = new ChunkStatusSnapshot(List.of(record), List.of());
 
         assertThrows(UnsupportedOperationException.class, () -> snapshot.records().clear());
         assertEquals(record, snapshot.getRecord(1, 2));
@@ -67,8 +66,7 @@ class ChunkStatusSnapshotRangeTest {
     void coordinateLookupAndRegionIterationAgreeWhenInputContainsDuplicates() {
         var previous = new ChunkDatabase.ChunkRecord(1, 2, 3L, "world_mirror");
         var replacement = new ChunkDatabase.ChunkRecord(1, 2, 4L, "external");
-        var snapshot = new ChunkStatusSnapshot(List.of(previous, replacement),
-                List.of(new ChunkPos(1, 2), new ChunkPos(1, 2)), 1L);
+        var snapshot = new ChunkStatusSnapshot(List.of(previous, replacement), List.of(new ChunkPos(1, 2), new ChunkPos(1, 2)));
         List<ChunkDatabase.ChunkRecord> visited = new ArrayList<>();
         List<ChunkPos> conflicts = new ArrayList<>();
 

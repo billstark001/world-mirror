@@ -4,6 +4,7 @@ import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.io.ChunkSerializer;
 import io.github.billstark001.worldmirror.util.WMLogger;
+import io.github.billstark001.worldmirror.util.ChunkRegionIndex;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.nbt.CompoundTag;
@@ -68,6 +69,10 @@ final class DownloadCaptureQueue {
     // bounded observation queue. They must survive capacity pressure and unload.
     private final Set<Key> overflowBlockChanges = new LinkedHashSet<>();
     private final Map<Key, Long> pendingLightUpdates = new HashMap<>();
+    private final Map<ResourceKey<Level>, ChunkRegionIndex<Key>> pendingStatus = new HashMap<>();
+    private final AtomicLong statusVersion = new AtomicLong();
+    private final Map<ResourceKey<Level>, Long> statusVersions = new HashMap<>();
+    private long resetVersion;
     private final AtomicBoolean reconciliationNeeded = new AtomicBoolean();
     private final AtomicBoolean captureInProgress = new AtomicBoolean();
     private final BooleanSupplier recordPerformance;
@@ -136,6 +141,7 @@ final class DownloadCaptureQueue {
             lastHint = pending.remove(key);
             authoritative = overflowBlockChanges.remove(key) || (lastHint != null && lastHint.allowEmpty());
             pendingLight = pendingLightUpdates.remove(key) != null;
+            refreshPendingStatus(key);
             captureInProgress.set(hasWorkLocked());
         }
         boolean captured = false;
@@ -176,6 +182,7 @@ final class DownloadCaptureQueue {
     void markLightDirty(Key key) {
         synchronized (lock) {
             pendingLightUpdates.putIfAbsent(key, clientTick + LIGHT_UPDATE_COALESCE_TICKS);
+            refreshPendingStatus(key);
             captureInProgress.set(hasWorkLocked());
         }
     }
@@ -229,27 +236,22 @@ final class DownloadCaptureQueue {
                                         int minX, int maxX, int minZ, int maxZ) {
         Set<ChunkPos> result = new HashSet<>();
         synchronized (lock) {
-            for (Pending request : pending.values()) {
-                Key key = request.key();
-                if (dimension.equals(key.dimension()) && key.chunkX() >= minX && key.chunkX() <= maxX
-                        && key.chunkZ() >= minZ && key.chunkZ() <= maxZ) {
-                    result.add(new ChunkPos(key.chunkX(), key.chunkZ()));
-                }
-            }
-            for (Key key : pendingLightUpdates.keySet()) {
-                if (dimension.equals(key.dimension()) && key.chunkX() >= minX && key.chunkX() <= maxX
-                        && key.chunkZ() >= minZ && key.chunkZ() <= maxZ) {
-                    result.add(new ChunkPos(key.chunkX(), key.chunkZ()));
-                }
-            }
-            for (Key key : overflowBlockChanges) {
-                if (dimension.equals(key.dimension()) && key.chunkX() >= minX && key.chunkX() <= maxX
-                        && key.chunkZ() >= minZ && key.chunkZ() <= maxZ) {
-                    result.add(new ChunkPos(key.chunkX(), key.chunkZ()));
-                }
-            }
+            ChunkRegionIndex<Key> index = pendingStatus.get(dimension);
+            if (index != null) index.forEachInRange(minX, maxX, minZ, maxZ,
+                    key -> result.add(new ChunkPos(key.chunkX(), key.chunkZ())));
         }
         return result;
+    }
+
+    long statusVersion(ResourceKey<Level> dimension) {
+        synchronized (lock) { return statusVersions.getOrDefault(dimension, resetVersion); }
+    }
+
+    private void refreshPendingStatus(Key key) {
+        ChunkRegionIndex<Key> index = pendingStatus.computeIfAbsent(key.dimension(), ignored -> new ChunkRegionIndex<>());
+        boolean changed = pending.containsKey(key) || pendingLightUpdates.containsKey(key) || overflowBlockChanges.contains(key)
+                ? index.put(key.chunkX(), key.chunkZ(), key) : index.remove(key.chunkX(), key.chunkZ());
+        if (changed) statusVersions.put(key.dimension(), statusVersion.incrementAndGet());
     }
 
     boolean hasWork() {
@@ -267,6 +269,9 @@ final class DownloadCaptureQueue {
 
     void clear() {
         synchronized (lock) {
+            pendingStatus.clear();
+            statusVersions.clear();
+            resetVersion = statusVersion.incrementAndGet();
             pending.clear();
             scans.clear();
             overflowBlockChanges.clear();
@@ -335,6 +340,7 @@ final class DownloadCaptureQueue {
             if (pending.size() >= limit) {
                 if (allowEmpty) {
                     overflowBlockChanges.add(key);
+                    refreshPendingStatus(key);
                     coalescedHints++;
                     if (counters != null) counters.coalesced++;
                     captureInProgress.set(true);
@@ -349,6 +355,7 @@ final class DownloadCaptureQueue {
                 return false;
             }
             pending.put(key, new Pending(key, reason, System.currentTimeMillis(), allowEmpty));
+            refreshPendingStatus(key);
             if (counters != null) counters.queued++;
             captureInProgress.set(true);
             return true;
@@ -425,6 +432,7 @@ final class DownloadCaptureQueue {
                 if (force || entry.getValue() <= clientTick) {
                     ready.add(entry.getKey());
                     iterator.remove();
+                    refreshPendingStatus(entry.getKey());
                 }
             }
             captureInProgress.set(hasWorkLocked());
@@ -443,6 +451,7 @@ final class DownloadCaptureQueue {
         synchronized (lock) {
             promoteBlockChangesLocked();
             var first = pending.pollFirstEntry();
+            if (first != null) refreshPendingStatus(first.getKey());
             captureInProgress.set(hasWorkLocked());
             return first == null ? null : first.getValue();
         }

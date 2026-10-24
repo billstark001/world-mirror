@@ -32,6 +32,8 @@ changes without dropping compatibility requirements or migration guidance.
 
 - Reduce entity snapshot copying and index reconciliation by chunk, keeping
   small observations fast even after a long capture session.
+- Share spatial queries and bucket summaries across chunk maps and world
+  overlays, reducing repeated scans and geometry work with large capture histories.
 
 ### Fixed
 

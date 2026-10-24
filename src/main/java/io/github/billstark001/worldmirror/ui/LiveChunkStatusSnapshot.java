@@ -20,14 +20,16 @@ public final class LiveChunkStatusSnapshot {
                          boolean hasSavedRecord) { }
 
     private final Map<Long, Record> records;
-    private final Map<Integer, Map<Long, Record>> bucketsBySize = new HashMap<>();
+    private final ChunkBucketIndex index;
 
     LiveChunkStatusSnapshot(Map<Long, Record> records) {
         this.records = Map.copyOf(records);
+        this.index = new ChunkBucketIndex(records.values().stream().map(record ->
+                new ChunkBucketIndex.Fact(record.x(), record.z(), null, false, record)).toList());
     }
 
     public static LiveChunkStatusSnapshot capture(ResourceKey<Level> dimension,
-                                                   ChunkMapView.ChunkRange range,
+                                                   ChunkBounds range,
                                                    ChunkStatusSnapshot persistent) {
         if (dimension == null) return EMPTY;
         Map<Long, Record> records = new HashMap<>();
@@ -37,7 +39,7 @@ public final class LiveChunkStatusSnapshot {
             if (!chunk.pendingWrite() && saved != null
                     && saved.updateTime() >= chunk.capturedAtMs()) continue;
             State state = chunk.pendingWrite() ? State.PENDING_WRITE : State.CACHED;
-            records.put(ChunkStatusSnapshot.chunkKey(chunk.x(), chunk.z()),
+            records.put(ChunkBounds.key(chunk.x(), chunk.z()),
                     new Record(chunk.x(), chunk.z(), chunk.capturedAtMs(), state,
                             saved != null));
         }
@@ -45,7 +47,7 @@ public final class LiveChunkStatusSnapshot {
                 dimension, range.minX(), range.maxX(), range.minZ(), range.maxZ())) {
             int x = pos.getMinBlockX() >> 4;
             int z = pos.getMinBlockZ() >> 4;
-            records.put(ChunkStatusSnapshot.chunkKey(x, z),
+            records.put(ChunkBounds.key(x, z),
                     new Record(x, z, 0L, State.PENDING_CAPTURE,
                             persistent.getRecord(x, z) != null));
         }
@@ -57,36 +59,12 @@ public final class LiveChunkStatusSnapshot {
     }
 
     public Record getRecord(int x, int z) {
-        return records.get(ChunkStatusSnapshot.chunkKey(x, z));
+        return records.get(ChunkBounds.key(x, z));
     }
 
     public void forEachRecord(Consumer<Record> consumer) {
         records.values().forEach(consumer);
     }
 
-    /** Reuse low-zoom bucket selection for every frame of this immutable snapshot. */
-    public synchronized Map<Long, Record> bucketRecords(int bucketSize) {
-        if (bucketSize == 1) return records;
-        return bucketsBySize.computeIfAbsent(bucketSize, size -> {
-            Map<Long, Record> buckets = new HashMap<>();
-            for (Record record : records.values()) {
-                long key = ChunkStatusSnapshot.chunkKey(
-                        Math.floorDiv(record.x(), size), Math.floorDiv(record.z(), size));
-                Record previous = buckets.get(key);
-                if (hasPriorityOver(record, previous)) {
-                    buckets.put(key, record);
-                }
-            }
-            return Map.copyOf(buckets);
-        });
-    }
-
-    /** Shared by map and world-overlay aggregation, independent of display colors. */
-    static boolean hasPriorityOver(Record record, Record previous) {
-        return previous == null || record.state().ordinal() > previous.state().ordinal()
-                || (record.state() == previous.state()
-                && (!record.hasSavedRecord() && previous.hasSavedRecord()
-                || record.hasSavedRecord() == previous.hasSavedRecord()
-                && record.capturedAtMs() > previous.capturedAtMs()));
-    }
+    ChunkBucketIndex index() { return index; }
 }

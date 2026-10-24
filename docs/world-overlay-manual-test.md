@@ -59,3 +59,26 @@ The classic path retains scene depth testing and does not write overlay depth.
 Its purpose is a readable coverage overlay; it does not implement full physical
 transparency for coverage behind nearer water or glass. Native OIT handles those
 transparent intersections on Minecraft 26.3.
+
+## Large histories, shared buckets, and status semantics
+
+1. In an isolated test save, prepare roughly 100,000 recorded chunks, including
+   sparse distant records. Zoom and pan both maps horizontally and diagonally;
+   clipped edge buckets must not inherit records outside the visible range.
+2. Alternate the built-in map, Xaero, and Session/Map world-overlay modes. Check
+   that views keep their own results while reusing complete source buckets.
+   Switch worlds and dimensions and confirm old live colors disappear.
+3. With a fixed view, allow capture-age colors to advance. Same-color boundary
+   bands must change without a source-data update. Leave empty regions in the
+   test area: high-zoom work must follow stored records, not empty coordinate area.
+4. In Session, older cached captures can be blue even before they reach disk.
+   In Map, waiting, active, and failed writes currently share pending-write
+   colors. A successful terrain write can show as saved while entities remain
+   pending. Red denotes a stored conflict, not an export failure.
+5. Compare a uniform 64 by 64 chunk grid with and without the interior grid.
+   Every grid line and the perimeter must remain visible after line merging;
+   toggling the grid must not change fill opacity.
+
+Automatic regression tests cover CPU work counts and these data projections.
+Measure actual frame spacing separately; a passing headless test is not an FPS
+benchmark or a completed shader/OIT compatibility check.

@@ -76,7 +76,10 @@ Drag to pan, use the mouse wheel to zoom, and hover a cell to inspect its chunk
 coordinates, update age, and update source. The map queries an asynchronous,
 viewport-indexed status snapshot rather than the SQLite database from the render loop.
 At low zoom it aggregates chunks into bounded buckets and merges same-state runs and
-boundaries. Clicking a conflicted chunk opens the **Overwrite / Discard / Cancel** dialog.
+boundaries. The built-in map, Xaero layer, and both world-overlay color modes share
+spatial queries and cached bucket facts; each view keeps its own derived geometry.
+Partial buckets use only coordinates inside the viewport. Clicking a conflicted
+chunk opens the **Overwrite / Discard / Cancel** dialog.
 
 ---
 
@@ -149,9 +152,18 @@ The built-in map and Xaero overlay use the same live colours. Yellow means a
 chunk without a saved record is waiting for capture; yellow-green means a saved
 record already exists but a new capture is pending. Bright lime means a new
 in-memory capture is waiting to be saved, and light green means that an older
-saved record already exists while the new capture waits to be saved. Once saved,
-chunks return to the green-to-blue age gradient. A pending light update can also
-temporarily appear as waiting for capture.
+saved record already exists while the new capture waits to be saved. After terrain
+and its index commit, chunks return to the green-to-blue capture-age gradient.
+Orange identifies sources other than `world_mirror` and `replay_import`, including
+registered third-party sources; it does not mean only an unknown source.
+Red marks unresolved conflicts. A pending light update can also temporarily appear
+as waiting for capture.
+
+Queueing, active writing, and failed writing currently share the pending-write
+colors. Entity completion is not represented: terrain can show as saved while
+entities are still pending. Frozen retry queues have no separate map marker.
+Map refreshes are asynchronous, and a coarse tile summarizes several chunks rather
+than showing every chunk's independent state.
 
 ![World Mirror overlay on Xaero's World Map](assets/xaero-map-overlay.png)
 
@@ -180,10 +192,14 @@ behind a box no longer paint over it. Solid terrain still hides boxes behind it.
 
 The default **Session** colors show capture-session coverage:
 
-- **Yellow** — the chunk is waiting in the capture queue and is currently downloading.
+- **Yellow** — capture or a pending light update is queued.
 - **Green** — the chunk has been captured during the current download session.
-- **Blue** — the chunk was downloaded during an earlier session and is already in the
-  persistent mirror, or came from a replay import.
+- **Blue** — historical captured coverage, including older in-memory captures,
+  or a replay import.
+
+Session colors describe coverage, not completion of terrain or entity writes.
+They do not distinguish queued, active, failed, partially saved, and fully saved
+exports.
 
 Choose **Map** colors to use the capture-age gradient, source colors, and live
 capture/write queue colors described above for the built-in and Xaero maps.

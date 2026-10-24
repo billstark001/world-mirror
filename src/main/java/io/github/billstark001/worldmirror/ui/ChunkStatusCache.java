@@ -27,8 +27,6 @@ public final class ChunkStatusCache {
         return thread;
     });
 
-    private static final AtomicLong VERSION = new AtomicLong();
-
     private static volatile SnapshotState snapshotState =
             new SnapshotState(null, ChunkStatusSnapshot.EMPTY, 0L);
     private static final AtomicLong INVALIDATION = new AtomicLong();
@@ -122,7 +120,11 @@ public final class ChunkStatusCache {
             List<ChunkDatabase.ChunkRecord> records =
                     ChunkDatabase.queryAllReadOnly(key.worldFolder(), key.sourceId(), dimensionId);
             Set<ChunkPos> conflicts = ConflictManager.listConflicts(key.worldFolder(), key.dimension());
-            return new ChunkStatusSnapshot(records, conflicts, VERSION.incrementAndGet());
+            SnapshotState current = snapshotState;
+            if (key.equals(current.key()) && current.snapshot().matchesData(records, conflicts)) {
+                return current.snapshot();
+            }
+            return new ChunkStatusSnapshot(records, conflicts);
         } catch (Throwable t) {
             WMLogger.warnRateLimited("chunk-status-snapshot", 30_000L,
                     "Chunk status snapshot load failed", t);

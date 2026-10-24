@@ -68,6 +68,28 @@ file atomically, and exercise the target Minecraft codec in a round-trip test. A
 that does not use that saved-data file should provide only the no-op adapter required by
 the shared orchestrator.
 
+## Map data and rendering ownership
+
+- `ChunkBounds` and `ChunkBucketLayout` own coordinate bounds and bucket sizing.
+  Widen boundary arithmetic before adding one and keep clipped edge buckets exact.
+- `ChunkRegionIndex` supports mutable game-thread metadata and immutable indices
+  published after construction. `ChunkStatusSnapshot` and `LiveChunkStatusSnapshot`
+  expose data; `ChunkBucketIndex` owns bounded, color-independent bucket summaries.
+- A summary retains independent newest-record, session-coverage, conflict, and live
+  priority facts. MAP's newest-record rule and SESSION's coverage priority must not
+  discard each other's inputs. Equal timestamps use deterministic coordinate ties.
+- `ChunkMapStyle` projects facts into display colors; `ChunkTileGeometry` builds
+  shared runs, rectangles, and edges. World overlays add height and facing without
+  expanding a finished 2-D map back into cells.
+- `ChunkViewportCache` owns per-view live capture and context invalidation;
+  `ChunkMapProjection` owns per-view derived map geometry. Complete-bucket caches
+  are shared through source indices. Source changes and dimension resets invalidate
+  relevant caches; color ageing must continue without rebuilding source snapshots.
+
+Unit tests check display semantics, clipped and sparse views, cache bounds, and
+candidate work counts. These tests do not establish in-game GPU frame rates; use
+`docs/world-overlay-manual-test.md` for interactive rendering checks.
+
 ## Mirror worldgen revision policy
 
 `worldgenAssetRevision` is one global, monotonically increasing integer for every

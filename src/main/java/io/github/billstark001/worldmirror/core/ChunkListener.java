@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.github.billstark001.worldmirror.io.BlockEntityNbtSupport;
 import io.github.billstark001.worldmirror.util.WMLogger;
+import io.github.billstark001.worldmirror.util.ChunkRegionIndex;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.nbt.CompoundTag;
@@ -111,6 +112,10 @@ public class ChunkListener {
     private static final AtomicLong nextRevision = new AtomicLong();
     private static final AtomicLong nextCaptureTimestamp = new AtomicLong();
     private static final AtomicInteger dirtyCount = new AtomicInteger();
+    private static final Map<ResourceKey<Level>, ChunkRegionIndex<MapChunkStatus>> mapStatus = new HashMap<>();
+    private static final AtomicLong mapStatusVersion = new AtomicLong();
+    private static final Map<ResourceKey<Level>, Long> mapStatusVersions = new HashMap<>();
+    private static long mapStatusResetVersion;
 
     /** Takes ownership of fresh chunk NBT on the game thread and assigns a new dirty revision. */
     public static void addChunkNbt(ResourceKey<Level> dimension, ChunkPos pos, CompoundTag chunkNbt) {
@@ -138,6 +143,7 @@ public class ChunkListener {
                      CapturedChunk captured = new CapturedChunk(mergedNbt,
                              nextTimestamp(previous), nextRevision.incrementAndGet(), authoritativeEmpty);
                      if (becameDirty) dirtyCount.incrementAndGet();
+                     updateMapStatus(dimension, pos, captured);
                      return captured;
                  });
     }
@@ -162,6 +168,7 @@ public class ChunkListener {
                     nextRevision.incrementAndGet(), previous.authoritativeEmpty());
             if (isClean(dimension, pos, previous)) dirtyCount.incrementAndGet();
             applied.set(true);
+            updateMapStatus(dimension, pos, captured);
             return captured;
         });
         return applied.get();
@@ -173,8 +180,10 @@ public class ChunkListener {
         if (chunks == null) return;
         chunks.computeIfPresent(pos, (ignored, previous) -> {
             if (isClean(dimension, pos, previous)) dirtyCount.incrementAndGet();
-            return new CapturedChunk(previous.nbt(), nextTimestamp(previous),
+            CapturedChunk captured = new CapturedChunk(previous.nbt(), nextTimestamp(previous),
                     nextRevision.incrementAndGet(), previous.authoritativeEmpty());
+            updateMapStatus(dimension, pos, captured);
+            return captured;
         });
     }
 
@@ -249,20 +258,29 @@ public class ChunkListener {
 
     public static List<MapChunkStatus> snapshotMapStatusInRange(
             ResourceKey<Level> dimension, int minX, int maxX, int minZ, int maxZ) {
-        Map<ChunkPos, CapturedChunk> chunks = getDimension(dimension);
-        Map<ChunkPos, Long> durable = dimDurableRevisions.get(dimension);
         List<MapChunkStatus> result = new ArrayList<>();
-        for (Map.Entry<ChunkPos, CapturedChunk> entry : chunks.entrySet()) {
-            ChunkPos pos = entry.getKey();
-            int x = pos.getMinBlockX() >> 4;
-            int z = pos.getMinBlockZ() >> 4;
-            if (x < minX || x > maxX || z < minZ || z > maxZ) continue;
-            CapturedChunk chunk = entry.getValue();
-            long durableRevision = durable == null ? 0L : durable.getOrDefault(pos, 0L);
-            result.add(new MapChunkStatus(x, z, chunk.capturedAtMs(),
-                    chunk.revision() > durableRevision));
-        }
+        ChunkRegionIndex<MapChunkStatus> index = mapStatus.get(dimension);
+        if (index != null) index.forEachInRange(minX, maxX, minZ, maxZ, result::add);
         return result;
+    }
+
+    public static long mapStatusVersion(ResourceKey<Level> dimension) {
+        return mapStatusVersions.getOrDefault(dimension, mapStatusResetVersion);
+    }
+
+    private static void updateMapStatus(ResourceKey<Level> dimension, ChunkPos pos, CapturedChunk captured) {
+        int x = pos.getRegionX() * 32 + pos.getRegionLocalX();
+        int z = pos.getRegionZ() * 32 + pos.getRegionLocalZ();
+        if (mapStatus.computeIfAbsent(dimension, ignored -> new ChunkRegionIndex<>())
+                .put(x, z, new MapChunkStatus(x, z, captured.capturedAtMs(), !isClean(dimension, pos, captured)))) {
+            mapStatusVersions.put(dimension, mapStatusVersion.incrementAndGet());
+        }
+    }
+
+    private static void removeMapStatus(ResourceKey<Level> dimension, ChunkPos pos) {
+        ChunkRegionIndex<MapChunkStatus> index = mapStatus.get(dimension);
+        if (index != null && index.remove(pos.getRegionX() * 32 + pos.getRegionLocalX(),
+                pos.getRegionZ() * 32 + pos.getRegionLocalZ())) mapStatusVersions.put(dimension, mapStatusVersion.incrementAndGet());
     }
 
     /** Total captured chunks across all dimensions. */
@@ -276,6 +294,9 @@ public class ChunkListener {
     }
 
     public static void clear() {
+        mapStatus.clear();
+        mapStatusVersions.clear();
+        mapStatusResetVersion = mapStatusVersion.incrementAndGet();
         dimChunks.clear();
         dimLighting.clear();
         dimDurableRevisions.clear();
@@ -315,15 +336,21 @@ public class ChunkListener {
                         && acknowledgedRevision >= current.revision()) {
                     decrementDirtyCount();
                 }
-                if (!invalidateCleanEntries) continue;
+                if (!invalidateCleanEntries) {
+                    updateMapStatus(dimension, pos, current);
+                    continue;
+                }
 
                 current = chunks.get(pos);
                 if (current != null && current.revision() <= revision && chunks.remove(pos, current)) {
+                    removeMapStatus(dimension, pos);
                     removeLighting(dimension, pos);
                     durable.remove(pos);
                     invalidated++;
                     invalidatedByDim.computeIfAbsent(dimension,
                             ignored -> ConcurrentHashMap.newKeySet()).add(pos);
+                } else if (current != null) {
+                    updateMapStatus(dimension, pos, current);
                 }
             }
         }
@@ -433,6 +460,7 @@ public class ChunkListener {
     private static boolean removeChunk(ResourceKey<Level> dimension, ChunkPos pos) {
         ConcurrentHashMap<ChunkPos, CapturedChunk> chunks = dimChunks.get(dimension);
         if (chunks == null || chunks.remove(pos) == null) return false;
+        removeMapStatus(dimension, pos);
         removeLighting(dimension, pos);
         ConcurrentHashMap<ChunkPos, Long> durable = dimDurableRevisions.get(dimension);
         if (durable != null) durable.remove(pos);

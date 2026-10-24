@@ -1,5 +1,7 @@
 package io.github.billstark001.worldmirror.core;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.world.level.ChunkPos;
@@ -21,9 +23,39 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ChunkListenerRevisionTest {
+    @Test
+    void mapIndexTracksCaptureDurabilityAndEvictionWithoutHoldingNbt() {
+        ChunkPos pos = new ChunkPos(-1, 0);
+        ChunkListener.addChunkNbt(Level.OVERWORLD, pos, new CompoundTag());
+        long captured = ChunkListener.getDimension(Level.OVERWORLD).get(pos).revision();
+        var first = ChunkListener.snapshotMapStatusInRange(Level.OVERWORLD, -2, 0, -1, 1);
+        assertEquals(1, first.size());
+        assertTrue(first.getFirst().pendingWrite());
+        long version = ChunkListener.mapStatusVersion(Level.OVERWORLD);
+        ChunkListener.acknowledge(Map.of(Level.OVERWORLD, Map.of(pos, captured)), false);
+        assertFalse(ChunkListener.snapshotMapStatusInRange(Level.OVERWORLD, -2, 0, -1, 1).getFirst().pendingWrite());
+        assertTrue(ChunkListener.mapStatusVersion(Level.OVERWORLD) > version);
+        ChunkListener.markChunkDirty(Level.OVERWORLD, pos);
+        long latest = ChunkListener.getDimension(Level.OVERWORLD).get(pos).revision();
+        ChunkListener.acknowledge(Map.of(Level.OVERWORLD, Map.of(pos, captured)), true);
+        assertTrue(ChunkListener.snapshotMapStatusInRange(Level.OVERWORLD, -2, 0, -1, 1).getFirst().pendingWrite());
+        ChunkListener.acknowledge(Map.of(Level.OVERWORLD, Map.of(pos, latest)), true);
+        assertTrue(ChunkListener.snapshotMapStatusInRange(Level.OVERWORLD, -2, 0, -1, 1).isEmpty());
+    }
     static {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
+    }
+
+    @Test
+    void mapVersionsChangeOnlyForTheirDimensionUntilASourceReset() {
+        long overworld = ChunkListener.mapStatusVersion(Level.OVERWORLD);
+        long nether = ChunkListener.mapStatusVersion(Level.NETHER);
+        ChunkListener.addChunkNbt(Level.NETHER, new ChunkPos(0, 0), new CompoundTag());
+        assertEquals(overworld, ChunkListener.mapStatusVersion(Level.OVERWORLD));
+        assertTrue(ChunkListener.mapStatusVersion(Level.NETHER) > nether);
+        ChunkListener.clear();
+        assertTrue(ChunkListener.mapStatusVersion(Level.OVERWORLD) > overworld);
     }
 
     @AfterEach

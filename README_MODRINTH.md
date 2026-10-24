@@ -65,6 +65,9 @@ already queued with their own captured data.
 
 The built-in map shows recorded chunks and unresolved conflicts. Drag to pan, use the
 mouse wheel to zoom, and hover a chunk for its coordinates, age, and source.
+Red marks unresolved conflicts. Orange marks other data sources, including known
+third-party tools. Waiting, writing, and failed writes currently share the same
+pending colors. Saved terrain colors do not confirm that entities also saved.
 
 Enable the in-world chunk overlay in Chunk Map settings, or press **K**, to show
 one-block-high coverage boxes at an adjustable height. Source worlds and mirror
@@ -74,7 +77,9 @@ is Y=96; existing configured heights are preserved. Choose **Session** colors
 chunks and replay imports) or **Map** colors (the same age gradient, source colors,
 and live queue colors as both chunk maps) in settings. The boxes keep a consistent
 fill opacity from above and below; water and clouds behind them no longer erase
-their color. Solid terrain still hides boxes behind it.
+their color. Solid terrain still hides boxes behind it. Session colors show what
+you have captured, including unsaved data; they are not a save-success indicator.
+At long distances, a single tile can summarize several chunks.
 
 ### What it cannot save perfectly
 

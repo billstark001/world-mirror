@@ -1,5 +1,7 @@
 package io.github.billstark001.worldmirror.download;
 
+import java.util.Set;
+
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.core.LightingUpdate;
 import net.minecraft.SharedConstants;
@@ -21,6 +23,20 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DownloadCaptureQueueTest {
+    @Test
+    void pendingStatusRetainsOverlappingLightAndCaptureHintsUntilBothFinish() {
+        var queue = new DownloadCaptureQueue(() -> false, 1, () -> 8);
+        var key = new DownloadCaptureQueue.Key(Level.OVERWORLD, -1, 0);
+        queue.queue(key, "test", false);
+        queue.markLightDirty(key);
+        long version = queue.statusVersion(Level.OVERWORLD);
+        queue.pollPending();
+        assertEquals(Set.of(new ChunkPos(-1, 0)), queue.pendingChunkPositions(Level.OVERWORLD, -1, 0, 0, 0));
+        assertEquals(version, queue.statusVersion(Level.OVERWORLD), "the visible state remains pending while light is queued");
+        queue.finishLightUpdates();
+        assertTrue(queue.pendingChunkPositions(Level.OVERWORLD, -1, 0, 0, 0).isEmpty());
+        assertTrue(queue.statusVersion(Level.OVERWORLD) > version);
+    }
     @BeforeAll
     static void bootstrap() {
         SharedConstants.tryDetectVersion();
