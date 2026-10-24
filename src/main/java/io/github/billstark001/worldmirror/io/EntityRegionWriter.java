@@ -308,6 +308,12 @@ final class EntityRegionWriter {
         return chunk.getHandle().getCompoundList("Entities");
     }
 
+    /**
+     * Indexes stored identities without requiring a type id. Older mirrors may
+     * contain UUID-bearing nodes without id; preserve these opaque records until
+     * a fresh vanilla observation can replace them. Incoming records are validated
+     * separately by EntityTracker.serializedUuids before any write is attempted.
+     */
     static Set<UUID> collectUuids(CompoundTag entity) {
         Set<UUID> result = new HashSet<>();
         ArrayDeque<CompoundTag> pending = new ArrayDeque<>();
@@ -315,7 +321,7 @@ final class EntityRegionWriter {
         while (!pending.isEmpty()) {
             CompoundTag current = pending.pop();
             int[] raw = current.getIntArray("UUID");
-            if (raw.length != 4 || current.getString("id").isBlank()) {
+            if (raw.length != 4) {
                 throw new IllegalArgumentException("Missing identity in stored entity passenger tree");
             }
             if (!result.add(UUIDUtil.uuidFromIntArray(raw))) {

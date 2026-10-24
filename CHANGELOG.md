@@ -46,7 +46,8 @@ changes without dropping compatibility requirements or migration guidance.
 - Resolve conflicts without lock-order deadlocks, support external chunk files,
   and retain failed or newer incoming conflicts for review.
 - Correct entity moves, detached passengers, and observations that revert during
-  an export. Reject malformed entity identities and oversized NBT strings.
+  an export. Preserve legacy UUID trees missing type IDs while rejecting malformed
+  new entity observations and oversized NBT strings.
 - Preserve container names and inventories without applying stale data across
   worlds or block-entity types, or restoring block entities into confirmed air.
 - Refresh map aggregation after panning and bound work for extreme viewports.

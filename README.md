@@ -335,6 +335,12 @@ running retain a corrective revision. When a chunk unloads, its last
 known entities are preserved because a client-side mod cannot distinguish every unload
 from a server-side removal. Failed entity-region writes retain their exact revisions for
 retry, including a stop-time snapshot deferred behind an active export.
+
+Older mirror entity trees missing a type ID can still be indexed and preserved
+when every node has a valid UUID. A fresh, valid observation replaces the old copy
+by UUID; World Mirror does not guess missing types or discard unindexable data.
+Newly captured entity trees still require valid type IDs and UUIDs.
+
 When several capture sessions stop while an export is busy, each frozen world
 snapshot receives a separate export pass. Captures queued in the newly opened
 world do not delay an already frozen pass from the previous world.

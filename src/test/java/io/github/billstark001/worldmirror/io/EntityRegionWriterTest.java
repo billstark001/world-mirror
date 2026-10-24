@@ -97,6 +97,50 @@ class EntityRegionWriterTest {
     }
 
     @Test
+    void legacyTypeLessTreesAreIndexedAndPreservedWhileOtherChunksAreWritten() throws Exception {
+        UUID vehicle = new UUID(70L, 1L);
+        UUID rider = new UUID(70L, 2L);
+        CompoundTag legacy = querzEntity("minecraft:boat", vehicle);
+        legacy.remove("id");
+        CompoundTag passenger = querzEntity("minecraft:pig", rider);
+        passenger.remove("id");
+        ListTag<CompoundTag> passengers = new ListTag<>(CompoundTag.class);
+        passengers.add(passenger);
+        legacy.put("Passengers", passengers);
+        writeInitialRegion(new ChunkPos(0, 0), List.of(legacy));
+        byte[] original = Files.readAllBytes(entitiesDir().resolve("r.0.0.mca"));
+        UUID fresh = new UUID(70L, 3L);
+        ChunkPos destination = new ChunkPos(32, 0);
+        var update = new EntityTracker.ChunkUpdate(71L, EntityTracker.Observation.PARTIAL,
+                Map.of(fresh, record("minecraft:cow", fresh, Set.of(fresh))), Set.of());
+
+        var written = EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(destination, update)));
+
+        assertEquals(71L, written.get(Level.OVERWORLD).get(destination));
+        assertArrayEquals(original, Files.readAllBytes(entitiesDir().resolve("r.0.0.mca")));
+        assertEquals(Set.of(vehicle, rider), EntityRegionWriter.collectUuids(legacy));
+    }
+
+    @Test
+    void freshObservationReplacesTypeLessLegacyCopyByUuid() throws Exception {
+        UUID uuid = new UUID(72L, 1L);
+        CompoundTag legacy = querzEntity("minecraft:pig", uuid);
+        legacy.remove("id");
+        writeInitialRegion(new ChunkPos(0, 0), List.of(legacy));
+        ChunkPos destination = new ChunkPos(32, 0);
+        var update = new EntityTracker.ChunkUpdate(73L, EntityTracker.Observation.PARTIAL,
+                Map.of(uuid, record("minecraft:pig", uuid, Set.of(uuid))), Set.of());
+
+        var written = EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(destination, update)));
+
+        assertEquals(73L, written.get(Level.OVERWORLD).get(destination));
+        assertTrue(McaFileHelpers.readEntities(entitiesDir().resolve("r.0.0.mca"))
+                .getChunk(0, 0).getHandle().getCompoundList("Entities").isEmpty());
+        assertEquals("minecraft:pig", McaFileHelpers.readEntities(entitiesDir().resolve("r.1.0.mca"))
+                .getChunk(0, 0).getHandle().getCompoundList("Entities").get(0).getString("id"));
+    }
+
+    @Test
     void movingUuidRemovesOldDiskRecordAndCreatesOneNewRecord() throws Exception {
         UUID uuid = UUID.randomUUID();
         ChunkPos a = new ChunkPos(0, 0);
