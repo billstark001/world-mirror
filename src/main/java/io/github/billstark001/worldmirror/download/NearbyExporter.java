@@ -1,5 +1,7 @@
 package io.github.billstark001.worldmirror.download;
 
+import io.github.billstark001.worldmirror.config.ModConfig;
+
 import io.github.billstark001.worldmirror.conflict.OverwriteResolver;
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.core.ContainerTracker;
@@ -163,7 +165,8 @@ public final class NearbyExporter {
             try (ChunkDatabase database = ChunkDatabase.open(output, lineage.sourceId())) {
                 ChunkExporter.ExportResult result = ChunkExporter.exportChunks(
                         output, snapshot, entities, containers,
-                        new OverwriteResolver(), database);
+                        new OverwriteResolver(), database, ModConfig.get().performance.diagnosticPerformanceLogging
+                        ? Math.max(0L, ModConfig.get().performance.slowRegionMillis) : -1L);
                 commitDurabilityIndex(database, result);
                 if (!result.chunkWritesSuccessful() || !result.entityWritesSuccessful()) {
                     throw new java.io.IOException("One or more nearby-export region writes failed");

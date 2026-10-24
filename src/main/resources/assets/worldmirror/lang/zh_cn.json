@@ -20,6 +20,7 @@
   "msg.worldmirror.downloadStart":  "§aWorld Mirror：已激活",
   "msg.worldmirror.downloadStop":   "§cWorld Mirror：已停用",
   "msg.worldmirror.exportDone":     "世界导出成功。",
+  "msg.worldmirror.exportPartialEntities": "地形已保存，部分实体更新仍待处理；地形导出可继续进行。",
   "msg.worldmirror.exportFailed":   "世界导出失败；详情请查看 latest.log。",
   "msg.worldmirror.exportBusy":     "导出正在进行中，请稍候。",
   "msg.worldmirror.noChunks":       "没有缓存的区块，请先四处走动以加载区块。",

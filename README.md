@@ -29,7 +29,7 @@ in Minecraft's singleplayer world list.
 | **Xaero's World Map Overlay** | Optionally render the same status layer on Xaero's fullscreen map through Xaero World Map Bridge. Xaero's World Map and the bridge are both required for this integration. |
 | **Export Nearby Region** | Snapshot loaded terrain and visible non-player entities within a configurable radius (1–50 chunks) into a fresh singleplayer save, starting at your current position and dimension. |
 | **Native status UI** | Press **I** to open the native Minecraft status screen. It retains download/export status, mirror information, per-world settings, safe mirror relocation, and conflict actions without a LibGui dependency. |
-| **Useful, quiet diagnostics** | Operational detail stays in `latest.log`; chat is reserved for translated action results. An opt-in performance switch adds low-frequency pipeline/heap/slow-region telemetry without per-chunk spam. |
+| **Diagnostics** | Storage failures and export outcomes are recorded in `latest.log`. Explicit export actions receive translated chat results; scheduled exports currently have no dedicated chat or toast failure alert. Optional performance logging adds pipeline, heap, and slow-region telemetry. |
 | **Cloth Config settings** | Global settings are available from the status screen. Installing Mod Menu also exposes the same screen from the title-screen mod list. |
 | **Internationalisation** | UI strings are translated into English (`en_us`), Simplified Chinese (`zh_cn`), Traditional Chinese (`zh_tw`), and Japanese (`ja_jp`). |
 
@@ -57,8 +57,8 @@ All keybindings are rebindable in *Options → Controls → World Mirror*.
 The status screen shows:
 
 - **Source info** — type (singleplayer / server), source ID, local mirror folder name
-- **Statistics** — total chunks cached across all dimensions, time since the last
-  successful sync
+- **Statistics** — total chunks cached across all dimensions and the age of the latest
+  saved terrain capture
 - **Live status** — download active/inactive, export running/idle
 - **Action buttons** — Start/Stop Download, Export Now, Clear Data, **Export Nearby Region**
 - **Conflicts tab** — count of stored conflict chunks, with *Overwrite All* and *Discard All* buttons, plus **Open Chunk Map** to review conflicts per-chunk
@@ -288,8 +288,9 @@ Per-chunk dirty-check metadata is stored in `data/world_mirror.sqlite`. Older
 into SQLite on the first sync after upgrade. The JSON field is removed only after
 the database commit succeeds; a failed migration retains the original data and
 stops that export for retry. Mapping and metadata JSON are replaced using
-same-directory temporary files. An upgrade or export reports failure if its
-final metadata write fails.
+same-directory temporary files. A failed final metadata write leaves the export
+incomplete and queued for retry. Explicit actions report the failure in chat;
+periodic and adaptive exports currently report it in the log.
 Compressed world-data files are also written to a temporary file and read back
 before replacement. Serialization failures and values the NBT writer cannot
 preserve leave the previous file intact.
@@ -303,12 +304,20 @@ or copying world settings. Conflict review can be performed from the original
 source world while its output mirror is closed. Read-only status queries remain
 available when a mirror is open.
 
-Failed mirror exports retain their frozen input while the client is running, even after
-leaving the source world. The first retry waits 10 seconds; further failures wait
-60 seconds and do not repeat the failure chat message. Later exports for that
-source wait their turn, while other sources can proceed. Retried metadata saves
-retain the newest already verified and indexed capture time from earlier passes.
-These snapshots are held in memory and do not survive closing the client.
+Failed mirror exports retain only unfinished frozen revisions while the client is
+running, even after leaving the source world. The first retry waits 10 seconds;
+further failures wait 60 seconds. Terrain and entity updates preserve their own
+source order: an entity-only failure does not block newer terrain, while a failed
+terrain revision must settle before later terrain from that source. Other sources
+can proceed. Terrain is acknowledged only after region verification and its SQLite
+commit; entity acknowledgement requires separate UUID verification. Retried
+metadata saves retain the newest already verified and indexed capture time.
+
+On client exit, the configured stop-time capture/export behavior runs first. The
+export worker finishes accepted writes and makes one final attempt at queued frozen
+work without interrupting region replacement. Failed revisions still block dependent
+updates in that final pass. The idle worker closes immediately; remaining failed
+snapshots are held only in memory and do not survive closing the client.
 Saves with a newer `metadataSchema` are treated as future data and are not
 rewritten. A different explicit `format` marker is not adopted as a World Mirror
 save; legacy metadata without that marker remains supported.

@@ -38,8 +38,9 @@ changes without dropping compatibility requirements or migration guidance.
 - Preserve captured terrain, lighting, entities, and inventories across source
   changes and concurrent exports. Resume interrupted capture scans and retain
   confirmed block removals under queue pressure.
-- Retry failed mirror exports while the client is running, including after
-  disconnecting. Keep each stopped session's snapshot and source order.
+- Retry only unfinished mirror data, including after disconnecting. Preserve
+  each source's terrain/entity order while letting newer terrain proceed past
+  entity-only failures.
 - Protect open saves with Minecraft's session lock. Validate world-data and
   region writes, preserve previous files on failed replacement, and retain
   legacy timestamps when migration or metadata persistence fails.
@@ -53,6 +54,8 @@ changes without dropping compatibility requirements or migration guidance.
 - Refresh map aggregation after panning and bound work for extreme viewports.
 - Handle unsafe folder names and custom dimension paths; preserve nearby-export
   entities, Unicode names, spawn dimensions, and independent lineage.
+- Finish accepted exports and one final queued pass on exit without interrupting
+  atomic writes or keeping an idle export worker alive.
 
 ### Known Issues
 

@@ -20,6 +20,7 @@
   "msg.worldmirror.downloadStart":  "§aWorld Mirror：有効",
   "msg.worldmirror.downloadStop":   "§cWorld Mirror：無効",
   "msg.worldmirror.exportDone":     "ワールドのエクスポートが完了しました。",
+  "msg.worldmirror.exportPartialEntities": "地形を保存しました。一部のエンティティ更新は保留中ですが、地形の保存は続行できます。",
   "msg.worldmirror.exportFailed":   "ワールドのエクスポートに失敗しました。詳細は latest.log を確認してください。",
   "msg.worldmirror.exportBusy":     "エクスポート中です。しばらくお待ちください。",
   "msg.worldmirror.noChunks":       "キャッシュされたチャンクがありません。チャンクを読み込むために歩き回ってください。",

@@ -4,6 +4,7 @@ import io.github.billstark001.worldmirror.conflict.OverwriteResolver;
 import io.github.billstark001.worldmirror.conflict.ManualResolver;
 import io.github.billstark001.worldmirror.conflict.ConflictManager;
 import io.github.billstark001.worldmirror.core.ChunkListener;
+import io.github.billstark001.worldmirror.core.EntityTracker;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
 import net.minecraft.SharedConstants;
 import net.minecraft.nbt.CompoundTag;
@@ -22,6 +23,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -33,6 +36,42 @@ class ChunkExporterPersistenceTest {
     static void bootstrap() {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
+    }
+
+    @Test
+    void successiveTerrainWritesRemainDurableWhenExistingEntityDataCannotBeIndexed(@TempDir Path world) throws Exception {
+        ChunkPos pos = new ChunkPos(0, 0);
+        Path entityFile = ChunkExporter.dimensionDirForDimension(world, Level.OVERWORLD).resolve("entities/r.0.0.mca");
+        Files.createDirectories(entityFile.getParent());
+        byte[] corrupt = {1, 2, 3, 4, 5};
+        Files.write(entityFile, corrupt);
+        UUID uuid = new UUID(88L, 1L);
+        CompoundTag entity = new CompoundTag();
+        entity.putString("id", "minecraft:pig");
+        entity.putIntArray("UUID", net.minecraft.core.UUIDUtil.uuidToIntArray(uuid));
+        var update = new EntityTracker.ChunkUpdate(1L, EntityTracker.Observation.PARTIAL,
+                Map.of(uuid, new EntityTracker.EntityRecord(uuid, Set.of(uuid), entity)), Set.of());
+        try (ChunkDatabase db = ChunkDatabase.open(world, "server:partial")) {
+            for (int revision = 1; revision <= 2; revision++) {
+                CompoundTag chunk = new CompoundTag();
+                chunk.putInt("marker", revision);
+                var terrain = ChunkListener.snapshotOf(Map.of(Level.OVERWORLD, Map.of(pos,
+                        new ChunkListener.CapturedChunk(chunk, revision * 100L, revision))));
+                var result = ChunkExporter.exportChunks(world, terrain,
+                        Map.of(Level.OVERWORLD, Map.of(pos, update)), Map.of(), new OverwriteResolver(), db, -1L);
+                assertTrue(result.chunkWritesSuccessful());
+                assertFalse(result.entityWritesSuccessful());
+                assertEquals(1, result.totalWritten());
+                assertTrue(db.recordUpdates("minecraft:overworld", Map.of(pos, revision * 100L), "world_mirror"));
+                assertArrayEquals(corrupt, Files.readAllBytes(entityFile));
+            }
+            Path region = ChunkExporter.regionDirForDimension(world, Level.OVERWORLD).resolve("r.0.0.mca");
+            try (RegionFile reader = new RegionFile(new RegionStorageInfo("test", Level.OVERWORLD, "chunk"),
+                    region, region.getParent(), false)) {
+                assertEquals(2, McaWriteSupport.readChunk(reader, pos).getIntOr("marker", 0));
+            }
+            assertTrue(db.shouldSkipUpdate("minecraft:overworld", pos, "world_mirror", 200L));
+        }
     }
 
     @Test

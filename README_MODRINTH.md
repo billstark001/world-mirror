@@ -105,9 +105,16 @@ When an incoming chunk meets an existing local chunk, choose one of these strate
 
 Keep the target mirror closed while exporting, applying conflicts, upgrading it,
 or copying world settings. Review its conflicts from the original source world.
-If a mirror export fails, World Mirror keeps the captured data and retries while
-the game is running, including after you leave the source world. These pending
-retries are held in memory and do not survive closing the game.
+If a mirror export fails, World Mirror keeps the unfinished data and retries while
+the game is running, including after you leave the source world. An entity failure
+does not prevent terrain from continuing to save. Manual exports report partial
+success when terrain is saved but entities remain pending; failures from periodic or adaptive
+exports currently appear in `latest.log` without a dedicated chat or toast alert.
+
+On exit, World Mirror lets accepted writes finish and makes a final attempt at
+queued captured data. This does not guarantee recovery from a continuing storage
+failure: remaining retries are held in memory and do not survive closing the game.
+Use **O** and check its result before quitting.
 
 If applying a conflict fails, its incoming version remains pending. A newer version
 that arrives while you apply an older one also remains available for review.

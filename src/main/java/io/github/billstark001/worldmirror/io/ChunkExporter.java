@@ -7,7 +7,6 @@ import java.util.*;
 
 import io.github.billstark001.worldmirror.conflict.ConflictContext;
 import io.github.billstark001.worldmirror.conflict.ConflictResolver;
-import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.core.EntityTracker;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
@@ -102,27 +101,15 @@ public class ChunkExporter {
      * This method is safe to call from a background thread.
      *
      * @param worldFolder    Root directory of the mirror world.
-     * @param snapshot       Dirty reference snapshot produced by {@link ChunkListener#snapshotDirtyReferences()}.
+     * @param snapshot       Dirty reference snapshot produced by {@link ChunkListener#snapshotDirtyState()}.
      * @param entitySnapshot Immutable snapshot produced by {@link EntityTracker#snapshot()}.
      * @param containerSnapshot Immutable snapshot produced by {@code ContainerTracker.snapshotSavedData()}.
      * @param resolver       Conflict resolver for chunks that already exist on disk.
      * @param db             Chunk database for dirty-check and priority enforcement.
+     * @param slowRegionThresholdMs Slow-region diagnostics threshold, or -1 to disable.
      * @return Exact revisions durably written, plus revisions settled without a write.
      */
     public static ExportResult exportChunks(
-            Path worldFolder,
-            ChunkListener.DirtySnapshot snapshot,
-            Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> entitySnapshot,
-            Map<ResourceKey<Level>, Map<BlockPos, net.minecraft.nbt.CompoundTag>> containerSnapshot,
-            ConflictResolver resolver,
-            ChunkDatabase db) throws Exception {
-        ModConfig.PerformanceConfig performance = ModConfig.get().performance;
-        return exportChunks(worldFolder, snapshot, entitySnapshot, containerSnapshot, resolver, db,
-                performance.diagnosticPerformanceLogging ? Math.max(0L, performance.slowRegionMillis) : -1L);
-    }
-
-    /** Explicit diagnostics keep file operations independent of the live config owner. */
-    static ExportResult exportChunks(
             Path worldFolder,
             ChunkListener.DirtySnapshot snapshot,
             Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> entitySnapshot,

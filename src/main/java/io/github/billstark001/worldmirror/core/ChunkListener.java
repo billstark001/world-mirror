@@ -63,6 +63,27 @@ public class ChunkListener {
             return chunks;
         }
 
+        /** Releases durable revisions while retaining the remaining chunks' frozen lighting. */
+        public DirtySnapshot withoutAcknowledged(
+                Map<ResourceKey<Level>, Map<ChunkPos, Long>> acknowledged) {
+            Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> remaining = new HashMap<>();
+            Map<ResourceKey<Level>, Map<ChunkPos, LightingOverlay>> remainingLighting = new HashMap<>();
+            chunks.forEach((dimension, captured) -> {
+                Map<ChunkPos, Long> receipts = acknowledged.getOrDefault(dimension, Map.of());
+                Map<ChunkPos, CapturedChunk> kept = new HashMap<>();
+                Map<ChunkPos, LightingOverlay> keptLighting = new HashMap<>();
+                captured.forEach((pos, chunk) -> {
+                    if (Long.valueOf(chunk.revision()).equals(receipts.get(pos))) return;
+                    kept.put(pos, chunk);
+                    LightingOverlay overlay = lighting.getOrDefault(dimension, Map.of()).get(pos);
+                    if (overlay != null) keptLighting.put(pos, overlay);
+                });
+                if (!kept.isEmpty()) remaining.put(dimension, Map.copyOf(kept));
+                if (!keptLighting.isEmpty()) remainingLighting.put(dimension, Map.copyOf(keptLighting));
+            });
+            return new DirtySnapshot(Map.copyOf(remaining), Map.copyOf(remainingLighting));
+        }
+
         public CapturedChunk materialize(
                 ResourceKey<Level> dimension, ChunkPos pos, CapturedChunk captured) {
             Map<ChunkPos, LightingOverlay> lightingByChunk = lighting.get(dimension);

@@ -15,6 +15,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientChunkEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
@@ -113,6 +114,7 @@ public class WorldMirrorClient implements ClientModInitializer {
         // Apply the configured on-join behaviour whenever the player enters a world.
         // ClientPlayConnectionEvents.JOIN fires after the world object is available,
         // which is exactly when we need it.
+        ClientLifecycleEvents.CLIENT_STOPPING.register(DownloadManager::shutdown);
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> onJoin(client));
 
         // Reset lifecycle tracking state when the player leaves a server / world.

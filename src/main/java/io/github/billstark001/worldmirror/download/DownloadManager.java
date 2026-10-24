@@ -1,5 +1,6 @@
 package io.github.billstark001.worldmirror.download;
 
+import java.util.OptionalLong;
 import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.core.ContainerTracker;
@@ -11,10 +12,8 @@ import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.util.WMPlayerMessages;
 import io.github.billstark001.worldmirror.ui.ClientDialogs;
 import io.github.billstark001.worldmirror.ui.MirrorPrompt;
-import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
@@ -27,7 +26,6 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import java.nio.file.Path;
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
-import java.lang.management.ThreadMXBean;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -228,15 +226,11 @@ public final class DownloadManager {
         if (exportCoordinator.isInProgress()) {
             Component msg = Component.translatable("msg.worldmirror.exportBusy");
             WMPlayerMessages.sendSystemMessage(client.player, msg);
-            exportCoordinator.start(client, new DownloadExportCoordinator.Request(
-                    DownloadExportCoordinator.Trigger.MANUAL, true, false,
-                    null, null, ContainerTracker.snapshotSavedData()));
+            exportCoordinator.start(client, ExportWork.Intent.live(DownloadExportCoordinator.Trigger.MANUAL, true).withContainers(ContainerTracker.snapshotSavedData()));
             WMLogger.debug("Export already in progress; coalesced another export request.");
             return;
         }
-        exportCoordinator.start(client, new DownloadExportCoordinator.Request(
-                DownloadExportCoordinator.Trigger.MANUAL,
-                true, false, null, null, null));
+        exportCoordinator.start(client, ExportWork.Intent.live(DownloadExportCoordinator.Trigger.MANUAL, true));
     }
 
     /** Clears all in-memory caches. */
@@ -295,6 +289,12 @@ public final class DownloadManager {
         currentActive.set(false); // no world to download — always stop
         ContainerTracker.clear();
         WMLogger.debug("Left world; download deactivated.");
+    }
+
+    /** Freeze configured stop-time work before closing the export worker to new requests. */
+    public static void shutdown(Minecraft client) {
+        onLeaveWorld(client);
+        exportCoordinator.shutdown();
     }
 
     /**
@@ -384,8 +384,7 @@ public final class DownloadManager {
             case NONE -> null;
         };
         if (automaticTrigger != null && now >= nextAutomaticExportAttemptMs) {
-            boolean started = exportCoordinator.start(client, new DownloadExportCoordinator.Request(
-                    automaticTrigger, false, false, null, null, null));
+            boolean started = exportCoordinator.start(client, ExportWork.Intent.live(automaticTrigger, false));
             nextAutomaticExportAttemptMs = started ? 0L : now + 1_000L;
         }
         if (now - lastCacheEvictionMs >= CACHE_EVICTION_INTERVAL_MS) {
@@ -653,16 +652,17 @@ public final class DownloadManager {
                 // The client already exposes a different source. Freeze only
                 // old cached data, without sampling the new world's entities
                 // or world settings into the previous source's output.
-                exportCoordinator.start(client, new DownloadExportCoordinator.Request(
-                        DownloadExportCoordinator.Trigger.STOP, false, true,
-                        lastSourceId, lastSourceType, ContainerTracker.snapshotSavedData(),
-                        EntityTracker.snapshot(), ChunkListener.snapshotDirtyState(),
-                        WorldSettingsSnapshot.defaults()));
+                exportCoordinator.start(client, new ExportWork.Frozen(
+                        new ExportWork.Context(DownloadExportCoordinator.Trigger.STOP, false, new ExportWork.Source(lastSourceId, lastSourceType)),
+                        ChunkListener.snapshotDirtyState(),
+                        EntityTracker.snapshot(),
+                        ContainerTracker.snapshotSavedData(),
+                        WorldSettingsSnapshot.defaults(),
+                        0L,
+                        OptionalLong.empty()));
                 return;
             }
-            exportCoordinator.start(client, new DownloadExportCoordinator.Request(
-                    DownloadExportCoordinator.Trigger.STOP, false, true,
-                    lastSourceId, lastSourceType, null));
+            exportCoordinator.start(client, ExportWork.Intent.live(DownloadExportCoordinator.Trigger.STOP, false).ready().forSource(new ExportWork.Source(lastSourceId, lastSourceType)));
         }
     }
 

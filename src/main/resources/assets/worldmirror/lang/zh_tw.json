@@ -20,6 +20,7 @@
   "msg.worldmirror.downloadStart":  "§aWorld Mirror：已啟動",
   "msg.worldmirror.downloadStop":   "§cWorld Mirror：已停用",
   "msg.worldmirror.exportDone":     "世界匯出成功。",
+  "msg.worldmirror.exportPartialEntities": "地形已儲存，部分實體更新仍待處理；地形匯出可繼續進行。",
   "msg.worldmirror.exportFailed":   "世界匯出失敗；詳情請查看 latest.log。",
   "msg.worldmirror.exportBusy":     "匯出進行中，請稍候。",
   "msg.worldmirror.noChunks":       "沒有快取的區塊，請先四處走動以載入區塊。",

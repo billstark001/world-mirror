@@ -22,8 +22,12 @@ The download package follows the same ownership rule:
   implement that contract alongside the existing stable and adaptive strategies.
 - `DownloadCaptureQueue` owns main-thread serialization, hint coalescing, queue limits,
   and capture diagnostics.
-- `DownloadExportCoordinator` owns request serialization, snapshots, durability commits,
-  retry acknowledgment, and the export worker.
+- `ExportWork.Intent` describes a live request; `ExportWork.Frozen` carries immutable
+  terrain, entity, container, settings, and source data. Frozen requests never sample
+  a later client world or acknowledge its live entity signals.
+- `DownloadExportCoordinator` owns queue ordering, snapshot preparation, durability
+  commits, and the export worker. Normal and shutdown passes execute the same
+  `ExportJob`; its `ExportOutcome` separates verified receipts from remaining work.
 - `MirrorMapping` owns output-path selection, claiming, and per-world path settings.
 - `EntityTracker` owns game-thread vanilla serialization and observation boundaries;
   `EntitySnapshotStore` owns versioned partial/complete reconciliation; and
@@ -52,6 +56,11 @@ because a terrain entry was evicted. A successfully reopened and UUID-verified
 entity-region replacement acknowledges only the exact captured revisions it represents.
 Stop-time exports deferred behind an active worker must carry immutable terrain, entity,
 and container snapshots so disconnect or a new source cannot change their meaning.
+Terrain and entity retries preserve source order independently; an entity-only failure
+must not hold up newer terrain or cause successful terrain to be rewritten. A final
+metadata failure retains the verified capture-time floor. Shutdown never interrupts
+an accepted region transaction or waits for a game-thread acknowledgement; its frozen
+queue gets a finite final pass, with failed revisions still blocking dependent work.
 
 Version-specific saved-data repairs belong in `WorldStructureApi`. Match only a known
 World Mirror-owned malformed shape, preserve unrelated or extended payloads, replace the

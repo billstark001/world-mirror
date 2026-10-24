@@ -97,12 +97,15 @@ class ChunkListenerRevisionTest {
         ChunkListener.DirtySnapshot snapshot = ChunkListener.snapshotDirtyState();
         ChunkListener.CapturedChunk captured = snapshot.chunks().get(Level.OVERWORLD).get(pos);
 
+        var retry = snapshot.withoutAcknowledged(Map.of(Level.OVERWORLD, Map.of(pos, captured.revision() - 1)));
+
         ChunkListener.clear();
 
-        CompoundTag materialized = snapshot.materialize(Level.OVERWORLD, pos, captured).nbt();
+        CompoundTag materialized = retry.materialize(Level.OVERWORLD, pos, captured).nbt();
         CompoundTag materializedSection = materialized.getListOrEmpty("sections")
                 .getCompound(0).orElseThrow();
         assertArrayEquals(light, materializedSection.getByteArray("BlockLight").orElseThrow());
+        assertTrue(retry.withoutAcknowledged(Map.of(Level.OVERWORLD, Map.of(pos, captured.revision()))).chunks().isEmpty());
     }
 
     @Test

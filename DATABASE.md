@@ -14,7 +14,9 @@ This database is designed to be readable by third-party tools (map renderers, im
 
 ### `chunks`
 
-Records every chunk that World Mirror (or an external tool) has written to the mirror world.
+Records terrain chunks that World Mirror (or an external tool) has durably written
+to the mirror world. These rows do not track entity-file completion, export queue
+positions, active writes, or failed attempts.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -120,6 +122,14 @@ An indexed chunk is settled only after the actual MCA entry can be decoded. When
 that entry is missing, the current pass retains its capture and removes the stale
 claim; a later pass writes the capture and records its real timestamp. This order
 prevents a monotonic UPSERT from retaining a newer timestamp from lost data.
+
+Terrain and entity receipts are independent. A terrain region can be verified and
+its row committed even when entity output fails. An entity-only retry retains its
+entity revisions and does not block newer terrain. A failed index commit retains
+the affected terrain revision even if its MCA write succeeded. If only the final
+metadata save fails, the retry carries the verified capture-time floor without
+rewriting already committed terrain. Entity success is verified through entity
+regions and UUIDs, not inferred from a `chunks` row.
 
 JDBC mutations roll back on checked and unchecked failures. If rollback itself
 fails, the connection is left outside auto-commit mode so restoring it cannot
