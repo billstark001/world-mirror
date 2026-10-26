@@ -30,13 +30,13 @@ class WorldDataPersistenceTest {
         Path file = folder.resolve("level.dat");
         CompoundTag original = new CompoundTag();
         original.putString("marker", "original");
-        WorldStructureCreator.writeCompressed(file.toFile(), original);
+        WorldStructureCreator.writeVerifiedWorldData(file, original);
         byte[] bytes = Files.readAllBytes(file);
         CompoundTag malformed = new CompoundTag();
         malformed.put("malformed", null);
 
         assertThrows(RuntimeException.class,
-                () -> WorldStructureCreator.writeCompressed(file.toFile(), malformed));
+                () -> WorldStructureCreator.writeVerifiedWorldData(file, malformed));
 
         assertArrayEquals(bytes, Files.readAllBytes(file));
         assertEquals(original, NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap()));
@@ -50,12 +50,12 @@ class WorldDataPersistenceTest {
         Path file = folder.resolve("level.dat");
         CompoundTag original = new CompoundTag();
         original.putString("marker", "original");
-        WorldStructureCreator.writeCompressed(file.toFile(), original);
+        WorldStructureCreator.writeVerifiedWorldData(file, original);
         byte[] bytes = Files.readAllBytes(file);
         CompoundTag oversized = new CompoundTag();
         oversized.putString("text", "x".repeat(70_000));
 
-        assertThrows(IOException.class, () -> WorldStructureCreator.writeCompressedAtomically(file, oversized));
+        assertThrows(IOException.class, () -> WorldStructureCreator.writeVerifiedWorldData(file, oversized));
 
         assertArrayEquals(bytes, Files.readAllBytes(file));
         try (var files = Files.list(folder)) {

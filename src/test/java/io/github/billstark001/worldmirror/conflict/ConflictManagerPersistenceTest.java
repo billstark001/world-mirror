@@ -20,6 +20,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.io.IOException;
 import java.util.Random;
 import java.util.Set;
 import java.util.List;
@@ -41,7 +42,7 @@ class ConflictManagerPersistenceTest {
     }
 
     @Test
-    void streamsConflictChunksToVanillaRegionFiles(@TempDir Path world) {
+    void streamsConflictChunksToVanillaRegionFiles(@TempDir Path world) throws Exception {
         ChunkPos pos = new ChunkPos(37, -12);
         CompoundTag chunk = new CompoundTag();
         chunk.putInt("DataVersion", SharedConstants.getCurrentVersion().dataVersion().version());
@@ -49,7 +50,7 @@ class ConflictManagerPersistenceTest {
         chunk.putInt("zPos", pos.getMinBlockZ() >> 4);
         chunk.putString("Status", "minecraft:full");
 
-        assertTrue(ConflictManager.saveConflict(world, pos, chunk, Level.OVERWORLD));
+        assertTrue(savePending(world, pos, chunk, Level.OVERWORLD));
         assertTrue(ConflictManager.hasConflict(world, pos, Level.OVERWORLD));
     }
 
@@ -58,12 +59,13 @@ class ConflictManagerPersistenceTest {
         Path notDirectory = root.resolve("not-a-directory");
         Files.writeString(notDirectory, "occupied");
 
-        assertFalse(ConflictManager.saveConflict(
+        assertFalse(savePending(
                 notDirectory, new ChunkPos(0, 0), new CompoundTag(), Level.OVERWORLD));
     }
 
     @Test
     void readOnlyConflictQueriesDoNotExpandLegacyEmptyRegionFiles(@TempDir Path world) throws Exception {
+        seedMetadata(world);
         Path directory = Files.createDirectories(ConflictManager.getConflictDir(world, Level.OVERWORLD));
         Path placeholder = Files.createFile(directory.resolve("r.0.0.mca"));
 
@@ -72,7 +74,7 @@ class ConflictManagerPersistenceTest {
         assertEquals(0, ConflictManager.countAllConflicts(world));
 
         assertEquals(0L, Files.size(placeholder));
-        ConflictManager.clearAllConflicts(world, false);
+        ConflictManager.clearAllConflicts(target(world), false);
         assertFalse(Files.exists(placeholder));
     }
 
@@ -80,7 +82,7 @@ class ConflictManagerPersistenceTest {
     void conflictQueriesCanReadWindowsReadOnlyRegionFiles(@TempDir Path world) throws Exception {
         assumeTrue(System.getProperty("os.name").startsWith("Windows"));
         ChunkPos pos = new ChunkPos(0, 0);
-        assertTrue(ConflictManager.saveConflict(world, pos, chunk(pos, 1), Level.OVERWORLD));
+        assertTrue(savePending(world, pos, chunk(pos, 1), Level.OVERWORLD));
         Path region = ConflictManager.getConflictDir(world, Level.OVERWORLD).resolve("r.0.0.mca");
         Files.setAttribute(region, "dos:readonly", true);
         try {
@@ -100,13 +102,13 @@ class ConflictManagerPersistenceTest {
         chunk.putInt("xPos", 0);
         chunk.putInt("zPos", 0);
         chunk.putString("Status", "minecraft:full");
-        assertTrue(ConflictManager.saveConflict(world, pos, chunk, Level.OVERWORLD));
+        assertTrue(savePending(world, pos, chunk, Level.OVERWORLD));
 
         Path blockedRegionFile = ChunkExporter.regionDirForDimension(world, Level.OVERWORLD)
                 .resolve("r.0.0.mca");
         Files.createDirectories(blockedRegionFile);
 
-        ConflictManager.clearAllConflicts(world, true);
+        ConflictManager.clearAllConflicts(target(world), true);
 
         assertTrue(ConflictManager.hasConflict(world, pos, Level.OVERWORLD));
     }
@@ -120,13 +122,13 @@ class ConflictManagerPersistenceTest {
         byte[] payload = new byte[1_200_000];
         new Random(85L).nextBytes(payload);
         large.putByteArray("payload", payload);
-        assertTrue(ConflictManager.saveConflict(world, largePos, large, Level.OVERWORLD));
-        assertTrue(ConflictManager.saveConflict(world, neighbour, chunk(neighbour, 2), Level.OVERWORLD));
+        assertTrue(savePending(world, largePos, large, Level.OVERWORLD));
+        assertTrue(savePending(world, neighbour, chunk(neighbour, 2), Level.OVERWORLD));
         assertTrue(ConflictManager.hasConflict(world, largePos, Level.OVERWORLD));
         assertEquals(Set.of(largePos, neighbour), ConflictManager.listConflicts(world, Level.OVERWORLD));
         assertEquals(2, ConflictManager.countAllConflicts(world));
 
-        ConflictManager.resolveConflict(world, largePos, Level.OVERWORLD, true);
+        ConflictManager.resolveConflict(target(world), largePos, Level.OVERWORLD, true);
 
         assertFalse(ConflictManager.hasConflict(world, largePos, Level.OVERWORLD));
         assertTrue(ConflictManager.hasConflict(world, neighbour, Level.OVERWORLD));
@@ -147,12 +149,12 @@ class ConflictManagerPersistenceTest {
         new Random(93L).nextBytes(payload);
         nbt.putByteArray("payload", payload);
         for (var dimension : dimensions) {
-            assertTrue(ConflictManager.saveConflict(world, pos, nbt, dimension));
+            assertTrue(savePending(world, pos, nbt, dimension));
             assertEquals(Set.of(pos), ConflictManager.listConflicts(world, dimension));
         }
         assertEquals(4, ConflictManager.countAllConflicts(world));
 
-        ConflictManager.clearAllConflicts(world, overwrite);
+        ConflictManager.clearAllConflicts(target(world), overwrite);
 
         assertEquals(0, ConflictManager.countAllConflicts(world));
         assertFalse(Files.exists(world.resolve(ConflictManager.CONFLICT_ROOT)));
@@ -170,7 +172,7 @@ class ConflictManagerPersistenceTest {
         Path world = distinctLockWorld(root);
         ChunkPos pos = new ChunkPos(0, 0);
         Path worldRegion = ChunkExporter.regionDirForDimension(world, Level.OVERWORLD).resolve("r.0.0.mca");
-        assertTrue(ConflictManager.saveConflict(world, pos, chunk(pos, 1), Level.OVERWORLD));
+        assertTrue(savePending(world, pos, chunk(pos, 1), Level.OVERWORLD));
         AtomicReference<Thread> resolvingThread = new AtomicReference<>();
         CountDownLatch started = new CountDownLatch(1);
 
@@ -180,8 +182,8 @@ class ConflictManagerPersistenceTest {
                 resolution = executor.submit(() -> {
                     resolvingThread.set(Thread.currentThread());
                     started.countDown();
-                    if (bulk) ConflictManager.clearAllConflicts(world, true);
-                    else ConflictManager.resolveConflict(world, pos, Level.OVERWORLD, true);
+                    if (bulk) org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> ConflictManager.clearAllConflicts(target(world), true));
+                    else ConflictManager.resolveConflict(target(world), pos, Level.OVERWORLD, true);
                 });
                 assertTrue(started.await(2, TimeUnit.SECONDS));
                 long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
@@ -189,7 +191,7 @@ class ConflictManagerPersistenceTest {
                         && System.nanoTime() < deadline) Thread.sleep(1L);
                 assertEquals(Thread.State.BLOCKED, resolvingThread.get().getState());
                 var saved = executor.submit(() ->
-                        ConflictManager.saveConflict(world, pos, chunk(pos, 2), Level.OVERWORLD));
+                        savePending(world, pos, chunk(pos, 2), Level.OVERWORLD));
                 assertTrue(saved.get(2, TimeUnit.SECONDS));
             }
             resolution.get(2, TimeUnit.SECONDS);
@@ -197,7 +199,7 @@ class ConflictManagerPersistenceTest {
 
         assertEquals(1, readWorldChunk(world, pos).getIntOr("marker", -1));
         assertTrue(ConflictManager.hasConflict(world, pos, Level.OVERWORLD));
-        ConflictManager.resolveConflict(world, pos, Level.OVERWORLD, true);
+        ConflictManager.resolveConflict(target(world), pos, Level.OVERWORLD, true);
         assertEquals(2, readWorldChunk(world, pos).getIntOr("marker", -1));
         assertFalse(ConflictManager.hasConflict(world, pos, Level.OVERWORLD));
     }
@@ -207,7 +209,7 @@ class ConflictManagerPersistenceTest {
         Path world = distinctLockWorld(root);
         ChunkPos pos = new ChunkPos(0, 0);
         Path worldRegion = ChunkExporter.regionDirForDimension(world, Level.OVERWORLD).resolve("r.0.0.mca");
-        assertTrue(ConflictManager.saveConflict(world, pos, chunk(pos, 1), Level.OVERWORLD));
+        assertTrue(savePending(world, pos, chunk(pos, 1), Level.OVERWORLD));
         AtomicReference<Thread> firstThread = new AtomicReference<>();
         AtomicReference<Thread> secondThread = new AtomicReference<>();
         try (var executor = Executors.newFixedThreadPool(2)) {
@@ -216,13 +218,13 @@ class ConflictManagerPersistenceTest {
             synchronized (McaWriteSupport.lockFor(worldRegion)) {
                 first = executor.submit(() -> {
                     firstThread.set(Thread.currentThread());
-                    ConflictManager.resolveConflict(world, pos, Level.OVERWORLD, true);
+                    ConflictManager.resolveConflict(target(world), pos, Level.OVERWORLD, true);
                 });
                 awaitBlocked(firstThread);
-                assertTrue(ConflictManager.saveConflict(world, pos, chunk(pos, 2), Level.OVERWORLD));
+                assertTrue(savePending(world, pos, chunk(pos, 2), Level.OVERWORLD));
                 second = executor.submit(() -> {
                     secondThread.set(Thread.currentThread());
-                    ConflictManager.clearAllConflicts(world, true);
+                    org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> ConflictManager.clearAllConflicts(target(world), true));
                 });
                 awaitBlocked(secondThread);
                 var waiting = ManagementFactory.getThreadMXBean().getThreadInfo(secondThread.get().threadId());
@@ -276,4 +278,39 @@ class ConflictManagerPersistenceTest {
             return NbtIo.read(input);
         }
     }
+    private static io.github.billstark001.worldmirror.io.MirrorTarget target(Path world) {
+        return new io.github.billstark001.worldmirror.io.MirrorTarget(world, "server:conflict-test");
+    }
+
+    private static boolean savePending(Path world, ChunkPos pos, CompoundTag chunk, ResourceKey<Level> dimension) {
+        seedMetadata(world);
+        return ConflictManager.saveConflict(world, pos, chunk, dimension);
+    }
+    private static void seedMetadata(Path world) {
+        if (Files.notExists(world.resolve(io.github.billstark001.worldmirror.download.WorldMetadata.FILE_NAME))) {
+            var metadata = io.github.billstark001.worldmirror.download.WorldMetadata.create("server:conflict-test", "server", "synchronized");
+            metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(),
+                    io.github.billstark001.worldmirror.io.MirrorWorldgenAssets.ASSET_REVISION);
+            metadata.save(world);
+        }
+    }
+
+    @Test
+    void unknownTargetIdentityKeepsPendingConflicts(@TempDir Path world) throws Exception {
+        ChunkPos pos = new ChunkPos(0, 0);
+        assertTrue(savePending(world, pos, chunk(pos, 1), Level.OVERWORLD));
+        var foreign = new io.github.billstark001.worldmirror.io.MirrorTarget(world, "server:other");
+        assertFalse(ConflictManager.resolveConflict(foreign, pos, Level.OVERWORLD, true));
+        assertTrue(ConflictManager.hasConflict(world, pos, Level.OVERWORLD));
+        org.junit.jupiter.api.Assertions.assertThrows(IOException.class,
+                () -> ConflictManager.clearAllConflicts(foreign, true));
+    }
+
+    @Test
+    void invalidConflictEntriesAreUnavailableRatherThanEmpty(@TempDir Path world) throws Exception {
+        Path directory = Files.createDirectories(ConflictManager.getConflictDir(world, Level.OVERWORLD));
+        Files.createDirectory(directory.resolve("r.0.0.mca"));
+        org.junit.jupiter.api.Assertions.assertThrows(IOException.class, () -> ConflictManager.countAllConflicts(world));
+    }
+
 }

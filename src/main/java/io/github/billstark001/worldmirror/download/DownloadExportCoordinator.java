@@ -132,6 +132,28 @@ final class DownloadExportCoordinator {
         void clearLive() { live = null; }
         void prepareForShutdown() { frozen.forEach(item -> item.readyAtNs = Long.MIN_VALUE); clearLive(); }
         int frozenCount() { return frozen.size(); }
+        long retainedChunks() {
+            return frozen.stream().mapToLong(item -> item.work.terrainCount()
+                    + item.work.entities().values().stream().mapToInt(Map::size).sum()).sum();
+        }
+        void retryNow(Source source) {
+            frozen.stream().filter(item -> item.work.context().source().equals(source))
+                    .forEach(item -> item.readyAtNs = Long.MIN_VALUE);
+        }
+    }
+
+    private static final long MAX_RETAINED_CHUNKS = 16_384L;
+    private static final int MAX_FROZEN_BUNDLES = 8;
+
+    boolean captureAdmissionAvailable() {
+        synchronized (requestLock) {
+            Runtime runtime = Runtime.getRuntime();
+            long used = runtime.totalMemory() - runtime.freeMemory();
+            boolean memoryPressure = used > runtime.maxMemory() * 0.8;
+            return deferred.frozenCount() < MAX_FROZEN_BUNDLES
+                    && deferred.retainedChunks() + ChunkListener.getDirtyCount() < MAX_RETAINED_CHUNKS
+                    && !(memoryPressure && (deferred.frozenCount() > 0 || ChunkListener.getDirtyCount() > 0));
+        }
     }
 
     private volatile long lastExportMillis;
@@ -237,12 +259,15 @@ final class DownloadExportCoordinator {
         }
     }
 
-    record ExportJob(Frozen work, Path worldFolder, ModConfig.DownloadPipelineMode mode,
+    @FunctionalInterface
+    interface OutputTarget { Path claim() throws java.io.IOException; }
+
+    record ExportJob(Frozen work, OutputTarget target, ModConfig.DownloadPipelineMode mode,
                      boolean diagnostic, boolean invalidate, ConflictResolver resolver, long slowRegionThresholdMs,
                      ExportProgress progress) {
         ExportJob {
             Objects.requireNonNull(work);
-            Objects.requireNonNull(worldFolder);
+            Objects.requireNonNull(target);
             Objects.requireNonNull(mode);
             Objects.requireNonNull(resolver);
             Objects.requireNonNull(progress);
@@ -279,8 +304,10 @@ final class DownloadExportCoordinator {
         if (stopping.get()) return false;
         if (work instanceof Intent intent) work = resolveIntent(client, intent);
         Context context = work.context();
+        if (context.trigger() == Trigger.MANUAL) io.github.billstark001.worldmirror.io.FileReadFailures.invalidate();
         boolean entitiesBlocked, previousSourceWork;
         synchronized (requestLock) {
+            if (!context.trigger().automatic && context.trigger() != Trigger.RETRY) deferred.retryNow(context.source());
             entitiesBlocked = !(fromQueue && work instanceof Frozen) && deferred.hasEntitiesForSource(context.source());
             previousSourceWork = !fromQueue && (deferred.hasTerrainForSource(context.source()) || entitiesBlocked && work instanceof Frozen);
         }
@@ -298,7 +325,7 @@ final class DownloadExportCoordinator {
                 if (context.trigger().automatic) automaticSuppressed.incrementAndGet(); else defer(intent);
                 return false;
             }
-            if (context.notifyPlayer() && ModConfig.get().lifecycle.captureNearbyBeforeExport && client.level != null && client.player != null) {
+            if (captureAdmissionAvailable() && context.notifyPlayer() && ModConfig.get().lifecycle.captureNearbyBeforeExport && client.level != null && client.player != null) {
                 boolean scheduled = captureQueue.queueLoaded(client.level, client.player.getBlockX() >> 4,
                         client.player.getBlockZ() >> 4, 8, "pre-export");
                 if (scheduled || captureQueue.isCaptureInProgress()) { defer(intent.ready()); return false; }
@@ -320,8 +347,8 @@ final class DownloadExportCoordinator {
     private Optional<ExportJob> prepareJob(Frozen work) {
         observe(() -> ExportStatusStore.global().queued(work));
         try {
-            Path folder = MirrorMapping.getInstance().claimOutputDirectory(work.context().source().id());
-            return Optional.of(new ExportJob(work, folder, pipelineSupplier.get().mode(),
+            return Optional.of(new ExportJob(work,
+                    () -> MirrorMapping.getInstance().claimOutputDirectory(work.context().source().id()), pipelineSupplier.get().mode(),
                     ModConfig.get().performance.diagnosticPerformanceLogging, ModConfig.get().cache.invalidateAfterExport,
                     buildResolver(work.context().source().id()), ModConfig.get().performance.diagnosticPerformanceLogging
                     ? Math.max(0L, ModConfig.get().performance.slowRegionMillis) : -1L,
@@ -344,7 +371,8 @@ final class DownloadExportCoordinator {
     private Frozen freeze(Minecraft client, Intent intent, boolean acknowledgeLiveSignal) {
         long revision = entityRevision.get();
         boolean entities = intent.entityScope() == EntityScope.LIVE;
-        if (entities && client.level != null && (!acknowledgeLiveSignal || revision > durableEntityRevision.get())) EntityTracker.captureEntitiesForWorld(client.level);
+        if (entities && client.level != null && captureAdmissionAvailable()
+                && (!acknowledgeLiveSignal || revision > durableEntityRevision.get())) EntityTracker.captureEntitiesForWorld(client.level);
         return new Frozen(intent.context(), ChunkListener.snapshotDirtyState(), entities ? EntityTracker.snapshot() : Map.of(),
                 intent.containers().orElseGet(ContainerTracker::snapshotSavedData), intent.settings().orElseThrow(), 0L,
                 acknowledgeLiveSignal && entities ? OptionalLong.of(revision) : OptionalLong.empty());
@@ -381,7 +409,10 @@ final class DownloadExportCoordinator {
             String summary = "Export pass complete: status=" + (successful ? "success" : "partial")
                     + " pipeline=" + job.mode() + " trigger=" + work.context().trigger() + " dirtySnapshot=" + work.terrainCount()
                     + " written=" + lastWritten + " unreadable=" + lastUnreadable + " settled=" + lastSettled + " elapsedMs=" + elapsedMs;
-            if (successful) WMLogger.info(summary);
+            if (successful) {
+                synchronized (requestLock) { retryAttempts.remove(work.context().source()); }
+                WMLogger.info(summary);
+            }
             else WMLogger.debug(summary);
             if (!stopping.get() && work.context().notifyPlayer() && successful) notifyPlayer("msg.worldmirror.exportDone");
         } finally {
@@ -398,7 +429,12 @@ final class DownloadExportCoordinator {
     /** The native transaction never mutates live capture state or waits for a game-thread task. */
     static ExportOutcome write(ExportJob job) {
         Frozen work = job.work();
-        Path worldFolder = job.worldFolder();
+        Path worldFolder;
+        try { worldFolder = job.target().claim(); }
+        catch (Exception preparationFailure) {
+            OperationFailures.report(work.context().source().id(), "output_claim", null, preparationFailure);
+            return ExportOutcome.failed(work);
+        }
         String sourceId = work.context().source().id(), sourceType = work.context().source().type();
         var snapshot = work.terrain();
         var entitySnapshot = work.entities();
@@ -419,6 +455,11 @@ final class DownloadExportCoordinator {
             }
 
             boolean createFreshWorld = readiness.state() == MirrorMigrationPlan.State.NEW;
+            String reservedSource = createFreshWorld ? MirrorClaim.source(worldFolder) : readiness.metadata().sourceId;
+            if (reservedSource != null && !sourceId.equals(reservedSource)) {
+                WMLogger.warn("Export target identity changed before the native lease was acquired; retained source=" + sourceId);
+                return ExportOutcome.failed(work);
+            }
             WorldMetadata metadata = createFreshWorld
                     ? WorldMetadata.create(sourceId, sourceType, "synchronized")
                     : readiness.metadata();
@@ -435,6 +476,7 @@ final class DownloadExportCoordinator {
                 if (!metadata.save(worldFolder)) {
                     return ExportOutcome.failed(work);
                 }
+                MirrorClaim.finish(worldFolder, sourceId);
             }
 
             try {
@@ -498,8 +540,12 @@ final class DownloadExportCoordinator {
         if (work instanceof Frozen frozen) observe(() -> ExportStatusStore.global().queued(frozen));
         synchronized (requestLock) { if (deferred.offer(work)) deferredCoalesced.incrementAndGet(); }
     }
+    private final Map<Source, Integer> retryAttempts = new HashMap<>();
+
     private void retainForRetry(Frozen work) {
-        long seconds = work.context().trigger() == Trigger.RETRY ? 60L : 10L;
+        int attempt;
+        synchronized (requestLock) { attempt = retryAttempts.merge(work.context().source(), 1, Integer::sum); }
+        long seconds = Math.min(900L, 10L << Math.min(7, attempt - 1));
         synchronized (requestLock) { deferred.retry(work.retry(), System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds)); }
         WMLogger.debug("Retained frozen export source=" + work.context().source().id() + " for retry after " + seconds + "s");
     }

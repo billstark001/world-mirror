@@ -2,25 +2,15 @@ package io.github.billstark001.worldmirror.io;
 
 import io.github.billstark001.worldmirror.core.EntityTracker;
 import io.github.billstark001.worldmirror.util.WMLogger;
-import io.github.ensgijs.nbt.io.BinaryNbtDeserializer;
-import io.github.ensgijs.nbt.io.BinaryNbtSerializer;
-import io.github.ensgijs.nbt.io.CompressionType;
-import io.github.ensgijs.nbt.io.NamedTag;
-import io.github.ensgijs.nbt.mca.EntitiesChunk;
-import io.github.ensgijs.nbt.mca.McaEntitiesFile;
-import io.github.ensgijs.nbt.mca.io.McaFileHelpers;
-import io.github.ensgijs.nbt.tag.CompoundTag;
-import io.github.ensgijs.nbt.tag.ListTag;
 import net.minecraft.nbt.IntArrayTag;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -40,76 +30,79 @@ final class EntityRegionWriter {
     private EntityRegionWriter() { }
 
     private static final class MutableUpdate {
-        final long revision;
         EntityTracker.Observation observation;
         final Map<UUID, EntityTracker.EntityRecord> upserts = new LinkedHashMap<>();
         final Set<UUID> tombstones = new HashSet<>();
 
         MutableUpdate(EntityTracker.ChunkUpdate source) {
-            revision = source.revision();
             observation = source.observation();
             upserts.putAll(source.upserts());
             tombstones.addAll(source.tombstones());
         }
 
         MutableUpdate() {
-            revision = 0L;
             observation = EntityTracker.Observation.PARTIAL;
         }
     }
 
     private record RegionKey(int x, int z) { }
+    private record DiskIndex(Map<RegionKey, Map<UUID, Integer>> counts, Set<RegionKey> seedRegions) { }
 
     static Map<ResourceKey<Level>, Map<ChunkPos, Long>> write(
             Path worldFolder,
             Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> snapshot, ExportProgress progress) {
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> written = new HashMap<>();
-        snapshot.forEach((dimension, updates) -> {
-            progress.start(ExportProgress.Part.ENTITIES, dimension, updates.keySet());
-            Path entitiesDir = ChunkExporter.dimensionDirForDimension(worldFolder, dimension).resolve("entities");
-            try {
-                Files.createDirectories(entitiesDir);
-                if (writeDimension(entitiesDir, updates)) {
-                    Map<ChunkPos, Long> revisions = new HashMap<>();
-                    updates.forEach((chunk, update) -> revisions.put(chunk, update.revision()));
-                    written.put(dimension, Map.copyOf(revisions));
+        try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
+            snapshot.forEach((dimension, updates) -> {
+                progress.start(ExportProgress.Part.ENTITIES, dimension, updates.keySet());
+                try {
+                    Path entitiesDir = ChunkExporter.dimensionDirForDimension(worldFolder, dimension).resolve("entities");
+                    Files.createDirectories(entitiesDir);
+                    if (writeDimension(entitiesDir, dimension, updates)) {
+                        Map<ChunkPos, Long> revisions = new HashMap<>();
+                        updates.forEach((chunk, update) -> revisions.put(chunk, update.revision()));
+                        written.put(dimension, Map.copyOf(revisions));
+                    }
+                } catch (Exception e) {
+                    WMLogger.warn("Failed to write entity updates for [" + dimension.identifier()
+                            + "]; keeping revisions dirty for retry", e);
                 }
-            } catch (Exception e) {
-                WMLogger.warn("Failed to write entity updates for [" + dimension.identifier()
-                        + "]; keeping revisions dirty for retry", e);
-            }
-        });
+            });
+        } catch (IOException unavailable) {
+            WMLogger.warn("Cannot lease entity output; revisions retained: " + worldFolder, unavailable);
+        }
         return Map.copyOf(written);
     }
 
     private static boolean writeDimension(
-            Path entitiesDir,
+            Path entitiesDir, ResourceKey<Level> dimension,
             Map<ChunkPos, EntityTracker.ChunkUpdate> sourceUpdates) throws IOException {
         if (sourceUpdates.isEmpty()) return true;
-
         Map<ChunkPos, MutableUpdate> updates = new HashMap<>();
         sourceUpdates.forEach((chunk, update) -> updates.put(chunk, new MutableUpdate(update)));
-        Set<UUID> affectedUuids = validateIncomingUpserts(sourceUpdates);
+        Map<UUID, ChunkPos> destinations = indexIncomingUpserts(sourceUpdates);
+        Set<UUID> affectedUuids = destinations.keySet();
 
         // Rebuild the relevant part of the UUID index from disk on every pass.
         // It makes a restart self-healing and also removes duplicates produced by
         // older World Mirror versions without a second source of truth.
-        addOnDiskDuplicateRemovals(entitiesDir, affectedUuids, updates);
+        DiskIndex diskIndex = addOnDiskDuplicateRemovals(entitiesDir, destinations, updates);
+        Map<RegionKey, Map<UUID, Integer>> initialCounts = diskIndex.counts();
 
         Map<RegionKey, Map<ChunkPos, MutableUpdate>> byRegion = new HashMap<>();
         updates.forEach((chunk, update) -> byRegion
                 .computeIfAbsent(new RegionKey(chunk.getRegionX(), chunk.getRegionZ()), ignored -> new HashMap<>())
                 .put(chunk, update));
 
-        // Seed every destination before removing any old copy. This explicit
-        // first phase also covers swaps and regions that are simultaneously a
-        // source and destination: interruption can leave a retryable duplicate,
-        // but cannot delete the only durable copy of a moving entity. A single
-        // region needs no seed because its final replacement is already atomic.
+        // Only cross-region moves need a destination seed before deleting an old
+        // copy. This also covers swaps: interruption can leave a retryable duplicate,
+        // never delete the only durable copy. Fresh captures and moves within one
+        // atomic region avoid a redundant whole-region rewrite.
         Map<RegionKey, Map<ChunkPos, MutableUpdate>> seedsByRegion = new HashMap<>();
-        if (byRegion.size() > 1) {
+        if (!diskIndex.seedRegions().isEmpty()) {
             sourceUpdates.forEach((chunk, source) -> {
-                if (source.upserts().isEmpty()) return;
+                RegionKey destination = new RegionKey(chunk.getRegionX(), chunk.getRegionZ());
+                if (source.upserts().isEmpty() || !diskIndex.seedRegions().contains(destination)) return;
                 MutableUpdate seed = new MutableUpdate();
                 seed.upserts.putAll(source.upserts());
                 seedsByRegion
@@ -118,21 +111,30 @@ final class EntityRegionWriter {
                         .put(chunk, seed);
             });
             for (Map.Entry<RegionKey, Map<ChunkPos, MutableUpdate>> seed : seedsByRegion.entrySet()) {
-                if (!writeRegion(entitiesDir, seed.getKey(), seed.getValue())) return false;
+                if (writeRegion(entitiesDir, dimension, seed.getKey(), seed.getValue(), Set.of()) == null) return false;
             }
         }
 
         boolean allSucceeded = true;
         for (Map.Entry<RegionKey, Map<ChunkPos, MutableUpdate>> entry : byRegion.entrySet()) {
-            if (!writeRegion(entitiesDir, entry.getKey(), entry.getValue())) allSucceeded = false;
+            Map<UUID, Integer> counts = writeRegion(entitiesDir, dimension, entry.getKey(), entry.getValue(), affectedUuids);
+            if (counts == null) allSucceeded = false;
+            else initialCounts.put(entry.getKey(), counts);
         }
-        return allSucceeded && verifyAffectedUuidCounts(entitiesDir, sourceUpdates);
+        if (!allSucceeded) return false;
+        Map<UUID, Integer> finalCounts = new HashMap<>();
+        initialCounts.values().forEach(counts -> counts.forEach((uuid, count) -> finalCounts.merge(uuid, count, Integer::sum)));
+        for (UUID uuid : affectedUuids) {
+            if (finalCounts.getOrDefault(uuid, 0) != 1) throw new IOException("Entity UUID occurrence count is not one: " + uuid);
+        }
+        return true;
     }
 
-    private static Set<UUID> validateIncomingUpserts(
+    private static Map<UUID, ChunkPos> indexIncomingUpserts(
             Map<ChunkPos, EntityTracker.ChunkUpdate> updates) throws IOException {
-        Set<UUID> upserted = new HashSet<>();
-        for (EntityTracker.ChunkUpdate update : updates.values()) {
+        Map<UUID, ChunkPos> upserted = new HashMap<>();
+        for (var chunk : updates.entrySet()) {
+            EntityTracker.ChunkUpdate update = chunk.getValue();
             for (Map.Entry<UUID, EntityTracker.EntityRecord> entry : update.upserts().entrySet()) {
                 EntityTracker.EntityRecord record = entry.getValue();
                 if (!entry.getKey().equals(record.rootUuid())
@@ -149,7 +151,7 @@ final class EntityRegionWriter {
                             + record.rootUuid());
                 }
                 for (UUID uuid : record.containedUuids()) {
-                    if (!upserted.add(uuid)) {
+                    if (upserted.putIfAbsent(uuid, chunk.getKey()) != null) {
                         throw new IOException("Duplicate UUID in incoming entity snapshot: " + uuid);
                     }
                 }
@@ -158,112 +160,67 @@ final class EntityRegionWriter {
         return upserted;
     }
 
-    private static void addOnDiskDuplicateRemovals(
-            Path entitiesDir,
-            Set<UUID> affectedUuids,
-            Map<ChunkPos, MutableUpdate> updates) throws IOException {
-        if (affectedUuids.isEmpty()) return;
+    private static DiskIndex addOnDiskDuplicateRemovals(
+            Path entitiesDir, Map<UUID, ChunkPos> destinations, Map<ChunkPos, MutableUpdate> updates) throws IOException {
+        Map<RegionKey, Map<UUID, Integer>> countsByRegion = new HashMap<>();
+        Set<RegionKey> seedRegions = new HashSet<>();
+        if (destinations.isEmpty()) return new DiskIndex(countsByRegion, seedRegions);
         try (DirectoryStream<Path> files = Files.newDirectoryStream(entitiesDir, "r.*.*.mca")) {
             for (Path file : files) {
-                // Older World Mirror releases could leave empty placeholder MCA
-                // files behind. They contain no header or entity data and are
-                // semantically identical to a missing region.
-                if (Files.size(file) == 0L) continue;
-                McaEntitiesFile mca;
+                var key = AnvilReader.coordinates(file);
+                Map<UUID, Integer> counts = new HashMap<>();
                 synchronized (McaWriteSupport.lockFor(file)) {
-                    try {
-                        mca = McaFileHelpers.readEntities(file);
-                    } catch (Exception e) {
-                        throw new IOException("Cannot safely index existing entity region "
-                                + file.getFileName(), e);
-                    }
-                }
-
-                for (EntitiesChunk chunk : mca) {
-                    if (chunk == null) continue;
-                    if (chunk.getRegionX() != mca.getRegionX()
-                            || chunk.getRegionZ() != mca.getRegionZ()) {
-                        throw new IOException("Entity chunk position does not match region "
-                                + file.getFileName() + ": " + chunk.getChunkX()
-                                + "," + chunk.getChunkZ());
-                    }
-                    ChunkPos pos = new ChunkPos(chunk.getChunkX(), chunk.getChunkZ());
-                    ListTag<CompoundTag> roots = entityList(chunk);
-                    if (roots == null) continue;
-                    for (CompoundTag root : roots) {
-                        Set<UUID> contained = collectUuids(root);
-                        Set<UUID> intersection = new HashSet<>(contained);
-                        intersection.retainAll(affectedUuids);
-                        if (!intersection.isEmpty()) {
-                            updates.computeIfAbsent(pos, ignored -> new MutableUpdate())
-                                    .tombstones.addAll(intersection);
+                    AnvilReader.visitRegion(file, key.x(), key.z(), (pos, chunk) -> {
+                        validateStoredChunk(file, pos, chunk);
+                        for (Tag value : entityList(chunk)) {
+                            Set<UUID> contained = collectUuids(requireCompound(value));
+                            for (UUID uuid : contained) {
+                                ChunkPos destination = destinations.get(uuid);
+                                if (destination == null) continue;
+                                counts.merge(uuid, 1, Integer::sum);
+                                updates.computeIfAbsent(pos, ignored -> new MutableUpdate()).tombstones.add(uuid);
+                                if (destination.getRegionX() != key.x() || destination.getRegionZ() != key.z()) {
+                                    seedRegions.add(new RegionKey(destination.getRegionX(), destination.getRegionZ()));
+                                }
+                            }
                         }
-                    }
+                    });
                 }
+                if (!counts.isEmpty()) countsByRegion.put(new RegionKey(key.x(), key.z()), counts);
             }
         }
+        return new DiskIndex(countsByRegion, seedRegions);
     }
 
-    private static boolean writeRegion(
-            Path entitiesDir,
-            RegionKey key,
-            Map<ChunkPos, MutableUpdate> updates) {
+    /** The native lease keeps untouched regions stable; rewritten regions return verified replacement counts. */
+    private static Map<UUID, Integer> writeRegion(
+            Path entitiesDir, ResourceKey<Level> dimension, RegionKey key,
+            Map<ChunkPos, MutableUpdate> updates, Set<UUID> affected) {
         Path target = entitiesDir.resolve("r." + key.x() + "." + key.z() + ".mca");
         synchronized (McaWriteSupport.lockFor(target)) {
-            McaEntitiesFile mca;
-            if (Files.exists(target)) {
-                try {
-                    mca = Files.size(target) == 0L
-                            ? new McaEntitiesFile(key.x(), key.z())
-                            : McaFileHelpers.readEntities(target);
-                } catch (Exception e) {
-                    WMLogger.warn("Could not read existing entity region " + target.getFileName()
-                            + "; refusing to overwrite it", e);
-                    return false;
-                }
-            } else {
-                mca = new McaEntitiesFile(key.x(), key.z());
-            }
-
-            for (Map.Entry<ChunkPos, MutableUpdate> entry : updates.entrySet()) {
-                ChunkPos pos = entry.getKey();
-                MutableUpdate update = entry.getValue();
-                try {
-                    List<CompoundTag> merged = mergeChunk(
-                            mca.getChunk(pos.getRegionLocalX(), pos.getRegionLocalZ()), update);
-                    mca.setChunk(pos.getRegionLocalX(), pos.getRegionLocalZ(), createChunk(pos, merged));
-                } catch (Exception e) {
-                    WMLogger.warnRateLimited("entity-stage", 30_000L,
-                            "Entity staging failed file=" + target.getFileName()
-                                    + " chunk=" + pos, e);
-                    return false;
-                }
-            }
-
             try {
-                int count = McaWriteSupport.writeAtomicallyLocked(mca, target);
-                if (count <= 0) {
-                    WMLogger.warn("Entity region " + target.getFileName()
-                            + " wrote no chunks; keeping revisions dirty for retry.");
-                    return false;
-                }
-                if (!verifyWrittenRegion(target, key, updates)) return false;
-                WMLogger.debug("Wrote entity region " + target.getFileName()
-                        + " with " + updates.size() + " updated chunk(s).");
-                return true;
-            } catch (Exception e) {
-                WMLogger.warn("Failed to write entity region " + target.getFileName()
-                        + "; keeping revisions dirty for retry", e);
-                return false;
+                Map<UUID, Integer> counts = new HashMap<>();
+                RegionWriteTransaction.rewrite(target, dimension, key.x(), key.z(), updates.keySet(), (pos, previous) -> {
+                    if (previous != null) validateStoredChunk(target, pos, previous);
+                    MutableUpdate update = updates.get(pos);
+                    CompoundTag chunk = update == null ? previous : createChunk(previous, pos, mergeChunk(previous, update));
+                    if (update != null) verifyChunkUpdate(pos, chunk, update);
+                    if (!affected.isEmpty()) mergeUuidCounts(counts, entityList(chunk), affected);
+                    return chunk;
+                });
+                return counts;
+            } catch (Exception failure) {
+                WMLogger.warn("Entity region update failed; preserving dirty revisions file=" + target, failure);
+                return null;
             }
         }
     }
 
-    static List<CompoundTag> mergeChunk(EntitiesChunk existing, MutableUpdate update) {
+    static List<CompoundTag> mergeChunk(CompoundTag existing, MutableUpdate update) {
         List<CompoundTag> result = new ArrayList<>();
         if (update.observation == EntityTracker.Observation.PARTIAL && existing != null) {
-            ListTag<CompoundTag> old = entityList(existing);
-            if (old != null) old.forEach(tag -> result.add(tag.clone()));
+            ListTag old = entityList(existing);
+            if (old != null) old.forEach(tag -> result.add(requireCompound(tag)));
         }
 
         Set<UUID> replaced = new HashSet<>(update.tombstones);
@@ -271,42 +228,69 @@ final class EntityRegionWriter {
         result.removeIf(root -> pruneReplacedEntities(root, replaced));
 
         update.upserts.values().forEach(record ->
-                result.add(convertToQuerz(record.nbt()).clone()));
+                result.add(record.nbt().copy()));
         return result;
     }
 
     /** A moved passenger is removed from its branch without deleting its unobserved vehicle. */
     private static boolean pruneReplacedEntities(CompoundTag root, Set<UUID> replaced) {
-        if (replaced.contains(UUIDUtil.uuidFromIntArray(root.getIntArray("UUID")))) return true;
+        if (replaced.contains(storedUuid(root))) return true;
         ArrayDeque<CompoundTag> parents = new ArrayDeque<>();
         parents.push(root);
         while (!parents.isEmpty()) {
-            ListTag<CompoundTag> passengers = parents.pop().getCompoundList("Passengers");
+            ListTag passengers = compoundList(parents.pop(), "Passengers");
             if (passengers == null) continue;
             var iterator = passengers.iterator();
             while (iterator.hasNext()) {
-                CompoundTag child = iterator.next();
-                if (replaced.contains(UUIDUtil.uuidFromIntArray(child.getIntArray("UUID")))) iterator.remove();
+                CompoundTag child = requireCompound(iterator.next());
+                if (replaced.contains(storedUuid(child))) iterator.remove();
                 else parents.push(child);
             }
         }
         return false;
     }
 
-    private static EntitiesChunk createChunk(ChunkPos pos, List<CompoundTag> entities) {
-        net.minecraft.nbt.CompoundTag chunk = new net.minecraft.nbt.CompoundTag();
+    private static CompoundTag createChunk(CompoundTag previous, ChunkPos pos, List<CompoundTag> entities) {
+        CompoundTag chunk = previous == null ? new CompoundTag() : previous;
         chunk.putInt("DataVersion", net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version());
         chunk.put("Position", new IntArrayTag(new int[] {
-                pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4}));
+                pos.getRegionX() * 32 + pos.getRegionLocalX(),
+                pos.getRegionZ() * 32 + pos.getRegionLocalZ()}));
         net.minecraft.nbt.ListTag list = new net.minecraft.nbt.ListTag();
-        entities.forEach(entity -> list.add(convertToMinecraft(entity)));
+        entities.forEach(list::add);
         chunk.put("Entities", list);
-        return new EntitiesChunk(convertToQuerz(chunk));
+        return chunk;
     }
 
-    private static ListTag<CompoundTag> entityList(EntitiesChunk chunk) {
-        if (chunk == null || chunk.getHandle() == null) return null;
-        return chunk.getHandle().getCompoundList("Entities");
+    private static ListTag entityList(CompoundTag chunk) {
+        return chunk == null ? null : compoundList(chunk, "Entities");
+    }
+
+    private static ListTag compoundList(CompoundTag parent, String key) {
+        Tag value = parent.get(key);
+        if (value == null) return null;
+        if (!(value instanceof ListTag list)) throw new IllegalArgumentException("Invalid entity list: " + key);
+        list.forEach(EntityRegionWriter::requireCompound);
+        return list;
+    }
+
+    private static CompoundTag requireCompound(Tag value) {
+        if (!(value instanceof CompoundTag compound)) throw new IllegalArgumentException("Invalid entity record");
+        return compound;
+    }
+
+    private static UUID storedUuid(CompoundTag entity) {
+        int[] raw = entity.getIntArray("UUID").orElseThrow(
+                () -> new IllegalArgumentException("Missing stored UUID"));
+        if (raw.length != 4) throw new IllegalArgumentException("Invalid stored UUID");
+        return UUIDUtil.uuidFromIntArray(raw);
+    }
+
+    private static void validateStoredChunk(Path file, ChunkPos pos, CompoundTag chunk) throws IOException {
+        int[] position = chunk.getIntArray("Position").orElseThrow(() -> new IOException("Missing entity Position: " + file));
+        if (position.length != 2 || !new ChunkPos(position[0], position[1]).equals(pos) || entityList(chunk) == null) {
+            throw new IOException("Missing or misplaced entity chunk: " + file + " " + pos);
+        }
     }
 
     /**
@@ -321,137 +305,33 @@ final class EntityRegionWriter {
         pending.push(entity);
         while (!pending.isEmpty()) {
             CompoundTag current = pending.pop();
-            int[] raw = current.getIntArray("UUID");
-            if (raw.length != 4) {
-                throw new IllegalArgumentException("Missing identity in stored entity passenger tree");
-            }
-            if (!result.add(UUIDUtil.uuidFromIntArray(raw))) {
+            if (!result.add(storedUuid(current))) {
                 throw new IllegalArgumentException("Duplicate UUID within an entity passenger tree");
             }
-            ListTag<CompoundTag> passengers = current.getCompoundList("Passengers");
-            if (passengers != null) passengers.forEach(pending::push);
+            ListTag passengers = compoundList(current, "Passengers");
+            if (passengers != null) passengers.forEach(value -> pending.push(requireCompound(value)));
         }
         return result;
     }
 
-    private static CompoundTag convertToQuerz(net.minecraft.nbt.CompoundTag minecraftNbt) {
-        try {
-            NbtWriteSupport.validateStrings(minecraftNbt);
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-            try (DataOutputStream output = new DataOutputStream(bytes)) {
-                net.minecraft.nbt.NbtIo.writeUnnamedTagWithFallback(minecraftNbt, output);
-            }
-            try (DataInputStream input = new DataInputStream(
-                    new ByteArrayInputStream(bytes.toByteArray()))) {
-                NamedTag named = new BinaryNbtDeserializer(CompressionType.NONE).fromStream(input);
-                return (CompoundTag) named.getTag();
-            }
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Failed to convert Minecraft entity NBT", e);
-        }
-    }
-
-    /** Re-opens the atomic replacement before any captured revision is acknowledged. */
-    private static boolean verifyWrittenRegion(
-            Path target,
-            RegionKey key,
-            Map<ChunkPos, MutableUpdate> updates) {
-        try {
-            McaEntitiesFile persisted = McaFileHelpers.readEntities(target);
-            if (persisted.getRegionX() != key.x() || persisted.getRegionZ() != key.z()) {
-                throw new IOException("Entity region coordinates changed after write: "
-                        + target.getFileName());
-            }
-
-            for (Map.Entry<ChunkPos, MutableUpdate> entry : updates.entrySet()) {
-                ChunkPos pos = entry.getKey();
-                MutableUpdate update = entry.getValue();
-                EntitiesChunk chunk = persisted.getChunk(
-                        pos.getRegionLocalX(), pos.getRegionLocalZ());
-                int chunkX = pos.getMinBlockX() >> 4;
-                int chunkZ = pos.getMinBlockZ() >> 4;
-                if (chunk == null || chunk.getChunkX() != chunkX || chunk.getChunkZ() != chunkZ) {
-                    throw new IOException("Entity chunk is missing or misplaced after write: " + pos);
-                }
-                ListTag<CompoundTag> roots = entityList(chunk);
-                if (roots == null) {
-                    throw new IOException("Entity list is missing after write: " + pos);
-                }
-
-                Set<UUID> expectedPresent = new HashSet<>();
-                update.upserts.values().forEach(record ->
-                        expectedPresent.addAll(record.containedUuids()));
-                Set<UUID> expectedAbsent = new HashSet<>(update.tombstones);
-                expectedAbsent.removeAll(expectedPresent);
-
-                Map<UUID, Integer> counts = countUuids(roots, expectedPresent, expectedAbsent);
-                for (UUID uuid : expectedPresent) {
-                    if (counts.getOrDefault(uuid, 0) != 1) {
-                        throw new IOException("Entity UUID was not written exactly once: " + uuid);
-                    }
-                }
-                for (UUID uuid : expectedAbsent) {
-                    if (counts.getOrDefault(uuid, 0) != 0) {
-                        throw new IOException("Entity tombstone remains after write: " + uuid);
-                    }
-                }
-                if (update.observation == EntityTracker.Observation.COMPLETE
-                        && roots.size() != update.upserts.size()) {
-                    throw new IOException("Complete entity chunk retained unexpected roots: " + pos);
-                }
-            }
-            return true;
-        } catch (Exception e) {
-            WMLogger.warn("Entity region verification failed file=" + target.getFileName()
-                    + "; keeping revisions dirty for retry", e);
-            return false;
-        }
-    }
-
-    /** Upserts are unique dimension-wide; local tombstones were verified in their own chunks. */
-    private static boolean verifyAffectedUuidCounts(
-            Path entitiesDir,
-            Map<ChunkPos, EntityTracker.ChunkUpdate> sourceUpdates) {
-        Set<UUID> expectedPresent = new HashSet<>();
-        sourceUpdates.values().forEach(update -> {
-            update.upserts().values().forEach(record ->
-                    expectedPresent.addAll(record.containedUuids()));
-        });
-        if (expectedPresent.isEmpty()) return true;
-
-        Map<UUID, Integer> counts = new HashMap<>();
-        try (DirectoryStream<Path> files = Files.newDirectoryStream(entitiesDir, "r.*.*.mca")) {
-            for (Path file : files) {
-                if (Files.size(file) == 0L) continue;
-                McaEntitiesFile mca;
-                synchronized (McaWriteSupport.lockFor(file)) {
-                    mca = McaFileHelpers.readEntities(file);
-                }
-                for (EntitiesChunk chunk : mca) {
-                    if (chunk == null) continue;
-                    if (chunk.getRegionX() != mca.getRegionX()
-                            || chunk.getRegionZ() != mca.getRegionZ()) {
-                        throw new IOException("Entity chunk position does not match region "
-                                + file.getFileName());
-                    }
-                    ListTag<CompoundTag> roots = entityList(chunk);
-                    if (roots != null) mergeUuidCounts(counts, roots, expectedPresent);
-                }
-            }
-            for (UUID uuid : expectedPresent) {
-                if (counts.getOrDefault(uuid, 0) != 1) {
-                    throw new IOException("Entity UUID occurrence count is not one: " + uuid);
-                }
-            }
-            return true;
-        } catch (Exception e) {
-            WMLogger.warn("Entity UUID verification failed; keeping revisions dirty for retry", e);
-            return false;
+    /** Business validation runs while staging, before a recovery transaction can touch live files. */
+    private static void verifyChunkUpdate(ChunkPos pos, CompoundTag chunk, MutableUpdate update) throws IOException {
+        ListTag roots = entityList(chunk);
+        if (roots == null) throw new IOException("Entity list missing: " + pos);
+        Set<UUID> present = new HashSet<>();
+        update.upserts.values().forEach(record -> present.addAll(record.containedUuids()));
+        Set<UUID> absent = new HashSet<>(update.tombstones);
+        absent.removeAll(present);
+        Map<UUID, Integer> counts = countUuids(roots, present, absent);
+        for (UUID uuid : present) if (counts.getOrDefault(uuid, 0) != 1) throw new IOException("Entity not written exactly once: " + uuid);
+        for (UUID uuid : absent) if (counts.getOrDefault(uuid, 0) != 0) throw new IOException("Entity tombstone remains: " + uuid);
+        if (update.observation == EntityTracker.Observation.COMPLETE && roots.size() != update.upserts.size()) {
+            throw new IOException("Complete entity chunk retained unexpected roots: " + pos);
         }
     }
 
     private static Map<UUID, Integer> countUuids(
-            ListTag<CompoundTag> roots,
+            ListTag roots,
             Set<UUID> first,
             Set<UUID> second) {
         Set<UUID> selected = new HashSet<>(first);
@@ -463,26 +343,14 @@ final class EntityRegionWriter {
 
     private static void mergeUuidCounts(
             Map<UUID, Integer> counts,
-            ListTag<CompoundTag> roots,
+            ListTag roots,
             Set<UUID> selected) {
-        for (CompoundTag root : roots) {
+        for (Tag value : roots) {
+            CompoundTag root = requireCompound(value);
             for (UUID uuid : collectUuids(root)) {
                 if (selected.contains(uuid)) counts.merge(uuid, 1, Integer::sum);
             }
         }
     }
 
-    private static net.minecraft.nbt.CompoundTag convertToMinecraft(CompoundTag querzNbt) {
-        try {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-            new BinaryNbtSerializer(CompressionType.NONE)
-                    .toStream(new NamedTag(null, querzNbt), bytes);
-            try (DataInputStream input = new DataInputStream(
-                    new ByteArrayInputStream(bytes.toByteArray()))) {
-                return net.minecraft.nbt.NbtIo.read(input);
-            }
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Failed to convert stored entity NBT", e);
-        }
-    }
 }

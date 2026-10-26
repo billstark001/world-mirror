@@ -1,10 +1,9 @@
 package io.github.billstark001.worldmirror.io;
 
-import io.github.ensgijs.nbt.tag.CompoundTag;
-import io.github.ensgijs.nbt.tag.ListTag;
-import io.github.ensgijs.nbt.tag.StringTag;
-import io.github.ensgijs.nbt.mca.io.McaFileHelpers;
 import org.junit.jupiter.api.Test;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.StringTag;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.util.ArrayList;
@@ -23,8 +22,8 @@ class LegacyVoidChunkCleanupTest {
         CompoundTag chunk = blankVoidChunk();
         assertTrue(LegacyVoidChunkCleanup.isLegacyVoidChunk(chunk));
 
-        CompoundTag section = (CompoundTag) ((ListTag<?>) chunk.get("sections")).get(0);
-        ListTag<CompoundTag> palette = section.getCompoundTag("block_states").getCompoundList("palette");
+        CompoundTag section = (CompoundTag) ((ListTag) chunk.get("sections")).get(0);
+        ListTag palette = section.getCompoundOrEmpty("block_states").getListOrEmpty("palette");
         palette.clear();
         palette.add(block("minecraft:stone"));
         assertFalse(LegacyVoidChunkCleanup.isLegacyVoidChunk(chunk));
@@ -33,8 +32,8 @@ class LegacyVoidChunkCleanupTest {
     @Test
     void preservesVoidChunksWithBlocks() {
         CompoundTag chunk = blankVoidChunk();
-        CompoundTag section = (CompoundTag) ((ListTag<?>) chunk.get("sections")).get(0);
-        ListTag<CompoundTag> palette = section.getCompoundTag("block_states").getCompoundList("palette");
+        CompoundTag section = (CompoundTag) ((ListTag) chunk.get("sections")).get(0);
+        ListTag palette = section.getCompoundOrEmpty("block_states").getListOrEmpty("palette");
         palette.clear();
         palette.add(block("minecraft:chest"));
         assertFalse(LegacyVoidChunkCleanup.isLegacyVoidChunk(chunk));
@@ -45,7 +44,7 @@ class LegacyVoidChunkCleanupTest {
         CompoundTag chunk = blankVoidChunk();
         CompoundTag chest = new CompoundTag();
         chest.putString("id", "minecraft:chest");
-        chunk.put("block_entities", new ListTag<>(List.of(chest)));
+        chunk.put("block_entities", list(chest));
         assertFalse(LegacyVoidChunkCleanup.isLegacyVoidChunk(chunk));
     }
 
@@ -59,7 +58,7 @@ class LegacyVoidChunkCleanupTest {
     @Test
     void preservesMalformedSectionsInsteadOfInferringThatTheyAreAir() {
         CompoundTag chunk = blankVoidChunk();
-        CompoundTag section = (CompoundTag) ((ListTag<?>) chunk.get("sections")).get(0);
+        CompoundTag section = (CompoundTag) ((ListTag) chunk.get("sections")).get(0);
         section.remove("block_states");
         assertFalse(LegacyVoidChunkCleanup.isLegacyVoidChunk(chunk));
     }
@@ -81,37 +80,29 @@ class LegacyVoidChunkCleanupTest {
         assertTrue(LegacyVoidChunkCleanup.plan(world).regions().isEmpty());
     }
 
-    @Test
-    void temporaryRegionFileRetainsTheMcaCoordinateSuffix(@TempDir Path directory) throws Exception {
-        Path source = directory.resolve("r.-2.7.mca");
-        Path temporary = LegacyVoidChunkCleanup.createTemporaryRegionFile(source);
-        try {
-            var coordinates = McaFileHelpers.regionXZFromFileName(temporary.getFileName().toString());
-            assertTrue(temporary.getFileName().toString().endsWith(".mca"));
-            assertEquals(-2, coordinates.getX());
-            assertEquals(7, coordinates.getZ());
-        } finally {
-            Files.deleteIfExists(temporary);
-        }
-    }
-
     private static CompoundTag blankVoidChunk() {
         CompoundTag blockStates = new CompoundTag();
-        blockStates.put("palette", new ListTag<>(new ArrayList<>(List.of(block("minecraft:air")))));
+        blockStates.put("palette", list(block("minecraft:air")));
         CompoundTag biomes = new CompoundTag();
-        biomes.put("palette", new ListTag<>(List.of(new StringTag("minecraft:the_void"))));
+        biomes.put("palette", list(StringTag.valueOf("minecraft:the_void")));
         CompoundTag section = new CompoundTag();
         section.put("block_states", blockStates);
         section.put("biomes", biomes);
         CompoundTag chunk = new CompoundTag();
-        chunk.put("sections", new ListTag<>(List.of(section)));
-        chunk.put("block_entities", new ListTag<>(List.of()));
+        chunk.put("sections", list(section));
+        chunk.put("block_entities", new ListTag());
         return chunk;
+    }
+
+    private static ListTag list(net.minecraft.nbt.Tag... tags) {
+        ListTag list = new ListTag();
+        for (var tag : tags) list.add(tag);
+        return list;
     }
 
     private static CompoundTag block(String name) {
         CompoundTag block = new CompoundTag();
-        block.put("Name", new StringTag(name));
+        block.put("Name", StringTag.valueOf(name));
         return block;
     }
 }

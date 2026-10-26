@@ -6,6 +6,7 @@ import io.github.billstark001.worldmirror.io.WorldStructureCreator;
 import io.github.billstark001.worldmirror.io.WorldSettingsSnapshot;
 import io.github.billstark001.worldmirror.io.WorldWriteLock;
 import io.github.billstark001.worldmirror.util.WMLogger;
+import io.github.billstark001.worldmirror.util.FileTransaction;
 import net.minecraft.SharedConstants;
 
 import java.io.IOException;
@@ -62,6 +63,13 @@ public final class MirrorMigrationCoordinator {
     }
 
     public static Result migrateApproved(Path worldFolder, ProgressListener progress) {
+        ProgressListener observer = progress;
+        ProgressListener safeProgress = (phase, completed, total) -> {
+            try { observer.update(phase, completed, total); }
+            catch (RuntimeException failure) {
+                WMLogger.warnRateLimited("migration-progress", 30_000L, "Migration progress observer failed", failure);
+            }
+        };
         Path normalized = worldFolder.toAbsolutePath().normalize();
         MirrorMigrationPlan.Inspection initial = inspect(normalized);
         if (initial.state() == MirrorMigrationPlan.State.CURRENT) return Result.success(false, null);
@@ -79,10 +87,10 @@ public final class MirrorMigrationCoordinator {
 
             LegacyVoidChunkCleanup.Plan voidCleanup;
             try {
-                progress.update(Phase.SCANNING_VOID_CHUNKS, 0, 1);
+                safeProgress.update(Phase.SCANNING_VOID_CHUNKS, 0, 1);
                 voidCleanup = plan.cleanupLegacyVoidChunks()
                         ? LegacyVoidChunkCleanup.plan(normalized,
-                                (completed, total) -> progress.update(
+                                (completed, total) -> safeProgress.update(
                                         Phase.SCANNING_VOID_CHUNKS, completed, total))
                         : LegacyVoidChunkCleanup.Plan.empty();
             } catch (Exception e) {
@@ -92,47 +100,47 @@ public final class MirrorMigrationCoordinator {
 
             Path backup;
             try {
-                progress.update(Phase.BACKING_UP, 0, 1);
+                safeProgress.update(Phase.BACKING_UP, 0, 1);
                 backup = backupTouchedFiles(normalized, voidCleanup);
-                progress.update(Phase.BACKING_UP, 1, 1);
-            } catch (IOException e) {
+                safeProgress.update(Phase.BACKING_UP, 1, 1);
+            } catch (Exception e) {
                 WMLogger.warn("Mirror migration backup failed world=" + normalized, e);
                 return Result.failure("backup_failed");
             }
 
-            progress.update(Phase.WRITING_WORLD_DATA, 0, 1);
-            boolean created = WorldStructureCreator.createLoadableWorld(
-                    normalized,
-                    displayName(normalized, plan.metadata()),
-                    plan.migrateWorldgen(),
-                    plan.refreshAssets(),
-                    WorldSettingsSnapshot.defaults());
-            if (!created) {
-                return Result.failure("worldgen_write_failed");
+            try (FileTransaction transaction = new FileTransaction(normalized)) {
+                Path stagedWorld = transaction.stagingDirectory();
+                copyTouchedFiles(normalized, stagedWorld, voidCleanup);
+                safeProgress.update(Phase.WRITING_WORLD_DATA, 0, 1);
+                boolean created = WorldStructureCreator.createLoadableWorld(stagedWorld,
+                        displayName(normalized, plan.metadata()), plan.migrateWorldgen(),
+                        plan.refreshAssets(), WorldSettingsSnapshot.defaults());
+                if (!created) return Result.failure("worldgen_write_failed");
+                safeProgress.update(Phase.WRITING_WORLD_DATA, 1, 1);
+                var stagedRegions = voidCleanup.regions().stream().map(region ->
+                        new LegacyVoidChunkCleanup.RegionPlan(stagedWorld.resolve(
+                                normalized.relativize(region.regionFile())), region.chunkIndices())).toList();
+                LegacyVoidChunkCleanup.apply(new LegacyVoidChunkCleanup.Plan(stagedRegions),
+                        (completed, total) -> safeProgress.update(Phase.REMOVING_VOID_CHUNKS, completed, total));
+                WorldMetadata metadata = plan.metadata();
+                metadata.ensureMirrorId();
+                metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(),
+                        MirrorWorldgenAssets.ASSET_REVISION);
+                if (!metadata.save(stagedWorld)) return Result.failure("metadata_write_failed");
+                java.util.Map<Path, Path> replacements = new java.util.HashMap<>();
+                try (var files = Files.walk(stagedWorld)) {
+                    for (Path file : files.filter(Files::isRegularFile).toList()) {
+                        Path relative = stagedWorld.relativize(file);
+                        if (!relative.toString().equals("session.lock")) replacements.put(relative, file);
+                    }
+                }
+                transaction.commit(replacements);
+                return Result.success(true, backup);
             }
-            progress.update(Phase.WRITING_WORLD_DATA, 1, 1);
-
-            try {
-                LegacyVoidChunkCleanup.apply(voidCleanup,
-                        (completed, total) -> progress.update(
-                                Phase.REMOVING_VOID_CHUNKS, completed, total));
-            } catch (Exception e) {
-                WMLogger.warn("Failed to clean legacy void chunks in " + normalized, e);
-                return Result.failure("legacy_void_cleanup_failed");
-            }
-
-            // Commit the schema marker only after all mutable world files were
-            // written successfully.  This is intentionally the final operation.
-            WorldMetadata metadata = plan.metadata();
-            metadata.ensureMirrorId();
-            metadata.markWorldgenCurrent(
-                    SharedConstants.getCurrentVersion().dataVersion().version(),
-                    MirrorWorldgenAssets.ASSET_REVISION);
-            if (!metadata.save(normalized)) return Result.failure("metadata_write_failed");
-            return Result.success(true, backup);
-        } catch (IOException error) {
-            WMLogger.warn("Cannot acquire or release mirror migration session lock world=" + normalized, error);
-            return Result.failure("world_locked");
+        } catch (Exception error) {
+            OperationFailures.report(normalized.toString(), "migration", normalized, error);
+            return Result.failure(error instanceof net.minecraft.util.DirectoryLock.LockException
+                    ? "world_locked" : "migration_failed");
         }
     }
 
@@ -149,36 +157,72 @@ public final class MirrorMigrationCoordinator {
         Files.createDirectories(backupRoot);
         String timestamp = Instant.now().toString().replace(':', '-');
         Path archive = backupRoot.resolve("worldmirror-schema-backup-" + timestamp + ".zip");
+        java.util.List<Path> touched = touchedFiles(worldFolder, voidCleanup);
         try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(archive))) {
-            addFileIfPresent(zip, worldFolder, worldFolder.resolve("level.dat"));
-            addFileIfPresent(zip, worldFolder, worldFolder.resolve(WorldMetadata.FILE_NAME));
-            addFileIfPresent(zip, worldFolder,
-                    worldFolder.resolve("data/minecraft/world_gen_settings.dat"));
-            addFileIfPresent(zip, worldFolder,
-                    worldFolder.resolve("data/minecraft/world_clocks.dat"));
-            addTreeIfPresent(zip, worldFolder,
-                    worldFolder.resolve("datapacks").resolve(MirrorWorldgenAssets.PACK_DIRECTORY));
-            for (LegacyVoidChunkCleanup.RegionPlan region : voidCleanup.regions()) {
-                addFileIfPresent(zip, worldFolder, region.regionFile());
+            for (Path file : touched) {
+                zip.putNextEntry(new ZipEntry(worldFolder.relativize(file).toString().replace('\\', '/')));
+                Files.copy(file, zip);
+                zip.closeEntry();
             }
         }
+        // Reopen and read all entries so a truncated/CRC-invalid backup cannot authorize migration.
+        int verified = 0;
+        try (var zip = new java.util.zip.ZipInputStream(Files.newInputStream(archive))) {
+            while (zip.getNextEntry() != null) {
+                zip.transferTo(java.io.OutputStream.nullOutputStream());
+                zip.closeEntry();
+                verified++;
+            }
+        }
+        if (verified != touched.size()) throw new IOException("Incomplete migration backup");
         return archive;
     }
 
-    private static void addTreeIfPresent(ZipOutputStream zip, Path root, Path tree) throws IOException {
-        if (!Files.isDirectory(tree)) return;
-        try (var files = Files.walk(tree)) {
-            for (Path file : files.filter(Files::isRegularFile).toList()) {
-                addFileIfPresent(zip, root, file);
+    private static java.util.List<Path> touchedFiles(Path root, LegacyVoidChunkCleanup.Plan cleanup)
+            throws IOException {
+        java.util.Set<Path> files = new java.util.LinkedHashSet<>();
+        for (String name : java.util.List.of("level.dat", WorldMetadata.FILE_NAME,
+                "data/minecraft/world_gen_settings.dat", "data/minecraft/world_clocks.dat")) {
+            addExistingFile(files, root.resolve(name));
+        }
+        Path pack = root.resolve("datapacks").resolve(MirrorWorldgenAssets.PACK_DIRECTORY);
+        if (!Files.notExists(pack)) {
+            try (var paths = Files.walk(pack)) {
+                for (Path path : paths.toList()) {
+                    if (Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) continue;
+                    addExistingFile(files, path);
+                }
             }
+        }
+        for (var region : cleanup.regions()) {
+            addExistingFile(files, region.regionFile());
+            var coordinates = io.github.billstark001.worldmirror.io.AnvilReader.coordinates(region.regionFile());
+            for (var pos : io.github.billstark001.worldmirror.io.McaWriteSupport.listChunkPositions(
+                    region.regionFile(), coordinates.x(), coordinates.z())) {
+                Path payload = region.regionFile().getParent().resolve("c."
+                        + (pos.getRegionX() * 32 + pos.getRegionLocalX()) + "."
+                        + (pos.getRegionZ() * 32 + pos.getRegionLocalZ()) + ".mcc");
+                addExistingFile(files, payload);
+            }
+        }
+        return java.util.List.copyOf(files);
+    }
+
+    private static void addExistingFile(java.util.Set<Path> files, Path file) throws IOException {
+        if (Files.notExists(file)) return;
+        var attributes = Files.readAttributes(file, java.nio.file.attribute.BasicFileAttributes.class,
+                java.nio.file.LinkOption.NOFOLLOW_LINKS);
+        if (!attributes.isRegularFile()) throw new IOException("Migration input is not a regular file: " + file);
+        files.add(file);
+    }
+
+    private static void copyTouchedFiles(Path source, Path destination, LegacyVoidChunkCleanup.Plan cleanup)
+            throws IOException {
+        for (Path file : touchedFiles(source, cleanup)) {
+            Path target = destination.resolve(source.relativize(file));
+            Files.createDirectories(target.getParent());
+            io.github.billstark001.worldmirror.util.FileProof.copyVerified(file, target);
         }
     }
 
-    private static void addFileIfPresent(ZipOutputStream zip, Path root, Path file) throws IOException {
-        if (!Files.isRegularFile(file)) return;
-        String name = root.relativize(file).toString().replace('\\', '/');
-        zip.putNextEntry(new ZipEntry(name));
-        Files.copy(file, zip);
-        zip.closeEntry();
-    }
 }

@@ -107,7 +107,7 @@ class MirrorWorldgenUpgradeTest {
         });
 
         assertFalse(result.success());
-        assertEquals("metadata_write_failed", result.failure());
+        assertEquals("migration_failed", result.failure());
         try (var backups = Files.list(world.resolve("backups"))) {
             assertEquals(1, backups.count());
         }
@@ -129,4 +129,17 @@ class MirrorWorldgenUpgradeTest {
         }
         assertTrue(MirrorMigrationCoordinator.migrateApproved(world).success());
     }
+    @Test
+    void progressObserverFailuresDoNotAbortTheMigration(@TempDir Path world) throws Exception {
+        assertTrue(WorldStructureCreator.createLoadableWorld(world, "test", true, true, WorldSettingsSnapshot.defaults()));
+        WorldMetadata metadata = WorldMetadata.create("local:test", "singleplayer", "synchronized");
+        metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), 2);
+        assertTrue(metadata.save(world));
+        var result = MirrorMigrationCoordinator.migrateApproved(world, (phase, completed, total) -> {
+            throw new java.io.UncheckedIOException(new java.io.IOException("observer failure"));
+        });
+        assertTrue(result.success());
+        assertEquals(MirrorMigrationPlan.State.CURRENT, MirrorMigrationCoordinator.inspect(world).state());
+    }
+
 }

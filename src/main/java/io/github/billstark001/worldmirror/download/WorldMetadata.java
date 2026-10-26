@@ -6,8 +6,6 @@ import io.github.billstark001.worldmirror.util.JsonSupport;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 
-import java.io.Reader;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
@@ -97,34 +95,6 @@ public class WorldMetadata {
 
     public static final String FILE_NAME = MirrorFormat.METADATA_FILE;
 
-    /**
-     * Loads existing metadata from {@code worldFolder/worldmirror_meta.json}, or
-     * creates a fresh instance with the supplied source information.
-     * Safe to call from any thread.
-     * <p>
-     * If the loaded file contains a legacy {@code chunkUpdateTimes} field, that data
-     * is preserved in the returned instance so the caller can migrate it to the
-     * SQLite database via {@link #migrateAndCleanChunkTimes(ChunkDatabase, Path)}.
-     */
-    public static WorldMetadata loadOrCreate(Path worldFolder,
-                                             String sourceId,
-                                             String sourceType) {
-        Path metaFile = worldFolder.resolve(FILE_NAME);
-        if (metaFile.toFile().exists()) {
-            try (Reader r = Files.newBufferedReader(metaFile, StandardCharsets.UTF_8)) {
-                WorldMetadata loaded = JsonSupport.fromJson(r, WorldMetadata.class);
-                if (loaded != null) {
-                    // chunkUpdateTimes may be non-null if this is an old JSON file;
-                    // keep it so the caller can trigger migration if needed.
-                    return loaded;
-                }
-            } catch (Exception e) {
-                WMLogger.warn("World metadata read failed; creating fresh file=" + metaFile, e);
-            }
-        }
-        return create(sourceId, sourceType, "synchronized");
-    }
-
     /** Creates metadata for a newly-created mirror world. */
     public static WorldMetadata create(String sourceId, String sourceType, String mirrorKind) {
         WorldMetadata meta = new WorldMetadata();
@@ -138,14 +108,13 @@ public class WorldMetadata {
 
     /** Reads metadata without creating or modifying a file. */
     public static Optional<WorldMetadata> loadIfPresent(Path worldFolder) {
-        Path metaFile = worldFolder.resolve(FILE_NAME);
-        if (!metaFile.toFile().exists()) return Optional.empty();
-        try (Reader r = Files.newBufferedReader(metaFile, StandardCharsets.UTF_8)) {
-            return Optional.ofNullable(JsonSupport.fromJson(r, WorldMetadata.class));
-        } catch (Exception e) {
-            WMLogger.warn("World metadata read failed file=" + metaFile, e);
-            return Optional.empty();
+        Path file = worldFolder.resolve(FILE_NAME);
+        var document = JsonSupport.readDocument(file, WorldMetadata.class);
+        if (document.failure() != null) {
+            WMLogger.warnRateLimited("metadata-read-" + worldFolder, 30_000L,
+                    "World metadata unavailable: " + file, document.failure());
         }
+        return Optional.ofNullable(document.value());
     }
 
     /** Atomically writes the metadata, returning false if the document could not be replaced. */
@@ -153,7 +122,7 @@ public class WorldMetadata {
         ensureMirrorId();
         Path metadataFile = worldFolder.resolve(FILE_NAME);
         try {
-            JsonSupport.writePrettyJsonAtomically(metadataFile, this);
+            JsonSupport.writeDocument(metadataFile, this);
             return true;
         } catch (Exception e) {
             WMLogger.warn("World metadata save failed file=" + metadataFile, e);
@@ -237,24 +206,6 @@ public class WorldMetadata {
         return loadIfPresent(worldFolder)
                 .map(meta -> FORMAT.equals(meta.format) && sourceId != null && sourceId.equals(meta.sourceId))
                 .orElse(false);
-    }
-
-    /**
-     * Load-or-create, update {@code lastSyncTime} from a durable capture, then save.
-     * <p>
-     * Chunk write timestamps are no longer stored in JSON; they are managed by
-     * {@link ChunkDatabase} instead.
-     */
-    public static void update(Path worldFolder,
-                              String sourceId,
-                              String sourceType,
-                              long latestCaptureTime) {
-        WorldMetadata meta = loadOrCreate(worldFolder, sourceId, sourceType);
-        if (latestCaptureTime > 0L) {
-            meta.lastSyncTime = Math.max(meta.lastSyncTime, latestCaptureTime);
-        }
-        meta.modVersion = currentModVersion();
-        meta.save(worldFolder);
     }
 
     /** Records the newest durably saved capture time without rewriting older metadata values. */

@@ -120,15 +120,19 @@ public final class ChunkStatusCache {
             List<ChunkDatabase.ChunkRecord> records =
                     ChunkDatabase.queryAllReadOnly(key.worldFolder(), key.sourceId(), dimensionId);
             Set<ChunkPos> conflicts = ConflictManager.listConflicts(key.worldFolder(), key.dimension());
+            io.github.billstark001.worldmirror.download.OperationFailures.recovered(key.sourceId(), "status_read");
             SnapshotState current = snapshotState;
             if (key.equals(current.key()) && current.snapshot().matchesData(records, conflicts)) {
                 return current.snapshot();
             }
             return new ChunkStatusSnapshot(records, conflicts);
-        } catch (Throwable t) {
+        } catch (Exception t) {
             WMLogger.warnRateLimited("chunk-status-snapshot", 30_000L,
                     "Chunk status snapshot load failed", t);
-            return ChunkStatusSnapshot.EMPTY;
+            io.github.billstark001.worldmirror.download.OperationFailures.report(
+                    key.sourceId(), "status_read", key.worldFolder(), t);
+            SnapshotState current = snapshotState;
+            return key.equals(current.key()) ? current.snapshot() : ChunkStatusSnapshot.EMPTY;
         }
     }
 

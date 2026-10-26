@@ -28,6 +28,23 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /** Full coordinator transactions against temporary native regions, metadata, and SQLite. */
 class ExportTransactionTest {
+    @Test
+    void aDamagedNeighborCannotAuthorizeHeaderRepairOrEraseHealthyReceipts(@TempDir Path world) throws Exception {
+        assertTrue(DownloadExportCoordinator.write(job(terrain(1), world, new OverwriteResolver())).metadataCommitted());
+        Path file = io.github.billstark001.worldmirror.io.ChunkExporter.regionDirForDimension(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        byte[] bytes = Files.readAllBytes(file);
+        java.nio.ByteBuffer.wrap(bytes).putInt(4, 1 << 8 | 1); // Neighbor illegally overlaps the header.
+        Files.write(file, bytes);
+        var outcome = DownloadExportCoordinator.write(job(terrain(2), world, new OverwriteResolver()));
+        assertEquals(0, outcome.result().totalWritten());
+        assertTrue(outcome.remaining().hasTerrain());
+        assertArrayEquals(bytes, Files.readAllBytes(file));
+        assertEquals(Set.of(new ChunkPos(1, 0)), outcome.result().unreadableChunks().get(Level.OVERWORLD));
+        try (var db = ChunkDatabase.open(world, "server:transaction")) {
+            assertTrue(db.shouldSkipUpdate("minecraft:overworld", new ChunkPos(0, 0), "world_mirror", 100L));
+        }
+    }
+
     @BeforeAll
     static void bootstrap() {
         SharedConstants.tryDetectVersion();
@@ -61,7 +78,7 @@ class ExportTransactionTest {
                     OptionalLong.empty());
             status.queued(work);
             var phases = new java.util.ArrayList<io.github.billstark001.worldmirror.io.ExportProgress.Part>();
-            var outcome = DownloadExportCoordinator.write(new DownloadExportCoordinator.ExportJob(work, world,
+            var outcome = DownloadExportCoordinator.write(new DownloadExportCoordinator.ExportJob(work, () -> world,
                     ModConfig.DownloadPipelineMode.STABLE_PERIODIC, false, false, new OverwriteResolver(), -1L,
                     (part, dimension, chunks) -> {
                         status.writing(work, part, dimension, chunks);
@@ -153,6 +170,19 @@ class ExportTransactionTest {
         assertTrue(status.finish(failed.remaining(), retry).settled());
     }
 
+    @Test
+    void changedTargetIdentityCannotAuthorizeAnotherSourcesWrite(@TempDir Path world) throws Exception {
+        assertTrue(DownloadExportCoordinator.write(job(terrain(1), world, new OverwriteResolver())).successful());
+        var metadata = WorldMetadata.loadIfPresent(world).orElseThrow();
+        metadata.sourceId = "server:other";
+        assertTrue(metadata.save(world));
+        var outcome = DownloadExportCoordinator.write(job(terrain(2), world, new OverwriteResolver()));
+        assertFalse(outcome.successful());
+        assertEquals(0, outcome.result().totalWritten());
+        assertTrue(outcome.remaining().hasTerrain());
+        assertEquals("server:other", WorldMetadata.loadIfPresent(world).orElseThrow().sourceId);
+    }
+
     private static ExportWork.Frozen terrain(int revision) {
         CompoundTag nbt = new CompoundTag();
         nbt.putInt("marker", revision);
@@ -170,7 +200,80 @@ class ExportTransactionTest {
     }
 
     private static DownloadExportCoordinator.ExportJob job(ExportWork.Frozen work, Path world, ConflictResolver resolver) {
-        return new DownloadExportCoordinator.ExportJob(work, world, ModConfig.DownloadPipelineMode.STABLE_PERIODIC,
+        return new DownloadExportCoordinator.ExportJob(work, () -> world, ModConfig.DownloadPipelineMode.STABLE_PERIODIC,
                 false, false, resolver, -1L, io.github.billstark001.worldmirror.io.ExportProgress.NONE);
     }
+    @Test
+    void preparingAnotherDimensionCannotEraseEarlierTerrainReceipts(@TempDir Path world) throws Exception {
+        var original = terrain(1);
+        var dimensions = new java.util.HashMap<net.minecraft.resources.ResourceKey<Level>,
+                Map<ChunkPos, ChunkListener.CapturedChunk>>();
+        for (var dimension : java.util.List.of(Level.OVERWORLD, Level.NETHER, Level.END)) {
+            dimensions.put(dimension, original.terrain().chunks().get(Level.OVERWORLD));
+        }
+        var snapshot = ChunkListener.snapshotOf(dimensions);
+        var bad = new java.util.ArrayList<>(snapshot.chunks().keySet()).getLast();
+        Path blocked = io.github.billstark001.worldmirror.io.ChunkExporter.regionDirForDimension(world, bad);
+        Files.createDirectories(blocked.getParent()); Files.writeString(blocked, "not a directory");
+        var work = new ExportWork.Frozen(original.context(), snapshot, Map.of(), Map.of(), original.settings(),
+                0, OptionalLong.empty());
+        var outcome = DownloadExportCoordinator.write(job(work, world, new OverwriteResolver()));
+        assertEquals(2, outcome.result().totalWritten());
+        assertTrue(outcome.indexCommitted());
+        assertEquals(1, outcome.remaining().terrainCount());
+        assertTrue(outcome.remaining().terrain().chunks().containsKey(bad));
+    }
+
+    @Test
+    void invalidEntityDimensionDoesNotEraseDurableTerrain(@TempDir Path world) throws Exception {
+        var original = terrain(1);
+        var invalid = net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION,
+                net.minecraft.resources.Identifier.parse("audit:../escape"));
+        var work = new ExportWork.Frozen(original.context(), original.terrain(),
+                Map.of(invalid, Map.of(new ChunkPos(0, 0), new EntityTracker.ChunkUpdate(
+                        2, EntityTracker.Observation.COMPLETE, Map.of(), Set.of()))), Map.of(), original.settings(),
+                0, OptionalLong.empty());
+        var outcome = DownloadExportCoordinator.write(job(work, world, new OverwriteResolver()));
+        assertEquals(1, outcome.result().totalWritten());
+        assertTrue(outcome.indexCommitted());
+        assertFalse(outcome.remaining().hasTerrain());
+        assertTrue(outcome.remaining().hasEntities());
+    }
+
+    @Test
+    void corruptOptionalClocksPreserveTheirBytesAndAllowTerrain(@TempDir Path world) throws Exception {
+        assertTrue(DownloadExportCoordinator.write(job(terrain(1), world, new OverwriteResolver())).successful());
+        Path clock = world.resolve("data/minecraft/world_clocks.dat");
+        Files.createDirectories(clock.getParent());
+        byte[] corrupt = {1, 2, 3}; Files.write(clock, corrupt);
+        var outcome = DownloadExportCoordinator.write(job(terrain(2), world, new OverwriteResolver()));
+        assertTrue(outcome.successful());
+        assertEquals(1, outcome.result().totalWritten());
+        assertArrayEquals(corrupt, Files.readAllBytes(clock));
+    }
+
+    @Test
+    void failedRuleReadsNeitherWriteTerrainNorDeleteProtectedClaims(@TempDir Path world) throws Exception {
+        assertTrue(DownloadExportCoordinator.write(job(terrain(1), world, new OverwriteResolver())).successful());
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + world.resolve("data/world_mirror.sqlite"));
+             var sql = connection.createStatement()) {
+            sql.execute("UPDATE chunks SET update_source='player'");
+        }
+        var work = terrain(2);
+        var outcome = DownloadExportCoordinator.write(new DownloadExportCoordinator.ExportJob(work, () -> world,
+                ModConfig.DownloadPipelineMode.STABLE_PERIODIC, false, false, new OverwriteResolver(), -1L,
+                (part, dimension, chunks) -> {
+                    try (var connection = DriverManager.getConnection("jdbc:sqlite:" + world.resolve("data/world_mirror.sqlite"));
+                         var sql = connection.createStatement()) { sql.execute("DROP TABLE update_sources"); }
+                    catch (java.sql.SQLException failure) { throw new IllegalStateException(failure); }
+                }));
+        assertEquals(0, outcome.result().totalWritten());
+        assertTrue(outcome.remaining().hasTerrain());
+        assertTrue(outcome.result().unreadableChunks().values().stream().allMatch(Set::isEmpty));
+        try (var db = ChunkDatabase.open(world, "server:transaction")) {
+            assertEquals("player", db.queryAll("minecraft:overworld").getFirst().updateSource());
+            assertTrue(db.shouldSkipUpdate("minecraft:overworld", new ChunkPos(0, 0), "world_mirror", 200L));
+        }
+    }
+
 }

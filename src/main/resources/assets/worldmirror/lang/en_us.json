@@ -323,5 +323,8 @@
   "msg.worldmirror.exportToast.exportFailed": "World Mirror: export failed",
   "msg.worldmirror.exportToast.exportPartial": "World Mirror: partial export",
   "msg.worldmirror.exportToast.exportRecovered": "World Mirror: recovered",
-  "msg.worldmirror.exportToast.health": "%s · %s unresolved"
+  "msg.worldmirror.exportToast.health": "%s · %s unresolved",
+
+  "msg.worldmirror.fileOperationFailed": "World Mirror file operation needs attention",
+  "msg.worldmirror.fileOperationDetails": "Source: %s; stage: %s; path: %s; reason: %s. Original data is retained; check the log, repair and retry."
 }

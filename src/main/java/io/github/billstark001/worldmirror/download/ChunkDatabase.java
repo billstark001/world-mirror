@@ -63,20 +63,14 @@ public class ChunkDatabase implements Closeable {
         }
     }
 
-    /** Preserve the mod's fail-open behavior on a failed chunk-row lookup. */
-    public boolean shouldSkipUpdate(String dimension, int x, int y,
-                                    String newUpdateSource, long newTimestamp) {
-        try {
-            return store.shouldSkipUpdate(dimension, x, y, newUpdateSource, newTimestamp);
-        } catch (SQLException e) {
-            WMLogger.warnRateLimited("db-dirty-check", 30_000L,
-                    "Chunk durability lookup failed; allowing writes until recovery", e);
-            return false;
-        }
+    /** Unavailable durability/priority evidence must defer writes, not authorize them. */
+    public boolean shouldSkipUpdate(String dimension, int x, int z,
+                                    String newUpdateSource, long newTimestamp) throws SQLException {
+        return store.shouldSkipUpdate(dimension, x, z, newUpdateSource, newTimestamp);
     }
 
     public boolean shouldSkipUpdate(String dimension, ChunkPos chunk,
-                                    String newUpdateSource, long newTimestamp) {
+                                    String newUpdateSource, long newTimestamp) throws SQLException {
         ChunkCoordinate position = coordinate(chunk);
         return shouldSkipUpdate(dimension, position.x(), position.z(), newUpdateSource, newTimestamp);
     }
@@ -135,42 +129,30 @@ public class ChunkDatabase implements Closeable {
 
     public record ChunkRecord(int x, int z, long updateTime, String updateSource) { }
 
-    public List<ChunkRecord> queryAll(String dimension) {
-        try {
-            return store.queryAll(dimension).stream()
-                    .map(record -> new ChunkRecord(record.x(), record.z(),
-                            record.updateTime(), record.updateSource()))
-                    .toList();
-        } catch (SQLException e) {
-            WMLogger.warnRateLimited("db-query-all", 30_000L,
-                    "Chunk database query failed dimension=" + dimension, e);
-            return List.of();
-        }
+    public List<ChunkRecord> queryAll(String dimension) throws SQLException {
+        return store.queryAll(dimension).stream()
+                .map(record -> new ChunkRecord(record.x(), record.z(),
+                        record.updateTime(), record.updateSource())).toList();
     }
 
+    /** Missing indexes are empty; unreadable indexes have no trustworthy empty result. */
     public static List<ChunkRecord> queryAllReadOnly(
-            Path worldFolder, String sourceId, String dimension) {
+            Path worldFolder, String sourceId, String dimension) throws SQLException {
         Path database = worldFolder.resolve(MirrorFormat.DATABASE_FILE);
-        if (!Files.isRegularFile(database)) return List.of();
+        if (Files.notExists(database)) return List.of();
         SQLiteConfig config = new SQLiteConfig();
         config.setReadOnly(true);
         try (Connection connection = openConnection(
                 "jdbc:sqlite:" + database.toAbsolutePath(), config.toProperties())) {
-            try (Statement statement = connection.createStatement()) {
-                statement.execute("PRAGMA query_only=TRUE");
-            }
+            try (Statement statement = connection.createStatement()) { statement.execute("PRAGMA query_only=TRUE"); }
             return new ChunkDatabase(connection, sourceId).queryAll(dimension);
-        } catch (SQLException e) {
-            WMLogger.warnRateLimited("db-query-read-only", 30_000L,
-                    "Read-only chunk database query failed dimension=" + dimension, e);
-            return List.of();
         }
     }
 
     /** Returns -1 when the durable count cannot be read. */
     public static int countAllReadOnly(Path worldFolder, String sourceId) {
         Path database = worldFolder.resolve(MirrorFormat.DATABASE_FILE);
-        if (!Files.isRegularFile(database)) return 0;
+        if (Files.notExists(database)) return 0;
         SQLiteConfig config = new SQLiteConfig();
         config.setReadOnly(true);
         try (Connection connection = openConnection(

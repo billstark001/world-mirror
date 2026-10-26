@@ -1,6 +1,5 @@
 package io.github.billstark001.worldmirror.io;
 
-import java.io.DataOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -14,7 +13,6 @@ import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.core.BlockPos;
-import net.minecraft.nbt.NbtIo;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.ChunkPos;
@@ -139,13 +137,19 @@ public class ChunkExporter {
             Map<ChunkPos, ChunkListener.CapturedChunk> dimChunks =
                     snapshot.chunks().getOrDefault(dimension, Map.of());
 
-            Path dimensionDir = dimensionDirForDimension(worldFolder, dimension);
-            Path regionDir = dimensionDir.resolve("region");
-            Files.createDirectories(regionDir);
-
-            DimensionResult dimensionResult = exportDimensionChunks(
-                    regionDir, dimChunks, containerSnapshot, resolver, db,
-                    dimension, worldFolder, snapshot, slowRegionThresholdMs, progress);
+            DimensionResult dimensionResult;
+            try {
+                Path regionDir = regionDirForDimension(worldFolder, dimension);
+                Files.createDirectories(regionDir);
+                dimensionResult = exportDimensionChunks(
+                        regionDir, dimChunks, containerSnapshot, resolver, db,
+                        dimension, worldFolder, snapshot, slowRegionThresholdMs, progress);
+            } catch (Exception failure) {
+                chunkWritesSuccessful = false;
+                WMLogger.warn("Cannot prepare terrain dimension=" + dimension.identifier()
+                        + "; other dimensions and entities continue", failure);
+                continue;
+            }
             chunkWritesSuccessful &= dimensionResult.successful();
             allWritten.put(dimension, dimensionResult.written());
             allSettled.put(dimension, dimensionResult.settledWithoutWrite());
@@ -214,16 +218,19 @@ public class ChunkExporter {
                 RegionStorageInfo storageInfo =
                         new RegionStorageInfo("world_mirror", dimension, "chunk");
                 Map<ChunkPos, WriteStamp> staged = new HashMap<>();
+                Map<ChunkPos, byte[]> stagedProofs = new HashMap<>();
                 List<Map.Entry<ChunkPos, ChunkListener.CapturedChunk>> dirty = new ArrayList<>();
                 Set<ChunkPos> indexedClean = new HashSet<>();
                 try {
                     RegionFileIntegrity.Inspection before =
                             RegionFileIntegrity.inspect(regionFile, regionX, regionZ);
-                    if (!before.usable()) {
+                    if (!before.usable() || !before.invalidChunks().isEmpty()) {
                         successful = false;
-                        regionEntry.getValue().forEach(entry -> unreadable.add(entry.getKey()));
+                        if (!before.usable()) regionEntry.getValue().forEach(entry -> unreadable.add(entry.getKey()));
+                        unreadable.addAll(before.invalidChunks());
                         WMLogger.warn("Region validation failed before write file=" + regionFile
                                 + " reason=" + before.failure()
+                                + " invalidChunks=" + before.invalidChunks().size()
                                 + "; retainedChunks=" + regionEntry.getValue().size());
                         continue;
                     }
@@ -249,8 +256,12 @@ public class ChunkExporter {
                             ChunkListener.CapturedChunk captured = entry.getValue();
                             try {
                                 long stageStartedNs = System.nanoTime();
-                                net.minecraft.nbt.CompoundTag localNbt =
-                                        McaWriteSupport.readChunk(vanillaRegion, chunkPos);
+                                net.minecraft.nbt.CompoundTag localNbt;
+                                try { localNbt = McaWriteSupport.readChunk(vanillaRegion, chunkPos); }
+                                catch (Exception invalidStoredChunk) {
+                                    unreadable.add(chunkPos);
+                                    throw invalidStoredChunk;
+                                }
                                 chunkReadNs += System.nanoTime() - stageStartedNs;
                                 // The SQLite claim is insufficient if the MCA
                                 // entry was deleted or no longer decodes.
@@ -294,15 +305,12 @@ public class ChunkExporter {
                                 BlockEntityNbtSupport.applyContainerOverlays(
                                         dimension, chunkNbt, containerSnapshot);
                                 NbtWriteSupport.validateStrings(chunkNbt);
-                                try (DataOutputStream output =
-                                             vanillaRegion.getChunkDataOutputStream(chunkPos)) {
-                                    NbtIo.write(chunkNbt, output);
-                                }
+                                stagedProofs.put(chunkPos, NbtWriteSupport.writeChunkAndDigest(chunkNbt,
+                                        vanillaRegion.getChunkDataOutputStream(chunkPos)));
                                 staged.put(chunkPos, stamp(materialized));
                                 resolveMergeWriteNs += System.nanoTime() - stageStartedNs;
                             } catch (Exception e) {
                                 successful = false;
-                                unreadable.add(chunkPos);
                                 WMLogger.warnRateLimited("chunk-process-" + dimension.identifier(),
                                         30_000L, "Chunk processing failed dimension="
                                                 + dimension.identifier() + " chunk=" + chunkPos
@@ -319,7 +327,7 @@ public class ChunkExporter {
                     if (!staged.isEmpty()) {
                         Verification verification = verifyWrittenRegion(
                                 storageInfo, regionFile, regionDir, regionX, regionZ,
-                                staged.keySet());
+                                stagedProofs);
                         verificationNs += verification.elapsedNs();
                         if (!verification.regionUsable()) {
                             regionEntry.getValue().forEach(entry -> unreadable.add(entry.getKey()));
@@ -339,7 +347,6 @@ public class ChunkExporter {
                     }
                 } catch (Exception e) {
                     successful = false;
-                    regionEntry.getValue().forEach(entry -> unreadable.add(entry.getKey()));
                     regionEntry.getValue().forEach(entry -> settled.remove(entry.getKey()));
                     regionEntry.getValue().forEach(entry -> written.remove(entry.getKey()));
                     WMLogger.warn("Region write failed file=" + regionFile
@@ -362,10 +369,10 @@ public class ChunkExporter {
             Path regionDirectory,
             int regionX,
             int regionZ,
-            Set<ChunkPos> staged) {
+            Map<ChunkPos, byte[]> staged) {
         long startedNs = System.nanoTime();
         Set<ChunkPos> verified = new HashSet<>();
-        Set<ChunkPos> unreadable = new HashSet<>(staged);
+        Set<ChunkPos> unreadable = new HashSet<>(staged.keySet());
         boolean regionUsable = false;
         try {
             RegionFileIntegrity.Inspection inspection =
@@ -378,12 +385,14 @@ public class ChunkExporter {
             try (RegionFile reader = new RegionFile(
                     storageInfo, regionFile, regionDirectory, false)) {
                 regionUsable = true;
-                for (ChunkPos pos : staged) {
+                for (ChunkPos pos : staged.keySet()) {
                     if (inspection.invalidChunks().contains(pos)) continue;
                     try {
-                        if (McaWriteSupport.readChunk(reader, pos) != null) {
-                            verified.add(pos);
-                            unreadable.remove(pos);
+                        try (var input = reader.getChunkDataInputStream(pos)) {
+                            if (input != null && NbtReadSupport.verifyChunk(input, staged.get(pos))) {
+                                verified.add(pos);
+                                unreadable.remove(pos);
+                            }
                         }
                     } catch (Exception ignored) {
                         // The summary warning contains the region and failure count.

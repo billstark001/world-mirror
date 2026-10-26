@@ -3,8 +3,6 @@ package io.github.billstark001.worldmirror.io;
 import io.github.billstark001.worldmirror.util.JsonSupport;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
@@ -12,7 +10,7 @@ import java.nio.file.Path;
  *
  * <p>The version-specific world writers only enable this pack and reference its
  * biomes.  Keeping the files here makes the pack revision explicit and prevents
- * the three Minecraft targets from slowly acquiring different semantics.</p>
+ * supported Minecraft targets from slowly acquiring different semantics.</p>
  */
 public final class MirrorWorldgenAssets {
 
@@ -61,8 +59,6 @@ public final class MirrorWorldgenAssets {
     }
 
     private static void write(Path file, Object model) throws IOException {
-        Files.createDirectories(file.getParent());
-        Files.writeString(file, JsonSupport.toPrettyJson(model) + System.lineSeparator(),
-                StandardCharsets.UTF_8);
+        JsonSupport.writeDocument(file, model);
     }
 }

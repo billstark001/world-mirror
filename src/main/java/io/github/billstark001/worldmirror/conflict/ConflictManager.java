@@ -1,8 +1,10 @@
 package io.github.billstark001.worldmirror.conflict;
 
 import io.github.billstark001.worldmirror.io.ChunkExporter;
+import io.github.billstark001.worldmirror.io.AnvilReader;
 import io.github.billstark001.worldmirror.io.McaWriteSupport;
 import io.github.billstark001.worldmirror.io.WorldWriteLock;
+import io.github.billstark001.worldmirror.io.MirrorTarget;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
@@ -28,7 +30,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -41,7 +42,7 @@ import java.util.stream.Stream;
 public final class ConflictManager {
     static final String CONFLICT_ROOT = "conflict_chunks";
     private static final int REGION_SIZE = 32;
-    private static final Pattern REGION_NAME = Pattern.compile("r\\.(-?\\d+)\\.(-?\\d+)\\.mca");
+    private static final long SNAPSHOT_BYTES = 32L * 1024 * 1024;
     private static final Object[] RESOLUTION_LOCKS = new Object[64];
 
     static {
@@ -73,12 +74,12 @@ public final class ConflictManager {
     }
 
     /** Whether the region header contains a pending entry, including an external payload. */
-    public static boolean hasConflict(Path worldFolder, ChunkPos pos, ResourceKey<Level> dimension) {
+    public static boolean hasConflict(Path worldFolder, ChunkPos pos, ResourceKey<Level> dimension) throws IOException {
         return listCoordinates(regionFor(worldFolder, pos, dimension)).contains(pos);
     }
 
     /** Returns pending chunk positions in the requested dimension. */
-    public static Set<ChunkPos> listConflicts(Path worldFolder, ResourceKey<Level> dimension) {
+    public static Set<ChunkPos> listConflicts(Path worldFolder, ResourceKey<Level> dimension) throws IOException {
         Set<ChunkPos> result = new HashSet<>();
         Path directory = getConflictDir(worldFolder, dimension);
         for (ConflictRegion region : findRegions(directory, directory, dimension)) {
@@ -88,7 +89,7 @@ public final class ConflictManager {
     }
 
     /** Counts pending entries across dimensions without decoding their NBT payloads. */
-    public static int countAllConflicts(Path worldFolder) {
+    public static int countAllConflicts(Path worldFolder) throws IOException {
         Path root = worldFolder.resolve(CONFLICT_ROOT);
         int count = 0;
         for (ConflictRegion region : findRegions(root, root, null)) count += listCoordinates(region).size();
@@ -99,37 +100,56 @@ public final class ConflictManager {
      * Applies a frozen incoming version, or discards the pending entry when
      * overwrite is false. Failed writes and newer conflicts remain available.
      */
-    public static void resolveConflict(Path worldFolder, ChunkPos pos,
+    public static boolean resolveConflict(MirrorTarget target, ChunkPos pos,
                                        ResourceKey<Level> dimension, boolean overwrite) {
+        Path worldFolder = target.folder();
         ConflictRegion region = regionFor(worldFolder, pos, dimension);
         synchronized (resolutionLock(region)) {
             try {
-                if (overwrite) applySnapshot(worldFolder, region, readSnapshot(region, pos));
+                target.requireCurrent();
+                if (overwrite) applySnapshot(target, region, readSnapshot(region, Set.of(pos)));
                 else removeEntries(region, Set.of(pos), null);
+                return true;
             } catch (Exception error) {
                 WMLogger.warn("Conflict resolution failed chunk=" + pos + " overwrite=" + overwrite, error);
+                return false;
             }
         }
     }
 
     /**
-     * Applies or discards conflicts one region at a time. Overwrite retains a
-     * region's pending entries until every copied chunk has been verified.
+     * Applies conflicts in memory-bounded batches, retaining each batch until its
+     * copied chunks verify. Versions arriving after their batch was read, and new
+     * coordinates added during the operation, remain pending.
      */
-    public static void clearAllConflicts(Path worldFolder, boolean overwrite) {
+    public static boolean clearAllConflicts(MirrorTarget target, boolean overwrite) throws IOException {
+        target.requireCurrent();
+        Path worldFolder = target.folder();
+        boolean success = true;
         Path root = worldFolder.resolve(CONFLICT_ROOT);
         for (ConflictRegion region : findRegions(root, root, null)) {
             synchronized (resolutionLock(region)) {
                 try {
-                    if (overwrite) applySnapshot(worldFolder, region, readSnapshot(region, null));
-                    else removeEntries(region, listCoordinates(region), null);
+                    if (overwrite) {
+                        Set<ChunkPos> pending = new HashSet<>(listCoordinates(region));
+                        while (!pending.isEmpty()) {
+                            Map<ChunkPos, CompoundTag> batch = readSnapshot(region, pending);
+                            if (batch.isEmpty()) break;
+                            applySnapshot(target, region, batch);
+                            // A newer conflict may have replaced one of these images.
+                            // Attempt each initial coordinate once, without chasing live arrivals.
+                            pending.removeAll(batch.keySet());
+                        }
+                    } else removeEntries(region, listCoordinates(region), null);
                 } catch (Exception error) {
+                    success = false;
                     WMLogger.warn("Conflict region cleanup failed file=" + region.file()
                             + " overwrite=" + overwrite + "; remaining entries retained", error);
                 }
             }
         }
         deleteEmptyDirectories(root);
+        return success;
     }
 
     private static Object resolutionLock(ConflictRegion region) {
@@ -139,46 +159,45 @@ public final class ConflictManager {
         return RESOLUTION_LOCKS[Math.floorMod(hash, RESOLUTION_LOCKS.length)];
     }
 
-    private static void applySnapshot(Path worldFolder, ConflictRegion region,
+    private static void applySnapshot(MirrorTarget mirror, ConflictRegion region,
                                       Map<ChunkPos, CompoundTag> snapshot) throws IOException {
         if (snapshot.isEmpty()) return;
+        Path worldFolder = mirror.folder();
         Path target = ChunkExporter.regionDirForDimension(worldFolder, region.dimension())
                 .resolve(region.file().getFileName());
         // Never hold the conflict lock while waiting for the world lock: an
         // exporter can hold that world lock while persisting another conflict.
         try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
+            mirror.requireCurrent();
             McaWriteSupport.writeChunks(target, region.dimension(), snapshot);
             removeEntries(region, snapshot.keySet(), snapshot);
         }
     }
 
-    private static Map<ChunkPos, CompoundTag> readSnapshot(ConflictRegion region, ChunkPos selected)
+    private static Map<ChunkPos, CompoundTag> readSnapshot(ConflictRegion region, Set<ChunkPos> selected)
             throws IOException {
         synchronized (McaWriteSupport.lockFor(region.file())) {
-            if (!Files.isRegularFile(region.file())) return Map.of();
+            if (Files.notExists(region.file())) return Map.of();
             Map<ChunkPos, CompoundTag> chunks = new HashMap<>();
-            try (RegionFile reader = openRegion(region)) {
-                for (ChunkPos pos : coordinates(reader, region)) {
-                    if (selected != null && !selected.equals(pos)) continue;
-                    CompoundTag chunk = McaWriteSupport.readChunk(reader, pos);
+            long retained = 0;
+            try (AnvilReader.Reader reader = AnvilReader.open(region.file(), region.x(), region.z())) {
+                for (ChunkPos pos : reader.positions()) {
+                    if (!selected.contains(pos)) continue;
+                    CompoundTag chunk = reader.read(pos);
                     if (chunk == null) throw new IOException("Unreadable conflict chunk=" + pos);
                     chunks.put(pos, chunk);
+                    retained += chunk.sizeInBytes();
+                    if (retained >= SNAPSHOT_BYTES) break;
                 }
             }
             return chunks;
         }
     }
 
-    private static Set<ChunkPos> listCoordinates(ConflictRegion region) {
+    private static Set<ChunkPos> listCoordinates(ConflictRegion region) throws IOException {
         synchronized (McaWriteSupport.lockFor(region.file())) {
-            if (!Files.isRegularFile(region.file())) return Set.of();
-            try {
-                return McaWriteSupport.listChunkPositions(region.file(), region.x(), region.z());
-            } catch (Exception error) {
-                WMLogger.warnRateLimited("conflict-list-read", 30_000L,
-                        "Conflict index read failed file=" + region.file(), error);
-                return Set.of();
-            }
+            if (Files.notExists(region.file())) return Set.of();
+            return McaWriteSupport.listChunkPositions(region.file(), region.x(), region.z());
         }
     }
 
@@ -223,25 +242,29 @@ public final class ConflictManager {
                 pos.getRegionX(), pos.getRegionZ(), dimension);
     }
 
-    private static List<ConflictRegion> findRegions(Path directory, Path root, ResourceKey<Level> dimension) {
-        if (!Files.isDirectory(directory)) return List.of();
+    private static List<ConflictRegion> findRegions(Path directory, Path root, ResourceKey<Level> dimension) throws IOException {
+        if (Files.notExists(directory)) return List.of();
         List<ConflictRegion> result = new ArrayList<>();
         try (Stream<Path> paths = dimension == null ? Files.walk(directory) : Files.list(directory)) {
-            for (Path file : paths.filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)).toList()) {
-                Matcher name = REGION_NAME.matcher(file.getFileName().toString());
+            var iterator = paths.iterator();
+            while (iterator.hasNext()) {
+                Path file = iterator.next();
+                Matcher name = io.github.billstark001.worldmirror.io.AnvilReader.REGION_NAME.matcher(file.getFileName().toString());
                 if (!name.matches()) continue;
+                var attributes = Files.readAttributes(file, java.nio.file.attribute.BasicFileAttributes.class,
+                        LinkOption.NOFOLLOW_LINKS);
+                if (!attributes.isRegularFile()) throw new IOException("Invalid conflict entry: " + file);
                 try {
                     ResourceKey<Level> key = dimension == null ? dimensionFor(root.relativize(file)) : dimension;
-                    if (key != null) result.add(new ConflictRegion(file, Integer.parseInt(name.group(1)),
-                            Integer.parseInt(name.group(2)), key));
+                    var coordinates = io.github.billstark001.worldmirror.io.AnvilReader.coordinates(file);
+                    if (key != null) result.add(new ConflictRegion(file, coordinates.x(), coordinates.z(), key));
                 } catch (IllegalArgumentException error) {
                     WMLogger.warnRateLimited("conflict-region-name", 30_000L,
                             "Invalid conflict region path=" + file, error);
                 }
             }
         } catch (IOException | UncheckedIOException error) {
-            WMLogger.warnRateLimited("conflict-list-files", 30_000L,
-                    "Conflict directory read failed path=" + directory, error);
+            throw new IOException("Conflict directory read failed: " + directory, error);
         }
         return result;
     }

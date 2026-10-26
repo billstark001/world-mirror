@@ -5,7 +5,6 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.IntArrayTag;
 import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.StringTag;
 import net.minecraft.resources.ResourceKey;
@@ -58,12 +57,12 @@ final class WorldStructureApi {
     static void updateOwnedLevelData(Path worldFolder, boolean migrateWorldgen,
                                      CompoundTag worldGenSettings) throws Exception {
         Path levelDat = worldFolder.resolve("level.dat");
-        CompoundTag root = NbtIo.readCompressed(levelDat, NbtAccounter.unlimitedHeap());
+        CompoundTag root = NbtReadSupport.readWorldData(levelDat);
         CompoundTag data = root.getCompoundOrEmpty("Data");
         if (migrateWorldgen) data.put("WorldGenSettings", worldGenSettings);
         enableDataPack(data);
         root.put("Data", data);
-        WorldStructureCreator.writeCompressed(levelDat.toFile(), root);
+        WorldStructureCreator.writeVerifiedWorldData(levelDat, root);
     }
 
     static void repairOwnedSavedData(Path worldFolder) {
@@ -81,11 +80,11 @@ final class WorldStructureApi {
     static void syncWorldSetting(Path worldFolder, WorldSettingsSnapshot settings,
                                  WorldStructureCreator.Setting setting) throws Exception {
         Path levelDat = worldFolder.resolve("level.dat");
-        CompoundTag root = NbtIo.readCompressed(levelDat, NbtAccounter.unlimitedHeap());
+        CompoundTag root = NbtReadSupport.readWorldData(levelDat);
         CompoundTag data = root.getCompoundOrEmpty("Data");
         applyWorldSetting(data, settings, setting);
         root.put("Data", data);
-        WorldStructureCreator.writeCompressedAtomically(levelDat, root);
+        WorldStructureCreator.writeVerifiedWorldData(levelDat, root);
     }
 
     private static CompoundTag createLevelData(String levelName, int spawnX, int spawnY,
@@ -138,7 +137,7 @@ final class WorldStructureApi {
     private static void writeLevelData(Path file, CompoundTag data) throws Exception {
         CompoundTag root = new CompoundTag();
         root.put("Data", data);
-        WorldStructureCreator.writeCompressed(file.toFile(), root);
+        WorldStructureCreator.writeVerifiedWorldData(file, root);
     }
 
     private static CompoundTag createDataPacks() {

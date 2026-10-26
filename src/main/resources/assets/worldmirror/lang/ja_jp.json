@@ -323,5 +323,8 @@
   "msg.worldmirror.exportToast.exportFailed": "World Mirror：出力失敗",
   "msg.worldmirror.exportToast.exportPartial": "World Mirror：一部出力済み",
   "msg.worldmirror.exportToast.exportRecovered": "World Mirror：復旧",
-  "msg.worldmirror.exportToast.health": "%s · 未解決 %s"
+  "msg.worldmirror.exportToast.health": "%s · 未解決 %s",
+
+  "msg.worldmirror.fileOperationFailed": "World Mirror のファイル操作を確認してください",
+  "msg.worldmirror.fileOperationDetails": "接続先：%s、段階：%s、パス：%s、原因：%s。元のデータは保持されています。ログを確認し、修復後に再試行してください。"
 }

@@ -79,13 +79,16 @@ class WorldWriteLockTest {
     void worldSettingsCannotBePatchedWhileVanillaHasTheSaveOpen(@TempDir Path world) throws Exception {
         assertTrue(WorldStructureCreator.createLoadableWorld(world, "test", true, true,
                 WorldSettingsSnapshot.defaults()));
+        var metadata = io.github.billstark001.worldmirror.download.WorldMetadata.create("local:settings", "singleplayer", "synchronized");
+        metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), MirrorWorldgenAssets.ASSET_REVISION);
+        assertTrue(metadata.save(world));
         byte[] original = Files.readAllBytes(world.resolve("level.dat"));
         WorldSettingsSnapshot changed = new WorldSettingsSnapshot(12_345, 12_345, false, false, 2);
         try (DirectoryLock vanilla = DirectoryLock.create(world)) {
-            assertFalse(WorldStructureCreator.syncWorldSetting(world, changed, WorldStructureCreator.Setting.TIME));
+            assertFalse(WorldStructureCreator.syncWorldSetting(new MirrorTarget(world, "local:settings"), changed, WorldStructureCreator.Setting.TIME));
             assertArrayEquals(original, Files.readAllBytes(world.resolve("level.dat")));
         }
-        assertTrue(WorldStructureCreator.syncWorldSetting(world, changed, WorldStructureCreator.Setting.TIME));
+        assertTrue(WorldStructureCreator.syncWorldSetting(new MirrorTarget(world, "local:settings"), changed, WorldStructureCreator.Setting.TIME));
     }
 
     private static void assertVanillaCannotOpen(Path world) {

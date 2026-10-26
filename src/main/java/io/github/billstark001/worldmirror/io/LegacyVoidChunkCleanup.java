@@ -1,19 +1,15 @@
 package io.github.billstark001.worldmirror.io;
 
-import io.github.ensgijs.nbt.mca.TerrainChunk;
-import io.github.ensgijs.nbt.mca.io.LoadFlags;
-import io.github.ensgijs.nbt.mca.io.McaFileHelpers;
-import io.github.ensgijs.nbt.mca.io.RandomAccessMcaFile;
-import io.github.ensgijs.nbt.tag.CompoundTag;
-import io.github.ensgijs.nbt.tag.ListTag;
-import io.github.ensgijs.nbt.tag.StringTag;
-import io.github.ensgijs.nbt.tag.Tag;
 
 import java.io.IOException;
-import java.nio.file.AtomicMoveNotSupportedException;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.StringTag;
+import net.minecraft.nbt.Tag;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -43,8 +39,6 @@ public final class LegacyVoidChunkCleanup {
     private static final List<String> PRESERVED_LISTS = List.of(
             "block_entities", "TileEntities", "Entities", "entities",
             "block_ticks", "fluid_ticks", "TileTicks", "LiquidTicks");
-    private static final int FILE_REPLACE_ATTEMPTS = 10;
-    private static final long FILE_REPLACE_RETRY_MILLIS = 200L;
 
     public record RegionPlan(Path regionFile, List<Integer> chunkIndices) {
         public RegionPlan {
@@ -116,126 +110,45 @@ public final class LegacyVoidChunkCleanup {
         return removed;
     }
 
-    private static List<Integer> findLegacyVoidChunks(Path regionFile) throws IOException {
+    private static List<Integer> findLegacyVoidChunks(Path file) throws IOException {
+        AnvilReader.RegionCoordinates region = AnvilReader.coordinates(file);
         List<Integer> chunks = new ArrayList<>();
-        try (RandomAccessMcaFile<TerrainChunk> region = new RandomAccessMcaFile<>(
-                TerrainChunk.class, regionFile, "r").setLoadFlags(LoadFlags.RAW)) {
-            for (int index = 0; index < 1024; index++) {
-                TerrainChunk chunk = region.read(index);
-                if (chunk != null && isLegacyVoidChunk(chunk.getHandle())) chunks.add(index);
-            }
-        }
+        AnvilReader.visitRegion(file, region.x(), region.z(), (pos, chunk) -> {
+            if (isLegacyVoidChunk(chunk)) chunks.add(pos.getRegionLocalX() + pos.getRegionLocalZ() * 32);
+        });
         return chunks;
     }
 
     private static int removeChunks(RegionPlan plan) throws IOException {
-        Path regionFile = plan.regionFile();
-        // Empty placeholder files are not valid region files and have no chunk
-        // data to migrate.  Do not open, rewrite, or add them to a backup.
-        if (Files.size(regionFile) == 0) return 0;
-        synchronized (McaWriteSupport.lockFor(regionFile)) {
-            IOException lastFailure = null;
-            for (int attempt = 1; attempt <= FILE_REPLACE_ATTEMPTS; attempt++) {
-                Path temporaryFile = null;
-                IOException failure = null;
-                try {
-                    temporaryFile = createTemporaryRegionFile(regionFile);
-                    Files.copy(regionFile, temporaryFile, StandardCopyOption.REPLACE_EXISTING);
-                    int removed = removePlannedChunks(temporaryFile, plan);
-                    moveIntoPlace(temporaryFile, regionFile);
-                    return removed;
-                } catch (IOException exception) {
-                    failure = exception;
-                } finally {
-                    IOException cleanupFailure = deleteTemporaryFile(temporaryFile);
-                    if (cleanupFailure != null) {
-                        if (failure == null) failure = cleanupFailure;
-                        else failure.addSuppressed(cleanupFailure);
-                    }
-                }
-                lastFailure = failure;
-                if (attempt < FILE_REPLACE_ATTEMPTS) {
-                    waitBeforeRetry(regionFile);
-                }
-            }
-            throw new IOException("Could not replace legacy void region after "
-                    + FILE_REPLACE_ATTEMPTS + " attempts: " + regionFile, lastFailure);
-        }
-    }
-
-    static Path createTemporaryRegionFile(Path regionFile) throws IOException {
-        // RandomAccessMcaFile derives the region coordinates from its filename.
-        // Keep the original r.X.Z.mca suffix rather than using a generic .tmp.
-        return Files.createTempFile(regionFile.getParent(), "worldmirror-",
-                "." + regionFile.getFileName());
-    }
-
-    private static IOException deleteTemporaryFile(Path temporaryFile) {
-        if (temporaryFile == null) return null;
-        IOException lastFailure = null;
-        for (int attempt = 1; attempt <= FILE_REPLACE_ATTEMPTS; attempt++) {
-            try {
-                Files.deleteIfExists(temporaryFile);
-                return null;
-            } catch (IOException failure) {
-                lastFailure = failure;
-                if (attempt < FILE_REPLACE_ATTEMPTS) {
-                    try {
-                        waitBeforeRetry(temporaryFile);
-                    } catch (IOException interrupted) {
-                        return interrupted;
-                    }
-                }
-            }
-        }
-        return lastFailure;
-    }
-
-    private static int removePlannedChunks(Path temporaryFile, RegionPlan plan) throws IOException {
-        int removed = 0;
-        try (RandomAccessMcaFile<TerrainChunk> region = new RandomAccessMcaFile<>(
-                TerrainChunk.class, temporaryFile, "rw").setLoadFlags(LoadFlags.RAW)) {
+        Path file = plan.regionFile();
+        if (Files.size(file) == 0) return 0;
+        synchronized (McaWriteSupport.lockFor(file)) {
+            AnvilReader.RegionCoordinates region = AnvilReader.coordinates(file);
+            java.util.Set<ChunkPos> removed = new java.util.HashSet<>();
             for (int index : plan.chunkIndices()) {
-                TerrainChunk chunk = region.read(index);
-                if (chunk == null || !isLegacyVoidChunk(chunk.getHandle())) {
-                    throw new IOException("Legacy void chunk changed during migration: " + plan.regionFile());
-                }
-                if (region.removeChunk(index)) removed++;
+                removed.add(new ChunkPos(region.x() * 32 + index % 32, region.z() * 32 + index / 32));
             }
-        }
-        return removed;
-    }
-
-    private static void waitBeforeRetry(Path regionFile) throws IOException {
-        try {
-            Thread.sleep(FILE_REPLACE_RETRY_MILLIS);
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            throw new IOException("Interrupted while waiting to replace legacy void region: " + regionFile,
-                    interrupted);
-        }
-    }
-
-    private static void moveIntoPlace(Path temporaryFile, Path target) throws IOException {
-        try {
-            Files.move(temporaryFile, target,
-                    StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } catch (AtomicMoveNotSupportedException ignored) {
-            Files.move(temporaryFile, target, StandardCopyOption.REPLACE_EXISTING);
+            RegionWriteTransaction.rewrite(file, Level.OVERWORLD, region.x(), region.z(), removed, (pos, chunk) -> {
+                if (!removed.contains(pos)) return chunk;
+                if (!isLegacyVoidChunk(chunk)) throw new IOException("Legacy void chunk changed during migration: " + file + " " + pos);
+                return null;
+            });
+            return plan.chunkIndices().size();
         }
     }
 
     static boolean isLegacyVoidChunk(CompoundTag chunk) {
+        if (chunk == null) return false;
         for (String key : PRESERVED_LISTS) {
-            Tag<?> value = chunk.get(key);
-            if (value != null && (!(value instanceof ListTag<?> list) || !list.isEmpty())) return false;
+            Tag value = chunk.get(key);
+            if (value != null && (!(value instanceof ListTag list) || !list.isEmpty())) return false;
         }
-        if (!(chunk.get("sections") instanceof ListTag<?> sections) || sections.isEmpty()) return false;
+        if (!(chunk.get("sections") instanceof ListTag sections) || sections.isEmpty()) return false;
         boolean foundTerrain = false;
-        for (Tag<?> entry : sections) {
+        for (Tag entry : sections) {
             if (!(entry instanceof CompoundTag section)) return false;
-            Tag<?> biomes = section.get("biomes");
-            Tag<?> blocks = section.get("block_states");
+            Tag biomes = section.get("biomes");
+            Tag blocks = section.get("block_states");
             // Light-only sections outside the build height carry no terrain.
             if (biomes == null && blocks == null) continue;
             if (!(biomes instanceof CompoundTag biomeData) || !(blocks instanceof CompoundTag blockData)
@@ -250,26 +163,18 @@ public final class LegacyVoidChunkCleanup {
         List<Path> regionFiles = new ArrayList<>();
         for (Path relativeDirectory : REGION_DIRECTORIES) {
             Path regionDirectory = worldFolder.resolve(relativeDirectory);
-            if (!Files.isDirectory(regionDirectory)) continue;
+            if (Files.notExists(regionDirectory)) continue;
             try (var files = Files.list(regionDirectory)) {
-                files.filter(Files::isRegularFile)
-                        .filter(path -> McaFileHelpers.isValidMcaFileName(path.getFileName().toString()))
-                        // A zero-byte .mca is a common interrupted-download
-                        // artifact.  It contains no chunks, so leave it alone.
-                        .filter(LegacyVoidChunkCleanup::isNonEmpty)
-                        .forEach(regionFiles::add);
+                for (Path file : files.toList()) {
+                    if (!AnvilReader.REGION_NAME.matcher(file.getFileName().toString()).matches()) continue;
+                    var attributes = Files.readAttributes(file, java.nio.file.attribute.BasicFileAttributes.class);
+                    if (!attributes.isRegularFile()) throw new IOException("Not a regular region file: " + file);
+                    if (attributes.size() > 0) regionFiles.add(file);
+                }
             }
         }
         regionFiles.sort(Comparator.comparing(Path::toString));
         return regionFiles;
-    }
-
-    private static boolean isNonEmpty(Path file) {
-        try {
-            return Files.size(file) > 0;
-        } catch (IOException e) {
-            return false;
-        }
     }
 
     private static int reportProgress(ProgressListener progress, int completed, int total, int lastPercent) {
@@ -281,20 +186,19 @@ public final class LegacyVoidChunkCleanup {
     }
 
     private static boolean paletteContainsOnly(CompoundTag container, String exactName, boolean airOnly) {
-        Tag<?> paletteTag = container.get("palette");
-        if (!(paletteTag instanceof ListTag<?> palette) || palette.isEmpty()) return false;
-        for (Tag<?> entry : palette) {
+        Tag paletteTag = container.get("palette");
+        if (!(paletteTag instanceof ListTag palette) || palette.isEmpty()) return false;
+        for (Tag entry : palette) {
             String name = paletteName(entry);
             if (name == null || (airOnly ? !isAir(name) : !exactName.equals(name))) return false;
         }
         return true;
     }
 
-    private static String paletteName(Tag<?> entry) {
-        if (entry instanceof StringTag string) return string.getValue();
+    private static String paletteName(Tag entry) {
+        if (entry instanceof StringTag string) return string.asString().orElse(null);
         if (entry instanceof CompoundTag compound) {
-            StringTag name = compound.getStringTag("Name");
-            return name == null ? null : name.getValue();
+            return compound.getString("Name").orElse(null);
         }
         return null;
     }

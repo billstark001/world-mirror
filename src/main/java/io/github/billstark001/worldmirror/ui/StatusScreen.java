@@ -295,14 +295,15 @@ public class StatusScreen extends StatusScreenApi {
 
     private void addConflictButtons(int left) {
         Path output = statusContext.output();
-        if (conflictCount > 0) {
+        if (conflictCount > 0 && ConflictActions.canResolve(new io.github.billstark001.worldmirror.io.MirrorTarget(
+                output, statusContext.sourceId()))) {
             addRenderableWidget(Button.builder(Component.translatable(
                             "screen.worldmirror.status.overwriteAll"),
-                    button -> { ConflictManager.clearAllConflicts(output, true); refresh(); })
+                    button -> resolveAllConflicts(output, true))
                     .bounds(left, 108, 178, BUTTON_HEIGHT).build());
             addRenderableWidget(Button.builder(Component.translatable(
                             "screen.worldmirror.status.discardAll"),
-                    button -> { ConflictManager.clearAllConflicts(output, false); refresh(); })
+                    button -> resolveAllConflicts(output, false))
                     .bounds(left + 182, 108, 178, BUTTON_HEIGHT).build());
         }
         addRenderableWidget(Button.builder(Component.translatable(
@@ -358,7 +359,7 @@ public class StatusScreen extends StatusScreenApi {
     }
 
     private boolean canSyncWorldSettings() {
-        return Minecraft.getInstance().level != null
+        return MirrorMapping.getInstance().isAvailable() && Minecraft.getInstance().level != null
                 && !MirrorWorldContext.current().isMirror()
                 && Files.isDirectory(statusContext.output())
                 && !DownloadManager.isActive()
@@ -374,11 +375,20 @@ public class StatusScreen extends StatusScreenApi {
             return;
         }
         WorldSettingsSnapshot snapshot = WorldStructureCreator.captureWorldSettings(client.level);
-        settingsSucceeded = WorldStructureCreator.syncWorldSetting(
-                statusContext.output(), snapshot, setting);
-        settingsFailure = Component.translatable(settingsSucceeded
-                ? "screen.worldmirror.status.syncSettingDone"
-                : "screen.worldmirror.status.syncSettingFailed");
+        Path output = statusContext.output();
+        var target = new io.github.billstark001.worldmirror.io.MirrorTarget(output, statusContext.sourceId());
+        io.github.billstark001.worldmirror.util.OfflineTasks.start("WM-SyncWorldSetting",
+                () -> WorldStructureCreator.syncWorldSetting(target, snapshot, setting), failure -> {
+                    io.github.billstark001.worldmirror.download.OperationFailures.report(
+                            output.toString(), "setting_sync", output, failure);
+                    return false;
+                }, client::execute, succeeded -> {
+                    if (!output.equals(statusContext.output())) return;
+                    settingsSucceeded = succeeded;
+                    settingsFailure = Component.translatable(succeeded
+                            ? "screen.worldmirror.status.syncSettingDone"
+                            : "screen.worldmirror.status.syncSettingFailed");
+                }, () -> {});
     }
 
     private void renderConflicts(Canvas graphics) {
@@ -389,7 +399,7 @@ public class StatusScreen extends StatusScreenApi {
                     width / 2, 88, 0xFFE0E0E0);
         } else {
             line(graphics, "screen.worldmirror.status.conflicts",
-                    String.valueOf(conflictCount), left(), 88);
+                    conflictCount < 0 ? "?" : String.valueOf(conflictCount), left(), 88);
         }
     }
 
@@ -437,11 +447,31 @@ public class StatusScreen extends StatusScreenApi {
                 : Component.translatable("screen.worldmirror.status.xaeroOverlay.missing");
     }
 
+    private boolean conflictOperationInProgress;
+
+    private void resolveAllConflicts(Path output, boolean overwrite) {
+        if (conflictOperationInProgress) return;
+        conflictOperationInProgress = true;
+        var target = new io.github.billstark001.worldmirror.io.MirrorTarget(output, statusContext.sourceId());
+        ConflictActions.resolveAll(target, overwrite, () -> {
+            conflictOperationInProgress = false;
+            if (statusContext != null && output.equals(statusContext.output())) refresh();
+        });
+    }
+
     private void loadPersistentStatus() {
         Minecraft client = Minecraft.getInstance();
         statusContext = resolveStatusContext(client);
         Path output = statusContext.output();
-        conflictCount = ConflictManager.countAllConflicts(output);
+        try {
+            conflictCount = ConflictManager.countAllConflicts(output);
+            io.github.billstark001.worldmirror.download.OperationFailures.recovered(statusContext.sourceId(), "conflict_read");
+        }
+        catch (java.io.IOException failure) {
+            conflictCount = -1;
+            io.github.billstark001.worldmirror.download.OperationFailures.report(
+                    statusContext.sourceId(), "conflict_read", output, failure);
+        }
         refreshLastSyncTime();
     }
 

@@ -88,8 +88,8 @@ public final class ChunkIndexStore {
         }
     }
 
-    /** Unknown sources and failed priority lookups receive the weakest priority. */
-    private int priority(String updateSource, String dimension) {
+    /** Unregistered sources receive the weakest priority; unavailable rules abort the decision. */
+    private int priority(String updateSource, String dimension) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT priority FROM update_sources WHERE update_source=? "
                         + "AND (apply_to_source IS NULL OR apply_to_source=?) "
@@ -100,8 +100,6 @@ public final class ChunkIndexStore {
             try (ResultSet result = statement.executeQuery()) {
                 if (result.next()) return result.getInt("priority");
             }
-        } catch (SQLException ignored) {
-            // Matches World Mirror's conservative fallback for a priority lookup.
         }
         return Integer.MAX_VALUE;
     }
@@ -123,12 +121,13 @@ public final class ChunkIndexStore {
         });
     }
 
+    /** Invalidate this writer's durability claims without erasing other sources' overwrite authority. */
     public void removeUnreadableUpdates(String dimension, Set<ChunkCoordinate> chunks)
             throws SQLException {
         if (chunks.isEmpty()) return;
         inTransaction(() -> {
             try (PreparedStatement statement = connection.prepareStatement(
-                    "DELETE FROM chunks WHERE source=? AND dimension=? AND x=? AND y=?")) {
+                    "DELETE FROM chunks WHERE source=? AND dimension=? AND x=? AND y=? AND update_source='world_mirror'")) {
                 for (ChunkCoordinate chunk : chunks) {
                     bindKey(statement, dimension, chunk);
                     statement.addBatch();

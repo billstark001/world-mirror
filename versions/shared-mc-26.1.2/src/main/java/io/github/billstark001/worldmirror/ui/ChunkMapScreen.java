@@ -32,7 +32,7 @@ import java.util.*;
  *   <li><b>Yellow / bright green</b> — waiting for capture / waiting for a durable write.</li>
  * </ul>
  *
- * <p>If a chunk has an unresolved conflict entry a <b>red border</b> is drawn
+ * <p>If a chunk has an unresolved conflict entry a <b>purple border</b> is drawn
  * inside its cell.  Clicking such a cell opens a small dialog offering three
  * choices: <i>Cancel</i>, <i>Overwrite</i> (apply the stored server chunk), or
  * <i>Discard</i> (keep the local chunk and delete the conflict entry).
@@ -57,6 +57,8 @@ public class ChunkMapScreen extends Screen {
     private final ChunkViewportCache viewportCache = new ChunkViewportCache();
     private final ChunkMapProjection projection = new ChunkMapProjection();
     private Path worldFolder;
+    private String targetSourceId;
+    private boolean resolvingConflict;
     private boolean viewingCurrentMirror;
     private ResourceKey<Level> currentDimension;
 
@@ -118,9 +120,7 @@ public class ChunkMapScreen extends Screen {
                 Component.translatable("screen.worldmirror.chunkmap.dialog.overwrite"),
                 btn -> {
                     if (dialogChunk != null && worldFolder != null && currentDimension != null) {
-                        ConflictManager.resolveConflict(worldFolder, dialogChunk, currentDimension, true);
-                        ChunkStatusCache.invalidate();
-                        loadData(Minecraft.getInstance());
+                        resolveSelectedConflict(true);
                     }
                     closeDialog();
                 }
@@ -130,9 +130,7 @@ public class ChunkMapScreen extends Screen {
                 Component.translatable("screen.worldmirror.chunkmap.dialog.discard"),
                 btn -> {
                     if (dialogChunk != null && worldFolder != null && currentDimension != null) {
-                        ConflictManager.resolveConflict(worldFolder, dialogChunk, currentDimension, false);
-                        ChunkStatusCache.invalidate();
-                        loadData(Minecraft.getInstance());
+                        resolveSelectedConflict(false);
                     }
                     closeDialog();
                 }
@@ -141,11 +139,23 @@ public class ChunkMapScreen extends Screen {
         setDialogButtonsVisible(false);
     }
 
+    private void resolveSelectedConflict(boolean overwrite) {
+        if (resolvingConflict || targetSourceId == null) return;
+        resolvingConflict = true;
+        Path selected = worldFolder;
+        var target = new io.github.billstark001.worldmirror.io.MirrorTarget(selected, targetSourceId);
+        ConflictActions.resolve(target, dialogChunk, currentDimension, overwrite, () -> {
+            resolvingConflict = false;
+            if (selected.equals(worldFolder)) loadData(Minecraft.getInstance());
+        });
+    }
+
     // ── Data loading ──────────────────────────────────────────────────────────
 
     private void loadData(Minecraft client) {
         StatusTarget target = ChunkStatusCache.targetFor(client);
         worldFolder = target != null ? target.worldFolder() : null;
+        targetSourceId = target != null ? target.sourceId() : null;
         viewingCurrentMirror = target != null && target.currentWorldIsMirror();
         if (currentDimension == null) currentDimension = Level.OVERWORLD;
 

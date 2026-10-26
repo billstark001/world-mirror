@@ -33,10 +33,18 @@ public final class SaveLocationMoveScreen extends Screen {
                 .bounds(x + 4, y + 22, 98, 20).build());
     }
 
+    private boolean moving;
+
     private void move() {
-        DownloadManager.MirrorMoveResult result = DownloadManager.moveMirrorWorld(Minecraft.getInstance(), targetLocation);
-        if (result.success()) ClientScreens.set(new StatusClientScreen());
-        else failure = Component.translatable("screen.worldmirror.move.failure." + result.failureCode());
+        if (moving) return;
+        moving = true;
+        Minecraft client = Minecraft.getInstance();
+        DownloadManager.moveMirrorWorld(client, targetLocation, result -> {
+            moving = false;
+            if (client.gui.screen() != this) return;
+            if (result.success()) ClientScreens.set(new StatusClientScreen());
+            else failure = Component.translatable("screen.worldmirror.move.failure." + result.failureCode());
+        });
     }
 
     @Override

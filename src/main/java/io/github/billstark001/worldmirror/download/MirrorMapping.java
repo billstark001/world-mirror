@@ -5,9 +5,7 @@ import io.github.billstark001.worldmirror.util.JsonSupport;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.loader.api.FabricLoader;
 
-import java.io.Reader;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -90,8 +88,12 @@ public class MirrorMapping {
     private static volatile MirrorMapping instance;
     private transient Path storageFile;
     private transient Path gameDirectory;
+    private transient boolean readable = true;
+    private final transient java.util.concurrent.locks.ReentrantLock mutationLock = new java.util.concurrent.locks.ReentrantLock();
 
     public MirrorMapping() { }
+
+    public boolean isAvailable() { return readable; }
 
     MirrorMapping(Path storageFile, Path gameDirectory) {
         this.storageFile = storageFile;
@@ -112,30 +114,47 @@ public class MirrorMapping {
 
     /** Loads a mapping without creating its directory or changing the process-wide Fabric environment. */
     static MirrorMapping load(Path file, Path gameDirectory) {
-        if (file.toFile().exists()) {
-            try (Reader r = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-                MirrorMapping m = JsonSupport.fromJson(r, MirrorMapping.class);
-                if (m != null) {
-                    if (m.entries == null) m.entries = new HashMap<>();
-                    if (m.resolvedFolderNames == null) m.resolvedFolderNames = new HashMap<>();
-                    if (m.perWorldSaveLocation == null) m.perWorldSaveLocation = new HashMap<>();
-                    if (m.perWorldConflictStrategy == null) m.perWorldConflictStrategy = new HashMap<>();
-                    m.storageFile = file;
-                    m.gameDirectory = gameDirectory;
-                    return m;
-                }
-            } catch (Exception e) {
-                WMLogger.warn("Mirror mapping load failed file=" + file, e);
-            }
+        try { io.github.billstark001.worldmirror.util.FileTransaction.recover(file.toAbsolutePath().getParent()); }
+        catch (Exception recoveryFailure) {
+            OperationFailures.report("routing", "mapping_recovery", file, recoveryFailure);
+            MirrorMapping blocked = new MirrorMapping(file, gameDirectory);
+            blocked.readable = false;
+            return blocked;
         }
-        return new MirrorMapping(file, gameDirectory);
+        var document = JsonSupport.readDocument(file, MirrorMapping.class);
+        if (document.state() == JsonSupport.ReadState.VALID) {
+            MirrorMapping mapping = document.value();
+            if (mapping.entries == null) mapping.entries = new HashMap<>();
+            if (mapping.resolvedFolderNames == null) mapping.resolvedFolderNames = new HashMap<>();
+            if (mapping.perWorldSaveLocation == null) mapping.perWorldSaveLocation = new HashMap<>();
+            if (mapping.perWorldConflictStrategy == null) mapping.perWorldConflictStrategy = new HashMap<>();
+            mapping.storageFile = file;
+            mapping.gameDirectory = gameDirectory;
+            try {
+                for (String value : mapping.perWorldConflictStrategy.values()) {
+                    if (value != null && !value.isBlank()) ModConfig.ConflictStrategy.valueOf(value);
+                }
+                for (String value : mapping.perWorldSaveLocation.values()) {
+                    if (value != null && !value.isBlank()) ModConfig.SaveLocation.valueOf(value);
+                }
+                return mapping;
+            } catch (RuntimeException invalid) {
+                OperationFailures.report("routing", "mapping_read", file, invalid);
+            }
+        } else if (document.failure() != null) {
+            OperationFailures.report("routing", "mapping_read", file, document.failure());
+        }
+        MirrorMapping blocked = new MirrorMapping(file, gameDirectory);
+        blocked.readable = document.state() == JsonSupport.ReadState.MISSING;
+        return blocked;
     }
 
     /** Persists the current mapping, returning false if its document could not be replaced. */
     public synchronized boolean save() {
+        if (!readable) return false;
         Path file = storageFile != null ? storageFile : configDir().resolve("mirrors.json");
         try {
-            JsonSupport.writePrettyJsonAtomically(file, this);
+            JsonSupport.writeDocument(file, this);
             return true;
         } catch (Exception e) {
             WMLogger.warn("Mirror mapping save failed file=" + file, e);
@@ -231,8 +250,6 @@ public class MirrorMapping {
         return changeAndSave(() -> {
             entries.putIfAbsent(sourceId, generateFolderName(sourceId));
             perWorldSaveLocation.put(sourceId, locationName);
-            resolvedFolderNames.entrySet().removeIf(
-                    entry -> entry.getKey().startsWith(sourceId + KEY_SEP));
             resolvedFolderNames.put(sourceId + KEY_SEP + locationName, resolvedName);
         });
     }
@@ -280,32 +297,48 @@ public class MirrorMapping {
     record MoveResult(boolean success, String failureCode, Path source, Path target) { }
 
     /** Moves an owned directory and rolls it back if the new routing cannot be persisted. */
-    synchronized MoveResult moveToLocation(String sourceId, ModConfig.SaveLocation location) {
-        Path source = selectOutputPath(sourceId, effectiveSaveLocation(sourceId));
-        Path target = selectOutputPath(sourceId, location);
-        if (!Files.isDirectory(source)) return new MoveResult(false, "source_missing", source, target);
-        if (source.toAbsolutePath().normalize().equals(target.toAbsolutePath().normalize())) {
-            boolean saved = recordMirrorLocation(sourceId, location.name(), target.getFileName().toString());
-            return new MoveResult(saved, saved ? null : "io_error", source, target);
-        }
-        if (Files.exists(target)) return new MoveResult(false, "target_exists", source, target);
+    MoveResult moveToLocation(String sourceId, ModConfig.SaveLocation location) {
+        if (!readable) return new MoveResult(false, "io_error", null, null);
+        mutationLock.lock();
         try {
-            Files.createDirectories(target.getParent());
-            Files.move(source, target);
-        } catch (IOException error) {
-            WMLogger.warn("Mirror relocation failed source=" + source + " target=" + target, error);
-            return new MoveResult(false, "io_error", source, target);
+            try { recoverRelocations(sourceId); }
+            catch (Exception failure) {
+                OperationFailures.report(sourceId, "relocation_recovery", null, failure);
+                return new MoveResult(false, "io_error", null, null);
+            }
+            Path source = selectOutputPath(sourceId, effectiveSaveLocation(sourceId));
+            Path target = selectOutputPath(sourceId, location);
+            if (!Files.isDirectory(source)) return new MoveResult(false, "source_missing", source, target);
+            if (source.toAbsolutePath().normalize().equals(target.toAbsolutePath().normalize())) {
+                boolean saved = recordMirrorLocation(sourceId, location.name(), target.getFileName().toString());
+                return new MoveResult(saved, saved ? null : "io_error", source, target);
+            }
+            try {
+                if (Files.exists(target) && !WorldRelocation.isEmptyReservation(target, sourceId)) {
+                    return new MoveResult(false, "target_exists", source, target);
+                }
+                WorldRelocation.move(source, target, sourceId,
+                        () -> recordMirrorLocation(sourceId, location.name(), target.getFileName().toString()));
+                return new MoveResult(true, null, source, target);
+            } catch (Exception error) {
+                OperationFailures.report(sourceId, "relocation", source, error);
+                return new MoveResult(false, "io_error", source, target);
+            }
+
+
+        } finally { mutationLock.unlock(); }
+    }
+
+    private void recoverRelocations(String sourceId) throws IOException {
+        Path routed = previewOutputPath(sourceId).toAbsolutePath().normalize();
+        var allowedRoots = java.util.Set.of(outputRoot(ModConfig.SaveLocation.SAVES).toAbsolutePath().normalize(),
+                outputRoot(ModConfig.SaveLocation.DOWNLOADED).toAbsolutePath().normalize());
+        for (ModConfig.SaveLocation location : ModConfig.SaveLocation.values()) {
+            String resolved = previewResolvedFolderName(sourceId, location.name());
+            Path candidate = outputRoot(location).resolve(resolved == null ? previewBaseFolderName(sourceId) : resolved)
+                    .toAbsolutePath().normalize();
+            WorldRelocation.recover(candidate, sourceId, routed, allowedRoots);
         }
-        if (recordMirrorLocation(sourceId, location.name(), target.getFileName().toString())) {
-            return new MoveResult(true, null, source, target);
-        }
-        try {
-            Files.move(target, source);
-        } catch (IOException rollback) {
-            WMLogger.warn("Mirror relocation rollback failed source=" + source + " target=" + target
-                    + "; mirror contents remain at target", rollback);
-        }
-        return new MoveResult(false, "io_error", source, target);
     }
 
     Path selectOutputPath(String sourceId, ModConfig.SaveLocation saveLocation) {
@@ -320,37 +353,50 @@ public class MirrorMapping {
     }
 
     Path claimOutputDirectory(String sourceId) throws java.io.IOException {
-        ModConfig.SaveLocation saveLocation = effectiveSaveLocation(sourceId);
-        Path base = outputRoot(saveLocation);
-        Files.createDirectories(base);
+        mutationLock.lock();
+        try {
+            if (!readable) throw new IOException("Routing document is unreadable; repair it before creating a mirror");
+            recoverRelocations(sourceId);
+            ModConfig.SaveLocation saveLocation = effectiveSaveLocation(sourceId);
+            Path base = outputRoot(saveLocation);
+            Files.createDirectories(base);
 
-        String baseName = previewBaseFolderName(sourceId);
-        Path candidate = selectOutputPath(sourceId, saveLocation);
-        boolean created = false;
-        while (true) {
-            try {
-                Files.createDirectory(candidate);
-                created = true;
-                break;
-            } catch (java.nio.file.FileAlreadyExistsException raced) {
-                if (WorldMetadata.isOwnedBy(candidate, sourceId)) break;
+            String baseName = previewBaseFolderName(sourceId);
+            Path candidate = selectOutputPath(sourceId, saveLocation);
+            boolean created = false;
+            while (true) {
+                try {
+                    Files.createDirectory(candidate);
+                    created = true;
+                    try {
+                        MirrorClaim.create(candidate, sourceId);
+                    } catch (IOException failure) {
+                        try { Files.deleteIfExists(candidate.resolve(MirrorClaim.FILE_NAME)); Files.delete(candidate); } catch (IOException cleanup) { failure.addSuppressed(cleanup); }
+                        throw failure;
+                    }
+                    break;
+                } catch (java.nio.file.FileAlreadyExistsException raced) {
+                    if (isOwnedOrReserved(candidate, sourceId)) break;
+                }
+                candidate = selectOutputPath(sourceId, saveLocation);
             }
-            candidate = selectOutputPath(sourceId, saveLocation);
-        }
 
-        String resolvedName = candidate.getFileName().toString();
-        if (!recordResolvedFolderName(sourceId, saveLocation.name(), resolvedName)) {
-            IOException failure = new IOException("Could not persist claimed mirror directory " + candidate);
-            if (created) {
-                try { Files.delete(candidate); } catch (IOException cleanup) { failure.addSuppressed(cleanup); }
+            String resolvedName = candidate.getFileName().toString();
+            if (!recordResolvedFolderName(sourceId, saveLocation.name(), resolvedName)) {
+                IOException failure = new IOException("Could not persist claimed mirror directory " + candidate);
+                if (created) {
+                    try { Files.deleteIfExists(candidate.resolve(MirrorClaim.FILE_NAME)); Files.delete(candidate); } catch (IOException cleanup) { failure.addSuppressed(cleanup); }
+                }
+                throw failure;
             }
-            throw failure;
-        }
-        if (!resolvedName.equals(baseName)) {
-            WMLogger.debug("Folder name collision resolved: '"
-                    + baseName + "' → '" + resolvedName + "'");
-        }
-        return candidate;
+            if (!resolvedName.equals(baseName)) {
+                WMLogger.debug("Folder name collision resolved: '"
+                        + baseName + "' → '" + resolvedName + "'");
+            }
+            return candidate;
+
+
+        } finally { mutationLock.unlock(); }
     }
 
     // ── Per-world conflict strategy ───────────────────────────────────────────
@@ -443,8 +489,13 @@ public class MirrorMapping {
         throw new IllegalStateException("No collision-free mirror folder name is available");
     }
 
+    private static boolean isOwnedOrReserved(Path folder, String sourceId) {
+        if (!Files.notExists(folder.resolve(WorldMetadata.FILE_NAME))) return WorldMetadata.isOwnedBy(folder, sourceId);
+        return MirrorClaim.ownedBy(folder, sourceId);
+    }
+
     private static boolean isFolderFreeOrOwned(Path folder, String sourceId) {
-        return !Files.exists(folder) || WorldMetadata.isOwnedBy(folder, sourceId);
+        return Files.notExists(folder) || isOwnedOrReserved(folder, sourceId);
     }
 
     private static Path configDir() {

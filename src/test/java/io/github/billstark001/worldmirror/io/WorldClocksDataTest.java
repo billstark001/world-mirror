@@ -98,7 +98,7 @@ class WorldClocksDataTest {
         CompoundTag root = new CompoundTag();
         root.put("data", data);
         NbtUtils.addCurrentDataVersion(root);
-        WorldStructureCreator.writeCompressed(file.toFile(), root);
+        WorldStructureCreator.writeVerifiedWorldData(file, root);
     }
 
     private static CompoundTag roundTrip(CompoundTag data) throws Exception {

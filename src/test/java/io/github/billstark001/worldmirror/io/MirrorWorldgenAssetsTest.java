@@ -10,7 +10,6 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -85,8 +84,8 @@ class MirrorWorldgenAssetsTest {
     }
 
     private static <T> T readModel(Path file, Class<T> modelType) throws Exception {
-        try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-            return JsonSupport.fromJson(reader, modelType);
-        }
+        var document = JsonSupport.readDocument(file, modelType);
+        assertEquals(JsonSupport.ReadState.VALID, document.state());
+        return document.value();
     }
 }

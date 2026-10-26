@@ -21,6 +21,27 @@ public final class WorldOpenMigrationController {
                                     Runnable closeWorldAccess) {
         Path worldFolder = resolveSave(levelId);
         if (worldFolder == null) return false;
+        if (io.github.billstark001.worldmirror.util.WorldRecovery.required(worldFolder)) {
+            closeWorldAccess.run();
+            Minecraft client = Minecraft.getInstance();
+            MirrorPrompt.ProgressHandle progress = ClientDialogs.progress(client,
+                    new MirrorPrompt.Text("screen.worldmirror.upgrade.progressTitle"));
+            io.github.billstark001.worldmirror.util.OfflineTasks.start("WM-RecoverMirror", () -> {
+                try (var lease = io.github.billstark001.worldmirror.io.WorldWriteLock.acquire(worldFolder)) {
+                    return true;
+                }
+            }, failure -> {
+                OperationFailures.report(worldFolder.toString(), "recovery", worldFolder, failure);
+                return false;
+            }, client::execute, recovered -> {
+                if (recovered) flows.openWorld(levelId, reloadCallback);
+                else ClientDialogs.alert(client, new MirrorPrompt.Alert(
+                        new MirrorPrompt.Text("screen.worldmirror.upgrade.failedTitle"),
+                        new MirrorPrompt.Text("screen.worldmirror.upgrade.failedBody", "recovery_failed"),
+                        new MirrorPrompt.Text("gui.done")), reloadCallback);
+            }, progress::close);
+            return true;
+        }
         if (BYPASS_ONCE.remove(worldFolder)) return false;
 
         MirrorMigrationPlan.Inspection plan = MirrorMigrationCoordinator.inspect(worldFolder);
@@ -53,11 +74,11 @@ public final class WorldOpenMigrationController {
                                           Runnable reopen, Runnable reloadCallback) {
         MirrorPrompt.ProgressHandle progress = ClientDialogs.progress(client,
                 new MirrorPrompt.Text("screen.worldmirror.upgrade.progressTitle"));
-        Thread worker = new Thread(() -> {
-            MirrorMigrationCoordinator.Result result = MirrorMigrationCoordinator.migrateApproved(worldFolder,
-                    new MirrorMigrationProgress(client, progress));
-            client.execute(() -> {
-                progress.close();
+        io.github.billstark001.worldmirror.util.OfflineTasks.start("WM-OpenMirrorMigration",
+                () -> MirrorMigrationCoordinator.migrateApproved(worldFolder,
+                        new MirrorMigrationProgress(client, progress)),
+                failure -> MirrorMigrationCoordinator.Result.failure("unexpected_failure"),
+                client::execute, result -> {
                 if (result.success()) {
                     ClientDialogs.toast(client,
                             new MirrorPrompt.Text("screen.worldmirror.upgrade.completeTitle"),
@@ -69,10 +90,8 @@ public final class WorldOpenMigrationController {
                         new MirrorPrompt.Text("screen.worldmirror.upgrade.failedTitle"),
                         new MirrorPrompt.Text("screen.worldmirror.upgrade.failedBody", result.failure()),
                         new MirrorPrompt.Text("gui.done")), reloadCallback);
-            });
-        }, "WM-OpenMirrorMigration");
-        worker.setDaemon(false);
-        worker.start();
+
+                }, progress::close);
     }
 
     private static Path resolveSave(String levelId) {

@@ -38,12 +38,12 @@ public final class MirrorMigrationPlan {
     public static Inspection inspect(Path worldFolder, int dataVersion) {
         Path normalized = worldFolder.toAbsolutePath().normalize();
         Path metadataFile = normalized.resolve(WorldMetadata.FILE_NAME);
-        boolean hasLevelDat = Files.isRegularFile(normalized.resolve("level.dat"));
+        boolean hasLevelDat = !Files.notExists(normalized.resolve("level.dat"));
         if (!Files.isRegularFile(metadataFile)) {
-            if (Files.exists(metadataFile)) {
+            if (!Files.notExists(metadataFile)) {
                 return new Inspection(normalized, State.UNREADABLE, null, false, false, false);
             }
-            return new Inspection(normalized, hasLevelDat ? State.UNMANAGED : State.NEW,
+            return new Inspection(normalized, hasLevelDat && MirrorClaim.source(normalized) == null ? State.UNMANAGED : State.NEW,
                     null, false, false, false);
         }
 

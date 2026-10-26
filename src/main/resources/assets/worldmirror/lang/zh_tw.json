@@ -323,5 +323,8 @@
   "msg.worldmirror.exportToast.exportFailed": "World Mirror：匯出失敗",
   "msg.worldmirror.exportToast.exportPartial": "World Mirror：匯出部分成功",
   "msg.worldmirror.exportToast.exportRecovered": "World Mirror：匯出已恢復",
-  "msg.worldmirror.exportToast.health": "%s · %s 項未解決"
+  "msg.worldmirror.exportToast.health": "%s · %s 項未解決",
+
+  "msg.worldmirror.fileOperationFailed": "World Mirror 檔案操作需要處理",
+  "msg.worldmirror.fileOperationDetails": "來源：%s；階段：%s；路徑：%s；原因：%s。原始資料已保留，請查看記錄並修復後重試。"
 }

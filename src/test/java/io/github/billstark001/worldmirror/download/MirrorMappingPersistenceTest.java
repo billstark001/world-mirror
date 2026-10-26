@@ -73,7 +73,7 @@ class MirrorMappingPersistenceTest {
         assertEquals("io_error", result.failureCode());
         assertEquals("DOWNLOADED", mapping.getPerWorldSaveLocation(SOURCE));
         assertEquals("mirror contents", Files.readString(source.resolve("keep.txt")));
-        assertFalse(Files.exists(game.resolve("saves/mirror")));
+        assertFalse(Files.exists(result.target()));
     }
 
     @Test
@@ -92,4 +92,45 @@ class MirrorMappingPersistenceTest {
         }
         assertEquals("mirror", mapping.previewResolvedFolderName(SOURCE, "DOWNLOADED"));
     }
+    @Test
+    void damagedRoutingIsPreservedAndCannotClaimOrSave(@TempDir Path root) throws Exception {
+        Path file = Files.writeString(root.resolve("mirrors.json"), "{damaged");
+        MirrorMapping mapping = MirrorMapping.load(file, root.resolve("game"));
+        assertFalse(mapping.recordMirrorLocation(SOURCE, "SAVES", "new-name"));
+        assertThrows(IOException.class, () -> mapping.claimOutputDirectory(SOURCE));
+        assertEquals("{damaged", Files.readString(file));
+        assertFalse(Files.exists(root.resolve("game")));
+    }
+
+    @Test
+    void unfinishedClaimsResumeTheSameOwnedDirectory(@TempDir Path root) throws Exception {
+        MirrorMapping mapping = new MirrorMapping(root.resolve("mirrors.json"), root.resolve("game"));
+        assertTrue(mapping.recordMirrorLocation(SOURCE, "DOWNLOADED", "mirror"));
+        Path first = mapping.claimOutputDirectory(SOURCE);
+        Files.writeString(first.resolve("level.dat"), "unfinished world data");
+        assertEquals(first, mapping.claimOutputDirectory(SOURCE));
+        assertEquals(first, mapping.claimOutputDirectory(SOURCE));
+        try (var folders = Files.list(first.getParent())) { assertEquals(1, folders.count()); }
+    }
+
+    @Test
+    void relocationRespectsAnotherMinecraftSessionLock(@TempDir Path root) throws Exception {
+        MirrorMapping mapping = new MirrorMapping(root.resolve("mirrors.json"), root.resolve("game"));
+        assertTrue(mapping.recordMirrorLocation(SOURCE, "DOWNLOADED", "mirror"));
+        Path source = Files.createDirectories(root.resolve("game/downloaded_worlds/mirror"));
+        assertTrue(WorldMetadata.create(SOURCE, "server", "synchronized").save(source));
+        Files.writeString(source.resolve("keep"), "original");
+        try (var nativeLease = net.minecraft.util.DirectoryLock.create(source)) {
+            assertFalse(mapping.moveToLocation(SOURCE, ModConfig.SaveLocation.SAVES).success());
+            assertEquals("original", Files.readString(source.resolve("keep")));
+        }
+        var moved = mapping.moveToLocation(SOURCE, ModConfig.SaveLocation.SAVES);
+        assertTrue(moved.success());
+        assertEquals("original", Files.readString(moved.target().resolve("keep")));
+        var returned = mapping.moveToLocation(SOURCE, ModConfig.SaveLocation.DOWNLOADED);
+        assertTrue(returned.success());
+        assertEquals(source, returned.target());
+        assertEquals("original", Files.readString(source.resolve("keep")));
+    }
+
 }

@@ -1,7 +1,5 @@
 package io.github.billstark001.worldmirror.io;
 
-import io.github.ensgijs.nbt.mca.McaFileBase;
-import io.github.ensgijs.nbt.mca.io.McaFileHelpers;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.resources.ResourceKey;
@@ -13,10 +11,8 @@ import net.minecraft.world.level.chunk.storage.RegionStorageInfo;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.Map;
 import java.util.Set;
 
@@ -24,15 +20,11 @@ import java.util.Set;
  * Shared MCA file write support.
  *
  * <p>Region writes are read-modify-write operations. Keep all callers on the
- * same deterministic striped lock and replace files through a same-directory
- * temp file so a failed write does not leave a partially overwritten region
- * behind. Fixed striping avoids retaining one lock object for every region ever
- * visited during a long session.</p>
+ * same deterministic striped lock. Native in-place writes require verified
+ * receipts before acknowledgement; whole-region replacements use a recovery
+ * transaction. Fixed striping bounds the number of lock objects.</p>
  */
 public final class McaWriteSupport {
-    private static final int WRITE_ATTEMPTS = 3;
-    private static final int REGION_SIZE = 32;
-    private static final int REGION_ENTRIES = REGION_SIZE * REGION_SIZE;
     private static final Object[] FILE_LOCKS = new Object[256];
 
     static {
@@ -49,11 +41,17 @@ public final class McaWriteSupport {
     /** Reads vanilla chunk NBT, including external .mcc payloads, without retaining a stream. */
     public static CompoundTag readChunk(RegionFile region, ChunkPos pos) throws IOException {
         try (DataInputStream input = region.getChunkDataInputStream(pos)) {
-            return input == null ? null : NbtIo.read(input);
+            if (input == null) {
+                if (region.hasChunk(pos)) throw new IOException("Allocated chunk cannot be decoded: " + region.getPath() + " " + pos);
+                return null;
+            }
+            CompoundTag chunk = NbtReadSupport.readChunk(input);
+            if (input.read() != -1) throw new IOException("Trailing chunk data: " + region.getPath() + " " + pos);
+            return chunk;
         }
     }
 
-    /** Rejects damaged location tables before a vanilla reader can repair them in place. */
+    /** Rejects damaged location tables before a writable vanilla reader can discard bad entries. */
     public static void validateRegion(Path file, int regionX, int regionZ) throws IOException {
         validatedInspection(file, regionX, regionZ);
     }
@@ -66,10 +64,7 @@ public final class McaWriteSupport {
     private static RegionFileIntegrity.Inspection validatedInspection(Path file, int regionX, int regionZ)
             throws IOException {
         RegionFileIntegrity.Inspection inspection = RegionFileIntegrity.inspect(file, regionX, regionZ);
-        if (!inspection.usable() || !inspection.invalidChunks().isEmpty()) {
-            throw new IOException("Invalid region file=" + file + " reason=" + inspection.failure()
-                    + " invalidChunks=" + inspection.invalidChunks().size());
-        }
+        inspection.requireUsable(file);
         return inspection;
     }
 
@@ -102,7 +97,7 @@ public final class McaWriteSupport {
             try (RegionFile region = new RegionFile(info, target, target.getParent(), false)) {
                 for (Map.Entry<ChunkPos, CompoundTag> entry : chunks.entrySet()) {
                     try (DataOutputStream output = region.getChunkDataOutputStream(entry.getKey())) {
-                        NbtIo.write(entry.getValue(), output);
+                        NbtIo.writeUnnamedTag(entry.getValue(), output);
                     }
                 }
                 region.flush();
@@ -119,79 +114,4 @@ public final class McaWriteSupport {
         }
     }
 
-    public static int writeAtomically(McaFileBase<?> mcaFile, Path target) throws IOException {
-        synchronized (lockFor(target)) {
-            return writeAtomicallyLocked(mcaFile, target);
-        }
-    }
-
-    public static int writeAtomicallyLocked(McaFileBase<?> mcaFile, Path target) throws IOException {
-        target = target.toAbsolutePath().normalize();
-        IOException lastError = null;
-        Path parent = target.getParent();
-        Files.createDirectories(parent);
-
-        for (int attempt = 1; attempt <= WRITE_ATTEMPTS; attempt++) {
-            Path temp = Files.createTempFile(parent, target.getFileName().toString(), ".tmp");
-            try {
-                // The vendored writer allocates a second system-temp file when
-                // its destination already exists. Keep this write in our directory.
-                Files.deleteIfExists(temp);
-                int chunks = McaFileHelpers.write(mcaFile, temp.toFile());
-                if (chunks > 0) {
-                    verifySerializedRegion(mcaFile, temp);
-                    moveIntoPlace(temp, target);
-                } else {
-                    Files.deleteIfExists(temp);
-                }
-                return chunks;
-            } catch (IOException | RuntimeException | Error failure) {
-                try {
-                    Files.deleteIfExists(temp);
-                } catch (IOException cleanup) {
-                    failure.addSuppressed(cleanup);
-                }
-                if (failure instanceof IOException ioFailure) lastError = ioFailure;
-                else throw failure;
-                if (attempt < WRITE_ATTEMPTS) {
-                    sleepBeforeRetry();
-                }
-            }
-        }
-
-        throw lastError != null ? lastError : new IOException("MCA write failed");
-    }
-
-    private static void verifySerializedRegion(McaFileBase<?> source, Path file) throws IOException {
-        validateRegion(file, source.getRegionX(), source.getRegionZ());
-        RegionStorageInfo info = new RegionStorageInfo("world_mirror_atomic", Level.OVERWORLD, "chunk");
-        try (RegionFile reader = new RegionFile(info, file, file.getParent(), false)) {
-            for (int index = 0; index < REGION_ENTRIES; index++) {
-                if (source.getChunk(index) == null) continue;
-                ChunkPos pos = new ChunkPos(source.getRegionX() * REGION_SIZE + index % REGION_SIZE,
-                        source.getRegionZ() * REGION_SIZE + index / REGION_SIZE);
-                if (readChunk(reader, pos) == null) {
-                    throw new IOException("Serialized region entry cannot be decoded file=" + file
-                            + " chunk=" + pos);
-                }
-            }
-        }
-    }
-
-    private static void moveIntoPlace(Path temp, Path target) throws IOException {
-        try {
-            Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } catch (AtomicMoveNotSupportedException e) {
-            Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
-        }
-    }
-
-    private static void sleepBeforeRetry() throws IOException {
-        try {
-            Thread.sleep(50L);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("Interrupted while retrying MCA write", e);
-        }
-    }
 }

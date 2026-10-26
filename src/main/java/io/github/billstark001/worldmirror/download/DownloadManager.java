@@ -308,6 +308,7 @@ public final class DownloadManager {
      */
     public static void onClientTick(Minecraft client) {
         ExportNotifications.global().tick(client, System.nanoTime() / 1_000_000L);
+        OperationFailures.tick(client, System.currentTimeMillis());
         long startedNs = System.nanoTime();
         boolean shouldRecordPerformance = currentActive.get()
                 && ModConfig.get().performance.diagnosticPerformanceLogging;
@@ -371,6 +372,16 @@ public final class DownloadManager {
         if (lastSourceId  == null) lastSourceId  = currentSourceId;
         if (lastSourceType == null) lastSourceType = currentSourceType;
 
+        if (currentActive.get() && !exportCoordinator.captureAdmissionAvailable()) {
+            currentActive.set(false);
+            finishPendingBlockChanges(client);
+            clearPendingCaptureState();
+            exportCoordinator.start(client, ExportWork.Intent.live(
+                    DownloadExportCoordinator.Trigger.STOP, false).ready().forSource(
+                    new ExportWork.Source(lastSourceId, lastSourceType)));
+            OperationFailures.report(lastSourceId, "capture_backpressure", previewOutputPath(client),
+                    new java.io.IOException("Capture stopped to retain unsaved data within memory budget; repair export and restart capture"));
+        }
         captureQueue.tick(client);
         exportCoordinator.tryStartDeferred(client);
 
@@ -467,16 +478,18 @@ public final class DownloadManager {
      * that root as this world's per-world override. Existing target data is never
      * merged or overwritten implicitly.
      */
-    public static MirrorMoveResult moveMirrorWorld(Minecraft client, ModConfig.SaveLocation targetLocation) {
-        if (isActive()) {
-            return MirrorMoveResult.failure("download_active");
-        }
-        if (isExportInProgress()) {
-            return MirrorMoveResult.failure("export_in_progress");
-        }
+    public static void moveMirrorWorld(Minecraft client, ModConfig.SaveLocation targetLocation,
+                                       java.util.function.Consumer<MirrorMoveResult> completed) {
+        if (isActive()) { completed.accept(MirrorMoveResult.failure("download_active")); return; }
+        if (isExportInProgress()) { completed.accept(MirrorMoveResult.failure("export_in_progress")); return; }
         String sourceId = WorldMetadata.detectSourceId(client);
-        MirrorMapping.MoveResult result = MirrorMapping.getInstance().moveToLocation(sourceId, targetLocation);
-        return new MirrorMoveResult(result.success(), result.failureCode(), result.source(), result.target());
+        io.github.billstark001.worldmirror.util.OfflineTasks.start("WM-MoveMirror", () -> {
+            MirrorMapping.MoveResult result = MirrorMapping.getInstance().moveToLocation(sourceId, targetLocation);
+            return new MirrorMoveResult(result.success(), result.failureCode(), result.source(), result.target());
+        }, failure -> {
+            OperationFailures.report(sourceId, "relocation", null, failure);
+            return MirrorMoveResult.failure("io_error");
+        }, client::execute, completed, () -> {});
     }
 
     public record MirrorMoveResult(boolean success, String failureCode, Path source, Path target) {
@@ -531,13 +544,14 @@ public final class DownloadManager {
     }
 
     private static void migrateOutputAndContinue(Minecraft client, Path output, Runnable onReady) {
+        String expectedSource = WorldMetadata.detectSourceId(client);
         MirrorPrompt.ProgressHandle progress = ClientDialogs.progress(client,
                 new MirrorPrompt.Text("screen.worldmirror.upgrade.progressTitle"));
-        Thread worker = new Thread(() -> {
-            MirrorMigrationCoordinator.Result result = MirrorMigrationCoordinator.migrateApproved(output,
-                    new MirrorMigrationProgress(client, progress));
-            client.execute(() -> {
-                progress.close();
+        io.github.billstark001.worldmirror.util.OfflineTasks.start("WM-MirrorMigration",
+                () -> MirrorMigrationCoordinator.migrateApproved(output,
+                        new MirrorMigrationProgress(client, progress)),
+                failure -> MirrorMigrationCoordinator.Result.failure("unexpected_failure"),
+                client::execute, result -> {
                 if (!result.success()) {
                     ClientDialogs.alert(client, new MirrorPrompt.Alert(
                             new MirrorPrompt.Text("screen.worldmirror.upgrade.failedTitle"),
@@ -548,14 +562,18 @@ public final class DownloadManager {
                 ClientDialogs.toast(client,
                         new MirrorPrompt.Text("screen.worldmirror.upgrade.completeTitle"),
                         new MirrorPrompt.Text("screen.worldmirror.upgrade.completeBody"));
-                onReady.run();
-            });
-        }, "WM-MirrorMigration");
-        worker.setDaemon(false);
-        worker.start();
+                if (expectedSource.equals(WorldMetadata.detectSourceId(client))) onReady.run();
+
+                }, progress::close);
     }
 
     private static void activateDownload(Minecraft client, String reason) {
+        if (!exportCoordinator.captureAdmissionAvailable()) {
+            OperationFailures.report(WorldMetadata.detectSourceId(client), "capture_backpressure", previewOutputPath(client),
+                    new java.io.IOException("Unsaved export backlog must drain before capture can restart"));
+            return;
+        }
+        OperationFailures.recovered(WorldMetadata.detectSourceId(client), "capture_backpressure");
         if (!currentActive.compareAndSet(false, true)) return;
         downloadSessionStartedAtMs = System.currentTimeMillis();
         activePipeline = DownloadPipeline.create(ModConfig.get().pipelineMode);

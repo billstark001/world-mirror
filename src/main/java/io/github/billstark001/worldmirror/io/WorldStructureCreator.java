@@ -10,7 +10,6 @@ import net.minecraft.nbt.DoubleTag;
 import net.minecraft.nbt.FloatTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtUtils;
 import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
@@ -20,10 +19,8 @@ import net.minecraft.world.level.Level;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.UUID;
 
 /** Version-neutral orchestration for creating and updating playable mirror saves. */
@@ -97,7 +94,7 @@ public final class WorldStructureCreator {
             WorldStructureApi.writeSpawnedLevelData(
                     worldFolder, levelName, playerId, spawnDimension, spawnX, spawnY, spawnZ,
                     createMirrorWorldGenSettings(), settings);
-            writeCompressed(WorldStructureApi.playerDataPath(worldFolder, playerId).toFile(),
+            writeVerifiedWorldData(WorldStructureApi.playerDataPath(worldFolder, playerId),
                     createPlayerData(spawnDimension, spawnX, spawnY, spawnZ));
             WMLogger.debug("Nearby-export world created at: " + worldFolder.toAbsolutePath());
             return true;
@@ -112,7 +109,7 @@ public final class WorldStructureCreator {
                                               WorldSettingsSnapshot settings) {
         File folder = worldFolder.toFile();
         try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
-            boolean firstTime = !worldFolder.resolve("level.dat").toFile().exists();
+            boolean firstTime = Files.notExists(worldFolder.resolve("level.dat"));
             if (!folder.exists()) folder.mkdirs();
             for (String directory : WorldStructureApi.worldSubdirectories()) {
                 new File(folder, directory).mkdirs();
@@ -123,13 +120,24 @@ public final class WorldStructureCreator {
                 UUID playerId = singleplayerUuid(levelName);
                 WorldStructureApi.createInitialWorld(worldFolder, levelName, playerId,
                         createMirrorWorldGenSettings(), settings);
-                writeCompressed(WorldStructureApi.playerDataPath(worldFolder, playerId).toFile(),
+                writeVerifiedWorldData(WorldStructureApi.playerDataPath(worldFolder, playerId),
                         createPlayerData(0, 80, 0));
                 WMLogger.debug("World structure created at: " + folder.getAbsolutePath()
                         + " (name: " + resolvedLevelName(levelName) + ")");
             } else {
-                WorldStructureApi.repairOwnedSavedData(worldFolder);
+                try {
+                    WorldStructureApi.repairOwnedSavedData(worldFolder);
+                    io.github.billstark001.worldmirror.download.OperationFailures.recovered(levelName, "optional_saved_data");
+                } catch (Exception repairFailure) {
+                    // Optional maintenance is not proof that terrain cannot be persisted.
+                    // Leave the damaged file untouched; world loadability remains unverified.
+                    io.github.billstark001.worldmirror.download.OperationFailures.report(
+                            levelName, "optional_saved_data", worldFolder, repairFailure);
+                }
                 if (migrateWorldgen || refreshAssets) {
+                    if (!Files.isRegularFile(worldFolder.resolve("level.dat"))) {
+                        throw new IOException("Required world data is unavailable: " + worldFolder.resolve("level.dat"));
+                    }
                     MirrorWorldgenAssets.install(worldFolder, WorldStructureApi.dataPackFormat());
                     WorldStructureApi.updateOwnedLevelData(worldFolder,
                             migrateWorldgen || refreshAssets,
@@ -145,11 +153,13 @@ public final class WorldStructureCreator {
         }
     }
 
-    public static boolean syncWorldSetting(Path worldFolder,
+    public static boolean syncWorldSetting(MirrorTarget target,
                                            WorldSettingsSnapshot settings,
                                            Setting setting) {
+        Path worldFolder = target.folder();
         if (!Files.isRegularFile(worldFolder.resolve("level.dat"))) return false;
         try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
+            target.requireCurrent();
             WorldStructureApi.syncWorldSetting(worldFolder, settings, setting);
             return true;
         } catch (Exception e) {
@@ -163,36 +173,20 @@ public final class WorldStructureCreator {
         return levelName != null && !levelName.isEmpty() ? levelName : "Downloaded World";
     }
 
-    static void writeCompressed(File file, CompoundTag tag) throws Exception {
-        writeCompressedAtomically(file.toPath(), tag);
-    }
-
     /** Replaces a world-data file only after its compressed NBT round-trips without loss. */
-    static void writeCompressedAtomically(Path file, CompoundTag tag) throws Exception {
+    static void writeVerifiedWorldData(Path file, CompoundTag tag) throws Exception {
         file = file.toAbsolutePath().normalize();
-        Files.createDirectories(file.getParent());
-        Path temporary = Files.createTempFile(file.getParent(), file.getFileName().toString(), ".tmp");
-        try {
-            NbtWriteSupport.validateStrings(tag);
-            try (var output = Files.newOutputStream(temporary)) {
-                NbtIo.writeCompressed(tag, output);
+        try (var transaction = new io.github.billstark001.worldmirror.util.FileTransaction(file.getParent())) {
+            Path staged = transaction.stagingDirectory().resolve(file.getFileName());
+            try (var raw = Files.newOutputStream(staged);
+                 var compressed = net.minecraft.world.level.chunk.storage.RegionFileVersion.VERSION_GZIP.wrap(raw);
+                 var output = new java.io.DataOutputStream(new java.io.BufferedOutputStream(compressed))) {
+                NbtIo.writeUnnamedTag(tag, output);
             }
-            if (!tag.equals(NbtIo.readCompressed(temporary, NbtAccounter.unlimitedHeap()))) {
-                throw new IOException("World-data NBT verification failed file=" + file);
+            if (!tag.equals(NbtReadSupport.readWorldData(staged))) {
+                throw new IOException("World-data staging verification failed: " + file);
             }
-            try {
-                Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE,
-                        StandardCopyOption.REPLACE_EXISTING);
-            } catch (AtomicMoveNotSupportedException unsupported) {
-                Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (Exception | Error failure) {
-            try {
-                Files.deleteIfExists(temporary);
-            } catch (IOException cleanup) {
-                failure.addSuppressed(cleanup);
-            }
-            throw failure;
+            transaction.commit(java.util.Map.of(file.getFileName(), staged));
         }
     }
 

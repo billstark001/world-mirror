@@ -66,4 +66,18 @@ class ModConfigDefaultsTest {
             assertEquals(98, restored.chunkMap.worldChunkOverlayHeight);
         }
     }
+    @org.junit.jupiter.api.Test
+    void normalizesNullableSectionsAndUsesSafeUnknownConflictPolicy() throws Exception {
+        ModConfig config = new com.google.gson.Gson().fromJson(
+                "{\"performance\":null,\"chunkMap\":null,\"lifecycle\":null,"
+                        + "\"cache\":null,\"defaultConflictStrategy\":\"unknown\",\"syncIntervalSeconds\":-1}", ModConfig.class);
+        config.validatePostLoad();
+        org.junit.jupiter.api.Assertions.assertNotNull(config.performance);
+        org.junit.jupiter.api.Assertions.assertNotNull(config.chunkMap);
+        org.junit.jupiter.api.Assertions.assertNotNull(config.cache);
+        org.junit.jupiter.api.Assertions.assertEquals(ModConfig.TransitionBehavior.STOP, config.lifecycle.onJoinWorld);
+        org.junit.jupiter.api.Assertions.assertEquals(ModConfig.ConflictStrategy.IGNORE, config.defaultConflictStrategy);
+        org.junit.jupiter.api.Assertions.assertEquals(5, config.syncIntervalSeconds);
+    }
+
 }

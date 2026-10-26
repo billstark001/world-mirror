@@ -4,7 +4,7 @@ import me.shedaniel.autoconfig.AutoConfig;
 import me.shedaniel.autoconfig.ConfigData;
 import me.shedaniel.autoconfig.annotation.Config;
 import me.shedaniel.autoconfig.annotation.ConfigEntry;
-import me.shedaniel.autoconfig.serializer.GsonConfigSerializer;
+import java.lang.reflect.Modifier;
 
 /**
  * Persistent mod configuration stored in config/worldmirror.json.
@@ -261,6 +261,35 @@ public class ModConfig implements ConfigData {
     @ConfigEntry.Gui.CollapsibleObject
     public LifecycleConfig lifecycle = new LifecycleConfig();
 
+    /** Repairs optional fields and clamps GUI bounds before any runtime consumer sees the model. */
+    @Override
+    public void validatePostLoad() {
+        // Unknown overwrite policy must never turn into the ordinary OVERWRITE default.
+        if (defaultConflictStrategy == null) defaultConflictStrategy = ConflictStrategy.IGNORE;
+        normalize(this, new ModConfig());
+    }
+
+    private static void normalize(Object value, Object defaults) {
+        try {
+            for (var field : value.getClass().getFields()) {
+                if (Modifier.isStatic(field.getModifiers())) continue;
+                Object current = field.get(value);
+                if (current == null) {
+                    current = field.get(defaults);
+                    field.set(value, current);
+                }
+                ConfigEntry.BoundedDiscrete bounds = field.getAnnotation(ConfigEntry.BoundedDiscrete.class);
+                if (bounds != null && field.getType() == int.class) {
+                    field.setInt(value, (int) Math.clamp(field.getInt(value), bounds.min(), bounds.max()));
+                } else if (!field.getType().isPrimitive() && !field.getType().isEnum()) {
+                    normalize(current, field.get(defaults));
+                }
+            }
+        } catch (IllegalAccessException impossible) {
+            throw new IllegalStateException("Cannot validate public config fields", impossible);
+        }
+    }
+
     /**
      * Controls how the download state changes on world lifecycle events.
      * Each field uses {@link TransitionBehavior} to describe whether to
@@ -326,7 +355,7 @@ public class ModConfig implements ConfigData {
      */
     public static void register() {
         if (!registered) {
-            AutoConfig.register(ModConfig.class, GsonConfigSerializer::new);
+            AutoConfig.register(ModConfig.class, SafeConfigSerializer::new);
             registered = true;
         }
     }

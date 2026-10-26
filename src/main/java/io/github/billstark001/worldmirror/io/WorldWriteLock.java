@@ -47,7 +47,13 @@ public final class WorldWriteLock implements AutoCloseable {
         Path world = folder.toAbsolutePath().normalize();
         Ownership current = OWNED.get();
         if (current != null) {
-            if (!current.world.equals(world)) throw new IllegalStateException("Cannot nest different world write locks");
+            boolean stagedMigration = world.startsWith(current.world)
+                    && current.world.relativize(world).getNameCount() == 2
+                    && current.world.relativize(world).getName(0).toString().startsWith(".worldmirror-transaction-")
+                    && world.getFileName().toString().equals("new");
+            if (!current.world.equals(world) && !stagedMigration) {
+                throw new IllegalStateException("Cannot nest different world write locks");
+            }
             current.depth++;
             return new WorldWriteLock(current);
         }
@@ -56,6 +62,12 @@ public final class WorldWriteLock implements AutoCloseable {
         try {
             Ownership acquired = new Ownership(world, guard, acquireDirectory(world));
             OWNED.set(acquired);
+            try { io.github.billstark001.worldmirror.util.WorldRecovery.begin(world); }
+            catch (IOException | RuntimeException | Error failure) {
+                OWNED.remove();
+                try { acquired.directory.close(); } catch (IOException close) { failure.addSuppressed(close); }
+                throw failure;
+            }
             return new WorldWriteLock(acquired);
         } catch (IOException | RuntimeException | Error failure) {
             guard.unlock();
@@ -63,7 +75,8 @@ public final class WorldWriteLock implements AutoCloseable {
         }
     }
 
-    private static DirectoryLock acquireDirectory(Path world) throws IOException {
+    /** Acquires only the native lock; use acquire() when this root also needs World Mirror recovery. */
+    public static DirectoryLock acquireDirectory(Path world) throws IOException {
         try {
             // The probe closes its channel even on a same-JVM overlap. Vanilla's
             // create() only cleans up IOExceptions, so avoid that path when busy.
@@ -86,9 +99,10 @@ public final class WorldWriteLock implements AutoCloseable {
         if (--ownership.depth > 0) return;
         OWNED.remove();
         try {
-            ownership.directory.close();
+            io.github.billstark001.worldmirror.util.WorldRecovery.end();
         } finally {
-            ownership.guard.unlock();
+            try { ownership.directory.close(); }
+            finally { ownership.guard.unlock(); }
         }
     }
 }

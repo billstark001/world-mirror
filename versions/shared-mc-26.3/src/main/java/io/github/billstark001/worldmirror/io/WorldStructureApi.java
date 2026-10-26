@@ -12,7 +12,6 @@ import net.minecraft.core.Registry;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.NbtUtils;
 import net.minecraft.nbt.NbtOps;
@@ -144,14 +143,14 @@ final class WorldStructureApi {
     static void repairOwnedSavedData(Path worldFolder) throws Exception {
         Path file = worldFolder.resolve("data/minecraft/world_clocks.dat");
         if (!Files.isRegularFile(file)) return;
-        CompoundTag root = NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap());
+        CompoundTag root = NbtReadSupport.readWorldData(file);
         CompoundTag data = root.getCompoundOrEmpty("data");
         if (!data.keySet().equals(Set.of("clocks"))) return;
         CompoundTag nested = data.getCompoundOrEmpty("clocks");
         if (!nested.keySet().equals(
                 Set.of("minecraft:overworld", "minecraft:the_end"))) return;
         root.put("data", roundTripWorldClocksData(nested));
-        WorldStructureCreator.writeCompressedAtomically(file, root);
+        WorldStructureCreator.writeVerifiedWorldData(file, root);
     }
 
     static WorldSettingsSnapshot captureWorldSettings(ClientLevel world) {
@@ -219,15 +218,15 @@ final class WorldStructureApi {
         CompoundTag levelData = data.createTag(playerId);
         enableDataPack(levelData);
         root.put("Data", levelData);
-        WorldStructureCreator.writeCompressed(file.toFile(), root);
+        WorldStructureCreator.writeVerifiedWorldData(file, root);
     }
 
     private static void patchEnabledDataPack(Path levelDat) throws Exception {
-        CompoundTag root = NbtIo.readCompressed(levelDat, NbtAccounter.unlimitedHeap());
+        CompoundTag root = NbtReadSupport.readWorldData(levelDat);
         CompoundTag levelData = root.getCompoundOrEmpty("Data");
         enableDataPack(levelData);
         root.put("Data", levelData);
-        WorldStructureCreator.writeCompressed(levelDat.toFile(), root);
+        WorldStructureCreator.writeVerifiedWorldData(levelDat, root);
     }
 
     private static void enableDataPack(CompoundTag levelData) {
@@ -246,25 +245,25 @@ final class WorldStructureApi {
         CompoundTag root = new CompoundTag();
         root.put("data", data);
         NbtUtils.addCurrentDataVersion(root);
-        WorldStructureCreator.writeCompressed(file.toFile(), root);
+        WorldStructureCreator.writeVerifiedWorldData(file, root);
     }
 
     private static void writeSavedDataAtomically(Path file, CompoundTag data) throws Exception {
         CompoundTag root = new CompoundTag();
         root.put("data", data);
         NbtUtils.addCurrentDataVersion(root);
-        WorldStructureCreator.writeCompressedAtomically(file, root);
+        WorldStructureCreator.writeVerifiedWorldData(file, root);
     }
 
     private static void patchLevelData(Path worldFolder,
                                        java.util.function.Consumer<CompoundTag> patch)
             throws Exception {
         Path levelDat = worldFolder.resolve("level.dat");
-        CompoundTag root = NbtIo.readCompressed(levelDat, NbtAccounter.unlimitedHeap());
+        CompoundTag root = NbtReadSupport.readWorldData(levelDat);
         CompoundTag data = root.getCompoundOrEmpty("Data");
         patch.accept(data);
         root.put("Data", data);
-        WorldStructureCreator.writeCompressedAtomically(levelDat, root);
+        WorldStructureCreator.writeVerifiedWorldData(levelDat, root);
     }
 
     private static CompoundTag createWeatherData(WorldSettingsSnapshot settings) {

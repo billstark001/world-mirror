@@ -13,14 +13,24 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Set;
 
-/** Lossless-string preflight shared by native NBT writers and the vendored NBT bridge. */
+/** Lossless-string preflight shared by native NBT writers. */
 final class NbtWriteSupport {
     private NbtWriteSupport() { }
 
+    /** Owns the native output stream; the digest describes exactly the uncompressed bytes written. */
+    static byte[] writeChunkAndDigest(CompoundTag tag, DataOutputStream nativeOutput) throws IOException {
+        var digest = io.github.billstark001.worldmirror.util.FileProof.sha256();
+        try (var output = new DataOutputStream(new java.security.DigestOutputStream(nativeOutput, digest))) {
+            net.minecraft.nbt.NbtIo.writeUnnamedTag(tag, output);
+        }
+        return digest.digest();
+    }
+
     /**
-     * Mojang's StringTag writer falls back to an empty string on modified-UTF
-     * overflow. Validate both keys and values with Java's actual encoder before
-     * opening a region output stream, which commits its bytes when closed.
+     * NbtIo.write enables an empty-string fallback on modified-UTF overflow;
+     * strict native writing avoids that fallback. In-place MCA writes additionally
+     * validate before opening their output stream: closing even a failed native
+     * chunk stream commits its buffered bytes. Staged files need no such traversal.
      */
     static void validateStrings(CompoundTag root) throws IOException {
         Set<Tag> seenContainers = Collections.newSetFromMap(new IdentityHashMap<>());

@@ -25,14 +25,16 @@ class MirrorMappingPathTest {
     }
 
     @Test
-    void ignoresUnsafePersistedNamesWithoutRewritingTheMapping() {
+    void ignoresUnsafePersistedNamesWithoutRewritingTheMapping(@TempDir Path root) throws Exception {
         String document = """
                 {"entries":{"server:test":"../outside"},
                  "resolvedFolderNames":{"server:test\\u0000SAVES":"C:\\\\outside"}}
                 """;
-        MirrorMapping mapping = JsonSupport.fromJson(new StringReader(document), MirrorMapping.class);
+        Path file = Files.writeString(root.resolve("mirrors.json"), document);
+        MirrorMapping mapping = MirrorMapping.load(file, root.resolve("game"));
 
         assertEquals("test", mapping.previewBaseFolderName("server:test"));
         assertNull(mapping.previewResolvedFolderName("server:test", "SAVES"));
+        assertEquals(document, Files.readString(file));
     }
 }

@@ -72,24 +72,27 @@ class WorldSettingsCreationTest {
     void manualActionsChangeOnlyTheSelectedSetting(@TempDir Path world) throws Exception {
         assertTrue(WorldStructureCreator.createLoadableWorld(
                 world, "test", true, true, WorldSettingsSnapshot.defaults()));
+        var metadata = io.github.billstark001.worldmirror.download.WorldMetadata.create("local:settings", "singleplayer", "synchronized");
+        metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), MirrorWorldgenAssets.ASSET_REVISION);
+        assertTrue(metadata.save(world));
         WorldSettingsSnapshot changed = new WorldSettingsSnapshot(
                 22_222L, 9_999L, true, false, 2);
 
         assertTrue(WorldStructureCreator.syncWorldSetting(
-                world, changed, WorldStructureCreator.Setting.DIFFICULTY));
+                new MirrorTarget(world, "local:settings"), changed, WorldStructureCreator.Setting.DIFFICULTY));
         CompoundTag afterDifficulty = readLevelData(world);
         assertEquals(2, difficultyId(afterDifficulty));
         assertEquals(WorldSettingsSnapshot.DEFAULT_TIME,
                 afterDifficulty.getLongOr("Time", -1L));
 
         assertTrue(WorldStructureCreator.syncWorldSetting(
-                world, changed, WorldStructureCreator.Setting.TIME));
+                new MirrorTarget(world, "local:settings"), changed, WorldStructureCreator.Setting.TIME));
         CompoundTag afterTime = readLevelData(world);
         assertEquals(22_222L, afterTime.getLongOr("Time", -1L));
         assertEquals(2, difficultyId(afterTime));
 
         assertTrue(WorldStructureCreator.syncWorldSetting(
-                world, changed, WorldStructureCreator.Setting.WEATHER));
+                new MirrorTarget(world, "local:settings"), changed, WorldStructureCreator.Setting.WEATHER));
         if (afterTime.contains("DayTime")) {
             CompoundTag weather = readLevelData(world);
             assertTrue(weather.getBooleanOr("raining", false));

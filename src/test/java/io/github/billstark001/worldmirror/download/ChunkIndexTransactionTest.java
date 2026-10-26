@@ -125,4 +125,19 @@ class ChunkIndexTransactionTest {
             throw exception.getCause();
         }
     }
+    @Test
+    void unavailablePriorityRulesNeverAuthorizeAnOverwrite() throws Exception {
+        try (Connection connection = open()) {
+            ChunkIndexStore store = new ChunkIndexStore(connection, "server:test");
+            var pos = new ChunkCoordinate(0, 0);
+            store.recordUpdates("minecraft:overworld", Map.of(pos, 100L), "player");
+            assertTrue(store.shouldSkipUpdate("minecraft:overworld", 0, 0, "world_mirror", 200L));
+            try (var sql = connection.createStatement()) { sql.execute("DROP TABLE update_sources"); }
+            assertThrows(SQLException.class, () -> store.shouldSkipUpdate(
+                    "minecraft:overworld", 0, 0, "world_mirror", 200L));
+            store.removeUnreadableUpdates("minecraft:overworld", java.util.Set.of(pos));
+            assertEquals("player", store.queryAll("minecraft:overworld").getFirst().updateSource());
+        }
+    }
+
 }
