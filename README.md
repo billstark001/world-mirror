@@ -333,14 +333,14 @@ into SQLite on the first sync after upgrade. The JSON field is removed only afte
 the database commit succeeds; a failed migration retains the original data and
 stops that export for retry. Mapping and metadata JSON are replaced using
 same-directory temporary files. A failed final metadata write leaves the export
-incomplete and queued for retry. Explicit actions report the failure in chat;
-periodic and adaptive exports currently report it in the log.
+incomplete and queued for retry. Manual and automatic exports report failures
+through coalesced local chat/toast notices as well as the log.
 Compressed world-data files are also written to a temporary file and read back
 before replacement. Serialization failures and values the NBT writer cannot
 preserve leave the previous file intact.
-Native NBT writers check Java's modified-UTF string encoding before opening a
-region output stream, preventing oversized values or keys from being silently
-replaced with empty strings.
+NBT uses the game's strict writer to reject oversized strings and keys. In-place
+region writes additionally check strings before opening a committing output stream;
+staged files are validated before any live replacement.
 
 World-file mutations hold Minecraft's `session.lock` for the entire operation.
 Close the target mirror before exporting into it, applying conflicts, upgrading,
@@ -350,12 +350,42 @@ available when a mirror is open.
 
 Failed mirror exports retain only unfinished frozen revisions while the client is
 running, even after leaving the source world. The first retry waits 10 seconds;
-further failures wait 60 seconds. Terrain and entity updates preserve their own
+further failures back off exponentially to 15 minutes. A manual export wakes pending retries immediately. Terrain and entity updates preserve their own
 source order: an entity-only failure does not block newer terrain, while a failed
 terrain revision must settle before later terrain from that source. Other sources
 can proceed. Terrain is acknowledged only after region verification and its SQLite
 commit; entity acknowledgement requires separate UUID verification. Retried
 metadata saves retain the newest already verified and indexed capture time.
+
+A malformed file affects only work that depends on it. Optional saved-data repair
+failures leave the file untouched and allow independent terrain to save; damaged
+entity regions still block entity operations whose UUID uniqueness cannot be proved.
+Unavailable priority rules defer overwrites. Read failures are not treated as an
+empty database or a missing routing document. Invalid configuration is backed up
+before normalized settings are saved; an unknown conflict policy becomes Ignore.
+
+NBT/JSON reads have finite budgets. Unchanged malformed NBT is not repeatedly
+decoded, and manual export retries validation. File failures outside chunk writes
+also produce coalesced local chat/toast notices. Capture stops admitting new work
+when retained bundles, dirty chunks or heap pressure exceed the safety budget;
+existing unfinished data stays retained. Repair the failure, export, then restart
+capture. This does not turn the in-memory retry queue into crash-persistent storage.
+
+Unfinished mirror creation has a durable ownership reservation and resumes the same
+directory. Moving a world within the same filesystem holds native locks at both
+ends, validates both identities and the complete move plan, and journals the move.
+It rolls back if routing cannot be saved. The old empty root retains a reservation
+so moving back can reuse it. Interrupted file replacements recover under the native
+world lock before subsequent writes or opening through the mirror recovery flow;
+ambiguous or corrupt recovery evidence is retained for repair. Recovery never
+overwrites content that matches neither the original nor the planned replacement.
+Cleanup failures after a verified commit do not reverse it. These guarantees cover
+recoverable file operations, not simultaneous multi-file visibility or all hardware
+power-loss scenarios.
+Bulk conflict application uses bounded batches and removes incoming entries only
+after their copied data verifies. A damaged region location table is retained for
+repair rather than passed to a writer that could discard its invalid entries.
+
 
 On client exit, the configured stop-time capture/export behavior runs first. The
 export worker finishes accepted writes and makes one final attempt at queued frozen
@@ -373,7 +403,7 @@ save; legacy metadata without that marker remains supported.
 On the game thread, World Mirror uses Minecraft's vanilla entity serializer for each
 visible top-level non-player entity and its complete passenger tree. Versioned updates
 are kept independently from the terrain cache, then merged into per-dimension
-`entities/r.X.Z.mca` files with atomic region replacement. This covers common mobs,
+`entities/r.X.Z.mca` files with verified, recoverable region replacement, including external `.mcc` payloads. This covers common mobs,
 vehicles, paintings, item frames, armour stands, and dropped items on a best-effort basis.
 
 Entity output is not a server-authoritative backup. Fields never sent to the
@@ -538,7 +568,7 @@ remain queued and can still write or retry; clearing live caches does not cancel
 ## Building
 
 Maintainers should read [CONTRIBUTING.md](CONTRIBUTING.md), especially the
-project-wide logging policy and the vendored NBT dependency notes.
+project-wide logging policy and file-failure recovery rules.
 
 ```bash
 ./gradlew buildAll
@@ -617,7 +647,7 @@ When adding or removing a Minecraft target:
 
 ## Implementation Notes
 
-Contributor-facing architecture, durability, logging, and vendored-library guidance lives
+Contributor-facing architecture, durability, logging, and file-recovery guidance lives
 in [CONTRIBUTING.md](CONTRIBUTING.md). The third-party SQLite contract is documented in
 [DATABASE.md](DATABASE.md).
 

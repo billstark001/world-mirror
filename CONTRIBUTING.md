@@ -31,7 +31,7 @@ The download package follows the same ownership rule:
 - `MirrorMapping` owns output-path selection, claiming, and per-world path settings.
 - `EntityTracker` owns game-thread vanilla serialization and observation boundaries;
   `EntitySnapshotStore` owns versioned partial/complete reconciliation; and
-  `EntityRegionWriter` owns UUID-aware atomic entity-region merging.
+  `EntityRegionWriter` owns UUID-aware recoverable entity-region merging.
 
 Avoid adding queue locks, region transactions, strategy-specific state, or path-claiming
 logic back to the manager. Prefer extending an existing owner over adding a one-method
@@ -334,7 +334,7 @@ Region files are not durable merely because `flush()` returned. Terrain writes m
 validate the Anvil location table, reopen and decode each staged entry, and only then
 advance the SQLite durability index. Entity writes must reopen affected chunks and
 verify affected UUIDs across the dimension before acknowledging revisions. Failed
-validation remains dirty for retry; stale terrain durability rows for unreadable entries
+validation remains dirty for retry; stale World Mirror terrain durability rows for unreadable entries
 must be removed.
 
 Before merging a logging change, search the complete source tree for direct
@@ -343,30 +343,58 @@ exceptions retain their cause, and build every supported target. Do not launch
 Minecraft as part of this check unless interactive validation is specifically
 required.
 
-## Vendored ens-gijs/NBT library
+## File failures and recovery
 
-Code under `io.github.ensgijs.nbt` is third-party code and is outside the
-World Mirror logging policy. Do not reformat or make opportunistic changes in
-that package.
+Use `JsonSupport.readDocument` to distinguish missing, invalid and inaccessible JSON.
+Unavailable priority rules are not permission to overwrite: propagate the failed
+decision and retain the pending revision. Removing an unreadable World Mirror
+durability claim must preserve rows owned by player/other update sources.
 
-As of 2026-08-23, Maven Central publishes
-`io.github.ens-gijs.nbt:nbt:0.1.1` and
-`io.github.ens-gijs.nbt:nbt-mca:0.2.0`. Loom could embed them with
-`implementation include(...)`, but World Mirror cannot safely switch yet: the
-published artifacts and upstream commit `f547ff1f0992fd7bc2bed727de104b41ea80d80a`
-still initialize `SectionedChunkBase` caches inline while a superclass invokes
-`initMembers()`. World Mirror carries the required initialization fix in commit
-`16d7dae`; using the released JARs would regress region decoding.
+`NbtReadSupport` bounds native NBT allocation and compressed input. `AnvilReader`
+reads containers without opening a repairing writer, including native compression
+IDs and external `.mcc` payloads. Entity merging and legacy cleanup use native NBT;
+there is no second NBT model or conversion/dependency compatibility layer.
+Reuse its validated location table and channel throughout a region scan. Streaming
+scans have per-chunk allocation limits; cumulative allocation is not retained heap.
+Policy-limit failures are not malformed-file cache entries. Cache failures against
+the version observed before reading, and only while that version remains unchanged.
+Native selective NBT visitors are not a substitute for bounded validation: skipped
+arrays do not charge the allocation quota, and field collectors can stop early.
+Use strict `NbtIo.writeUnnamedTag` for staging. In-place MCA output streams commit
+on close even after serialization fails, so they still need string preflight.
+An allocated entry that vanilla cannot decode is an error, never an absent chunk.
+Reject damaged location tables before opening a writable region, retaining valid
+older durability claims for healthy neighbors. Bound retained conflict snapshots
+separately from streaming-read quotas; reuse one reader per batch and remove only
+unchanged, verified incoming entries after its target batch succeeds.
 
-Until an upstream release contains that fix, update the vendored copy only as a
-deliberate dependency change:
+Keep failures at their real dependency boundary. Directory setup failure affects
+its dimension; optional saved-data maintenance cannot erase terrain receipts.
+Entity UUID uniqueness can legitimately depend on every entity region in a
+dimension, so an unreadable region must not be silently skipped.
 
-1. Record the upstream commit and review upstream release notes.
-2. Replace both the `nbt` and `nbt-mca` source trees from that same commit.
-3. Reapply only the documented section-cache fix if it is still absent.
-4. Review the vendor-only diff separately from World Mirror changes.
-5. Run the full test suite and build all Minecraft targets.
+Whole-file replacements use `FileTransaction`: stage and validate semantics once,
+verify backups while copying, publish a recovery journal, replace, verify exact
+file bytes, then mark committed. Reuse these content proofs instead of decoding
+live MCA/NBT or JSON again. Decision records are bound to their manifest; recovery
+checks the whole restoration set before changing a file and refuses unknown edits.
+MCA and external payloads belong to one recovery set. Migration works in a staged
+world and commits its files together. This provides rollback/restart recovery under
+the native world lease, not simultaneous multi-file visibility or a hardware
+power-loss guarantee. `WorldRecovery` uses a marker to avoid scanning healthy worlds;
+uncertain journals/backups are retained and cannot authorize a guessed restoration.
+Terminal directories are retired before deletion, and cleanup failure cannot turn
+a known commit into a failed save. Discover pending region transactions once per
+native world lease, invalidating that discovery after an uncertain result. Routing
+uses immutable published views: preview/render queries never wait for disk writes,
+unchanged claims skip replacement, and stale writes are checked inside publication's
+lease using the change token captured there. Relocation validates both mirror IDs,
+counterpart journals and all entries before any move; it has no cross-filesystem
+copy-and-delete fallback.
 
-Once a compatible release exists, prefer the two pinned Maven Central
-dependencies with Loom `include(...)`, remove the vendored sources in the same
-commit, and inspect the built JAR to confirm both libraries are nested.
+Run long file operations through `OfflineTasks`; progress and UI callbacks cannot
+decide persistence success. `OperationFailures` reports non-chunk file problems
+through bounded, coalesced local chat/toasts. Keep those separate from chunk-state
+receipts. Frozen retries back off, unchanged malformed reads are negatively cached,
+and admission stops when the retained backlog/heap budget is exceeded. Never evict
+unacknowledged data to satisfy a cache limit. This queue remains memory-only.
