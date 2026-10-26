@@ -32,8 +32,8 @@ changes without dropping compatibility requirements or migration guidance.
 
 - Show queued, writing, failed, partially saved, and fully saved export markers
   across chunk maps and world overlays; retain their existing base colors.
-- Surface automatic and manual export failures through merged, rate-limited chat
-  and toast notices, with current health on the status screen.
+- Surface automatic/manual export and file-operation failures through merged,
+  rate-limited chat and toast notices, with current health on the status screen.
 
 ### Changed
 
@@ -43,6 +43,9 @@ changes without dropping compatibility requirements or migration guidance.
   overlays; publish changed export-state regions and bound coarse-view refresh
   and marker work with large capture histories.
 - Use purple conflict borders, reserving red export markers for failures.
+- Replace the vendored NBT stack with bounded native codecs and read-only MCA
+  access; stream entity rewrites and apply conflicts in bounded batches.
+- Keep routing previews off disk-write locks and skip unchanged folder claims.
 
 ### Fixed
 
@@ -53,8 +56,14 @@ changes without dropping compatibility requirements or migration guidance.
   each source's terrain/entity order while letting newer terrain proceed past
   entity-only failures.
 - Protect open saves with Minecraft's session lock across Windows and Linux.
-  Validate world-data and region writes, preserve previous files on failed replacement, and retain
-  legacy timestamps when migration or metadata persistence fails.
+  Preserve damaged region headers and healthy neighboring durability claims.
+  Recover interrupted file sets without overwriting unknown edits or undoing
+  verified commits after cleanup failures; retain legacy timestamps when migration
+  or metadata persistence fails.
+- Preserve damaged configuration and optional saved data, defer overwrites when
+  priority rules are unreadable, and keep independent terrain saves running.
+- Validate mirror identities and relocation plans before moving files; recover
+  routing consistently and reject stale mapping updates.
 - Resolve conflicts without lock-order deadlocks, support external chunk files,
   and retain failed or newer incoming conflicts for review.
 - Correct entity moves, detached passengers, and observations that revert during
