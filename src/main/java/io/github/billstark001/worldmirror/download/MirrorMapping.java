@@ -3,6 +3,7 @@ package io.github.billstark001.worldmirror.download;
 import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.util.JsonSupport;
 import io.github.billstark001.worldmirror.util.WMLogger;
+import io.github.billstark001.worldmirror.util.FileProof;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.IOException;
@@ -41,34 +42,23 @@ import java.util.regex.Pattern;
  */
 public class MirrorMapping {
 
-    // ── Persisted fields (Gson accesses private fields via reflection) ─────────
+    /** The persisted field names stay stable; runtime readers use one immutable, durably published view. */
+    private record Routing(Map<String, String> entries, Map<String, String> resolvedFolderNames,
+                           Map<String, String> perWorldSaveLocation, Map<String, String> perWorldConflictStrategy) {
+        Routing {
+            entries = freeze(entries);
+            resolvedFolderNames = freeze(resolvedFolderNames);
+            perWorldSaveLocation = freeze(perWorldSaveLocation);
+            perWorldConflictStrategy = freeze(perWorldConflictStrategy);
+        }
 
-    /** Maps {@code sourceId} → mirror folder base name (never contains a generated suffix). */
-    private Map<String, String> entries = new HashMap<>();
+        private static Map<String, String> freeze(Map<String, String> source) {
+            // Old documents use null maps and null values to mean defaults.
+            return source == null ? Map.of() : java.util.Collections.unmodifiableMap(new HashMap<>(source));
+        }
+    }
 
-    /**
-     * Maps a compound key {@code "sourceId\0saveLocationName"} → the collision-resolved
-     * folder name that was actually used for that specific (source, location) combination.
-     * Stored separately from {@code entries} so the base name is never contaminated with
-     * numeric suffixes, and keyed by save-location so that switching between
-     * {@code DOWNLOADED} and {@code SAVES} always triggers a fresh resolution scan in the
-     * correct directory.
-     */
-    private Map<String, String> resolvedFolderNames = new HashMap<>();
-
-    /**
-     * Per-world save location override.
-     * Key: {@code sourceId}; value: {@link io.github.billstark001.worldmirror.config.ModConfig.SaveLocation} name.
-     * Absent or {@code null} → use global config.
-     */
-    private Map<String, String> perWorldSaveLocation = new HashMap<>();
-
-    /**
-     * Per-world conflict strategy override.
-     * Key: {@code sourceId}; value: {@link io.github.billstark001.worldmirror.config.ModConfig.ConflictStrategy} name.
-     * Absent or {@code null} → use global config.
-     */
-    private Map<String, String> perWorldConflictStrategy = new HashMap<>();
+    private volatile Routing routing = new Routing(null, null, null, null);
 
     // ── Persistence ───────────────────────────────────────────────────────────
 
@@ -88,7 +78,8 @@ public class MirrorMapping {
     private static volatile MirrorMapping instance;
     private transient Path storageFile;
     private transient Path gameDirectory;
-    private transient boolean readable = true;
+    private transient volatile boolean readable = true;
+    private transient FileProof.Version storedStamp;
     private final transient java.util.concurrent.locks.ReentrantLock mutationLock = new java.util.concurrent.locks.ReentrantLock();
 
     public MirrorMapping() { }
@@ -121,24 +112,29 @@ public class MirrorMapping {
             blocked.readable = false;
             return blocked;
         }
-        var document = JsonSupport.readDocument(file, MirrorMapping.class);
+        FileProof.Version observed;
+        try { observed = stamp(file); }
+        catch (IOException failure) {
+            OperationFailures.report("routing", "mapping_read", file, failure);
+            MirrorMapping blocked = new MirrorMapping(file, gameDirectory);
+            blocked.readable = false;
+            return blocked;
+        }
+        var document = JsonSupport.readDocument(file, Routing.class);
         if (document.state() == JsonSupport.ReadState.VALID) {
-            MirrorMapping mapping = document.value();
-            if (mapping.entries == null) mapping.entries = new HashMap<>();
-            if (mapping.resolvedFolderNames == null) mapping.resolvedFolderNames = new HashMap<>();
-            if (mapping.perWorldSaveLocation == null) mapping.perWorldSaveLocation = new HashMap<>();
-            if (mapping.perWorldConflictStrategy == null) mapping.perWorldConflictStrategy = new HashMap<>();
-            mapping.storageFile = file;
-            mapping.gameDirectory = gameDirectory;
+            MirrorMapping mapping = new MirrorMapping(file, gameDirectory);
+            mapping.routing = document.value();
+            mapping.storedStamp = observed;
             try {
-                for (String value : mapping.perWorldConflictStrategy.values()) {
+                if (!java.util.Objects.equals(observed, stamp(file))) throw new IOException("Routing changed while loading");
+                for (String value : mapping.routing.perWorldConflictStrategy().values()) {
                     if (value != null && !value.isBlank()) ModConfig.ConflictStrategy.valueOf(value);
                 }
-                for (String value : mapping.perWorldSaveLocation.values()) {
+                for (String value : mapping.routing.perWorldSaveLocation().values()) {
                     if (value != null && !value.isBlank()) ModConfig.SaveLocation.valueOf(value);
                 }
                 return mapping;
-            } catch (RuntimeException invalid) {
+            } catch (IOException | RuntimeException invalid) {
                 OperationFailures.report("routing", "mapping_read", file, invalid);
             }
         } else if (document.failure() != null) {
@@ -150,41 +146,48 @@ public class MirrorMapping {
     }
 
     /** Persists the current mapping, returning false if its document could not be replaced. */
-    public synchronized boolean save() {
-        if (!readable) return false;
-        Path file = storageFile != null ? storageFile : configDir().resolve("mirrors.json");
-        try {
-            JsonSupport.writeDocument(file, this);
-            return true;
-        } catch (Exception e) {
-            WMLogger.warn("Mirror mapping save failed file=" + file, e);
-            return false;
-        }
+    public boolean save() {
+        mutationLock.lock();
+        try { return persist(routing, false); }
+        finally { mutationLock.unlock(); }
     }
 
     /** Publishes an in-memory mutation only when its replacement document was saved. */
-    private boolean changeAndSave(Runnable change) {
-        Map<String, String> oldEntries = entries;
-        Map<String, String> oldResolved = resolvedFolderNames;
-        Map<String, String> oldLocations = perWorldSaveLocation;
-        Map<String, String> oldStrategies = perWorldConflictStrategy;
-        entries = new HashMap<>(entries);
-        resolvedFolderNames = new HashMap<>(resolvedFolderNames);
-        perWorldSaveLocation = new HashMap<>(perWorldSaveLocation);
-        perWorldConflictStrategy = new HashMap<>(perWorldConflictStrategy);
-        boolean saved = false;
+    private boolean changeAndSave(java.util.function.UnaryOperator<Routing> change) {
+        mutationLock.lock();
+        try { return persist(change.apply(routing), true); }
+        finally { mutationLock.unlock(); }
+    }
+
+    private boolean persist(Routing next, boolean skipUnchanged) {
+        if (!readable) return false;
+        Path file = storageFile != null ? storageFile : configDir().resolve("mirrors.json");
         try {
-            change.run();
-            saved = save();
-            return saved;
-        } finally {
-            if (!saved) {
-                entries = oldEntries;
-                resolvedFolderNames = oldResolved;
-                perWorldSaveLocation = oldLocations;
-                perWorldConflictStrategy = oldStrategies;
+            if (!java.util.Objects.equals(storedStamp, stamp(file))) {
+                throw new IOException("Routing changed outside this mapping; reload before writing: " + file);
             }
+            if (skipUnchanged && next.equals(routing)) return true;
+            storedStamp = JsonSupport.compareAndWriteDocument(file, next, storedStamp);
+        } catch (Exception failure) {
+            WMLogger.warn("Mirror mapping save failed file=" + file, failure);
+            return false;
         }
+        // The change token was captured under publication's lease. Never capture
+        // another writer's later token and attach it to this older routing view.
+        routing = next;
+        return true;
+    }
+
+    private static FileProof.Version stamp(Path file) throws IOException {
+        try {
+            return FileProof.version(file);
+        } catch (java.nio.file.NoSuchFileException missing) { return null; }
+    }
+
+    private static Map<String, String> updated(Map<String, String> source, String key, String value) {
+        Map<String, String> next = new HashMap<>(source);
+        if (value == null) next.remove(key); else next.put(key, value);
+        return next;
     }
 
     // ── Query / update ────────────────────────────────────────────────────────
@@ -193,8 +196,8 @@ public class MirrorMapping {
      * Returns the assigned base name, or a deterministic generated name when no
      * assignment has been persisted yet. This query never writes configuration.
      */
-    public synchronized String previewBaseFolderName(String sourceId) {
-        String existing = entries.get(sourceId);
+    public String previewBaseFolderName(String sourceId) {
+        String existing = routing.entries().get(sourceId);
         if (isUsableFolderName(existing)) {
             return existing;
         }
@@ -213,10 +216,10 @@ public class MirrorMapping {
      *                         ({@link io.github.billstark001.worldmirror.config.ModConfig.SaveLocation#name()})
      * @return the recorded resolved folder name, or {@code null}
      */
-    public synchronized String previewResolvedFolderName(
+    public String previewResolvedFolderName(
             String sourceId, String saveLocationName) {
         String key = sourceId + KEY_SEP + saveLocationName;
-        String v = resolvedFolderNames.get(key);
+        String v = routing.resolvedFolderNames().get(key);
         return isUsableFolderName(v) ? v : null;
     }
 
@@ -230,27 +233,31 @@ public class MirrorMapping {
      * @param saveLocationName the enum name of the save-location
      * @param resolvedName    the folder name that was chosen (relative to the location root)
      */
-    public synchronized boolean recordResolvedFolderName(
+    public boolean recordResolvedFolderName(
             String sourceId, String saveLocationName, String resolvedName) {
         requireSourceId(sourceId);
         ModConfig.SaveLocation.valueOf(saveLocationName);
         requireFolderName(resolvedName);
-        return changeAndSave(() -> {
-            entries.putIfAbsent(sourceId, generateFolderName(sourceId));
-            resolvedFolderNames.put(sourceId + KEY_SEP + saveLocationName, resolvedName);
+        return changeAndSave(current -> {
+            String key = sourceId + KEY_SEP + saveLocationName;
+            if (current.entries().get(sourceId) != null && resolvedName.equals(current.resolvedFolderNames().get(key))) return current;
+            return new Routing(current.entries().get(sourceId) == null ? updated(current.entries(), sourceId, generateFolderName(sourceId)) : current.entries(),
+                    updated(current.resolvedFolderNames(), key, resolvedName), current.perWorldSaveLocation(), current.perWorldConflictStrategy());
         });
     }
 
     /** Records a per-world location and its resolved folder in one durable write. */
-    public synchronized boolean recordMirrorLocation(
+    public boolean recordMirrorLocation(
             String sourceId, String locationName, String resolvedName) {
         requireSourceId(sourceId);
         ModConfig.SaveLocation.valueOf(locationName);
         requireFolderName(resolvedName);
-        return changeAndSave(() -> {
-            entries.putIfAbsent(sourceId, generateFolderName(sourceId));
-            perWorldSaveLocation.put(sourceId, locationName);
-            resolvedFolderNames.put(sourceId + KEY_SEP + locationName, resolvedName);
+        return changeAndSave(current -> {
+            String key = sourceId + KEY_SEP + locationName;
+            if (current.entries().get(sourceId) != null && resolvedName.equals(current.resolvedFolderNames().get(key))
+                    && locationName.equals(current.perWorldSaveLocation().get(sourceId))) return current;
+            return new Routing(current.entries().get(sourceId) == null ? updated(current.entries(), sourceId, generateFolderName(sourceId)) : current.entries(),
+                    updated(current.resolvedFolderNames(), key, resolvedName), updated(current.perWorldSaveLocation(), sourceId, locationName), current.perWorldConflictStrategy());
         });
     }
 
@@ -260,8 +267,8 @@ public class MirrorMapping {
      * Returns the per-world save-location override for {@code sourceId},
      * or {@code null} if none has been set (meaning: use the global config).
      */
-    public synchronized String getPerWorldSaveLocation(String sourceId) {
-        String v = perWorldSaveLocation.get(sourceId);
+    public String getPerWorldSaveLocation(String sourceId) {
+        String v = routing.perWorldSaveLocation().get(sourceId);
         return (v != null && !v.isBlank()) ? v : null;
     }
 
@@ -280,12 +287,22 @@ public class MirrorMapping {
     }
 
     Path previewOutputPath(String sourceId) {
-        return previewOutputPath(sourceId, effectiveSaveLocation(sourceId));
+        Routing current = routing;
+        String configured = current.perWorldSaveLocation().get(sourceId);
+        ModConfig.SaveLocation location = configured == null || configured.isBlank()
+                ? ModConfig.get().defaultSaveLocation : ModConfig.SaveLocation.valueOf(configured);
+        return previewOutputPath(sourceId, location, current);
     }
 
     Path previewOutputPath(String sourceId, ModConfig.SaveLocation saveLocation) {
-        String baseName = previewBaseFolderName(sourceId);
-        String resolved = previewResolvedFolderName(sourceId, saveLocation.name());
+        return previewOutputPath(sourceId, saveLocation, routing);
+    }
+
+    private Path previewOutputPath(String sourceId, ModConfig.SaveLocation saveLocation, Routing current) {
+        String baseName = current.entries().get(sourceId);
+        if (!isUsableFolderName(baseName)) baseName = generateFolderName(sourceId);
+        String resolved = current.resolvedFolderNames().get(sourceId + KEY_SEP + saveLocation.name());
+        if (!isUsableFolderName(resolved)) resolved = null;
         return outputRoot(saveLocation).resolve(resolved == null ? baseName : resolved);
     }
 
@@ -405,8 +422,8 @@ public class MirrorMapping {
      * Returns the per-world conflict-strategy override for {@code sourceId},
      * or {@code null} if none has been set (meaning: use the global config).
      */
-    public synchronized String getPerWorldConflictStrategy(String sourceId) {
-        String v = perWorldConflictStrategy.get(sourceId);
+    public String getPerWorldConflictStrategy(String sourceId) {
+        String v = routing.perWorldConflictStrategy().get(sourceId);
         return (v != null && !v.isBlank()) ? v : null;
     }
 
@@ -414,14 +431,16 @@ public class MirrorMapping {
      * Sets a per-world conflict-strategy override.
      * Pass {@code null} or an empty string to remove the override.
      */
-    public synchronized boolean setPerWorldConflictStrategy(String sourceId, String strategyName) {
+    public boolean setPerWorldConflictStrategy(String sourceId, String strategyName) {
         requireSourceId(sourceId);
         if (strategyName != null && !strategyName.isBlank()) {
             ModConfig.ConflictStrategy.valueOf(strategyName);
         }
-        return changeAndSave(() -> {
-            if (strategyName == null || strategyName.isBlank()) perWorldConflictStrategy.remove(sourceId);
-            else perWorldConflictStrategy.put(sourceId, strategyName);
+        return changeAndSave(current -> {
+            String value = strategyName == null || strategyName.isBlank() ? null : strategyName;
+            if (java.util.Objects.equals(value, current.perWorldConflictStrategy().get(sourceId))) return current;
+            return new Routing(current.entries(), current.resolvedFolderNames(), current.perWorldSaveLocation(),
+                    updated(current.perWorldConflictStrategy(), sourceId, value));
         });
     }
 
@@ -458,6 +477,7 @@ public class MirrorMapping {
 
     static boolean isUsableFolderName(String name) {
         return name != null && !name.isBlank() && name.length() <= 255
+                && !name.equals(".") && !name.equals("..")
                 && !name.endsWith(".") && !name.endsWith(" ")
                 && !INVALID_FOLDER_CHARACTERS.matcher(name).find()
                 && !RESERVED_FOLDER_NAME.matcher(name).matches();

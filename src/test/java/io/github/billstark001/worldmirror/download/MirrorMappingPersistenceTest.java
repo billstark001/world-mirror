@@ -18,6 +18,92 @@ class MirrorMappingPersistenceTest {
     private static final String SOURCE = "server:example.test";
 
     @Test
+    void competingSnapshotsCannotBothOverwriteTheSameRoutingGeneration(@TempDir Path root) throws Exception {
+        Path file = root.resolve("mirrors.json");
+        MirrorMapping first = new MirrorMapping(file, root.resolve("game"));
+        assertTrue(first.recordMirrorLocation(SOURCE, "DOWNLOADED", "original"));
+        MirrorMapping second = MirrorMapping.load(file, root.resolve("game"));
+        var threads = new java.util.concurrent.CopyOnWriteArrayList<Thread>();
+        var started = new java.util.concurrent.CountDownLatch(2);
+        var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+        java.util.concurrent.Future<Boolean> a;
+        java.util.concurrent.Future<Boolean> b;
+        try (var blocker = new io.github.billstark001.worldmirror.util.FileTransaction(root)) {
+            a = executor.submit(() -> {
+                threads.add(Thread.currentThread()); started.countDown();
+                return first.recordMirrorLocation(SOURCE, "SAVES", "renamed");
+            });
+            b = executor.submit(() -> {
+                threads.add(Thread.currentThread()); started.countDown();
+                return second.setPerWorldConflictStrategy(SOURCE, "MANUAL");
+            });
+            assertTrue(started.await(3, java.util.concurrent.TimeUnit.SECONDS));
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+            while (threads.stream().anyMatch(thread -> thread.getState() == Thread.State.RUNNABLE) && System.nanoTime() < deadline) {
+                Thread.sleep(5);
+            }
+            assertFalse(a.isDone()); assertFalse(b.isDone());
+        } finally { executor.shutdown(); }
+        int accepted = (a.get(10, java.util.concurrent.TimeUnit.SECONDS) ? 1 : 0)
+                + (b.get(10, java.util.concurrent.TimeUnit.SECONDS) ? 1 : 0);
+        assertEquals(1, accepted);
+    }
+
+    @Test
+    void previewsRemainAvailableWhilePersistenceWaitsForDiskAuthority(@TempDir Path root) throws Exception {
+        Path file = root.resolve("mirrors.json");
+        MirrorMapping mapping = new MirrorMapping(file, root.resolve("game"));
+        assertTrue(mapping.recordMirrorLocation(SOURCE, "DOWNLOADED", "original"));
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        var started = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.Future<Boolean> writer;
+        try (var blocker = new io.github.billstark001.worldmirror.util.FileTransaction(root)) {
+            writer = executor.submit(() -> {
+                started.countDown();
+                return mapping.recordMirrorLocation(SOURCE, "SAVES", "pending");
+            });
+            assertTrue(started.await(2, java.util.concurrent.TimeUnit.SECONDS));
+            var preview = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                for (int i = 0; i < 10_000; i++) {
+                    assertEquals("DOWNLOADED", mapping.getPerWorldSaveLocation(SOURCE));
+                    assertEquals("original", mapping.previewResolvedFolderName(SOURCE, "DOWNLOADED"));
+                }
+                return true;
+            });
+            assertTrue(preview.get(3, java.util.concurrent.TimeUnit.SECONDS));
+            assertFalse(writer.isDone());
+        } finally { executor.shutdown(); }
+        assertTrue(writer.get(10, java.util.concurrent.TimeUnit.SECONDS));
+        assertEquals("SAVES", mapping.getPerWorldSaveLocation(SOURCE));
+    }
+
+    @Test
+    void repeatedClaimsDoNotReplaceAnUnchangedRoutingDocument(@TempDir Path root) throws Exception {
+        MirrorMapping mapping = new MirrorMapping(root.resolve("mirrors.json"), root.resolve("game"));
+        assertTrue(mapping.recordMirrorLocation(SOURCE, "DOWNLOADED", "mirror"));
+        Path claimed = mapping.claimOutputDirectory(SOURCE);
+        var before = Files.readAttributes(root.resolve("mirrors.json"), java.nio.file.attribute.BasicFileAttributes.class);
+        for (int i = 0; i < 12; i++) assertEquals(claimed, mapping.claimOutputDirectory(SOURCE));
+        var after = Files.readAttributes(root.resolve("mirrors.json"), java.nio.file.attribute.BasicFileAttributes.class);
+        assertEquals(before.fileKey(), after.fileKey());
+        assertEquals(before.lastModifiedTime(), after.lastModifiedTime());
+    }
+
+    @Test
+    void externalRoutingChangesCannotBeOverwrittenByAnOldSnapshot(@TempDir Path root) throws Exception {
+        Path file = root.resolve("mirrors.json");
+        MirrorMapping mapping = new MirrorMapping(file, root.resolve("game"));
+        assertTrue(mapping.recordMirrorLocation(SOURCE, "SAVES", "original"));
+        Files.writeString(file, "{external edit}");
+        assertFalse(mapping.setPerWorldConflictStrategy(SOURCE, "MANUAL"));
+        assertEquals("{external edit}", Files.readString(file));
+        assertNull(mapping.getPerWorldConflictStrategy(SOURCE));
+        for (String name : new String[] {".", ".."}) {
+            assertThrows(IllegalArgumentException.class, () -> mapping.recordResolvedFolderName(SOURCE, "SAVES", name));
+        }
+    }
+
+    @Test
     void loadsLegacyNullMapsAndRoundTripsSettingsWithoutSerializingRuntimePaths(@TempDir Path root)
             throws Exception {
         Path file = root.resolve("config/mirrors.json");
