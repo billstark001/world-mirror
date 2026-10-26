@@ -198,6 +198,10 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
+    doFirst {
+        // Child-JVM regression probes use this target's mapped game and Java toolchain.
+        systemProperty "worldmirror.test.classpath", sourceSets.test.runtimeClasspath.asPath
+    }
 }
 
 java {
