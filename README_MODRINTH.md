@@ -102,6 +102,11 @@ in unloaded chunks keep their last client-known state until the chunk is observe
 Uncaptured terrain is intentionally void in the generated save.
 Different logical worlds behind the same server address share one source identity.
 
+When opening or downloading to a mirror, recognized obsolete generators require a
+confirmed backup and repair, including when the metadata already says it is current.
+Unknown or unreadable generator edits are preserved for manual review. Minecraft's
+data-pack safe mode does not convert old inline generators.
+
 ## Save locations and conflicts
 
 Press **I**, open **Settings**, then choose **Global Settings**. Optional Mod Menu provides

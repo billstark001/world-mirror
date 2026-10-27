@@ -6,3 +6,10 @@ plugins {
 ext.minecraftTarget = "26.3"
 
 apply from: rootProject.file("gradle/fabric-target.gradle")
+
+def fixtureDirectory = project(":versions:fabric-26.2").layout.buildDirectory.dir("generated/worldgen-upgrade-fixture")
+tasks.named("test") {
+    dependsOn ":versions:fabric-26.2:writeWorldgenFixture"
+    inputs.dir(fixtureDirectory)
+    systemProperty "worldmirror.test.262Fixture", fixtureDirectory.get().file("fixture-root.txt").asFile.absolutePath
+}

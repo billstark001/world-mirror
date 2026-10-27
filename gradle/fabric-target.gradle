@@ -73,7 +73,7 @@ sourceSets {
         resources.srcDirs = [rootProject.file("src/main/resources")]
     }
     test {
-        java.srcDirs = [rootProject.file("src/test/java")]
+        java.srcDirs = [rootProject.file("src/test/java"), project.file("src/test/java")]
     }
 }
 

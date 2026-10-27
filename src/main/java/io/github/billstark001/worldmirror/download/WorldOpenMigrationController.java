@@ -21,53 +21,60 @@ public final class WorldOpenMigrationController {
                                     Runnable closeWorldAccess) {
         Path worldFolder = resolveSave(levelId);
         if (worldFolder == null) return false;
-        if (io.github.billstark001.worldmirror.util.WorldRecovery.required(worldFolder)) {
-            closeWorldAccess.run();
-            Minecraft client = Minecraft.getInstance();
-            MirrorPrompt.ProgressHandle progress = ClientDialogs.progress(client,
-                    new MirrorPrompt.Text("screen.worldmirror.upgrade.progressTitle"));
-            io.github.billstark001.worldmirror.util.OfflineTasks.start("WM-RecoverMirror", () -> {
-                try (var lease = io.github.billstark001.worldmirror.io.WorldWriteLock.acquire(worldFolder)) {
-                    return true;
-                }
-            }, failure -> {
-                OperationFailures.report(worldFolder.toString(), "recovery", worldFolder, failure);
-                return false;
-            }, client::execute, recovered -> {
-                if (recovered) flows.openWorld(levelId, reloadCallback);
-                else ClientDialogs.alert(client, new MirrorPrompt.Alert(
-                        new MirrorPrompt.Text("screen.worldmirror.upgrade.failedTitle"),
-                        new MirrorPrompt.Text("screen.worldmirror.upgrade.failedBody", "recovery_failed"),
-                        new MirrorPrompt.Text("gui.done")), reloadCallback);
-            }, progress::close);
-            return true;
+        boolean recovery = io.github.billstark001.worldmirror.util.WorldRecovery.required(worldFolder);
+        if (BYPASS_ONCE.remove(worldFolder) && !recovery) return false;
+        if (!recovery && !java.nio.file.Files.isRegularFile(worldFolder.resolve(WorldMetadata.FILE_NAME))) {
+            return false;
         }
-        if (BYPASS_ONCE.remove(worldFolder)) return false;
-
-        MirrorMigrationPlan.Inspection plan = MirrorMigrationCoordinator.inspect(worldFolder);
-        // Respect the normal entry path for current, foreign, unreadable, and
-        // future saves.  Entry confirmation is reserved for schema-outdated
-        // mirrors as requested; download-time operations still protect writes.
-        if (plan.state() != MirrorMigrationPlan.State.OUTDATED) return false;
-
-        // Vanilla has already performed any game-version migration when this
-        // hook runs.  Release its access before our offline writer starts, and
-        // also before the player can cancel back to the world list.
+        // Decoding bounded NBT can still take time: release vanilla's access and inspect off-thread.
         closeWorldAccess.run();
-
         Minecraft client = Minecraft.getInstance();
+        MirrorPrompt.ProgressHandle progress = ClientDialogs.progress(client,
+                new MirrorPrompt.Text("screen.worldmirror.upgrade.checking"));
+        io.github.billstark001.worldmirror.util.OfflineTasks.start("WM-InspectMirror",
+                () -> MirrorMigrationCoordinator.recoverAndInspect(worldFolder), failure -> {
+            OperationFailures.report(worldFolder.toString(), "worldgen_check", worldFolder, failure);
+            return null;
+        }, client::execute, plan -> showDecision(client, flows, levelId, worldFolder, reloadCallback, plan),
+                progress::close);
+        return true;
+    }
+
+    private static void showDecision(Minecraft client, WorldOpenFlows flows, String levelId,
+                                     Path worldFolder, Runnable reloadCallback,
+                                     MirrorMigrationPlan.Inspection plan) {
         Runnable reopen = () -> {
             BYPASS_ONCE.add(worldFolder);
             client.execute(() -> flows.openWorld(levelId, reloadCallback));
         };
-        ClientDialogs.upgrade(client, new MirrorPrompt.Upgrade(
-                        new MirrorPrompt.Text("screen.worldmirror.upgrade.title"),
-                        new MirrorPrompt.Text("screen.worldmirror.upgrade.entryBody", worldFolder.getFileName()),
-                        new MirrorPrompt.Text("screen.worldmirror.upgrade.entryConfirm")),
-                () -> migrateThenReopen(client, worldFolder, reopen, reloadCallback),
-                reopen,
-                reloadCallback);
-        return true;
+        if (plan == null || plan.state() == MirrorMigrationPlan.State.UNREADABLE) {
+            ClientDialogs.alert(client, new MirrorPrompt.Alert(
+                    new MirrorPrompt.Text("screen.worldmirror.upgrade.unavailableTitle"),
+                    plan != null && plan.problem() != null
+                            ? new MirrorPrompt.Text("screen.worldmirror.repair.unavailableBody")
+                            : new MirrorPrompt.Text("screen.worldmirror.upgrade.unavailableBody", "inspection_failed"),
+                    new MirrorPrompt.Text("gui.done")), reloadCallback);
+        } else if (plan.state() == MirrorMigrationPlan.State.FUTURE && plan.problem() != null) {
+            ClientDialogs.alert(client, new MirrorPrompt.Alert(
+                    new MirrorPrompt.Text("screen.worldmirror.upgrade.futureTitle"),
+                    new MirrorPrompt.Text("screen.worldmirror.upgrade.futureBody"),
+                    new MirrorPrompt.Text("gui.done")), reloadCallback);
+        } else if (!plan.requiresApproval()) {
+            reopen.run();
+        } else if (plan.repairWorldgen()) {
+            ClientDialogs.confirm(client, new MirrorPrompt.Confirmation(
+                    new MirrorPrompt.Text("screen.worldmirror.repair.title"),
+                    new MirrorPrompt.Text("screen.worldmirror.repair.entryBody", worldFolder.getFileName()),
+                    new MirrorPrompt.Text("screen.worldmirror.repair.entryConfirm"),
+                    new MirrorPrompt.Text("gui.cancel")),
+                    () -> migrateThenReopen(client, worldFolder, reopen, reloadCallback), reloadCallback);
+        } else {
+            ClientDialogs.upgrade(client, new MirrorPrompt.Upgrade(
+                            new MirrorPrompt.Text("screen.worldmirror.upgrade.title"),
+                            new MirrorPrompt.Text("screen.worldmirror.upgrade.entryBody", worldFolder.getFileName()),
+                            new MirrorPrompt.Text("screen.worldmirror.upgrade.entryConfirm")),
+                    () -> migrateThenReopen(client, worldFolder, reopen, reloadCallback), reopen, reloadCallback);
+        }
     }
 
     private static void migrateThenReopen(Minecraft client, Path worldFolder,

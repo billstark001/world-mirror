@@ -161,7 +161,9 @@ class ConflictManagerPersistenceTest {
         for (var dimension : dimensions) {
             Path directory = ChunkExporter.regionDirForDimension(world, dimension);
             if (overwrite) assertEquals(nbt, readWorldChunk(world, pos, dimension));
-            else assertFalse(Files.exists(directory));
+            else if (Files.exists(directory)) {
+                try (var files = Files.list(directory)) { assertEquals(0, files.count()); }
+            }
         }
     }
 
@@ -287,7 +289,11 @@ class ConflictManagerPersistenceTest {
         return ConflictManager.saveConflict(world, pos, chunk, dimension);
     }
     private static void seedMetadata(Path world) {
+        if (Files.exists(world) && !Files.isDirectory(world)) return;
         if (Files.notExists(world.resolve(io.github.billstark001.worldmirror.download.WorldMetadata.FILE_NAME))) {
+            assertTrue(io.github.billstark001.worldmirror.io.WorldStructureCreator.createLoadableWorld(
+                    world, "conflict fixture", true, true,
+                    io.github.billstark001.worldmirror.io.WorldSettingsSnapshot.defaults()));
             var metadata = io.github.billstark001.worldmirror.download.WorldMetadata.create("server:conflict-test", "server", "synchronized");
             metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(),
                     io.github.billstark001.worldmirror.io.MirrorWorldgenAssets.ASSET_REVISION);

@@ -6,3 +6,21 @@ plugins {
 ext.minecraftTarget = "26.2"
 
 apply from: rootProject.file("gradle/fabric-target.gradle")
+
+tasks.register("writeWorldgenFixture", JavaExec) {
+    group = "verification"
+    description = "Writes a world fixture using this target's native 26.2 APIs for upgrade regression tests."
+    dependsOn tasks.named("testClasses")
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = "io.github.billstark001.worldmirror.io.CrossVersionWorldgenFixture"
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(25) }
+    def destination = layout.buildDirectory.dir("generated/worldgen-upgrade-fixture")
+    outputs.dir(destination)
+    inputs.files(sourceSets.test.runtimeClasspath)
+    doFirst {
+        def directory = destination.get().asFile
+        directory.mkdirs()
+        workingDir directory
+        args = [directory.absolutePath]
+    }
+}

@@ -54,6 +54,16 @@ public final class MirrorMigrationCoordinator {
                 SharedConstants.getCurrentVersion().dataVersion().version());
     }
 
+    /** Background entry checks recover interrupted transactions before classifying their files. */
+    public static MirrorMigrationPlan.Inspection recoverAndInspect(Path worldFolder) throws IOException {
+        if (io.github.billstark001.worldmirror.util.WorldRecovery.required(worldFolder)) {
+            try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
+                return inspect(worldFolder);
+            }
+        }
+        return inspect(worldFolder);
+    }
+
     /**
      * Upgrades an existing mirror after explicit user confirmation.  The caller
      * must ensure the world is not loaded by an integrated server.
@@ -71,13 +81,9 @@ public final class MirrorMigrationCoordinator {
             }
         };
         Path normalized = worldFolder.toAbsolutePath().normalize();
-        MirrorMigrationPlan.Inspection initial = inspect(normalized);
-        if (initial.state() == MirrorMigrationPlan.State.CURRENT) return Result.success(false, null);
-        if (initial.state() != MirrorMigrationPlan.State.OUTDATED || initial.metadata() == null) {
-            return Result.failure("mirror_not_migratable:" + initial.state().name().toLowerCase(Locale.ROOT));
-        }
         try (WorldWriteLock ignored = WorldWriteLock.acquire(normalized)) {
-            MirrorMigrationPlan.Inspection plan = inspect(normalized);
+            MirrorMigrationPlan.Inspection plan = MirrorMigrationPlan.inspect(normalized,
+                    SharedConstants.getCurrentVersion().dataVersion().version(), true);
             if (plan.state() == MirrorMigrationPlan.State.CURRENT) {
                 return Result.success(false, null);
             }
@@ -98,19 +104,19 @@ public final class MirrorMigrationCoordinator {
                 return Result.failure("legacy_void_scan_failed");
             }
 
-            Path backup;
-            try {
-                safeProgress.update(Phase.BACKING_UP, 0, 1);
-                backup = backupTouchedFiles(normalized, voidCleanup);
-                safeProgress.update(Phase.BACKING_UP, 1, 1);
-            } catch (Exception e) {
-                WMLogger.warn("Mirror migration backup failed world=" + normalized, e);
-                return Result.failure("backup_failed");
-            }
-
             try (FileTransaction transaction = new FileTransaction(normalized)) {
                 Path stagedWorld = transaction.stagingDirectory();
-                copyTouchedFiles(normalized, stagedWorld, voidCleanup);
+                Path backup;
+                try {
+                    safeProgress.update(Phase.BACKING_UP, 0, 1);
+                    // Snapshot each source once; the verified ZIP and edits share those exact bytes.
+                    var snapshot = copyTouchedFiles(normalized, stagedWorld, touchedFiles(normalized, voidCleanup));
+                    backup = backupTouchedFiles(normalized, stagedWorld, snapshot);
+                    safeProgress.update(Phase.BACKING_UP, 1, 1);
+                } catch (Exception error) {
+                    WMLogger.warn("Mirror migration backup failed world=" + normalized, error);
+                    return Result.failure("backup_failed");
+                }
                 safeProgress.update(Phase.WRITING_WORLD_DATA, 0, 1);
                 boolean created = WorldStructureCreator.createLoadableWorld(stagedWorld,
                         displayName(normalized, plan.metadata()), plan.migrateWorldgen(),
@@ -131,8 +137,12 @@ public final class MirrorMigrationCoordinator {
                 try (var files = Files.walk(stagedWorld)) {
                     for (Path file : files.filter(Files::isRegularFile).toList()) {
                         Path relative = stagedWorld.relativize(file);
-                        if (!relative.toString().equals("session.lock")) replacements.put(relative, file);
+                        if (publishable(relative)) replacements.put(relative, file);
                     }
+                }
+                var verified = io.github.billstark001.worldmirror.io.MirrorWorldgenCheck.inspectFresh(stagedWorld);
+                if (verified.state() != io.github.billstark001.worldmirror.io.MirrorWorldgenCheck.State.CURRENT) {
+                    return Result.failure("worldgen_verification_failed");
                 }
                 transaction.commit(replacements);
                 return Result.success(true, backup);
@@ -144,6 +154,16 @@ public final class MirrorMigrationCoordinator {
         }
     }
 
+    private static boolean publishable(Path relative) {
+        for (Path part : relative) {
+            String name = part.toString();
+            if (name.startsWith(FileTransaction.PREFIX) || name.startsWith(FileTransaction.CLEANUP_PREFIX)
+                    || name.equals("session.lock")
+                    || name.equals(io.github.billstark001.worldmirror.util.WorldRecovery.MARKER)) return false;
+        }
+        return true;
+    }
+
     private static String displayName(Path worldFolder, WorldMetadata metadata) {
         Path name = worldFolder.getFileName();
         if (name != null && !name.toString().isBlank()) return name.toString();
@@ -151,30 +171,33 @@ public final class MirrorMigrationCoordinator {
     }
 
     /** Creates a compact, recoverable backup of every file this migration may change. */
-    private static Path backupTouchedFiles(Path worldFolder, LegacyVoidChunkCleanup.Plan voidCleanup)
-            throws IOException {
+    private static Path backupTouchedFiles(Path worldFolder, Path snapshot,
+                                           java.util.Map<Path, String> expected) throws IOException {
         Path backupRoot = worldFolder.resolve("backups");
         Files.createDirectories(backupRoot);
         String timestamp = Instant.now().toString().replace(':', '-');
         Path archive = backupRoot.resolve("worldmirror-schema-backup-" + timestamp + ".zip");
-        java.util.List<Path> touched = touchedFiles(worldFolder, voidCleanup);
         try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(archive))) {
-            for (Path file : touched) {
-                zip.putNextEntry(new ZipEntry(worldFolder.relativize(file).toString().replace('\\', '/')));
-                Files.copy(file, zip);
+            for (Path relative : expected.keySet()) {
+                zip.putNextEntry(new ZipEntry(relative.toString().replace('\\', '/')));
+                Files.copy(snapshot.resolve(relative), zip);
                 zip.closeEntry();
             }
         }
-        // Reopen and read all entries so a truncated/CRC-invalid backup cannot authorize migration.
-        int verified = 0;
+        java.util.Set<Path> verified = new java.util.HashSet<>();
         try (var zip = new java.util.zip.ZipInputStream(Files.newInputStream(archive))) {
-            while (zip.getNextEntry() != null) {
-                zip.transferTo(java.io.OutputStream.nullOutputStream());
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                Path relative = Path.of(entry.getName());
+                var digest = io.github.billstark001.worldmirror.util.FileProof.sha256();
+                new java.security.DigestInputStream(zip, digest).transferTo(java.io.OutputStream.nullOutputStream());
                 zip.closeEntry();
-                verified++;
+                if (!verified.add(relative) || !java.util.HexFormat.of().formatHex(digest.digest()).equals(expected.get(relative))) {
+                    throw new IOException("Migration backup content differs from the verified snapshot: " + relative);
+                }
             }
         }
-        if (verified != touched.size()) throw new IOException("Incomplete migration backup");
+        if (verified.size() != expected.size()) throw new IOException("Incomplete migration backup");
         return archive;
     }
 
@@ -216,13 +239,16 @@ public final class MirrorMigrationCoordinator {
         files.add(file);
     }
 
-    private static void copyTouchedFiles(Path source, Path destination, LegacyVoidChunkCleanup.Plan cleanup)
-            throws IOException {
-        for (Path file : touchedFiles(source, cleanup)) {
-            Path target = destination.resolve(source.relativize(file));
+    private static java.util.Map<Path, String> copyTouchedFiles(Path source, Path destination,
+                                                               java.util.List<Path> touched) throws IOException {
+        java.util.Map<Path, String> hashes = new java.util.LinkedHashMap<>();
+        for (Path file : touched) {
+            Path relative = source.relativize(file);
+            Path target = destination.resolve(relative);
             Files.createDirectories(target.getParent());
-            io.github.billstark001.worldmirror.util.FileProof.copyVerified(file, target);
+            hashes.put(relative, io.github.billstark001.worldmirror.util.FileProof.copyVerified(file, target));
         }
+        return hashes;
     }
 
 }

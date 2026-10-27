@@ -13,9 +13,22 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MirrorWorldContextTest {
+    @org.junit.jupiter.api.BeforeAll
+    static void bootstrap() {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
+    }
+
+    private static void createWorld(Path world) {
+        assertTrue(io.github.billstark001.worldmirror.io.WorldStructureCreator.createLoadableWorld(
+                world, "test", true, true,
+                io.github.billstark001.worldmirror.io.WorldSettingsSnapshot.defaults()));
+    }
+
 
     @Test
     void recognizesLegacyMetadataWithoutAWorldgenSchema(@TempDir Path world) throws Exception {
+        createWorld(world);
         Files.writeString(world.resolve(WorldMetadata.FILE_NAME),
                 JsonSupport.toPrettyJson(new LegacyMetadata(
                         "server:example.test", "server")));
@@ -81,6 +94,7 @@ class MirrorWorldContextTest {
 
     @Test
     void schedulesTheOneTimeVoidCleanupWithoutChangingSchemaOne(@TempDir Path world) {
+        createWorld(world);
         WorldMetadata metadata = metadata();
         metadata.worldgenSchema = WorldMetadata.CURRENT_WORLDGEN_SCHEMA;
         metadata.worldgenAssetRevision = MirrorWorldgenAssets.ASSET_REVISION;
@@ -98,6 +112,7 @@ class MirrorWorldContextTest {
 
     @Test
     void treatsRevisionTwoAsOutdatedOnEveryTarget(@TempDir Path world) {
+        createWorld(world);
         WorldMetadata metadata = metadata();
         metadata.worldgenSchema = WorldMetadata.CURRENT_WORLDGEN_SCHEMA;
         metadata.worldgenAssetRevision = 2;

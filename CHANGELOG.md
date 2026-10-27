@@ -49,6 +49,8 @@ changes without dropping compatibility requirements or migration guidance.
 
 ### Fixed
 
+- Detect obsolete mirror generators despite current metadata and offer backed-up
+  repair; preserve valid customizations and refuse unknown generator edits.
 - Preserve captured terrain, lighting, entities, and inventories across source
   changes and concurrent exports. Resume interrupted capture scans and retain
   confirmed block removals under queue pressure.

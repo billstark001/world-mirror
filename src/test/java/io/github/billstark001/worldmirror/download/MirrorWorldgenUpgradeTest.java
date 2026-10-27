@@ -77,7 +77,7 @@ class MirrorWorldgenUpgradeTest {
 
         CompoundTag updated = NbtIo.readCompressed(settingsFile, NbtAccounter.unlimitedHeap())
                 .getCompoundOrEmpty("data");
-        assertFalse(updated.contains("stale_worldgen_marker"));
+        assertTrue(updated.getBooleanOr("stale_worldgen_marker", false));
         CompoundTag dimensions = updated.getCompoundOrEmpty("dimensions");
         for (MirrorWorldgenDefinition.Dimension dimension : MirrorWorldgenDefinition.DIMENSIONS) {
             CompoundTag settings = dimensions.getCompoundOrEmpty(dimension.dimensionType())

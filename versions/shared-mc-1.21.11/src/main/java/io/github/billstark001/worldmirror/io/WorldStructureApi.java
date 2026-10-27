@@ -18,6 +18,15 @@ import java.util.UUID;
 final class WorldStructureApi {
     private WorldStructureApi() { }
 
+    static Path worldgenDataPath(Path worldFolder) {
+        return worldFolder.resolve("level.dat");
+    }
+
+    static CompoundTag worldgenData(CompoundTag root) {
+        return root.getCompoundOrEmpty("Data").get("WorldGenSettings") instanceof CompoundTag settings
+                ? settings : null;
+    }
+
     static int dataPackFormat() {
         return SharedConstants.getCurrentVersion().packVersion(PackType.SERVER_DATA).major();
     }
@@ -54,12 +63,11 @@ final class WorldStructureApi {
         writeLevelData(worldFolder.resolve("level.dat"), data);
     }
 
-    static void updateOwnedLevelData(Path worldFolder, boolean migrateWorldgen,
-                                     CompoundTag worldGenSettings) throws Exception {
+    static void updateOwnedLevelData(Path worldFolder) throws Exception {
         Path levelDat = worldFolder.resolve("level.dat");
         CompoundTag root = NbtReadSupport.readWorldData(levelDat);
         CompoundTag data = root.getCompoundOrEmpty("Data");
-        if (migrateWorldgen) data.put("WorldGenSettings", worldGenSettings);
+        data.put("WorldGenSettings", MirrorWorldgenCheck.prepareUpdate(root));
         enableDataPack(data);
         root.put("Data", data);
         WorldStructureCreator.writeVerifiedWorldData(levelDat, root);

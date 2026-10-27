@@ -80,6 +80,14 @@ final class WorldStructureApi {
 
     private WorldStructureApi() { }
 
+    static Path worldgenDataPath(Path worldFolder) {
+        return worldFolder.resolve("data/minecraft/world_gen_settings.dat");
+    }
+
+    static CompoundTag worldgenData(CompoundTag root) {
+        return root.get("data") instanceof CompoundTag settings ? settings : null;
+    }
+
     static int dataPackFormat() {
         return SharedConstants.getCurrentVersion().packVersion(PackType.SERVER_DATA).major();
     }
@@ -133,13 +141,13 @@ final class WorldStructureApi {
         writeLevelData(worldFolder.resolve("level.dat"), data, playerId);
     }
 
-    static void updateOwnedLevelData(Path worldFolder, boolean migrateWorldgen,
-                                     CompoundTag worldGenSettings) throws Exception {
+    static void updateOwnedLevelData(Path worldFolder) throws Exception {
         patchEnabledDataPack(worldFolder.resolve("level.dat"));
-        if (migrateWorldgen) {
-            writeSavedData(worldFolder.resolve("data/minecraft/world_gen_settings.dat"),
-                    worldGenSettings);
-        }
+        Path file = worldgenDataPath(worldFolder);
+        CompoundTag root = NbtReadSupport.readWorldData(file);
+        root.put("data", MirrorWorldgenCheck.prepareUpdate(root));
+        NbtUtils.addCurrentDataVersion(root);
+        WorldStructureCreator.writeVerifiedWorldData(file, root);
     }
 
     /** Repairs only the extra {@code data.clocks} wrapper emitted by World Mirror 0.4.0. */
@@ -226,6 +234,7 @@ final class WorldStructureApi {
 
     private static void patchEnabledDataPack(Path levelDat) throws Exception {
         CompoundTag root = NbtReadSupport.readWorldData(levelDat);
+        MirrorWorldgenCheck.requireSupportedVersion(root);
         CompoundTag levelData = root.getCompoundOrEmpty("Data");
         enableDataPack(levelData);
         root.put("Data", levelData);

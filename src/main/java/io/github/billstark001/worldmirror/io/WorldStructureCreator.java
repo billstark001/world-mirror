@@ -59,13 +59,19 @@ public final class WorldStructureCreator {
     }
 
     public static CompoundTag createMirrorWorldGenSettings() {
+        return createMirrorWorldGenSettings(WorldStructureApi.dataPackFormat()
+                >= MirrorWorldgenAssets.ENVIRONMENT_ATTRIBUTE_BIOME_FORMAT);
+    }
+
+    /** Also describes the released pre-26.3 format for conservative data recognition. */
+    static CompoundTag createMirrorWorldGenSettings(boolean modern) {
         CompoundTag worldGenSettings = new CompoundTag();
         CompoundTag dimensions = new CompoundTag();
         for (MirrorWorldgenDefinition.Dimension definition : MirrorWorldgenDefinition.DIMENSIONS) {
             CompoundTag dimension = new CompoundTag();
             dimension.put("generator", createVoidNoiseGenerator(definition.biome(),
                     definition.minY(), definition.height(), definition.seaLevel(),
-                    definition.horizontalSize(), definition.verticalSize()));
+                    definition.horizontalSize(), definition.verticalSize(), modern));
             dimension.putString("type", definition.dimensionType());
             dimensions.put(definition.dimensionType(), dimension);
         }
@@ -139,9 +145,7 @@ public final class WorldStructureCreator {
                         throw new IOException("Required world data is unavailable: " + worldFolder.resolve("level.dat"));
                     }
                     MirrorWorldgenAssets.install(worldFolder, WorldStructureApi.dataPackFormat());
-                    WorldStructureApi.updateOwnedLevelData(worldFolder,
-                            migrateWorldgen || refreshAssets,
-                            createMirrorWorldGenSettings());
+                    WorldStructureApi.updateOwnedLevelData(worldFolder);
                 }
                 WMLogger.debug("World structure updated (incremental sync): "
                         + folder.getAbsolutePath());
@@ -234,14 +238,12 @@ public final class WorldStructureCreator {
 
     private static CompoundTag createVoidNoiseGenerator(String biome, int minY, int height,
                                                         int seaLevel, int horizontalSize,
-                                                        int verticalSize) {
+                                                        int verticalSize, boolean modern) {
         CompoundTag generator = new CompoundTag();
         CompoundTag settings = new CompoundTag();
         CompoundTag noise = new CompoundTag();
         noise.putInt("min_y", minY);
         noise.putInt("height", height);
-        boolean modern = WorldStructureApi.dataPackFormat()
-                >= MirrorWorldgenAssets.ENVIRONMENT_ATTRIBUTE_BIOME_FORMAT;
         if (!modern) {
             noise.putInt("size_horizontal", horizontalSize);
             noise.putInt("size_vertical", verticalSize);

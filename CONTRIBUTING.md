@@ -127,6 +127,20 @@ A newer revision or data version is treated as future data and must not be
 overwritten. Test the revision transition and generated settings on every
 supported target; test the exact new codec on the target whose encoding changed.
 
+Generator contents must also be checked when metadata is current. Cache only bounded
+classification results by file version; do not retain decoded world NBT. Perform entry
+checks off the client thread and re-read under the native world lease before an
+approved repair. Recognize released obsolete encodings conservatively, preserve valid
+customizations and unknown dimensions, and refuse unknown invalid generators or future
+data. Backup ZIPs and staged edits share the same verified source snapshot; verify the
+staged generator with the native codec before publishing it through `FileTransaction`.
+
+The 26.3 test task depends on `:versions:fabric-26.2:writeWorldgenFixture`. That task runs
+26.2 APIs in their own JVM; 26.3 tests copy the generated fixture into temporary worlds
+and load migrated settings and the embedded data pack through native `WorldLoader`.
+Keep current-metadata/old-generator, interrupted rollback, failed staging, unchanged-file
+cache reuse, and repeated-repair coverage alongside these cross-version tests.
+
 ## UI control policy
 
 User-selectable enums are selection-only listboxes. Do not expose editable enum text or

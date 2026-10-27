@@ -523,13 +523,34 @@ public final class DownloadManager {
         String sourceId = WorldMetadata.detectSourceId(client);
         MirrorMapping mapping = MirrorMapping.getInstance();
         Path output = mapping.selectOutputPath(sourceId, mapping.effectiveSaveLocation(sourceId));
-        MirrorMigrationPlan.Inspection plan = MirrorMigrationCoordinator.inspect(output);
+        MirrorPrompt.ProgressHandle progress = ClientDialogs.progress(client,
+                new MirrorPrompt.Text("screen.worldmirror.upgrade.checking"));
+        io.github.billstark001.worldmirror.util.OfflineTasks.start("WM-InspectOutput",
+                () -> MirrorMigrationCoordinator.recoverAndInspect(output), failure -> {
+                    OperationFailures.report(sourceId, "worldgen_check", output, failure);
+                    return null;
+                }, client::execute, plan -> {
+                    if (sourceId.equals(WorldMetadata.detectSourceId(client))) {
+                        showOutputReadiness(client, output, onReady, plan);
+                    }
+                }, progress::close);
+    }
+
+    private static void showOutputReadiness(Minecraft client, Path output, Runnable onReady,
+                                            MirrorMigrationPlan.Inspection plan) {
+        if (plan == null) {
+            ClientDialogs.alert(client, new MirrorPrompt.Alert(
+                    new MirrorPrompt.Text("screen.worldmirror.upgrade.unavailableTitle"),
+                    new MirrorPrompt.Text("screen.worldmirror.upgrade.unavailableBody", "inspection_failed"),
+                    new MirrorPrompt.Text("gui.done")), () -> {});
+            return;
+        }
         switch (plan.state()) {
             case NEW, CURRENT -> onReady.run();
             case OUTDATED -> ClientDialogs.confirm(client, new MirrorPrompt.Confirmation(
-                    new MirrorPrompt.Text("screen.worldmirror.upgrade.title"),
-                    new MirrorPrompt.Text("screen.worldmirror.upgrade.downloadBody", output.getFileName()),
-                    new MirrorPrompt.Text("screen.worldmirror.upgrade.downloadConfirm"),
+                    new MirrorPrompt.Text(plan.repairWorldgen() ? "screen.worldmirror.repair.title" : "screen.worldmirror.upgrade.title"),
+                    new MirrorPrompt.Text(plan.repairWorldgen() ? "screen.worldmirror.repair.downloadBody" : "screen.worldmirror.upgrade.downloadBody", output.getFileName()),
+                    new MirrorPrompt.Text(plan.repairWorldgen() ? "screen.worldmirror.repair.downloadConfirm" : "screen.worldmirror.upgrade.downloadConfirm"),
                     new MirrorPrompt.Text("gui.cancel")),
                     () -> migrateOutputAndContinue(client, output, onReady), () -> {});
             case FUTURE -> ClientDialogs.alert(client, new MirrorPrompt.Alert(
@@ -538,7 +559,8 @@ public final class DownloadManager {
                     new MirrorPrompt.Text("gui.done")), () -> {});
             default -> ClientDialogs.alert(client, new MirrorPrompt.Alert(
                     new MirrorPrompt.Text("screen.worldmirror.upgrade.unavailableTitle"),
-                    new MirrorPrompt.Text("screen.worldmirror.upgrade.unavailableBody", plan.state().name()),
+                    plan.problem() != null ? new MirrorPrompt.Text("screen.worldmirror.repair.unavailableBody")
+                            : new MirrorPrompt.Text("screen.worldmirror.upgrade.unavailableBody", plan.state().name()),
                     new MirrorPrompt.Text("gui.done")), () -> {});
         }
     }

@@ -311,6 +311,14 @@ generates its payload through Minecraft's `PackedClockStates` codec and automati
 repairs the exact extra `data.clocks` wrapper produced by World Mirror 0.4.0. Other clock
 payload shapes are left untouched.
 
+World Mirror checks generator contents as well as metadata when opening a mirror or
+starting a download. A recognized obsolete generator can be backed up and repaired
+with explicit confirmation, even when its metadata already says it is current.
+Unreadable or unrecognized generator edits are preserved and require manual review;
+Minecraft's data-pack safe mode does not convert an obsolete inline generator.
+Repair retains captured chunks, player data, other dimensions, and valid customized
+generators. Repeating a completed repair does not create another backup.
+
 `worldmirror_meta.json` fields:
 
 | Field | Description |
