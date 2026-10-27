@@ -2,12 +2,19 @@ package io.github.billstark001.worldmirror.ui;
 
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeAll;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 class ChunkMapViewColorTest {
+    @BeforeAll
+    static void bootstrap() {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
+    }
+
     @Test
     void transparentMapsKeepSavedLiveAndConflictCompositingOrder() {
         var saved = new ChunkStatusSnapshot(java.util.List.of(new ChunkDatabase.ChunkRecord(0, 0, 100, "world_mirror")), java.util.Set.of(new net.minecraft.world.level.ChunkPos(0, 0)));
@@ -23,7 +30,9 @@ class ChunkMapViewColorTest {
         ChunkMapView.renderOverlay((x1, z1, x2, z2, color) -> colors.add(color), new ChunkMapProjection(),
                 coordinate -> 50 + (int) coordinate, coordinate -> 50 + (int) coordinate,
                 saved, live, 100, 100, 0, 0, 1, 200, 4096);
-        assertBefore(colors, 0x5F00C800, 0x5FD8DC30, ExportStatusMarkers.CONFLICT);
+        org.junit.jupiter.api.Assertions.assertTrue(colors.indexOf(0x5F00C800) >= 0);
+        org.junit.jupiter.api.Assertions.assertTrue(colors.indexOf(0x5F00C800) < colors.indexOf(0x5FD8DC30));
+        org.junit.jupiter.api.Assertions.assertFalse(colors.contains(ExportStatusMarkers.CONFLICT));
     }
 
     private static void assertBefore(java.util.List<Integer> colors, int saved, int live, int conflict) {

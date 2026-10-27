@@ -37,7 +37,7 @@ public final class ChunkMapProjection {
         if (dense) boundaries = boundaries.stream().filter(boundary -> boundary.intersects(range)).toList();
         Map<Long, ChunkBucketIndex.Summary> marks = new Long2ObjectOpenHashMap<>();
         summaries.forEach((coordinate, summary) -> {
-            if (summary.exports().total() > 0 || summary.conflict()) marks.put(coordinate, summary);
+            if (ExportStatusMarkers.compact(summary.exports()) != 0 || summary.conflict()) marks.put(coordinate, summary);
         });
         frame = new Frame(layout.size(), ChunkTileGeometry.runs(cells), boundaries, ChunkRegionIndex.copyCoordinates(selectedLive), ChunkRegionIndex.copyCoordinates(marks));
         key = next;

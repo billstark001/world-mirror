@@ -30,8 +30,10 @@ changes without dropping compatibility requirements or migration guidance.
 
 ### Added
 
-- Show queued, writing, failed, partially saved, and fully saved export markers
-  across chunk maps and world overlays; retain their existing base colors.
+- Add built-in chunk-map warnings for failed and partially saved exports, with
+  purple conflict hints and simplified markers in small cells. Show all export
+  states, terrain/entity results, and metadata status in hover details; keep
+  Xaero and in-world overlays free of corner glyphs.
 - Surface automatic/manual export and file-operation failures through merged,
   rate-limited chat and toast notices, with current health on the status screen.
 
@@ -41,8 +43,7 @@ changes without dropping compatibility requirements or migration guidance.
   small observations fast even after a long capture session.
 - Share spatial queries and bucket summaries across chunk maps and world
   overlays; publish changed export-state regions and bound coarse-view refresh
-  and marker work with large capture histories.
-- Use purple conflict borders, reserving red export markers for failures.
+  work with large capture histories.
 - Replace the vendored NBT stack with bounded native codecs and read-only MCA
   access; stream entity rewrites and apply conflicts in bounded batches.
 - Keep routing previews off disk-write locks and skip unchanged folder claims.

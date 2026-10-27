@@ -24,7 +24,7 @@ in Minecraft's singleplayer world list.
 | **World–mirror mapping** | Every detected server address or singleplayer world name is persistently mapped to a sanitised local folder name in `config/worldmirror/mirrors.json`. Different aliases for the same server are currently separate source IDs. |
 | **Per-world settings** | Save location and conflict strategy can be overridden per world. Time, weather, and difficulty can also be copied manually from the current source world. |
 | **Conflict resolution** | Three built-in strategies for chunks that already exist on disk: *Overwrite* (default), *Ignore* (keep local), and *Manual* (save the server chunk to `conflict_chunks/` in MCA format for later review). |
-| **Built-in Chunk Map** | Full-screen draggable and zoomable map of recorded chunks. Shared spatial buckets keep large views responsive. Base colors show freshness/source; corner markers show export progress, with purple conflict borders. |
+| **Built-in Chunk Map** | Full-screen draggable and zoomable map of recorded chunks. Shared spatial buckets keep large views responsive. Base colors show freshness/source; markers highlight failed or partial exports and unresolved conflicts. Hover for full export details. |
 | **In-world Chunk Overlay** | Toggleable in-world chunk boxes make coverage easy to follow while exploring. Choose Session colors (yellow for queued captures, green for this session, blue for historical chunks and replay imports) or Map colors matching the built-in and Xaero maps. Adjustable render distance and fixed Y height (default 96) help find missed areas and confirm full coverage. |
 | **Xaero's World Map Overlay** | Optionally render the same status layer on Xaero's fullscreen map through Xaero World Map Bridge. Xaero's World Map and the bridge are both required for this integration. |
 | **Export Nearby Region** | Snapshot loaded terrain and visible non-player entities within a configurable radius (1–50 chunks) into a fresh singleplayer save, starting at your current position and dimension. |
@@ -159,29 +159,27 @@ registered third-party sources; it does not mean only an unknown source.
 Purple marks unresolved conflicts. A pending light update can also temporarily appear
 as waiting for capture.
 
-All chunk maps and both world-overlay modes add independent export corner markers:
+Only the built-in chunk map adds export warning markers and conflict hints:
 
 | Marker | Export state |
 | --- | --- |
-| Yellow angle | Captured data queued for export |
-| Light gray square | Writing |
 | Red cross | All required writes failed |
 | Red/green split | Partially saved, with unfinished work retained |
-| Green check | Export completed under the selected source/conflict policy |
+| Purple border | Unresolved conflict |
 
-Completion includes verified records kept by the source/conflict policy; a purple
-conflict can still await a decision. These markers preserve the age/source and
-Session coverage base colors. A red
-accent remains during a retry until its previous failure is resolved; purple
-conflict borders can coexist with failures. Hover the built-in map for separate
-terrain/entity results and metadata status. Frozen work stays visible after its
-live cache is cleared. Coarse tiles prioritize failures and summarize all five
-states; use a closer zoom to inspect individual chunks. Coarse world tiles use
-compact colored squares, with light red for partial failure.
+Queued, writing, and successful exports have no corner glyphs. Hover a chunk for
+its full export state, separate terrain/entity results, and metadata status.
+These warnings preserve the base colors; a red accent remains during a retry until
+its previous failure is resolved, and purple conflict borders can coexist with
+failures. Cells smaller than eight GUI pixels use simple dots: red for failure,
+light red for partial failure, and purple for conflicts. Coarse buckets retain
+unresolved failures; zoom in to inspect individual chunks. Frozen work remains
+available after its live cache is cleared. Xaero and the in-world overlays keep
+their coverage colors and boundaries without export or conflict corner glyphs.
 
 Export observations last for the current client process. Existing database rows
 prove historical terrain coverage, not entity completion, so reopening the client
-does not invent a fully-saved marker for historical records. Map refreshes remain
+reports historical terrain without inferring entity completion. Map refreshes remain
 asynchronous: stable views refresh changed live data at most every 0.5, 1, or 5
 seconds as their chunk extent grows. Status readers use immutable region pages;
 an export updates only the changed pages. Observed chunk metadata still grows

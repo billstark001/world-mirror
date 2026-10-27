@@ -24,6 +24,7 @@ public final class ChunkMapView {
     private static final int COLOR_PLAYER = 0xFFFFFFFF;
     private static final int TRANSPARENT_FILL_ALPHA = 0x7F;
     private static final int OVERLAY_ALPHA = 0x5F;
+    private static final int MIN_MARKER_GLYPH_SIZE = 8;
     private static final int DIALOG_WIDTH = 220;
     private static final int DIALOG_HEIGHT = 90;
 
@@ -87,8 +88,8 @@ public final class ChunkMapView {
             renderDense(canvas, projection, snapshot, live, viewport, range, now);
         }
         boolean dense = viewport.cellSize() > clampSparseThreshold(sparseThreshold);
-        renderMarks(canvas, projection.get(snapshot, live, range, now, 4096, dense),
-                viewport::screenX, viewport::screenZ, 1, viewport.width(), viewport.height());
+        renderBuiltInMarks(canvas, projection.get(snapshot, live, range, now, 4096, dense),
+                viewport);
         return range;
     }
 
@@ -150,29 +151,31 @@ public final class ChunkMapView {
                 bucketSize, blockSize, width, height, now);
         renderProjectedBoundaries(canvas, screenX, screenY, aggregate, blockSize,
                 width, height);
-        renderMarks(canvas, aggregate, screenX, screenY, CHUNK_BLOCK_SIZE, width, height);
     }
 
-    private static void renderMarks(Canvas canvas, ChunkMapProjection.Frame frame,
-                                    CoordinateProjection screenX, CoordinateProjection screenY,
-                                    int scale, int width, int height) {
-        double size = (double) frame.bucketSize() * scale;
+    private static void renderBuiltInMarks(Canvas canvas, ChunkMapProjection.Frame frame,
+                                          BuiltInViewport viewport) {
+        CoordinateProjection screenX = viewport::screenX, screenY = viewport::screenZ;
+        int width = viewport.width(), height = viewport.height();
+        double size = frame.bucketSize();
         frame.marks().forEach((key, summary) -> {
             double x = ChunkBounds.x(key) * size, z = ChunkBounds.z(key) * size;
             if (screenX.project(x + size) < 0 || screenY.project(z + size) < 0
                     || screenX.project(x) >= width || screenY.project(z) >= height) return;
             int pixelRight = Math.max(screenX.project(x) + 1, screenX.project(x + size));
             int pixelBottom = Math.max(screenY.project(z) + 1, screenY.project(z + size));
-            if (pixelRight - screenX.project(x) < 4 || pixelBottom - screenY.project(z) < 4) {
+            if (pixelRight - screenX.project(x) < MIN_MARKER_GLYPH_SIZE
+                    || pixelBottom - screenY.project(z) < MIN_MARKER_GLYPH_SIZE) {
                 if (summary.conflict()) {
                     int left = Math.max(0, screenX.project(x)), top = Math.max(0, screenY.project(z));
                     if (left < width && top < height) canvas.fill(left, top, Math.min(width, left + 1),
                             Math.min(height, top + 1), ExportStatusMarkers.CONFLICT);
                 }
-                if (summary.exports().total() > 0) {
+                int warning = ExportStatusMarkers.compact(summary.exports());
+                if (warning != 0) {
                     int left = Math.max(0, pixelRight - 1), top = Math.max(0, pixelBottom - 1);
                     if (left < width && top < height) canvas.fill(left, top, Math.min(width, pixelRight), Math.min(height, pixelBottom),
-                            ExportStatusMarkers.compact(summary.exports()));
+                            warning);
                 }
                 return;
             }

@@ -90,8 +90,9 @@ the shared orchestrator.
 - `ExportStatusStore` observes exact terrain/entity receipts without granting any
   acknowledgement. Retain failures across retry and live-cache eviction, and never
   infer entity completion from SQLite terrain rows. `ExportStatusMarkers` supplies
-  the same corner glyphs to all maps and both overlay modes without changing base colors.
-  Coarse world tiles use compact markers to bound vertex work. Update source counts
+  only failure, partial-failure, and conflict hints to the built-in chunk map.
+  Normal export states belong in its hover details. Small cells use warning dots;
+  Xaero and world overlays must not emit corner glyphs. Update source counts
   incrementally and allocate published health only for changed sources.
 - `ChunkViewportCache` owns per-view live capture and context invalidation;
   `ChunkMapProjection` owns per-view derived map geometry. Complete-bucket caches

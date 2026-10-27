@@ -72,10 +72,11 @@ transparent intersections on Minecraft 26.3.
    bands must change without a source-data update. Leave empty regions in the
    test area: high-zoom work must follow stored records, not empty coordinate area.
 4. In Session, older cached captures can be blue even before they reach disk.
-   In both modes and both maps, check the separate yellow queued angle, light gray
-   writing square, red failed cross, red/green partial marker, and green saved check.
-   Purple conflict borders must coexist with red failures without replacing base colors.
-   Inspect terrain/entity and metadata results in the built-in map tooltip.
+   In the built-in map, check red failed crosses, red/green partial markers, and
+   purple conflict hints without replacing base colors. Cells below eight GUI
+   pixels use dots; normal queued, writing, and successful states add no glyphs.
+   Inspect all export states and terrain/entity and metadata results in its tooltip.
+   Xaero and both world-overlay modes must show no export or conflict corner glyphs.
 5. Compare a uniform 64 by 64 chunk grid with and without the interior grid.
    Every grid line and the perimeter must remain visible after line merging;
    toggling the grid must not change fill opacity.
@@ -89,11 +90,11 @@ benchmark or a completed shader/OIT compatibility check.
 Use only an isolated copy/test fixture, never the player's active save.
 
 1. Introduce an unreadable entity region while exporting valid terrain. Confirm
-   terrain still commits, the chunk shows partial success in every view, and a later
+   terrain still commits, the built-in map shows partial success, and a later
    terrain-only success does not hide the unresolved entity error.
 2. Block terrain, index, and metadata commits separately. Check failed/partial
-   markers, retained retry work, and the status screen's counts/stage. A metadata-only
-   retry must restore success without rewriting confirmed terrain.
+   markers in the built-in map, retained retry work, and the status screen's counts/stage.
+   A metadata-only retry must restore success without rewriting confirmed terrain.
 3. Exercise automatic periodic/adaptive exports as well as manual exports. Confirm
    the first error appears in chat and a top-right toast, repeated errors merge into
    30-second reminders, and escalation/recovery do not flood chat. Disconnect before
@@ -101,10 +102,10 @@ Use only an isolated copy/test fixture, never the player's active save.
 4. Retry while capturing a newer revision, change dimension/source, and clear/evict
    live caches. Old receipts must not complete new captures; frozen retry markers
    must stay with their original source. After restarting the client, historical
-   terrain remains covered but has no invented entity-success marker.
+   terrain remains covered and its tooltip does not infer entity completion.
 5. Repeat the large-history zoom/pan and stationary-camera checks with mixed states.
    Failure counts must survive aggregation; geometry must be reused until its inputs change.
-   Coarse world tiles use compact colored markers (light red for partial failure).
+   Export status changes must not add glyphs or geometry to Xaero or world overlays.
    Ongoing region writes must respect the 0.5/1/5-second live refresh cadence as
    viewport extent grows. Confirm that chat remains quiet between reminder deadlines.
 

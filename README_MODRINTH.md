@@ -66,11 +66,12 @@ already queued with their own captured data.
 The built-in map shows recorded chunks and unresolved conflicts. Drag to pan, use the
 mouse wheel to zoom, and hover a chunk for its coordinates, age, and source.
 Purple borders mark unresolved conflicts. Orange marks other data sources, including
-known third-party tools. Separate corner markers show queued exports (yellow angle),
-writing (light gray), all writes failed (red cross), partial success (red/green), and
-complete success (green check). Hover for terrain/entity and metadata details.
-Markers survive live-cache eviction during this client run; historical terrain rows
-do not imply entity completion after restarting the client.
+known third-party tools. Only the built-in map adds warning markers for failed
+exports (red cross), partial success (red/green), and unresolved conflicts (purple).
+Small cells use simple warning dots. Queued, writing, and successful exports have
+no corner glyphs; hover for the full export state and terrain/entity and metadata
+details. Failures survive live-cache eviction during this client run; historical
+terrain rows do not imply entity completion after restarting the client.
 
 Enable the in-world chunk overlay in Chunk Map settings, or press **K**, to show
 one-block-high coverage boxes at an adjustable height. Source worlds and mirror
@@ -83,10 +84,9 @@ fill opacity from above and below; water and clouds behind them no longer erase
 their color. Solid terrain still hides boxes behind it. Session colors show what
 you have captured, including unsaved data; they are not a save-success indicator.
 At long distances, a single tile can summarize several chunks.
-The five export markers appear in both overlay modes and Xaero, preserving their
-base colors. Failures take priority in coarse tiles; a red accent persists during
-retry, and conflict borders remain purple.
-Coarse world tiles use compact colored squares; partial failure remains light red.
+Xaero and both in-world overlay modes retain their coverage colors and boundaries
+without export or conflict corner glyphs. In the built-in map, failures take
+priority in coarse tiles and a red accent persists until a retry resolves its failure.
 Wide views refresh less often to bound work with large histories.
 
 Automatic and manual export failures appear in chat and top-right toasts, merged

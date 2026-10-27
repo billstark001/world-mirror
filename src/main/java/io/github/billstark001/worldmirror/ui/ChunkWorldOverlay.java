@@ -3,7 +3,6 @@ package io.github.billstark001.worldmirror.ui;
 import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.config.ModConfig.WorldChunkOverlayColorMode;
 import io.github.billstark001.worldmirror.download.DownloadManager;
-import io.github.billstark001.worldmirror.download.ExportStatus;
 import io.github.billstark001.worldmirror.download.MirrorWorldContext;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceKey;
@@ -116,15 +115,9 @@ public final class ChunkWorldOverlay {
                                  ChunkBounds range, Settings settings, long now) {
         ChunkBucketLayout layout = ChunkBucketLayout.withinBudget(range, MAX_BUCKET_CELLS);
         Map<Long, ChunkTileGeometry.Cell> cells = new Long2ObjectOpenHashMap<>();
-        ArrayList<OverlayMark> marks = new ArrayList<>();
         ChunkBucketIndex.combine(persistent.index(), live.index(), layout).forEach((key, summary) -> {
             int color = ChunkMapStyle.world(summary, settings.mode(), settings.sessionStartedAtMs(), now);
             if (color != 0) cells.put(key, ChunkTileGeometry.Cell.world(ChunkBounds.x(key), ChunkBounds.z(key), color));
-            if (summary.exports().total() > 0 || summary.conflict()) {
-                var bounds = layout.clipped(ChunkBounds.x(key), ChunkBounds.z(key));
-                marks.add(new OverlayMark(bounds.minX(), bounds.maxX() + 1, bounds.minZ(), bounds.maxZ() + 1,
-                        settings.height(), summary.exports(), summary.conflict()));
-            }
         });
         int size = layout.size();
         ArrayList<OverlayChunk> rectangles = new ArrayList<>();
@@ -145,7 +138,7 @@ public final class ChunkWorldOverlay {
             int z2 = coordinate(edge.vertical() ? end : fixed, range.minZ(), (long) range.maxZ() + 1);
             edges.add(new OverlayEdge(x1, z1, x2, z2, settings.height(), edge.color(), edge.interior(), edge.outwardPositive()));
         }
-        return new OverlaySnapshot(List.copyOf(rectangles), List.copyOf(edges), settings.innerGrid(), settings.opacityPercent(), List.copyOf(marks));
+        return new OverlaySnapshot(List.copyOf(rectangles), List.copyOf(edges), settings.innerGrid(), settings.opacityPercent());
     }
 
     private static int coordinate(long coordinate, long minimum, long maximum) {
@@ -177,16 +170,13 @@ public final class ChunkWorldOverlay {
                               int endChunkX, int endChunkZ, int y, int color,
                               boolean sameColorInterior, boolean outwardPositive) {}
 
-    public record OverlayMark(int startChunkX, int endChunkX, int startChunkZ, int endChunkZ, int y,
-                              ExportStatus.Counts counts, boolean conflict) { }
-
     public record OverlaySnapshot(List<OverlayChunk> chunks, List<OverlayEdge> edges,
-                                  boolean showInnerGrid, int opacityPercent, List<OverlayMark> marks) {
+                                  boolean showInnerGrid, int opacityPercent) {
         public static final OverlaySnapshot EMPTY =
-                new OverlaySnapshot(List.of(), List.of(), true, 60, List.of());
+                new OverlaySnapshot(List.of(), List.of(), true, 60);
 
         public boolean isEmpty() {
-            return chunks.isEmpty() && marks.isEmpty() || opacityPercent <= 0;
+            return chunks.isEmpty() || opacityPercent <= 0;
         }
     }
 }
