@@ -64,13 +64,13 @@ loom {
     }
 }
 
-// Loom's IDEA application template does not select a JRE. Bind each generated
-// configuration to the Java version required by its Minecraft target.
+// Match IDEA's normalized module names and bind the target's Java runtime.
 tasks.named("ideaSyncTask").configure {
     dependsOn(rootProject.tasks.named("cleanIdeaRunConfigurations"))
     dependsOn(rootProject.tasks.named("verifyBridgeMatrix"))
     doLast {
-        def moduleMarker = "<module name=\"${rootProject.name}.versions.fabric-${target.minecraft}.main\""
+        def generatedModuleMarker = "<module name=\"${rootProject.name}.versions.fabric-${target.minecraft}.main\""
+        def moduleMarker = "<module name=\"${rootProject.name}.versions.fabric-${target.minecraft.replace('.', '_')}.main\""
         def runConfigurationsDirectory = rootProject.file(".idea/runConfigurations")
         if (!runConfigurationsDirectory.isDirectory()) return
 
@@ -81,7 +81,8 @@ tasks.named("ideaSyncTask").configure {
                 !it.contains('name="ALTERNATIVE_JRE_PATH"') &&
                     !it.contains('name="ALTERNATIVE_JRE_PATH_ENABLED"')
             }
-            if (!lines.any { it.contains(moduleMarker) }) return
+            if (!lines.any { it.contains(generatedModuleMarker) }) return
+            lines = lines.collect { it.replace(generatedModuleMarker, moduleMarker) }
 
             def configurationLine = lines.findIndexOf { it.contains("<configuration ") }
             if (configurationLine < 0) {
