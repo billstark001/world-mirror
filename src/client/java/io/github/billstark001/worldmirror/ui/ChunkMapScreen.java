@@ -46,11 +46,8 @@ public class ChunkMapScreen extends Screen {
 
     // ── View state ────────────────────────────────────────────────────────────
 
-    private double viewCX = 0, viewCZ = 0;
+    private final ChunkMapPan pan = new ChunkMapPan();
     private int cellSize = ChunkMapView.CELL_SIZE_DEFAULT;
-
-    private boolean isDragging;
-    private double dragStartX, dragStartY, viewCXOnDrag, viewCZOnDrag;
 
     private ChunkPos hoveredChunk;
 
@@ -87,8 +84,8 @@ public class ChunkMapScreen extends Screen {
 
         // Centre on player
         if (client.player != null) {
-            viewCX = client.player.chunkPosition().getMinBlockX() >> 4;
-            viewCZ = client.player.chunkPosition().getMinBlockZ() >> 4;
+            pan.centerOn(client.player.chunkPosition().getMinBlockX() >> 4,
+                    client.player.chunkPosition().getMinBlockZ() >> 4);
         }
         if (client.level != null) {
             currentDimension = client.level.dimension();
@@ -304,7 +301,6 @@ public class ChunkMapScreen extends Screen {
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         double mx = event.x();
         double my = event.y();
-        int button = event.button();
         if (super.mouseClicked(event, doubleClick)) return true;
 
         if (dialogChunk != null) {
@@ -312,33 +308,23 @@ public class ChunkMapScreen extends Screen {
             return true;
         }
 
-        if (button == 0) {
-            if (hoveredChunk != null && statusSnapshot.hasConflict(
-                    hoveredChunk.getMinBlockX() >> 4, hoveredChunk.getMinBlockZ() >> 4)) {
-                openDialog(hoveredChunk);
-                return true;
-            }
-            isDragging = true;
-            dragStartX = mx; dragStartY = my;
-            viewCXOnDrag = viewCX; viewCZOnDrag = viewCZ;
+        if (ChunkMapPan.isPrimary(event) && hoveredChunk != null && statusSnapshot.hasConflict(
+                hoveredChunk.getMinBlockX() >> 4, hoveredChunk.getMinBlockZ() >> 4)) {
+            openDialog(hoveredChunk);
+            return true;
         }
+        pan.begin(event);
         return true;
     }
 
     @Override
     public boolean mouseReleased(MouseButtonEvent event) {
-        if (event.button() == 0) isDragging = false;
-        return super.mouseReleased(event);
+        return pan.release(event) || super.mouseReleased(event);
     }
 
     @Override
     public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
-        if (isDragging && dialogChunk == null) {
-            double mx = event.x();
-            double my = event.y();
-            viewCX = viewCXOnDrag + (dragStartX - mx) / cellSize;
-            viewCZ = viewCZOnDrag + (dragStartY - my) / cellSize;
-        }
+        if (dialogChunk == null && pan.move(event, cellSize)) return true;
         return super.mouseDragged(event, dx, dy);
     }
 
@@ -357,7 +343,7 @@ public class ChunkMapScreen extends Screen {
 
     private ChunkMapView.BuiltInViewport viewport(boolean transparentBackground) {
         return new ChunkMapView.BuiltInViewport(
-                width, height, viewCX, viewCZ, cellSize, transparentBackground);
+                width, height, pan.x(), pan.z(), cellSize, transparentBackground);
     }
 
     private static ChunkPos chunkAt(ChunkMapView.BuiltInViewport viewport, double x, double z) {

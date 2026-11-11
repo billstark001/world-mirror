@@ -22,6 +22,7 @@ Use Added, Changed, and Fixed categories where applicable. Combine related chang
 - Replace resource-pressure capture stops with reduced work and recoverable pauses. Preserve the download toggle, pending tasks, and capture before chunk unload; automatically resume and recheck loaded chunks after stable recovery. Distinguish resource reduction, pause, and recovery from file failures in status and notices.
 - Account for shared and in-flight retained data without double-counting revisions. Prioritize export draining under pressure while deferring optional capture work.
 - Limit light-update waiting to the affected chunk so other terrain can still save.
+- Restore left-button dragging in the built-in map on Minecraft 26.3 and keep map drags tied to the primary button on all targets.
 
 ---
 
