@@ -91,15 +91,15 @@ class ChunkListenerRevisionTest {
         ChunkPos pos = new ChunkPos(-4, 9);
         ChunkListener.addChunkNbt(Level.OVERWORLD, pos, new CompoundTag());
         long revision = ChunkListener.getDimension(Level.OVERWORLD).get(pos).revision();
-        assertEquals(1, ChunkListener.snapshotDirtyReferences().get(Level.OVERWORLD).size());
+        assertEquals(1, ChunkListener.snapshotDirtyState().chunks().get(Level.OVERWORLD).size());
 
         ChunkListener.acknowledge(Map.of(Level.OVERWORLD, Map.of(pos, revision)), false);
         assertEquals(0, ChunkListener.getDirtyCount());
-        assertEquals(0, ChunkListener.snapshotDirtyReferences().size());
+        assertEquals(0, ChunkListener.snapshotDirtyState().chunks().size());
 
         ChunkListener.markChunkDirty(Level.OVERWORLD, pos);
         assertEquals(1, ChunkListener.getDirtyCount());
-        assertEquals(1, ChunkListener.snapshotDirtyReferences().get(Level.OVERWORLD).size());
+        assertEquals(1, ChunkListener.snapshotDirtyState().chunks().get(Level.OVERWORLD).size());
     }
 
     @Test

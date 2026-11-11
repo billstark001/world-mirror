@@ -98,7 +98,7 @@ public final class NearbyExporter {
                     if (ChunkSerializer.isChunkEmpty(worldChunk)) continue;
                     CompoundTag nbt = ChunkSerializer.serialize(world, worldChunk);
                     nearbyChunks.put(worldChunk.getPos(), new ChunkListener.CapturedChunk(
-                            nbt, System.currentTimeMillis(), 0L));
+                            nbt, System.currentTimeMillis(), 0L, false));
                 } catch (Exception e) {
                     WMLogger.warnRateLimited("nearby-capture", 30_000L,
                             "Nearby export capture failed chunk=" + worldChunk.getPos(), e);

@@ -129,13 +129,13 @@ class DownloadExportCoordinatorTest {
         var coordinator = new DownloadExportCoordinator(new DownloadCaptureQueue(() -> false, 1, () -> 8), scheduler,
                 DownloadExportCoordinator.createExportExecutor(), work -> { throw new IllegalStateException("No target configured"); });
         var work = prepared("server:first");
-        for (int batch = 0; batch < 8; batch++) queue.offer(work.retry());
+        for (int batch = 0; batch < 8; batch++) queue.enqueue(work.retry());
         assertEquals(8, queue.frozenCount());
         assertEquals(2, coordinator.sampleResources().retainedChunks(), "one shared terrain revision and one entity observation");
         var pos = new ChunkPos(0, 0);
         var entity = work.entities().get(Level.OVERWORLD).get(pos);
         var resampled = new EntityTracker.ChunkUpdate(entity.revision(), entity.observation(), entity.upserts(), entity.tombstones());
-        queue.offer(new ExportWork.Frozen(work.context(), work.terrain(), Map.of(Level.OVERWORLD, Map.of(pos, resampled)),
+        queue.enqueue(new ExportWork.Frozen(work.context(), work.terrain(), Map.of(Level.OVERWORLD, Map.of(pos, resampled)),
                 work.containers(), work.settings(), 0, OptionalLong.empty()));
         assertEquals(2, coordinator.sampleResources().retainedChunks(), "separate entity snapshot wrappers share the same global revision");
     }
@@ -171,8 +171,8 @@ class DownloadExportCoordinatorTest {
         var request = intent(ExportWork.Trigger.MANUAL, true, "server:new").withContainers(containers(newContainer));
 
         var queue = new ExportScheduler.Pending();
-        queue.offer(pending);
-        queue.offer(request);
+        queue.enqueue(pending);
+        queue.request(request);
         var frozen = (ExportWork.Frozen) queue.poll(false, 0L);
 
         assertEquals(ExportWork.Trigger.STOP, frozen.context().trigger());
@@ -191,9 +191,9 @@ class DownloadExportCoordinatorTest {
         var first = prepared("server:first");
         var second = prepared("server:second");
         var third = prepared("server:second");
-        queue.offer(first);
-        queue.offer(second);
-        queue.offer(third);
+        queue.enqueue(first);
+        queue.enqueue(second);
+        queue.enqueue(third);
 
         assertSame(first, queue.poll(true, 0L));
         assertSame(second, queue.poll(true, 0L));
@@ -205,8 +205,8 @@ class DownloadExportCoordinatorTest {
     void clearingASourceDropsOnlyItsLiveRequest() {
         var queue = new ExportScheduler.Pending();
         var frozen = prepared("server:old");
-        queue.offer(intent(ExportWork.Trigger.MANUAL, true, "server:live"));
-        queue.offer(frozen);
+        queue.request(intent(ExportWork.Trigger.MANUAL, true, "server:live"));
+        queue.enqueue(frozen);
 
         queue.clearLive();
 
@@ -220,8 +220,8 @@ class DownloadExportCoordinatorTest {
         var old = intent(ExportWork.Trigger.MANUAL, true, "server:old")
                 .withContainers(containers(new CompoundTag()));
         var next = intent(ExportWork.Trigger.MANUAL, true, "server:new");
-        queue.offer(old);
-        assertFalse(queue.offer(next));
+        queue.request(old);
+        assertFalse(queue.request(next));
         assertSame(next, queue.poll(false, 0L));
     }
 
@@ -246,12 +246,12 @@ class DownloadExportCoordinatorTest {
     @Test
     void liveRequestsWaitForCaptureAndCoalesceTheirNotificationAndPriority() {
         var queue = new ExportScheduler.Pending();
-        assertFalse(queue.offer(intent(ExportWork.Trigger.MANUAL, true, "server:live")));
-        assertTrue(queue.offer(intent(ExportWork.Trigger.PERIODIC, false, "server:live").ready()));
+        assertFalse(queue.request(intent(ExportWork.Trigger.MANUAL, true, "server:live")));
+        assertTrue(queue.request(intent(ExportWork.Trigger.PERIODIC, false, "server:live").ready()));
 
         var scanRequest = (ExportWork.Intent) queue.poll(true, 0L);
         assertEquals(ExportWork.CapturePhase.REQUIRED, scanRequest.capture());
-        queue.offer(scanRequest.ready());
+        queue.request(scanRequest.ready());
         assertNull(queue.poll(true, 0L));
         var live = (ExportWork.Intent) queue.poll(false, 0L);
         assertEquals(ExportWork.Trigger.MANUAL, live.context().trigger());
@@ -292,7 +292,7 @@ class DownloadExportCoordinatorTest {
                 Map.of(Level.OVERWORLD, Map.of(new ChunkPos(0, 0), 3L)), 100L);
         var newer = prepared("server:first");
         queue.retry(failedEntities, 100L);
-        queue.offer(newer);
+        queue.enqueue(newer);
 
         var terrain = (ExportWork.Frozen) queue.poll(true, 99L);
         assertSame(newer.terrain(), terrain.terrain());
@@ -351,7 +351,7 @@ class DownloadExportCoordinatorTest {
                 0L,
                 OptionalLong.empty());
         queue.retry(entities, 100L);
-        queue.offer(intent(ExportWork.Trigger.MANUAL, true, "server:first"));
+        queue.request(intent(ExportWork.Trigger.MANUAL, true, "server:first"));
 
         var terrain = (ExportWork.Intent) queue.poll(false, 99L);
         assertEquals(ExportWork.EntityScope.NONE, terrain.entityScope());
@@ -418,12 +418,13 @@ class DownloadExportCoordinatorTest {
             assertEquals(2, coordinator.sampleResources().retainedChunks(), "a newer live revision is distinct from the write snapshot");
             org.junit.jupiter.api.Assertions.assertDoesNotThrow(coordinator::drainCompletions);
             assertEquals(1, coordinator.sampleResources().retainedChunks());
-            var first = coordinator.metrics();
-            var second = coordinator.metrics();
-            assertEquals(1, first.lastWritten());
-            assertEquals(first, second);
-            assertEquals(first.lastExportMillis(), coordinator.snapshotDiagnostics().workerWallMillis());
-            assertEquals(0, coordinator.snapshotDiagnostics().workerWallMillis());
+            var first = coordinator.snapshotDiagnostics();
+            var second = coordinator.snapshotDiagnostics();
+            assertEquals(1, first.written());
+            assertEquals(first.written(), second.written());
+            assertEquals(first.lastExportMillis(), second.lastExportMillis());
+            assertEquals(first.lastExportMillis(), first.workerWallMillis());
+            assertEquals(0, second.workerWallMillis());
             assertFalse(coordinator.isInProgress());
             assertEquals(latest, ChunkListener.getDimension(Level.OVERWORLD).get(pos).revision());
             assertEquals(1, ChunkListener.getDirtyCount());
@@ -441,9 +442,9 @@ class DownloadExportCoordinatorTest {
         var other = prepared("server:other");
         var live = intent(ExportWork.Trigger.MANUAL, true, "server:first").ready();
         queue.retry(failed, 100L);
-        queue.offer(newer);
-        queue.offer(other);
-        queue.offer(live);
+        queue.enqueue(newer);
+        queue.enqueue(other);
+        queue.request(live);
 
         assertTrue((queue.hasTerrainForSource(new ExportWork.Source("server:first", "server")) || queue.hasEntitiesForSource(new ExportWork.Source("server:first", "server"))));
         assertSame(other, queue.poll(false, 99L));
@@ -477,8 +478,8 @@ class DownloadExportCoordinatorTest {
                 0L,
                 OptionalLong.empty());
         queue.retry(failedEntities, 200L);
-        queue.offer(first);
-        queue.offer(prepared("server:other"));
+        queue.enqueue(first);
+        queue.enqueue(prepared("server:other"));
         queue.prepareForShutdown();
 
         assertSame(failedEntities, queue.poll(true, 100L));

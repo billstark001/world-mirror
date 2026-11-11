@@ -210,10 +210,6 @@ final class DownloadCaptureQueue {
         flushLightUpdates(true);
     }
 
-    boolean hasPendingLightUpdates() {
-        return !pendingLightUpdates.isEmpty();
-    }
-
     boolean isLightingPending(ResourceKey<Level> dimension, ChunkPos pos) {
         return pendingLightUpdates.containsKey(new Key(dimension, pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4));
     }

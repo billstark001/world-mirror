@@ -13,13 +13,13 @@ class ExportSchedulerTest {
         var quietScan = new ExportWork.Intent(new ExportWork.Context(ExportWork.Trigger.MANUAL, false, source),
                 ExportWork.CapturePhase.READY, ExportWork.EntityScope.LIVE, true,
                 java.util.Optional.empty(), io.github.billstark001.worldmirror.io.WorldSettingsSnapshot.defaults());
-        pending.offer(quietScan);
+        pending.request(quietScan);
         assertEquals(null, pending.poll(true, 0));
         assertEquals(quietScan, pending.poll(false, 0));
         var notifiedExport = new ExportWork.Intent(new ExportWork.Context(ExportWork.Trigger.MANUAL, true, source),
                 ExportWork.CapturePhase.READY, ExportWork.EntityScope.LIVE, false,
                 java.util.Optional.empty(), quietScan.settings());
-        pending.offer(notifiedExport);
+        pending.request(notifiedExport);
         assertEquals(notifiedExport, pending.poll(true, 0));
     }
 

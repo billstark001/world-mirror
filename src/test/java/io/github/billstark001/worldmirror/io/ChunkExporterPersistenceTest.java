@@ -66,7 +66,7 @@ class ChunkExporterPersistenceTest {
                 CompoundTag chunk = new CompoundTag();
                 chunk.putInt("marker", revision);
                 var terrain = ChunkListener.snapshotOf(Map.of(Level.OVERWORLD, Map.of(pos,
-                        new ChunkListener.CapturedChunk(chunk, revision * 100L, revision))));
+                        new ChunkListener.CapturedChunk(chunk, revision * 100L, revision, false))));
                 var result = ChunkExporter.exportChunks(world, terrain,
                         Map.of(Level.OVERWORLD, Map.of(pos, update)), Map.of(), new OverwriteResolver(), db, -1L, io.github.billstark001.worldmirror.io.ExportProgress.NONE);
                 assertTrue(result.chunkWritesSuccessful());
@@ -95,7 +95,7 @@ class ChunkExporterPersistenceTest {
             chunk.putInt("zPos", -1);
             chunk.putString("marker", "captured");
             var snapshot = ChunkListener.snapshotOf(Map.of(Level.OVERWORLD,
-                    Map.of(pos, new ChunkListener.CapturedChunk(chunk, 100L, 1L))));
+                    Map.of(pos, new ChunkListener.CapturedChunk(chunk, 100L, 1L, false))));
 
             var result = ChunkExporter.exportChunks(world, snapshot, Map.of(), Map.of(),
                     new OverwriteResolver(), db, -1L, io.github.billstark001.worldmirror.io.ExportProgress.NONE);
@@ -242,6 +242,6 @@ class ChunkExporterPersistenceTest {
 
     private static ChunkListener.DirtySnapshot snapshot(ChunkPos pos, CompoundTag nbt) {
         return ChunkListener.snapshotOf(Map.of(Level.OVERWORLD,
-                Map.of(pos, new ChunkListener.CapturedChunk(nbt, 100L, 1L))));
+                Map.of(pos, new ChunkListener.CapturedChunk(nbt, 100L, 1L, false))));
     }
 }

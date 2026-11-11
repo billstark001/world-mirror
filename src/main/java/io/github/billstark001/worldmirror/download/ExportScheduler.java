@@ -68,10 +68,6 @@ final class ExportScheduler {
         }
     }
 
-    private static void collectReferences(Frozen work, Set<Long> terrain, Set<Long> entities) {
-        work.terrain().chunks().values().forEach(chunks -> chunks.values().forEach(chunk -> terrain.add(chunk.revision())));
-        work.entities().values().forEach(chunks -> chunks.values().forEach(update -> entities.add(update.revision())));
-    }
     private static Intent mergeIntents(Intent previous, Intent next) {
         Trigger trigger = next.context().trigger().priority() >= previous.context().trigger().priority()
                 ? next.context().trigger() : previous.context().trigger();
@@ -90,12 +86,8 @@ final class ExportScheduler {
         }
         private final ArrayDeque<Scheduled> frozen = new ArrayDeque<>();
         private Intent live;
-        boolean offer(ExportWork work) {
-            if (work instanceof Frozen prepared) {
-                frozen.addLast(new Scheduled(prepared, Long.MIN_VALUE));
-                return false;
-            }
-            Intent intent = (Intent) work;
+        void enqueue(Frozen work) { frozen.addLast(new Scheduled(work, Long.MIN_VALUE)); }
+        boolean request(Intent intent) {
             boolean coalesced = live != null && live.context().source().equals(intent.context().source());
             live = coalesced ? mergeIntents(live, intent) : intent;
             return coalesced;
@@ -128,14 +120,8 @@ final class ExportScheduler {
         void clearLive() { live = null; }
         void prepareForShutdown() { frozen.forEach(item -> item.readyAtMs = Long.MIN_VALUE); clearLive(); }
         int frozenCount() { return frozen.size(); }
-        long retainedChunks() {
-            Set<Long> terrain = new HashSet<>();
-            Set<Long> entities = new HashSet<>();
-            collectRetained(terrain, entities);
-            return (long) terrain.size() + entities.size();
-        }
         void collectRetained(Set<Long> terrain, Set<Long> entities) {
-            frozen.forEach(item -> collectReferences(item.work, terrain, entities));
+            frozen.forEach(item -> item.work.collectRevisions(terrain, entities));
         }
         void retryNow(Source source) {
             frozen.stream().filter(item -> item.work.context().source().equals(source))

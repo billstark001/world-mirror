@@ -42,10 +42,8 @@ import io.github.billstark001.worldmirror.download.ExportScheduler.Dispatch;
 
 /** Owns the export worker and durable transactions; scheduling state belongs to the client thread. */
 final class DownloadExportCoordinator {
-    record Metrics(long lastExportMillis, int lastWritten, int lastSettled,
-                   int lastUnreadable, long failures) { }
-
-    record DiagnosticSnapshot(ChunkExporter.ExportTimings timings,
+    record DiagnosticSnapshot(long lastExportMillis, int written, int settled, int unreadable, long failures,
+                              ChunkExporter.ExportTimings timings,
                               long durabilityIndexMillis,
                               long workerWallMillis,
                               long automaticSuppressed,
@@ -84,9 +82,9 @@ final class DownloadExportCoordinator {
     boolean isInProgress() { return inFlight != null; }
     void markEntitiesDirty() { entityRevision++; }
     boolean hasEntityWork() { return entityRevision > durableEntityRevision || EntityTracker.hasDirtyUpdates(); }
-    Metrics metrics() { return new Metrics(lastExportMillis, lastWritten, lastSettled, lastUnreadable, failures); }
     DiagnosticSnapshot snapshotDiagnostics() {
-        var result = new DiagnosticSnapshot(lastTimings, lastDurabilityIndexMillis, workerWallMillis, automaticSuppressed, deferredCoalesced);
+        var result = new DiagnosticSnapshot(lastExportMillis, lastWritten, lastSettled, lastUnreadable, failures,
+                lastTimings, lastDurabilityIndexMillis, workerWallMillis, automaticSuppressed, deferredCoalesced);
         workerWallMillis = automaticSuppressed = deferredCoalesced = 0;
         return result;
     }
@@ -98,14 +96,13 @@ final class DownloadExportCoordinator {
 
     CapturePolicy.Sample sampleResources() {
         Set<Long> terrain = new HashSet<>(), entities = new HashSet<>();
-        ChunkListener.forEachDirtyChunk(chunk -> terrain.add(chunk.revision()));
+        ChunkListener.forEachDirtyRevision(terrain::add);
         EntityTracker.forEachDirtyRevision(entities::add);
         if (!closed) scheduler.pending.collectRetained(terrain, entities);
         int active = 0;
         if (inFlight != null) {
             Frozen work = inFlight.work();
-            work.terrain().chunks().values().forEach(chunks -> chunks.values().forEach(chunk -> terrain.add(chunk.revision())));
-            work.entities().values().forEach(chunks -> chunks.values().forEach(update -> entities.add(update.revision())));
+            work.collectRevisions(terrain, entities);
             active = work.terrainCount() + work.entities().values().stream().mapToInt(Map::size).sum();
         }
         Runtime runtime = Runtime.getRuntime();
@@ -120,13 +117,13 @@ final class DownloadExportCoordinator {
     void request(Intent intent) {
         if (closed) return;
         if (!intent.context().trigger().automatic()) scheduler.pending.retryNow(intent.context().source());
-        if (scheduler.pending.offer(intent)) deferredCoalesced++;
+        if (scheduler.pending.request(intent)) deferredCoalesced++;
     }
     void enqueue(Frozen work) {
         if (closed) return;
         scheduler.pending.retryNow(work.context().source());
         observe(() -> ExportStatusStore.global().queued(work));
-        scheduler.pending.offer(work);
+        scheduler.pending.enqueue(work);
     }
 
     Dispatch dispatch(Minecraft client, CaptureBudget budget, boolean automaticEnabled, long now,

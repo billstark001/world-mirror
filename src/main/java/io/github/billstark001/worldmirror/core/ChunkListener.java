@@ -38,9 +38,6 @@ public class ChunkListener {
             long revision,
             boolean authoritativeEmpty
     ) {
-        public CapturedChunk(CompoundTag nbt, long capturedAtMs, long revision) {
-            this(nbt, capturedAtMs, revision, false);
-        }
     }
 
     /**
@@ -187,15 +184,6 @@ public class ChunkListener {
         });
     }
 
-    /**
-     * Returns immutable maps containing only dirty captured-chunk references.
-     * NBT remains un-copied here and is materialized one chunk at a time by the
-     * background exporter.
-     */
-    public static Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> snapshotDirtyReferences() {
-        return snapshotDirtyState().chunks();
-    }
-
     /** Captures dirty references and freezes their session-local lighting overlays. */
     public static DirtySnapshot snapshotDirtyState() {
         return snapshotDirtyState((dimension, pos) -> true);
@@ -232,9 +220,9 @@ public class ChunkListener {
     }
 
     /** Visits live dirty references without copying NBT or freezing lighting for telemetry. */
-    public static void forEachDirtyChunk(java.util.function.Consumer<CapturedChunk> visitor) {
+    public static void forEachDirtyRevision(java.util.function.LongConsumer visitor) {
         dimChunks.forEach((dimension, chunks) -> chunks.forEach((pos, chunk) -> {
-            if (!isClean(dimension, pos, chunk)) visitor.accept(chunk);
+            if (!isClean(dimension, pos, chunk)) visitor.accept(chunk.revision());
         }));
     }
 
@@ -245,20 +233,6 @@ public class ChunkListener {
         chunks.forEach((dimension, dimensionChunks) ->
                 immutable.put(dimension, Map.copyOf(dimensionChunks)));
         return new DirtySnapshot(Map.copyOf(immutable), Map.of());
-    }
-
-    /**
-     * Materializes one immutable write snapshot on demand.  This is deliberately
-     * per-chunk so a background export never deep-copies the whole cache at once.
-     */
-    public static CapturedChunk materialize(
-            ResourceKey<Level> dimension, ChunkPos pos, CapturedChunk captured) {
-        Map<ChunkPos, LightingOverlay> lightingByChunk = dimLighting.get(dimension);
-        LightingOverlay lighting = lightingByChunk == null ? null : lightingByChunk.get(pos);
-        CompoundTag nbt = lighting == null
-                ? captured.nbt().copy()
-                : lighting.materialize(captured.nbt());
-        return new CapturedChunk(nbt, captured.capturedAtMs(), captured.revision(), captured.authoritativeEmpty());
     }
 
     /** Read-only live map for game-thread queries; use DirtySnapshot for background exports. */

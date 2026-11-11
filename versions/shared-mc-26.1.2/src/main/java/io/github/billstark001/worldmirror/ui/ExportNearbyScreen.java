@@ -1,6 +1,5 @@
 package io.github.billstark001.worldmirror.ui;
 
-import io.github.billstark001.worldmirror.download.DownloadManager;
 import io.github.billstark001.worldmirror.download.MirrorWorldContext;
 import io.github.billstark001.worldmirror.download.NearbyExporter;
 import net.fabricmc.api.EnvType;
@@ -92,7 +91,7 @@ public class ExportNearbyScreen extends Screen {
                             ? defaultWorldName() : nameField.getValue();
                     Minecraft mc = Minecraft.getInstance();
                     mc.setScreen(null);
-                    DownloadManager.exportNearbyToNewSave(mc, name, radius, lineageChoice);
+                    NearbyExporter.export(mc, name, radius, lineageChoice);
                 }
         ).bounds(cx - 100, radiusY + 30, 94, 20).build());
 

@@ -26,7 +26,7 @@ class ExportStatusStoreTest {
         Map<ChunkPos,Long> written = new java.util.HashMap<>();
         for (int n = 0; n < 100; n++) {
             var pos = new ChunkPos(n,0);
-            chunks.put(pos,new ChunkListener.CapturedChunk(new CompoundTag(),100,n+1));
+            chunks.put(pos,new ChunkListener.CapturedChunk(new CompoundTag(),100,n+1, false));
             if (n%2==0) written.put(pos,(long)n+1);
         }
         var base = work("mixed",-1,-1);
@@ -198,7 +198,7 @@ class ExportStatusStoreTest {
         return new ExportWork.Frozen(new ExportWork.Context(ExportWork.Trigger.PERIODIC, false,
                 new ExportWork.Source(source, "server")),
                 ChunkListener.snapshotOf(terrain < 0 ? Map.of() : Map.of(Level.OVERWORLD, Map.of(POS,
-                        new ChunkListener.CapturedChunk(new CompoundTag(), terrain * 100, terrain)))),
+                        new ChunkListener.CapturedChunk(new CompoundTag(), terrain * 100, terrain, false)))),
                 entity < 0 ? Map.of() : Map.of(Level.OVERWORLD, Map.of(POS,
                         new EntityTracker.ChunkUpdate(entity, EntityTracker.Observation.PARTIAL, Map.of(), Set.of()))),
                 Map.of(), WorldSettingsSnapshot.defaults(), 0, OptionalLong.empty());

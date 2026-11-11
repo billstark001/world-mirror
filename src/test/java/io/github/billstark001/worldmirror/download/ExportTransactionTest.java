@@ -187,7 +187,7 @@ class ExportTransactionTest {
         CompoundTag nbt = new CompoundTag();
         nbt.putInt("marker", revision);
         var snapshot = ChunkListener.snapshotOf(Map.of(Level.OVERWORLD, Map.of(new ChunkPos(0, 0),
-                new ChunkListener.CapturedChunk(nbt, revision * 100L, revision))));
+                new ChunkListener.CapturedChunk(nbt, revision * 100L, revision, false))));
         return new ExportWork.Frozen(
                 new ExportWork.Context(ExportWork.Trigger.STOP, false,
                 new ExportWork.Source("server:transaction", "server")),
