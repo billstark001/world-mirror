@@ -26,11 +26,9 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
 import java.nio.file.Path;
 import java.sql.SQLException;
-import java.util.ArrayDeque;
 import java.util.HashSet;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Iterator;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -38,30 +36,12 @@ import java.util.Set;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Supplier;
-import java.util.function.Consumer;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.function.Function;
+import io.github.billstark001.worldmirror.download.ExportScheduler.Dispatch;
 
-/** Serializes export requests and owns the complete background durability transaction. */
+/** Owns the export worker and durable transactions; scheduling state belongs to the client thread. */
 final class DownloadExportCoordinator {
-    enum Trigger {
-        MANUAL(false, 2),
-        STOP(false, 3),
-        RETRY(false, 1),
-        PERIODIC(true, 0),
-        ADAPTIVE_HIGH_WATERMARK(true, 0),
-        ADAPTIVE_MAX_LATENCY(true, 0);
-
-        private final boolean automatic;
-        private final int priority;
-
-        Trigger(boolean automatic, int priority) {
-            this.automatic = automatic;
-            this.priority = priority;
-        }
-    }
-
     record Metrics(long lastExportMillis, int lastWritten, int lastSettled,
                    int lastUnreadable, long failures) { }
 
@@ -72,101 +52,28 @@ final class DownloadExportCoordinator {
                               long deferredCoalesced) { }
 
     private final DownloadCaptureQueue captureQueue;
-    private final Supplier<DownloadPipeline> pipelineSupplier;
-    private final Consumer<Runnable> clientExecutor;
-    private final AtomicBoolean inProgress = new AtomicBoolean();
-    private final AtomicBoolean stopping = new AtomicBoolean();
-    private final AtomicLong entityRevision = new AtomicLong(1L);
-    private final AtomicLong durableEntityRevision = new AtomicLong();
-    private final AtomicLong failures = new AtomicLong();
-    private final AtomicLong automaticSuppressed = new AtomicLong();
-    private final AtomicLong deferredCoalesced = new AtomicLong();
-    private final AtomicLong workerWallMillis = new AtomicLong();
-    private final Object requestLock = new Object();
-    private final DeferredRequests deferred = new DeferredRequests();
-
-    /** Source FIFO is enforced independently for terrain and entity revisions. Guarded by requestLock. */
-    static final class DeferredRequests {
-        private static final class Scheduled {
-            private Frozen work;
-            private long readyAtNs;
-            Scheduled(Frozen work, long readyAtNs) { this.work = work; this.readyAtNs = readyAtNs; }
-        }
-        private final ArrayDeque<Scheduled> frozen = new ArrayDeque<>();
-        private Intent live;
-        boolean offer(ExportWork work) {
-            if (work instanceof Frozen prepared) {
-                frozen.addLast(new Scheduled(prepared, Long.MIN_VALUE));
-                return false;
-            }
-            Intent intent = (Intent) work;
-            boolean coalesced = live != null && live.context().source().equals(intent.context().source());
-            live = coalesced ? mergeIntents(live, intent) : intent;
-            return coalesced;
-        }
-        ExportWork poll(boolean capturesPending) { return poll(capturesPending, System.nanoTime()); }
-        ExportWork poll(boolean capturesPending, long nowNs) {
-            Set<Source> blockedTerrain = new HashSet<>(), blockedEntities = new HashSet<>();
-            Iterator<Scheduled> iterator = frozen.iterator();
-            while (iterator.hasNext()) {
-                Scheduled scheduled = iterator.next();
-                Frozen work = scheduled.work;
-                Source source = work.context().source();
-                boolean ready = scheduled.readyAtNs == Long.MIN_VALUE || nowNs - scheduled.readyAtNs >= 0;
-                if (ready && !(work.hasTerrain() && blockedTerrain.contains(source))) {
-                    if (work.hasEntities() && blockedEntities.contains(source)) {
-                        if (work.hasTerrain()) { scheduled.work = work.entitiesOnly(); return work.terrainOnly(); }
-                    } else { iterator.remove(); return work; }
-                }
-                if (work.hasTerrain()) blockedTerrain.add(source);
-                if (work.hasEntities()) blockedEntities.add(source);
-            }
-            if (capturesPending || live == null || blockedTerrain.contains(live.context().source())) return null;
-            Intent work = live;
-            live = null;
-            return blockedEntities.contains(work.context().source()) ? work.terrainOnly() : work;
-        }
-        void retry(Frozen work, long readyAtNs) { frozen.addFirst(new Scheduled(work, readyAtNs)); }
-        boolean hasTerrainForSource(Source source) { return frozen.stream().anyMatch(item -> source.equals(item.work.context().source()) && item.work.hasTerrain()); }
-        boolean hasEntitiesForSource(Source source) { return frozen.stream().anyMatch(item -> source.equals(item.work.context().source()) && item.work.hasEntities()); }
-        void clearLive() { live = null; }
-        void prepareForShutdown() { frozen.forEach(item -> item.readyAtNs = Long.MIN_VALUE); clearLive(); }
-        int frozenCount() { return frozen.size(); }
-        long retainedChunks() {
-            return frozen.stream().mapToLong(item -> item.work.terrainCount()
-                    + item.work.entities().values().stream().mapToInt(Map::size).sum()).sum();
-        }
-        void retryNow(Source source) {
-            frozen.stream().filter(item -> item.work.context().source().equals(source))
-                    .forEach(item -> item.readyAtNs = Long.MIN_VALUE);
-        }
-    }
-
-    private static final long MAX_RETAINED_CHUNKS = 16_384L;
-    private static final int MAX_FROZEN_BUNDLES = 8;
-
-    boolean captureAdmissionAvailable() {
-        synchronized (requestLock) {
-            Runtime runtime = Runtime.getRuntime();
-            long used = runtime.totalMemory() - runtime.freeMemory();
-            boolean memoryPressure = used > runtime.maxMemory() * 0.8;
-            return deferred.frozenCount() < MAX_FROZEN_BUNDLES
-                    && deferred.retainedChunks() + ChunkListener.getDirtyCount() < MAX_RETAINED_CHUNKS
-                    && !(memoryPressure && (deferred.frozenCount() > 0 || ChunkListener.getDirtyCount() > 0));
-        }
-    }
-
-    private volatile long lastExportMillis;
-    private volatile int lastWritten;
-    private volatile int lastSettled;
-    private volatile int lastUnreadable;
-    private volatile long lastDurabilityIndexMillis;
-    private volatile ChunkExporter.ExportTimings lastTimings = emptyTimings();
-
+    private final ExportScheduler scheduler;
     private final ThreadPoolExecutor executor;
+    private final Function<Frozen, ExportJob> jobs;
+    private final ConcurrentLinkedQueue<Completion> completions = new ConcurrentLinkedQueue<>();
+    private volatile ExportJob inFlight;
+    private boolean closed;
+    private long entityRevision = 1, durableEntityRevision;
+    private long failures, automaticSuppressed, deferredCoalesced, workerWallMillis;
+    private volatile long lastExportMillis;
+    private volatile int lastWritten, lastSettled, lastUnreadable;
+    private long lastDurabilityIndexMillis;
+    private ChunkExporter.ExportTimings lastTimings = emptyTimings();
+    private record Completion(ExportJob job, ExportOutcome outcome, long elapsedMs, long cpuMs) { }
+
+    DownloadExportCoordinator(DownloadCaptureQueue captureQueue, ExportScheduler scheduler, ThreadPoolExecutor executor, Function<Frozen, ExportJob> jobs) {
+        this.captureQueue = captureQueue;
+        this.scheduler = scheduler;
+        this.executor = executor;
+        this.jobs = jobs;
+    }
 
     static ThreadPoolExecutor createExportExecutor() {
-        // One accepted export and one shutdown drain may briefly wait behind a finishing worker.
         return new ThreadPoolExecutor(0, 1, 30L, TimeUnit.SECONDS, new LinkedBlockingQueue<>(2), runnable -> {
             Thread thread = new Thread(runnable, "WM-Export");
             thread.setDaemon(false);
@@ -174,89 +81,203 @@ final class DownloadExportCoordinator {
         });
     }
 
-    DownloadExportCoordinator(DownloadCaptureQueue captureQueue,
-                              Supplier<DownloadPipeline> pipelineSupplier) {
-        this(captureQueue, pipelineSupplier, task -> Minecraft.getInstance().execute(task));
-    }
-
-    DownloadExportCoordinator(DownloadCaptureQueue captureQueue,
-                              Supplier<DownloadPipeline> pipelineSupplier,
-                              Consumer<Runnable> clientExecutor) {
-        this(captureQueue, pipelineSupplier, clientExecutor, createExportExecutor());
-    }
-
-    DownloadExportCoordinator(DownloadCaptureQueue captureQueue,
-                              Supplier<DownloadPipeline> pipelineSupplier,
-                              Consumer<Runnable> clientExecutor, ThreadPoolExecutor executor) {
-        this.captureQueue = captureQueue;
-        this.pipelineSupplier = pipelineSupplier;
-        this.clientExecutor = clientExecutor;
-        this.executor = executor;
-    }
-
-    /** Never interrupts an atomic write or waits on a client-thread acknowledgement. */
-    void shutdown() {
-        if (!stopping.compareAndSet(false, true)) return;
-        executor.execute(this::drainAtShutdown);
-        executor.shutdown();
-    }
-
-    private void drainAtShutdown() {
-        long nowNs = System.nanoTime();
-        synchronized (requestLock) { deferred.prepareForShutdown(); }
-        while (true) {
-            Frozen work;
-            synchronized (requestLock) { work = (Frozen) deferred.poll(true, nowNs); }
-            if (work == null) break;
-            prepareJob(work).ifPresent(this::runWorker);
-        }
-        synchronized (requestLock) {
-            if (deferred.frozenCount() > 0) WMLogger.warn("Export shutdown finished with " + deferred.frozenCount()
-                    + " unsaved frozen bundle(s); failed writes were not acknowledged.");
-        }
-    }
-
-    boolean isInProgress() {
-        return inProgress.get();
-    }
-
-    void markEntitiesDirty() {
-        entityRevision.incrementAndGet();
-    }
-
-    boolean hasEntityWork() {
-        return entityRevision.get() > durableEntityRevision.get()
-                || EntityTracker.hasDirtyUpdates();
-    }
-
-    Metrics metrics() {
-        return new Metrics(lastExportMillis, lastWritten, lastSettled, lastUnreadable,
-                failures.get());
-    }
-
+    boolean isInProgress() { return inFlight != null; }
+    void markEntitiesDirty() { entityRevision++; }
+    boolean hasEntityWork() { return entityRevision > durableEntityRevision || EntityTracker.hasDirtyUpdates(); }
+    Metrics metrics() { return new Metrics(lastExportMillis, lastWritten, lastSettled, lastUnreadable, failures); }
     DiagnosticSnapshot snapshotDiagnostics() {
-        return new DiagnosticSnapshot(lastTimings, lastDurabilityIndexMillis,
-                workerWallMillis.getAndSet(0L), automaticSuppressed.getAndSet(0L),
-                deferredCoalesced.getAndSet(0L));
+        var result = new DiagnosticSnapshot(lastTimings, lastDurabilityIndexMillis, workerWallMillis, automaticSuppressed, deferredCoalesced);
+        workerWallMillis = automaticSuppressed = deferredCoalesced = 0;
+        return result;
     }
-
     void resetDiagnostics() {
-        failures.set(0L);
-        automaticSuppressed.set(0L);
-        deferredCoalesced.set(0L);
-        workerWallMillis.set(0L);
-        lastExportMillis = 0L;
-        lastWritten = 0;
-        lastSettled = 0;
-        lastUnreadable = 0;
-        lastDurabilityIndexMillis = 0L;
+        failures = automaticSuppressed = deferredCoalesced = workerWallMillis = lastExportMillis = lastDurabilityIndexMillis = 0;
+        lastWritten = lastSettled = lastUnreadable = 0;
         lastTimings = emptyTimings();
     }
 
-    void clearDeferred() {
-        synchronized (requestLock) {
-            deferred.clearLive();
+    CapturePolicy.Sample sampleResources() {
+        Set<Long> terrain = new HashSet<>(), entities = new HashSet<>();
+        ChunkListener.forEachDirtyChunk(chunk -> terrain.add(chunk.revision()));
+        EntityTracker.forEachDirtyRevision(entities::add);
+        if (!closed) scheduler.pending.collectRetained(terrain, entities);
+        int active = 0;
+        if (inFlight != null) {
+            Frozen work = inFlight.work();
+            work.terrain().chunks().values().forEach(chunks -> chunks.values().forEach(chunk -> terrain.add(chunk.revision())));
+            work.entities().values().forEach(chunks -> chunks.values().forEach(update -> entities.add(update.revision())));
+            active = work.terrainCount() + work.entities().values().stream().mapToInt(Map::size).sum();
         }
+        Runtime runtime = Runtime.getRuntime();
+        return new CapturePolicy.Sample(runtime.totalMemory() - runtime.freeMemory(), runtime.maxMemory(),
+                ChunkListener.getDirtyCount(), (long) terrain.size() + entities.size(), (closed ? 0 : scheduler.pending.frozenCount()), active);
+    }
+
+    void cancelRequest() {
+        if (!closed) scheduler.pending.clearLive();
+    }
+
+    void request(Intent intent) {
+        if (closed) return;
+        if (!intent.context().trigger().automatic()) scheduler.pending.retryNow(intent.context().source());
+        if (scheduler.pending.offer(intent)) deferredCoalesced++;
+    }
+    void enqueue(Frozen work) {
+        if (closed) return;
+        scheduler.pending.retryNow(work.context().source());
+        observe(() -> ExportStatusStore.global().queued(work));
+        scheduler.pending.offer(work);
+    }
+
+    Dispatch dispatch(Minecraft client, CaptureBudget budget, boolean automaticEnabled, long now,
+                      ModConfig config, Function<Trigger, Intent> requests) {
+        if (closed) return Dispatch.CLOSED;
+        if (inFlight != null) return Dispatch.BUSY;
+        scheduler.configure(config);
+        ExportWork work = scheduler.pending.poll(budget.preExportScan() && captureQueue.hasPendingCaptures(), now);
+        if (work == null && automaticEnabled && client.level != null) {
+            boolean hasWork = ChunkListener.getDirtyCount() > 0 || EntityTracker.hasDirtyUpdates()
+                    || (budget.refreshEntities() && hasEntityWork());
+            Trigger trigger = scheduler.automatic(now, ChunkListener.getDirtyCount(), hasWork, !budget.refreshEntities());
+            if (trigger != null) work = requests.apply(trigger);
+        }
+        if (work == null) return Dispatch.IDLE;
+        Dispatch result = dispatchWork(client, work, budget, now);
+        scheduler.attempted(work.context().trigger(), result, now);
+        if (work.context().trigger().automatic() && result != Dispatch.STARTED) automaticSuppressed++;
+        return result;
+    }
+
+    private Dispatch dispatchWork(Minecraft client, ExportWork work, CaptureBudget budget, long now) {
+        if (work.context().trigger() == Trigger.MANUAL) io.github.billstark001.worldmirror.io.FileReadFailures.invalidate();
+        Frozen frozen;
+        if (work instanceof Intent intent) {
+            if (client.level == null) { request(intent); return Dispatch.WAITING_WORLD; }
+            if (scheduler.pending.hasTerrainForSource(intent.context().source())) return Dispatch.WAITING_SOURCE;
+            if (intent.capture() == CapturePhase.REQUIRED && intent.captureNearby() && budget.preExportScan() && client.player != null) {
+                captureQueue.queueLoaded(client.level, client.player.getBlockX() >> 4, client.player.getBlockZ() >> 4, 8, "pre-export");
+                request(intent.ready());
+                return Dispatch.WAITING_CAPTURE;
+            }
+            if (scheduler.pending.hasEntitiesForSource(intent.context().source())) intent = intent.terrainOnly();
+            frozen = freeze(client, intent, budget);
+            if (intent.entityScope() == EntityScope.NONE && !frozen.hasTerrain()) return Dispatch.IDLE;
+        } else frozen = (Frozen) work;
+        Optional<ExportJob> job = prepareJob(frozen, now);
+        if (job.isEmpty()) return Dispatch.PREPARATION_FAILED;
+        submit(job.get(), now);
+        return Dispatch.STARTED;
+    }
+
+    Frozen freeze(Minecraft client, Intent intent, CaptureBudget budget) {
+        long revision = entityRevision;
+        boolean entities = intent.entityScope() == EntityScope.LIVE;
+        boolean refresh = entities && budget.refreshEntities() && client.level != null;
+        if (refresh && revision > durableEntityRevision) EntityTracker.captureEntitiesForWorld(client.level);
+        return new Frozen(intent.context(), snapshotReadyTerrain(), entities ? EntityTracker.snapshot() : Map.of(),
+                intent.containers().orElseGet(ContainerTracker::snapshotSavedData), intent.settings(), 0,
+                refresh ? OptionalLong.of(revision) : OptionalLong.empty());
+    }
+    ChunkListener.DirtySnapshot snapshotReadyTerrain() {
+        return ChunkListener.snapshotDirtyState((dimension, pos) -> !captureQueue.isLightingPending(dimension, pos));
+    }
+
+    private Optional<ExportJob> prepareJob(Frozen work, long now) {
+        observe(() -> ExportStatusStore.global().queued(work));
+        try {
+            return Optional.of(jobs.apply(work));
+        } catch (Exception failure) {
+            WMLogger.warn("Export output preparation failed source=" + work.context().source().id(), failure);
+            failures++;
+            observe(() -> ExportNotifications.global().observe(ExportStatusStore.global().finish(work, ExportOutcome.failed(work))));
+            scheduler.completed(work, false, now);
+            return Optional.empty();
+        }
+    }
+
+    static ExportJob createJob(Frozen work, ModConfig.DownloadPipelineMode mode) {
+        ModConfig config = ModConfig.get();
+        return new ExportJob(work, () -> MirrorMapping.getInstance().claimOutputDirectory(work.context().source().id()),
+                mode, config.performance.diagnosticPerformanceLogging, config.cache.invalidateAfterExport,
+                buildResolver(work.context().source().id()), config.performance.diagnosticPerformanceLogging
+                ? Math.max(0L, config.performance.slowRegionMillis) : -1L,
+                (part, dimension, chunks) -> ExportStatusStore.global().writing(work, part, dimension, chunks));
+    }
+
+    /** The only worker submission path. Live cache acknowledgements wait for drainCompletions(). */
+    void submit(ExportJob job, long now) {
+        if (closed || inFlight != null) throw new IllegalStateException("Export worker is unavailable");
+        inFlight = job;
+        scheduler.accepted(now, job.work().terrainCount());
+        executor.execute(() -> completions.add(perform(job)));
+    }
+    private static Completion perform(ExportJob job) {
+        long started = System.nanoTime(), cpuStart = currentThreadCpuTimeNs();
+        ExportOutcome outcome;
+        try { outcome = write(job); }
+        catch (Exception failure) {
+            WMLogger.warn("Export worker failed source=" + job.work().context().source().id(), failure);
+            outcome = ExportOutcome.failed(job.work());
+        }
+        long cpuEnd = currentThreadCpuTimeNs();
+        return new Completion(job, outcome, (System.nanoTime() - started) / 1_000_000,
+                cpuStart < 0 || cpuEnd < cpuStart ? -1 : (cpuEnd - cpuStart) / 1_000_000);
+    }
+    void drainCompletions() {
+        if (closed) return;
+        Completion completion;
+        while ((completion = completions.poll()) != null) {
+            try { settle(completion); }
+            finally { applyReceipts(completion.job().work(), completion.outcome(), completion.job().invalidate()); }
+        }
+    }
+    private void settle(Completion completion) {
+        var job = completion.job();
+        var work = job.work();
+        var outcome = completion.outcome();
+        var result = outcome.result();
+        lastTimings = result.timings();
+        lastDurabilityIndexMillis = outcome.indexMillis();
+        lastWritten = result.totalWritten();
+        lastUnreadable = result.unreadableChunks().values().stream().mapToInt(Set::size).sum();
+        lastSettled = result.settledWithoutWrite().values().stream().mapToInt(Map::size).sum();
+        lastExportMillis = completion.elapsedMs();
+        if (job.diagnostic()) {
+            workerWallMillis += lastExportMillis;
+            observe(() -> logPerformance(work.context(), job.mode(), work.terrainCount(), lastWritten, lastUnreadable,
+                    lastExportMillis, completion.cpuMs(), outcome.indexMillis(), result.timings()));
+        }
+        if (!outcome.successful()) failures++;
+        scheduler.completed(outcome.remaining(), outcome.successful(), System.nanoTime() / 1_000_000);
+        inFlight = null;
+        boolean successful = outcome.successful() && !scheduler.pending.hasEntitiesForSource(work.context().source());
+        String summary = "Export pass complete: status=" + (successful ? "success" : "partial") + " pipeline=" + job.mode()
+                + " trigger=" + work.context().trigger() + " dirtySnapshot=" + work.terrainCount() + " written=" + lastWritten
+                + " unreadable=" + lastUnreadable + " settled=" + lastSettled + " elapsedMs=" + lastExportMillis;
+        if (successful) WMLogger.info(summary); else WMLogger.debug(summary);
+        observe(() -> ExportNotifications.global().observe(ExportStatusStore.global().finish(work, outcome)));
+        if (!closed && successful && work.context().notifyPlayer()) {
+            observe(() -> WMPlayerMessages.sendSystemMessage(Minecraft.getInstance().player, Component.translatable("msg.worldmirror.exportDone")));
+        }
+    }
+
+    /** Queue ownership transfers after the last client-thread request; native writes are never interrupted. */
+    void shutdown() {
+        if (closed) return;
+        closed = true;
+        executor.execute(() -> {
+            Completion completed;
+            while ((completed = completions.poll()) != null) settle(completed);
+            scheduler.pending.prepareForShutdown();
+            long now = System.nanoTime() / 1_000_000;
+            Frozen work;
+            while ((work = (Frozen) scheduler.pending.poll(true, now)) != null) {
+                prepareJob(work, now).ifPresent(job -> settle(perform(job)));
+            }
+            if (scheduler.pending.frozenCount() > 0) WMLogger.warn("Export shutdown finished with "
+                    + scheduler.pending.frozenCount() + " unsaved frozen bundle(s); failed writes were not acknowledged.");
+        });
+        executor.shutdown();
     }
 
     @FunctionalInterface
@@ -295,134 +316,6 @@ final class DownloadExportCoordinator {
         static ExportOutcome failed(Frozen work) {
             return new ExportOutcome(new ChunkExporter.ExportResult(Map.of(), Map.of(), Map.of(), Map.of(), false, false, emptyTimings()),
                     Map.of(), work, false, false, 0L);
-        }
-    }
-
-    boolean start(Minecraft client, ExportWork work) { return start(client, work, false); }
-
-    private boolean start(Minecraft client, ExportWork work, boolean fromQueue) {
-        if (stopping.get()) return false;
-        if (work instanceof Intent intent) work = resolveIntent(client, intent);
-        Context context = work.context();
-        if (context.trigger() == Trigger.MANUAL) io.github.billstark001.worldmirror.io.FileReadFailures.invalidate();
-        boolean entitiesBlocked, previousSourceWork;
-        synchronized (requestLock) {
-            if (!context.trigger().automatic && context.trigger() != Trigger.RETRY) deferred.retryNow(context.source());
-            entitiesBlocked = !(fromQueue && work instanceof Frozen) && deferred.hasEntitiesForSource(context.source());
-            previousSourceWork = !fromQueue && (deferred.hasTerrainForSource(context.source()) || entitiesBlocked && work instanceof Frozen);
-        }
-        if (inProgress.get() || previousSourceWork) {
-            if (context.trigger().automatic) { automaticSuppressed.incrementAndGet(); return false; }
-            if (work instanceof Intent intent) {
-                intent = intent.containers().isPresent() ? intent : intent.withContainers(ContainerTracker.snapshotSavedData());
-                work = intent.capture() == CapturePhase.READY ? freeze(client, intent, false) : intent;
-            }
-            defer(work);
-            return false;
-        }
-        if (work instanceof Intent intent && intent.capture() == CapturePhase.REQUIRED) {
-            if (captureQueue.hasPendingLightUpdates()) {
-                if (context.trigger().automatic) automaticSuppressed.incrementAndGet(); else defer(intent);
-                return false;
-            }
-            if (captureAdmissionAvailable() && context.notifyPlayer() && ModConfig.get().lifecycle.captureNearbyBeforeExport && client.level != null && client.player != null) {
-                boolean scheduled = captureQueue.queueLoaded(client.level, client.player.getBlockX() >> 4,
-                        client.player.getBlockZ() >> 4, 8, "pre-export");
-                if (scheduled || captureQueue.isCaptureInProgress()) { defer(intent.ready()); return false; }
-            }
-        }
-        Frozen frozen;
-        if (work instanceof Intent intent) {
-            frozen = freeze(client, entitiesBlocked ? intent.terrainOnly() : intent, true);
-            if (entitiesBlocked && !frozen.hasTerrain()) return false;
-        } else frozen = (Frozen) work;
-        Optional<ExportJob> job = prepareJob(frozen);
-        if (job.isEmpty()) return false;
-        inProgress.set(true);
-        pipelineSupplier.get().onExportStarted(System.currentTimeMillis(), frozen.terrainCount(), ModConfig.get());
-        executor.execute(() -> runWorker(job.get()));
-        return true;
-    }
-
-    private Optional<ExportJob> prepareJob(Frozen work) {
-        observe(() -> ExportStatusStore.global().queued(work));
-        try {
-            return Optional.of(new ExportJob(work,
-                    () -> MirrorMapping.getInstance().claimOutputDirectory(work.context().source().id()), pipelineSupplier.get().mode(),
-                    ModConfig.get().performance.diagnosticPerformanceLogging, ModConfig.get().cache.invalidateAfterExport,
-                    buildResolver(work.context().source().id()), ModConfig.get().performance.diagnosticPerformanceLogging
-                    ? Math.max(0L, ModConfig.get().performance.slowRegionMillis) : -1L,
-                    (part, dimension, chunks) -> ExportStatusStore.global().writing(work, part, dimension, chunks)));
-        } catch (Exception failure) {
-            WMLogger.warn("Export output preparation failed source=" + work.context().source().id(), failure);
-            failures.incrementAndGet();
-            observe(() -> ExportNotifications.global().observe(ExportStatusStore.global().finish(work, ExportOutcome.failed(work))));
-            retainForRetry(work);
-            return Optional.empty();
-        }
-    }
-
-    private static Intent resolveIntent(Minecraft client, Intent intent) {
-        if (intent.context().source().id().equals("unknown")) intent = intent.forSource(new Source(WorldMetadata.detectSourceId(client), WorldMetadata.detectSourceType(client)));
-        if (intent.settings().isEmpty()) intent = intent.withSettings(WorldStructureCreator.resolveNewWorldSettings(WorldStructureCreator.captureWorldSettings(client.level)));
-        return intent;
-    }
-
-    private Frozen freeze(Minecraft client, Intent intent, boolean acknowledgeLiveSignal) {
-        long revision = entityRevision.get();
-        boolean entities = intent.entityScope() == EntityScope.LIVE;
-        if (entities && client.level != null && captureAdmissionAvailable()
-                && (!acknowledgeLiveSignal || revision > durableEntityRevision.get())) EntityTracker.captureEntitiesForWorld(client.level);
-        return new Frozen(intent.context(), ChunkListener.snapshotDirtyState(), entities ? EntityTracker.snapshot() : Map.of(),
-                intent.containers().orElseGet(ContainerTracker::snapshotSavedData), intent.settings().orElseThrow(), 0L,
-                acknowledgeLiveSignal && entities ? OptionalLong.of(revision) : OptionalLong.empty());
-    }
-
-    void tryStartDeferred(Minecraft client) {
-        ExportWork work;
-        synchronized (requestLock) {
-            if (stopping.get() || inProgress.get()) return;
-            work = deferred.poll(captureQueue.hasWork() || client.level == null);
-        }
-        if (work != null) start(client, work, true);
-    }
-
-    private void runWorker(ExportJob job) {
-        long startedNs = System.nanoTime(), cpuStartedNs = currentThreadCpuTimeNs();
-        Frozen work = job.work();
-        ExportOutcome outcome = ExportOutcome.failed(work);
-        inProgress.set(true);
-        try {
-            outcome = write(job);
-            var result = outcome.result();
-            lastTimings = result.timings();
-            lastDurabilityIndexMillis = outcome.indexMillis();
-            lastWritten = result.totalWritten();
-            lastUnreadable = result.unreadableChunks().values().stream().mapToInt(Set::size).sum();
-            lastSettled = result.settledWithoutWrite().values().stream().mapToInt(Map::size).sum();
-            dispatchAcknowledgements(work, outcome, job.invalidate());
-            boolean pendingEntities;
-            synchronized (requestLock) { pendingEntities = !result.entityWritesSuccessful() || deferred.hasEntitiesForSource(work.context().source()); }
-            boolean successful = outcome.successful() && !pendingEntities;
-            long elapsedMs = (System.nanoTime() - startedNs) / 1_000_000L;
-            if (job.diagnostic()) logPerformance(work.context(), job.mode(), work.terrainCount(), lastWritten, lastUnreadable, elapsedMs, cpuStartedNs, result.timings());
-            String summary = "Export pass complete: status=" + (successful ? "success" : "partial")
-                    + " pipeline=" + job.mode() + " trigger=" + work.context().trigger() + " dirtySnapshot=" + work.terrainCount()
-                    + " written=" + lastWritten + " unreadable=" + lastUnreadable + " settled=" + lastSettled + " elapsedMs=" + elapsedMs;
-            if (successful) {
-                synchronized (requestLock) { retryAttempts.remove(work.context().source()); }
-                WMLogger.info(summary);
-            }
-            else WMLogger.debug(summary);
-            if (!stopping.get() && work.context().notifyPlayer() && successful) notifyPlayer("msg.worldmirror.exportDone");
-        } finally {
-            ExportOutcome completed = outcome;
-            observe(() -> ExportNotifications.global().observe(ExportStatusStore.global().finish(work, completed)));
-            lastExportMillis = (System.nanoTime() - startedNs) / 1_000_000L;
-            if (job.diagnostic()) workerWallMillis.addAndGet(lastExportMillis);
-            if (!outcome.successful()) { failures.incrementAndGet(); retainForRetry(outcome.remaining()); }
-            inProgress.set(false);
-            if (!stopping.get()) clientExecutor.accept(() -> tryStartDeferred(Minecraft.getInstance()));
         }
     }
 
@@ -536,54 +429,28 @@ final class DownloadExportCoordinator {
         return new ExportOutcome(result, durableWritten, remaining, indexCommitted, metadataCommitted, indexMillis);
     }
 
-    private void defer(ExportWork work) {
-        if (work instanceof Frozen frozen) observe(() -> ExportStatusStore.global().queued(frozen));
-        synchronized (requestLock) { if (deferred.offer(work)) deferredCoalesced.incrementAndGet(); }
+    /** Applies exact durable receipts only on the client thread. */
+    void applyReceipts(Frozen work, ExportOutcome outcome, boolean invalidate) {
+        var written = outcome.durableWritten();
+        var result = outcome.result();
+        Map<ResourceKey<Level>, Set<ChunkPos>> invalidated = new HashMap<>();
+        ChunkListener.acknowledge(result.settledRevisions(), invalidate).forEach((dimension, chunks) ->
+                invalidated.computeIfAbsent(dimension, ignored -> new HashSet<>()).addAll(chunks));
+        ChunkListener.acknowledge(written, invalidate).forEach((dimension, chunks) ->
+                invalidated.computeIfAbsent(dimension, ignored -> new HashSet<>()).addAll(chunks));
+        invalidated.forEach((dimension, chunks) -> chunks.removeIf(pos -> captureQueue.hasPendingChunkWork(dimension, pos)));
+        ContainerTracker.evictForChunks(invalidated, work.containers());
+        EntityTracker.acknowledge(result.entityRevisions());
+        acknowledgeEntityWork(work.liveEntitySignal(), result.entityWritesSuccessful());
     }
-    private final Map<Source, Integer> retryAttempts = new HashMap<>();
-
-    private void retainForRetry(Frozen work) {
-        int attempt;
-        synchronized (requestLock) { attempt = retryAttempts.merge(work.context().source(), 1, Integer::sum); }
-        long seconds = Math.min(900L, 10L << Math.min(7, attempt - 1));
-        synchronized (requestLock) { deferred.retry(work.retry(), System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds)); }
-        WMLogger.debug("Retained frozen export source=" + work.context().source().id() + " for retry after " + seconds + "s");
+    void acknowledgeEntityWork(OptionalLong captured, boolean successful) {
+        if (successful) captured.ifPresent(revision -> durableEntityRevision = Math.max(durableEntityRevision, revision));
     }
-
-    /** UI observations cannot prevent acknowledgement dispatch, retries, or shutdown draining. */
     private static void observe(Runnable update) {
         try { update.run(); }
         catch (RuntimeException failure) {
-            WMLogger.warnRateLimited("export-status-observer", 30_000L,
-                    "Export status observation failed; native export and retry processing continue", failure);
+            WMLogger.warnRateLimited("export-status-observer", 30_000, "Export status observation failed; processing continues", failure);
         }
-    }
-
-    void dispatchAcknowledgements(Frozen work, ExportOutcome outcome, boolean invalidate) {
-        if (stopping.get()) return;
-        var written = outcome.durableWritten();
-        var result = outcome.result();
-        clientExecutor.accept(() -> {
-            Map<ResourceKey<Level>, Set<ChunkPos>> invalidated = new HashMap<>();
-            ChunkListener.acknowledge(result.settledRevisions(), invalidate).forEach((dimension, chunks) ->
-                    invalidated.computeIfAbsent(dimension, ignored -> new HashSet<>()).addAll(chunks));
-            ChunkListener.acknowledge(written, invalidate).forEach((dimension, chunks) ->
-                    invalidated.computeIfAbsent(dimension, ignored -> new HashSet<>()).addAll(chunks));
-            invalidated.forEach((dimension, chunks) -> chunks.removeIf(pos -> captureQueue.hasPendingChunkWork(dimension, pos)));
-            ContainerTracker.evictForChunks(invalidated, work.containers());
-            EntityTracker.acknowledge(result.entityRevisions());
-            acknowledgeEntityWork(work.liveEntitySignal(), result.entityWritesSuccessful());
-        });
-    }
-    void acknowledgeEntityWork(OptionalLong captured, boolean successful) {
-        if (successful) captured.ifPresent(revision -> durableEntityRevision.accumulateAndGet(revision, Math::max));
-    }
-    private static Intent mergeIntents(Intent pending, Intent next) {
-        Trigger trigger = next.context().trigger().priority >= pending.context().trigger().priority ? next.context().trigger() : pending.context().trigger();
-        Context context = new Context(trigger, pending.context().notifyPlayer() || next.context().notifyPlayer(), next.context().source());
-        CapturePhase phase = pending.capture() == CapturePhase.READY && next.capture() == CapturePhase.READY ? CapturePhase.READY : CapturePhase.REQUIRED;
-        return new Intent(context, phase, next.entityScope(), next.containers().isPresent() ? next.containers() : pending.containers(),
-                next.settings().isPresent() ? next.settings() : pending.settings());
     }
 
     private static ConflictResolver buildResolver(String sourceId) {
@@ -601,12 +468,9 @@ final class DownloadExportCoordinator {
         };
     }
 
-    private void logPerformance(Context context, ModConfig.DownloadPipelineMode pipelineMode,
+    private static void logPerformance(Context context, ModConfig.DownloadPipelineMode pipelineMode,
                                 int totalChunks, int written, int unreadable, long elapsedMs,
-                                long startedCpuNs, ChunkExporter.ExportTimings timings) {
-        long cpuNowNs = currentThreadCpuTimeNs();
-        long cpuMs = startedCpuNs < 0L || cpuNowNs < startedCpuNs
-                ? -1L : (cpuNowNs - startedCpuNs) / 1_000_000L;
+                                long cpuMs, long indexMillis, ChunkExporter.ExportTimings timings) {
         WMLogger.info("[perf] export trigger=" + context.trigger()
                 + " pipeline=" + pipelineMode + " dirtySnapshot=" + totalChunks
                 + " written=" + written + " unreadable=" + unreadable
@@ -617,13 +481,10 @@ final class DownloadExportCoordinator {
                 + " regionFlushMs=" + timings.flushMs()
                 + " regionVerifyMs=" + timings.verificationMs()
                 + " entityWriteMs=" + timings.entityMs()
-                + " dbCommitMs=" + lastDurabilityIndexMillis
+                + " dbCommitMs=" + indexMillis
                 + " workerCpuMs=" + cpuMs + " elapsedMs=" + elapsedMs);
     }
 
-    private void notifyPlayer(String key) {
-        clientExecutor.accept(() -> WMPlayerMessages.sendSystemMessage(Minecraft.getInstance().player, Component.translatable(key)));
-    }
     private static long currentThreadCpuTimeNs() {
         ThreadMXBean bean = ManagementFactory.getThreadMXBean();
         return bean.isCurrentThreadCpuTimeSupported() && bean.isThreadCpuTimeEnabled()

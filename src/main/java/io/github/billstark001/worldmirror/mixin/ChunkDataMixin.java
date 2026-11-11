@@ -35,7 +35,7 @@ public abstract class ChunkDataMixin {
 
     @Inject(method = {"handleLevelChunkWithLight"}, at = {@At("TAIL")})
     private void onChunkData(ClientboundLevelChunkWithLightPacket packet, CallbackInfo ci) {
-        if (!DownloadManager.isActive()) return;
+        if (!DownloadManager.isCaptureEnabled()) return;
 
         ClientLevel world = this.getLevel();
         if (world == null) {
@@ -59,7 +59,7 @@ public abstract class ChunkDataMixin {
     @Inject(method = "handleChunkBlocksUpdate", at = @At("TAIL"))
     private void onSectionBlocksUpdate(ClientboundSectionBlocksUpdatePacket packet, CallbackInfo ci) {
         ClientLevel world = this.getLevel();
-        if (world == null || !DownloadManager.isActive()) return;
+        if (world == null || !DownloadManager.isCaptureEnabled()) return;
         packet.runUpdates((pos, state) -> DownloadManager.queueBlockChange(
                 world, new ChunkPos(pos.getX() >> 4, pos.getZ() >> 4),
                 "section-block-update"));
@@ -76,7 +76,7 @@ public abstract class ChunkDataMixin {
     @Inject(method = "handleChunksBiomes", at = @At("TAIL"))
     private void onChunksBiomes(ClientboundChunksBiomesPacket packet, CallbackInfo ci) {
         ClientLevel world = this.getLevel();
-        if (world == null || !DownloadManager.isActive()) return;
+        if (world == null || !DownloadManager.isCaptureEnabled()) return;
         packet.chunkBiomeData().forEach(data ->
                 DownloadManager.queueChunkCapture(world, data.pos(), "biome-update"));
     }
@@ -118,7 +118,7 @@ public abstract class ChunkDataMixin {
             ClientboundLightUpdatePacketData lightData,
             boolean markDirty,
             CallbackInfo ci) {
-        if (!DownloadManager.isActive()) return;
+        if (!DownloadManager.isCaptureEnabled()) return;
 
         ClientLevel world = this.getLevel();
         if (world == null) return;

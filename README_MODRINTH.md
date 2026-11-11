@@ -94,6 +94,14 @@ per source with 30-second reminders. Escalation and recovery can arrive sooner;
 deliveries are spaced by at least two seconds. The status screen shows persistent
 counts and the failure stage. Unfinished data is retained for retry.
 
+Resource pressure reduces capture work and can temporarily pause ordinary capture.
+The download toggle and pending tasks stay enabled; exports and capture before chunk
+unload continue. Capture resumes automatically and rechecks loaded chunks after
+resources recover. The status screen and transition notices show reduction, pause,
+and recovery separately from file failures. Data waiting to save still uses memory
+and does not survive closing the client. Light updates hold back their own chunk
+without blocking other terrain exports.
+
 ### What it cannot save perfectly
 
 World Mirror is not a server backup. Unopened inventories, server datapacks, structure

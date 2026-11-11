@@ -29,7 +29,6 @@ import java.lang.management.ManagementFactory;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Central controller for the download lifecycle.
@@ -47,17 +46,16 @@ public final class DownloadManager {
 
     // ── State ─────────────────────────────────────────────────────────────────
 
-    private static final AtomicBoolean currentActive = new AtomicBoolean(false);
+    private static final CapturePolicy capturePolicy = new CapturePolicy();
+    private static volatile boolean captureEnabled;
+    private static long nextResourceCheckMs;
     private static volatile long downloadSessionStartedAtMs;
     private static long lastCacheEvictionMs = 0;
     private static final int INITIAL_CAPTURE_RANGE = 33;
-    private static final int PRE_EXPORT_CAPTURE_RANGE = 8;
     private static final int STOP_CAPTURE_RANGE = 6;
     private static final long CACHE_EVICTION_INTERVAL_MS = 5_000L;
-    private static long nextAutomaticExportAttemptMs;
     private static volatile boolean mirrorCaptureWarningShown;
-    private static volatile DownloadPipeline activePipeline =
-            DownloadPipeline.create(ModConfig.DownloadPipelineMode.STABLE_PERIODIC);
+    private static final ExportScheduler exportScheduler = new ExportScheduler();
     private static final LatencyWindow worldFrameIntervals = new LatencyWindow(8192);
     private static final LatencyWindow worldMirrorTickWork = new LatencyWindow(4096);
     private static volatile long lastDiagnosticLogMs;
@@ -65,9 +63,10 @@ public final class DownloadManager {
     private static volatile boolean diagnosticSessionActive;
     private static volatile boolean recordPerformanceTimings;
     private static final DownloadCaptureQueue captureQueue =
-            new DownloadCaptureQueue(() -> recordPerformanceTimings, INITIAL_CAPTURE_RANGE);
+            new DownloadCaptureQueue(() -> recordPerformanceTimings, INITIAL_CAPTURE_RANGE, () -> ModConfig.get().performance.maxPendingCaptureHints);
     private static final DownloadExportCoordinator exportCoordinator =
-            new DownloadExportCoordinator(captureQueue, () -> activePipeline);
+            new DownloadExportCoordinator(captureQueue, exportScheduler, DownloadExportCoordinator.createExportExecutor(),
+                    work -> DownloadExportCoordinator.createJob(work, exportScheduler.mode()));
     private static volatile long lastWorldFrameNs;
     private static final Map<String, GcSnapshot> lastGcByCollector = new HashMap<>();
 
@@ -89,8 +88,19 @@ public final class DownloadManager {
     private static volatile String lastSourceId = null;
     private static volatile String lastSourceType = null;
 
-    public static boolean isActive() {
-        return currentActive.get();
+    /** User-enabled capture, including resource pauses; packet and unload hooks stay enabled. */
+    public static boolean isCaptureEnabled() {
+        return captureEnabled;
+    }
+
+    /** Enabled capture can be temporarily reduced or paused without changing its toggle. */
+    public static String captureStatusKey() {
+        if (!captureEnabled) return "screen.worldmirror.status.downloadInactive";
+        return switch (capturePolicy.mode()) {
+            case NORMAL -> "screen.worldmirror.status.downloadActive";
+            case REDUCED -> "screen.worldmirror.status.downloadDegraded";
+            case PAUSED -> "screen.worldmirror.status.downloadPaused";
+        };
     }
 
     /** Start time of the latest capture session, used to distinguish green current data from blue history. */
@@ -104,7 +114,7 @@ public final class DownloadManager {
 
     /** Records gameplay frame spacing without doing work when diagnostics are disabled. */
     public static void recordWorldFrame() {
-        if (!recordPerformanceTimings || !currentActive.get()) {
+        if (!recordPerformanceTimings || !captureEnabled) {
             lastWorldFrameNs = 0L;
             return;
         }
@@ -120,7 +130,7 @@ public final class DownloadManager {
     }
 
     public static void markEntitiesDirty() {
-        if (currentActive.get()) exportCoordinator.markEntitiesDirty();
+        if (captureEnabled) exportCoordinator.markEntitiesDirty();
     }
 
     public record PipelineMetrics(
@@ -139,7 +149,7 @@ public final class DownloadManager {
     public static PipelineMetrics getPipelineMetrics() {
         DownloadCaptureQueue.Metrics capture = captureQueue.metrics();
         DownloadExportCoordinator.Metrics export = exportCoordinator.metrics();
-        return new PipelineMetrics(activePipeline.mode(), capture.pendingCaptures(),
+        return new PipelineMetrics(exportScheduler.mode(), capture.pendingCaptures(),
                 ChunkListener.getDirtyCount(), capture.oldestCaptureAgeMs(),
                 capture.coalescedHints(), capture.droppedHints(), export.lastExportMillis(),
                 export.lastWritten(), export.lastSettled(), export.lastUnreadable(),
@@ -148,31 +158,31 @@ public final class DownloadManager {
 
     /** Coalesces a packet/event hint into one main-thread capture per chunk. */
     public static void queueChunkCapture(ClientLevel world, ChunkPos pos, String reason) {
-        if (!currentActive.get() || world == null || pos == null) return;
+        if (!captureEnabled || world == null || pos == null) return;
         captureQueue.queueChunk(world, pos, reason);
     }
 
     /** Captures authoritative block changes, including removal of the final block in a chunk. */
     public static void queueBlockChange(ClientLevel world, ChunkPos pos, String reason) {
-        if (!currentActive.get() || world == null || pos == null) return;
+        if (!captureEnabled || world == null || pos == null) return;
         captureQueue.queueBlockChange(world, pos, reason);
     }
 
     /** Last-chance main-thread capture before Fabric removes a loaded chunk. */
     public static void captureChunkBeforeUnload(ClientLevel world, LevelChunk chunk) {
-        if (!currentActive.get() || world == null || chunk == null) return;
+        if (!captureEnabled || world == null || chunk == null) return;
         captureQueue.captureBeforeUnload(world, chunk);
     }
 
     /** Queues a normal capture when a light packet arrives before its base chunk. */
     public static void queueLightUpdateCapture(ClientLevel world, ChunkPos pos) {
-        if (!currentActive.get()) return;
+        if (!captureEnabled) return;
         captureQueue.queueLightUpdate(world, pos);
     }
 
     public static Set<ChunkPos> pendingChunkCaptures(ResourceKey<Level> dimension,
                                                      int minX, int maxX, int minZ, int maxZ) {
-        if (!currentActive.get() || dimension == null) return Set.of();
+        if (!captureEnabled || dimension == null) return Set.of();
         return captureQueue.pendingChunkPositions(dimension, minX, maxX, minZ, maxZ);
     }
 
@@ -185,7 +195,7 @@ public final class DownloadManager {
      * and its revision change immediately; export waits for the short window.
      */
     public static void markLightUpdateDirty(ClientLevel world, ChunkPos pos) {
-        if (!currentActive.get()) return;
+        if (!captureEnabled) return;
         captureQueue.markLightDirty(world, pos);
     }
 
@@ -197,8 +207,8 @@ public final class DownloadManager {
      * queued for capture across subsequent ticks so the player need not reload them.
      */
     public static void toggle(Minecraft client) {
-        if (currentActive.get()) {
-            currentActive.set(false);
+        if (captureEnabled) {
+            captureEnabled = false;
             finishPendingBlockChanges(client);
             clearPendingCaptureState();
             finalizeCaptureOnStop(client, "manual-toggle");
@@ -218,6 +228,7 @@ public final class DownloadManager {
     }
 
     private static void exportNowReady(Minecraft client) {
+        updateResourceState(client, System.nanoTime() / 1_000_000L);
         boolean canPreCapture = ModConfig.get().lifecycle.captureNearbyBeforeExport
                 && client.level != null && client.player != null;
         if (ChunkListener.isEmpty() && !exportCoordinator.hasEntityWork()
@@ -227,14 +238,14 @@ public final class DownloadManager {
             WMLogger.debug("Manual export ignored because no chunks are cached.");
             return;
         }
+        var request = exportRequest(client, ExportWork.Trigger.MANUAL, true);
         if (exportCoordinator.isInProgress()) {
-            Component msg = Component.translatable("msg.worldmirror.exportBusy");
-            WMPlayerMessages.sendSystemMessage(client.player, msg);
-            exportCoordinator.start(client, ExportWork.Intent.live(DownloadExportCoordinator.Trigger.MANUAL, true).withContainers(ContainerTracker.snapshotSavedData()));
-            WMLogger.debug("Export already in progress; coalesced another export request.");
-            return;
+            WMPlayerMessages.sendSystemMessage(client.player, Component.translatable("msg.worldmirror.exportBusy"));
+            request = request.withContainers(ContainerTracker.snapshotSavedData());
         }
-        exportCoordinator.start(client, ExportWork.Intent.live(DownloadExportCoordinator.Trigger.MANUAL, true));
+        exportCoordinator.request(request);
+        dispatchExports(client, currentBudget(), System.nanoTime() / 1_000_000L);
+
     }
 
     /** Clears all in-memory caches. */
@@ -279,8 +290,8 @@ public final class DownloadManager {
      * before clearing lifecycle tracking state.
      */
     public static void onLeaveWorld(Minecraft client) {
-        if (currentActive.get()) {
-            currentActive.set(false);
+        if (captureEnabled) {
+            captureEnabled = false;
             finishPendingBlockChanges(client);
             clearPendingCaptureState();
             finalizeCaptureOnStop(client, "leave-world");
@@ -290,7 +301,7 @@ public final class DownloadManager {
         lastDimension = null;
         lastSourceId  = null;
         lastSourceType = null;
-        currentActive.set(false); // no world to download — always stop
+        captureEnabled = false; // no world to download — always stop
         ContainerTracker.clear();
         WMLogger.debug("Left world; download deactivated.");
     }
@@ -310,7 +321,7 @@ public final class DownloadManager {
         ExportNotifications.global().tick(client, System.nanoTime() / 1_000_000L);
         OperationFailures.tick(client, System.currentTimeMillis());
         long startedNs = System.nanoTime();
-        boolean shouldRecordPerformance = currentActive.get()
+        boolean shouldRecordPerformance = captureEnabled
                 && ModConfig.get().performance.diagnosticPerformanceLogging;
         if (shouldRecordPerformance && !diagnosticSessionActive) {
             resetDiagnosticSession();
@@ -329,8 +340,9 @@ public final class DownloadManager {
     }
 
     private static void processClientTick(Minecraft client) {
+        exportCoordinator.drainCompletions();
         if (client.level == null) {
-            exportCoordinator.tryStartDeferred(client);
+            dispatchExports(client, currentBudget(), System.nanoTime() / 1_000_000L);
             return;
         }
 
@@ -352,7 +364,7 @@ public final class DownloadManager {
             lastSourceType = currentSourceType;
             lastDimension = currentDim;
             // Re-capture loaded chunks according to the new active state
-            if (currentActive.get()) captureLoadedChunksAsync(client);
+            if (captureEnabled) captureLoadedChunksAsync(client);
         }
 
         // ── Detect dimension change (Overworld ↔ Nether ↔ End, etc.) ──────────
@@ -364,7 +376,7 @@ public final class DownloadManager {
             applyTransition(client, ModConfig.get().lifecycle.onDimensionChange,
                     "dimension-change");
             // Re-capture loaded chunks according to the new active state
-            if (currentActive.get()) captureLoadedChunksAsync(client);
+            if (captureEnabled) captureLoadedChunksAsync(client);
         }
 
         // Update tracking even if player was in null world on the previous tick
@@ -372,42 +384,18 @@ public final class DownloadManager {
         if (lastSourceId  == null) lastSourceId  = currentSourceId;
         if (lastSourceType == null) lastSourceType = currentSourceType;
 
-        if (currentActive.get() && !exportCoordinator.captureAdmissionAvailable()) {
-            currentActive.set(false);
-            finishPendingBlockChanges(client);
-            clearPendingCaptureState();
-            exportCoordinator.start(client, ExportWork.Intent.live(
-                    DownloadExportCoordinator.Trigger.STOP, false).ready().forSource(
-                    new ExportWork.Source(lastSourceId, lastSourceType)));
-            OperationFailures.report(lastSourceId, "capture_backpressure", previewOutputPath(client),
-                    new java.io.IOException("Capture stopped to retain unsaved data within memory budget; repair export and restart capture"));
-        }
-        captureQueue.tick(client);
-        exportCoordinator.tryStartDeferred(client);
+        long now = System.nanoTime() / 1_000_000L;
+        if (captureEnabled || captureQueue.hasWork() || exportCoordinator.isInProgress()) updateResourceState(client, now);
+        CaptureBudget budget = currentBudget();
+        captureQueue.tick(client, budget);
+        dispatchExports(client, budget, now);
+        if (!captureEnabled) return;
 
-        if (!currentActive.get()) return;
-
-        long now = System.currentTimeMillis();
-        ModConfig cfg = ModConfig.get();
-        int dirty = ChunkListener.getDirtyCount();
-        boolean hasDurabilityWork = dirty > 0 || exportCoordinator.hasEntityWork();
-        DownloadPipeline.Decision decision = activePipeline.evaluate(
-                now, dirty, hasDurabilityWork, cfg);
-        DownloadExportCoordinator.Trigger automaticTrigger = switch (decision) {
-            case PERIODIC -> DownloadExportCoordinator.Trigger.PERIODIC;
-            case HIGH_WATERMARK -> DownloadExportCoordinator.Trigger.ADAPTIVE_HIGH_WATERMARK;
-            case MAX_LATENCY -> DownloadExportCoordinator.Trigger.ADAPTIVE_MAX_LATENCY;
-            case NONE -> null;
-        };
-        if (automaticTrigger != null && now >= nextAutomaticExportAttemptMs) {
-            boolean started = exportCoordinator.start(client, ExportWork.Intent.live(automaticTrigger, false));
-            nextAutomaticExportAttemptMs = started ? 0L : now + 1_000L;
-        }
         if (now - lastCacheEvictionMs >= CACHE_EVICTION_INTERVAL_MS) {
             lastCacheEvictionMs = now;
             applyCacheEviction(client);
         }
-        maybeLogPerformanceSnapshot(now);
+        maybeLogPerformanceSnapshot(System.currentTimeMillis());
     }
 
     /**
@@ -419,7 +407,7 @@ public final class DownloadManager {
     private static void applyTransition(Minecraft client,
                                         ModConfig.TransitionBehavior behavior,
                                         String eventName) {
-        boolean wasActive = currentActive.get();
+        boolean wasActive = captureEnabled;
         boolean desired;
         switch (behavior) {
             case START -> desired = true;
@@ -433,7 +421,7 @@ public final class DownloadManager {
             return;
         }
 
-        currentActive.set(false);
+        captureEnabled = false;
         finishPendingBlockChanges(client);
         clearPendingCaptureState();
         finalizeCaptureOnStop(client, eventName);
@@ -480,7 +468,7 @@ public final class DownloadManager {
      */
     public static void moveMirrorWorld(Minecraft client, ModConfig.SaveLocation targetLocation,
                                        java.util.function.Consumer<MirrorMoveResult> completed) {
-        if (isActive()) { completed.accept(MirrorMoveResult.failure("download_active")); return; }
+        if (isCaptureEnabled()) { completed.accept(MirrorMoveResult.failure("download_active")); return; }
         if (isExportInProgress()) { completed.accept(MirrorMoveResult.failure("export_in_progress")); return; }
         String sourceId = WorldMetadata.detectSourceId(client);
         io.github.billstark001.worldmirror.util.OfflineTasks.start("WM-MoveMirror", () -> {
@@ -590,29 +578,81 @@ public final class DownloadManager {
     }
 
     private static void activateDownload(Minecraft client, String reason) {
-        if (!exportCoordinator.captureAdmissionAvailable()) {
-            OperationFailures.report(WorldMetadata.detectSourceId(client), "capture_backpressure", previewOutputPath(client),
-                    new java.io.IOException("Unsaved export backlog must drain before capture can restart"));
-            return;
-        }
-        OperationFailures.recovered(WorldMetadata.detectSourceId(client), "capture_backpressure");
-        if (!currentActive.compareAndSet(false, true)) return;
+        if (captureEnabled) return;
+        captureEnabled = true;
+        capturePolicy.reset();
         downloadSessionStartedAtMs = System.currentTimeMillis();
-        activePipeline = DownloadPipeline.create(ModConfig.get().pipelineMode);
         resetDiagnosticSession();
         diagnosticSessionActive = ModConfig.get().performance.diagnosticPerformanceLogging;
         recordPerformanceTimings = diagnosticSessionActive;
         if (diagnosticSessionActive) DownloadConfigDiagnostics.log(client);
         EntityTracker.resetObservationEpochs();
         exportCoordinator.markEntitiesDirty();
-        long nowMs = System.currentTimeMillis();
-        activePipeline.reset(nowMs);
-        nextAutomaticExportAttemptMs = 0L;
+        long nowMs = System.nanoTime() / 1_000_000L;
+        exportScheduler.reset(ModConfig.get(), nowMs);
+        nextResourceCheckMs = Long.MIN_VALUE;
         lastCacheEvictionMs = nowMs;
         if (client.level != null) captureLoadedChunksAsync(client);
         WMPlayerMessages.sendOverlayMessage(client.player, Component.translatable("msg.worldmirror.downloadStart"));
-        WMLogger.info("Download activated with pipeline=" + activePipeline.mode()
+        WMLogger.info("Download activated with pipeline=" + exportScheduler.mode()
                 + (reason == null ? "" : " by " + reason));
+        updateResourceState(client, System.nanoTime() / 1_000_000L);
+    }
+
+    private static void updateResourceState(Minecraft client, long nowMs) {
+        if (nextResourceCheckMs != Long.MIN_VALUE && nowMs - nextResourceCheckMs < 0) return;
+        nextResourceCheckMs = nowMs + 1_000L;
+        var sample = exportCoordinator.sampleResources();
+        var previous = capturePolicy.mode();
+        var state = capturePolicy.update(nowMs, sample);
+        if (state == previous || !captureEnabled) return;
+
+        if (state == CapturePolicy.Mode.NORMAL
+                || (previous == CapturePolicy.Mode.PAUSED
+                && state == CapturePolicy.Mode.REDUCED)) {
+            captureLoadedChunksAsync(client, "resource-recovery");
+        }
+        String details = "source=" + WorldMetadata.detectSourceId(client) + " state=" + previous + "->" + state
+                + " reason=" + capturePolicy.reason() + " heapBytes=" + sample.usedHeap() + "/" + sample.maxHeap()
+                + " dirty=" + sample.dirtyChunks() + " retainedChunks=" + sample.retainedChunks()
+                + " frozen=" + sample.frozenBundles() + " inFlightChunks=" + sample.inFlightChunks()
+                + " pendingCaptures=" + captureQueue.metrics().pendingCaptures();
+        if (state == CapturePolicy.Mode.NORMAL) WMLogger.info("Capture resource recovery " + details);
+        else WMLogger.warn("Capture resource pressure " + details);
+
+        if (client.player != null) try {
+            String key = switch (state) {
+                case REDUCED -> "msg.worldmirror.capture.degraded";
+                case PAUSED -> "msg.worldmirror.capture.paused";
+                default -> "msg.worldmirror.capture.resumed";
+            };
+            Component cause = Component.translatable("msg.worldmirror.capture.reason."
+                    + capturePolicy.reason().name().toLowerCase(java.util.Locale.ROOT));
+            Component notice = Component.translatable(key, cause).withStyle(state == CapturePolicy.Mode.NORMAL
+                    ? net.minecraft.ChatFormatting.GREEN : net.minecraft.ChatFormatting.YELLOW);
+            WMPlayerMessages.sendSystemMessage(client.player, notice);
+            WMPlayerMessages.showExportToast(client, Component.translatable(captureStatusKey()), cause);
+        } catch (RuntimeException noticeFailure) {
+            WMLogger.warnRateLimited("capture-resource-notice", 60_000L,
+                    "Cannot display capture resource state; capture and export processing continue", noticeFailure);
+        }
+    }
+
+    private static CaptureBudget currentBudget() {
+        return CaptureBudget.forMode(capturePolicy.mode(), ModConfig.get().performance.captureBudgetMicros);
+    }
+
+    private static ExportWork.Intent exportRequest(Minecraft client, ExportWork.Trigger trigger, boolean notifyPlayer) {
+        var source = new ExportWork.Source(WorldMetadata.detectSourceId(client), WorldMetadata.detectSourceType(client));
+        var settings = io.github.billstark001.worldmirror.io.WorldStructureCreator.resolveNewWorldSettings(
+                io.github.billstark001.worldmirror.io.WorldStructureCreator.captureWorldSettings(client.level));
+        return new ExportWork.Intent(new ExportWork.Context(trigger, notifyPlayer, source), ExportWork.CapturePhase.REQUIRED,
+                ExportWork.EntityScope.LIVE, trigger == ExportWork.Trigger.MANUAL && ModConfig.get().lifecycle.captureNearbyBeforeExport,
+                java.util.Optional.empty(), settings);
+    }
+
+    private static void dispatchExports(Minecraft client, CaptureBudget budget, long now) {
+        exportCoordinator.dispatch(client, budget, captureEnabled, now, ModConfig.get(), trigger -> exportRequest(client, trigger, false));
     }
 
     // ── Internal ─────────────────────────────────────────────────────────────
@@ -623,6 +663,10 @@ public final class DownloadManager {
      * thread stalls while still keeping all chunk/world access on the correct thread.
      */
     private static void captureLoadedChunksAsync(Minecraft client) {
+        captureLoadedChunksAsync(client, "initial-capture");
+    }
+
+    private static void captureLoadedChunksAsync(Minecraft client, String reason) {
         ClientLevel world = client.level;
         if (world == null || client.player == null) return;
 
@@ -630,7 +674,7 @@ public final class DownloadManager {
         int playerCX = client.player.getBlockX() >> 4;
         int playerCZ = client.player.getBlockZ() >> 4;
         boolean scheduled = captureQueue.queueLoaded(world, playerCX, playerCZ, INITIAL_CAPTURE_RANGE,
-                "initial-capture");
+                reason);
         if (scheduled) {
             WMLogger.debug("Queued a loaded-chunk scan for incremental capture in ["
                     + dimension.identifier() + "]...");
@@ -688,7 +732,7 @@ public final class DownloadManager {
         ModConfig.LifecycleConfig lifecycle = ModConfig.get().lifecycle;
         boolean sourceStillAvailable = lastSourceId == null
                 || lastSourceId.equals(WorldMetadata.detectSourceId(client));
-        if (lifecycle.captureNearbyOnStop && sourceStillAvailable) {
+        if (lifecycle.captureNearbyOnStop && sourceStillAvailable && currentBudget().preExportScan()) {
             captureNearbyLoadedChunksSync(client, "stop-" + reason);
         }
 
@@ -697,17 +741,19 @@ public final class DownloadManager {
                 // The client already exposes a different source. Freeze only
                 // old cached data, without sampling the new world's entities
                 // or world settings into the previous source's output.
-                exportCoordinator.start(client, new ExportWork.Frozen(
-                        new ExportWork.Context(DownloadExportCoordinator.Trigger.STOP, false, new ExportWork.Source(lastSourceId, lastSourceType)),
+                exportCoordinator.enqueue(new ExportWork.Frozen(
+                        new ExportWork.Context(ExportWork.Trigger.STOP, false, new ExportWork.Source(lastSourceId, lastSourceType)),
                         ChunkListener.snapshotDirtyState(),
                         EntityTracker.snapshot(),
                         ContainerTracker.snapshotSavedData(),
                         WorldSettingsSnapshot.defaults(),
                         0L,
                         OptionalLong.empty()));
+                dispatchExports(client, currentBudget(), System.nanoTime() / 1_000_000L);
                 return;
             }
-            exportCoordinator.start(client, ExportWork.Intent.live(DownloadExportCoordinator.Trigger.STOP, false).ready().forSource(new ExportWork.Source(lastSourceId, lastSourceType)));
+            exportCoordinator.enqueue(exportCoordinator.freeze(client, exportRequest(client, ExportWork.Trigger.STOP, false).ready(), currentBudget()));
+            dispatchExports(client, currentBudget(), System.nanoTime() / 1_000_000L);
         }
     }
 
@@ -726,7 +772,7 @@ public final class DownloadManager {
     private static void clearPendingCaptureState(boolean preserveLightUpdates) {
         if (preserveLightUpdates) captureQueue.finishLightUpdates();
         captureQueue.clear();
-        exportCoordinator.clearDeferred();
+        exportCoordinator.cancelRequest();
     }
 
     /** Drops source-scoped captured data before a different logical world becomes active. */
@@ -808,6 +854,7 @@ public final class DownloadManager {
                 exportCoordinator.snapshotDiagnostics();
         ChunkExporter.ExportTimings timings = export.timings();
         WMLogger.info("[perf] pipeline=" + m.mode()
+                + " captureState=" + capturePolicy.mode()
                 + " sessionMs=" + Math.max(0L, nowMs - diagnosticSessionStartedMs)
                 + " cache=" + ChunkListener.getTotalCount()
                 + " dirty=" + m.dirtyChunks()

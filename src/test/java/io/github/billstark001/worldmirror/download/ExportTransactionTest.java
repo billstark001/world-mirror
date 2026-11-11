@@ -189,7 +189,7 @@ class ExportTransactionTest {
         var snapshot = ChunkListener.snapshotOf(Map.of(Level.OVERWORLD, Map.of(new ChunkPos(0, 0),
                 new ChunkListener.CapturedChunk(nbt, revision * 100L, revision))));
         return new ExportWork.Frozen(
-                new ExportWork.Context(DownloadExportCoordinator.Trigger.STOP, false,
+                new ExportWork.Context(ExportWork.Trigger.STOP, false,
                 new ExportWork.Source("server:transaction", "server")),
                 snapshot,
                 Map.of(),

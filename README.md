@@ -372,10 +372,39 @@ before normalized settings are saved; an unknown conflict policy becomes Ignore.
 
 NBT/JSON reads have finite budgets. Unchanged malformed NBT is not repeatedly
 decoded, and manual export retries validation. File failures outside chunk writes
-also produce coalesced local chat/toast notices. Capture stops admitting new work
-when retained bundles, dirty chunks or heap pressure exceed the safety budget;
-existing unfinished data stays retained. Repair the failure, export, then restart
-capture. This does not turn the in-memory retry queue into crash-persistent storage.
+also produce coalesced local chat/toast notices.
+
+Resource pressure preserves the download toggle and pending capture tasks. At 80%
+JVM heap use, a large unsaved backlog, or several retained retry bundles, capture
+runs with a smaller tick budget and defers optional entity refreshes and nearby
+export scans. Pressure also makes exports eligible every five seconds. Sustained
+90% heap use with unsaved data, or 16,384 retained chunk revisions, pauses ordinary
+capture after two seconds; 97% heap use with unsaved data pauses it immediately.
+Packet hints, applied light updates, exports, and final capture before chunk unload
+continue during the pause. Shared live/frozen/in-flight terrain revisions and entity
+updates are counted once; these counts are scheduling signals, not byte budgets.
+
+After heap use stays below 75%, retained revisions fall below 8,192, and fewer than
+four retry bundles remain for three seconds, full capture resumes automatically and
+rechecks loaded chunks. It can resume at a reduced budget after three seconds below
+85% heap use with a low backlog, or after exports drain all retained data while heap
+use remains below 97%. A manual stop cancels automatic recovery. Light coalescing
+holds back only the affected chunk, so other terrain can still save. Status, chat,
+and toast messages distinguish reduced capture, resource pause, and recovery;
+state-change logs include heap, retained work, and queue counts. Resource pressure
+does not itself imply a file error or require repairing the output world.
+
+Pending data and unload captures still use memory. A sustained storage failure can
+continue growing that data; no disk spool or crash-persistent capture queue exists.
+
+Scheduling has one client-thread owner. The resource policy determines a mode,
+which becomes an explicit capture budget; the export scheduler selects queued work
+and periodic, adaptive, pressure, or retry requests. User capture intent is kept
+separate from those resource decisions. Elapsed-time deadlines use a monotonic
+clock, persisted capture times use wall time, and light windows use client ticks.
+The worker consumes frozen snapshots and returns completion receipts for the client
+thread to apply. Shutdown transfers the remaining queue to the worker for its final
+drain, without waiting for another client tick or interrupting an atomic write.
 
 Unfinished mirror creation has a durable ownership reservation and resumes the same
 directory. Moving a world within the same filesystem holds native locks at both

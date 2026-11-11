@@ -195,7 +195,7 @@ class ExportStatusStoreTest {
         return store.inRange(source, Level.OVERWORLD, -33, -33, 65, 65).getFirst();
     }
     static ExportWork.Frozen work(String source, long terrain, long entity) {
-        return new ExportWork.Frozen(new ExportWork.Context(DownloadExportCoordinator.Trigger.PERIODIC, false,
+        return new ExportWork.Frozen(new ExportWork.Context(ExportWork.Trigger.PERIODIC, false,
                 new ExportWork.Source(source, "server")),
                 ChunkListener.snapshotOf(terrain < 0 ? Map.of() : Map.of(Level.OVERWORLD, Map.of(POS,
                         new ChunkListener.CapturedChunk(new CompoundTag(), terrain * 100, terrain)))),

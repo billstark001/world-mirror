@@ -16,6 +16,26 @@ changes without dropping compatibility requirements or migration guidance.
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- Coordinate periodic, adaptive, resource-pressure, and retry exports through one
+  schedule. Finish accepted writes and drain retained snapshots on exit without
+  waiting for another client tick or interrupting atomic file writes.
+
+### Fixed
+
+- Replace resource-pressure capture stops with reduced work and recoverable pauses.
+  Preserve the download toggle, pending tasks, and capture before chunk unload;
+  automatically resume and recheck loaded chunks after stable recovery. Distinguish
+  resource reduction, pause, and recovery from file failures in status and notices.
+- Account for shared and in-flight retained data without double-counting revisions.
+  Prioritize export draining under pressure while deferring optional capture work.
+- Limit light-update waiting to the affected chunk so other terrain can still save.
+
+---
+
 ## world-mirror-format [0.1.2] — 2026-10-23
 
 ### Fixed

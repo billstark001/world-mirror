@@ -86,6 +86,10 @@ final class EntitySnapshotStore {
         return Map.copyOf(result);
     }
 
+    void forEachPendingRevision(java.util.function.LongConsumer visitor) {
+        pending.values().forEach(update -> visitor.accept(update.revision));
+    }
+
     void acknowledge(Map<ChunkPos, Long> writtenRevisions) {
         writtenRevisions.forEach((chunk, revision) -> {
             MutableUpdate current = pending.get(chunk);

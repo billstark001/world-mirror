@@ -198,6 +198,12 @@ public class ChunkListener {
 
     /** Captures dirty references and freezes their session-local lighting overlays. */
     public static DirtySnapshot snapshotDirtyState() {
+        return snapshotDirtyState((dimension, pos) -> true);
+    }
+
+    /** Excludes individually unsettled chunks without blocking unrelated terrain exports. */
+    public static DirtySnapshot snapshotDirtyState(
+            java.util.function.BiPredicate<ResourceKey<Level>, ChunkPos> include) {
         Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> result = new HashMap<>();
         Map<ResourceKey<Level>, Map<ChunkPos, LightingOverlay>> lighting = new HashMap<>();
         for (Map.Entry<ResourceKey<Level>, ConcurrentHashMap<ChunkPos, CapturedChunk>> dimEntry
@@ -206,7 +212,8 @@ public class ChunkListener {
             Map<ChunkPos, LightingOverlay> dimensionLighting = new HashMap<>();
             Map<ChunkPos, LightingOverlay> liveLighting = dimLighting.get(dimEntry.getKey());
             for (Map.Entry<ChunkPos, CapturedChunk> entry : dimEntry.getValue().entrySet()) {
-                if (!isClean(dimEntry.getKey(), entry.getKey(), entry.getValue())) {
+                if (!isClean(dimEntry.getKey(), entry.getKey(), entry.getValue())
+                        && include.test(dimEntry.getKey(), entry.getKey())) {
                     dirty.put(entry.getKey(), entry.getValue());
                     if (liveLighting != null) {
                         LightingOverlay overlay = liveLighting.get(entry.getKey());
@@ -222,6 +229,13 @@ public class ChunkListener {
             }
         }
         return new DirtySnapshot(Map.copyOf(result), Map.copyOf(lighting));
+    }
+
+    /** Visits live dirty references without copying NBT or freezing lighting for telemetry. */
+    public static void forEachDirtyChunk(java.util.function.Consumer<CapturedChunk> visitor) {
+        dimChunks.forEach((dimension, chunks) -> chunks.forEach((pos, chunk) -> {
+            if (!isClean(dimension, pos, chunk)) visitor.accept(chunk);
+        }));
     }
 
     /** Wraps an already independent chunk map, such as a one-shot nearby export. */

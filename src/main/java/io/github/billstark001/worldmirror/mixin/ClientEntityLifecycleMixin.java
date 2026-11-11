@@ -17,12 +17,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public abstract class ClientEntityLifecycleMixin {
     @Inject(method = "onChunkLoaded", at = @At("TAIL"))
     private void worldmirror$onChunkLoaded(ChunkPos pos, CallbackInfo ci) {
-        if (DownloadManager.isActive()) EntityTracker.onChunkLoaded((ClientLevel) (Object) this, pos);
+        if (DownloadManager.isCaptureEnabled()) EntityTracker.onChunkLoaded((ClientLevel) (Object) this, pos);
     }
 
     @Inject(method = "unload", at = @At("HEAD"))
     private void worldmirror$onChunkUnloaded(LevelChunk chunk, CallbackInfo ci) {
-        if (DownloadManager.isActive()) EntityTracker.onChunkUnloaded(
+        if (DownloadManager.isCaptureEnabled()) EntityTracker.onChunkUnloaded(
                 (ClientLevel) (Object) this, chunk.getPos());
     }
 }

@@ -2,7 +2,6 @@ package io.github.billstark001.worldmirror.download;
 
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.core.EntityTracker;
-import io.github.billstark001.worldmirror.download.DownloadExportCoordinator.Trigger;
 import io.github.billstark001.worldmirror.io.ChunkExporter;
 import io.github.billstark001.worldmirror.io.WorldSettingsSnapshot;
 import net.minecraft.core.BlockPos;
@@ -19,8 +18,16 @@ import java.util.OptionalLong;
 
 /** Live commands may be coalesced; frozen revisions are independent, non-null durability bundles. */
 sealed interface ExportWork permits ExportWork.Intent, ExportWork.Frozen {
+    enum Trigger {
+        MANUAL(false, 2), STOP(false, 3), RETRY(false, 1), PERIODIC(true, 0),
+        RESOURCE_PRESSURE(true, 0), ADAPTIVE_HIGH_WATERMARK(true, 0), ADAPTIVE_MAX_LATENCY(true, 0);
+        private final boolean automatic;
+        private final int priority;
+        Trigger(boolean automatic, int priority) { this.automatic = automatic; this.priority = priority; }
+        boolean automatic() { return automatic; }
+        int priority() { return priority; }
+    }
     record Source(String id, String type) {
-        static final Source UNKNOWN = new Source("unknown", "server");
         public Source {
             id = id == null || id.isBlank() ? "unknown" : id;
             type = type == null || type.isBlank() ? "server" : type;
@@ -36,29 +43,21 @@ sealed interface ExportWork permits ExportWork.Intent, ExportWork.Frozen {
     boolean hasEntities();
     ExportWork terrainOnly();
 
-    record Intent(Context context, CapturePhase capture, EntityScope entityScope,
+    record Intent(Context context, CapturePhase capture, EntityScope entityScope, boolean captureNearby,
                   Optional<Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>>> containers,
-                  Optional<WorldSettingsSnapshot> settings) implements ExportWork {
+                  WorldSettingsSnapshot settings) implements ExportWork {
         public Intent {
             Objects.requireNonNull(context); Objects.requireNonNull(capture); Objects.requireNonNull(entityScope);
             containers = Objects.requireNonNull(containers).map(ExportWork::freezeMap);
             Objects.requireNonNull(settings);
         }
-        static Intent live(Trigger trigger, boolean notifyPlayer) {
-            return new Intent(new Context(trigger, notifyPlayer, Source.UNKNOWN), CapturePhase.REQUIRED,
-                    EntityScope.LIVE, Optional.empty(), Optional.empty());
-        }
-        Intent ready() { return new Intent(context, CapturePhase.READY, entityScope, containers, settings); }
-        Intent forSource(Source source) {
-            return new Intent(new Context(context.trigger(), context.notifyPlayer(), source), capture, entityScope, containers, settings);
-        }
-        Intent withSettings(WorldSettingsSnapshot settings) { return new Intent(context, capture, entityScope, containers, Optional.of(settings)); }
+        Intent ready() { return new Intent(context, CapturePhase.READY, entityScope, captureNearby, containers, settings); }
         Intent withContainers(Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> containers) {
-            return new Intent(context, capture, entityScope, Optional.of(containers), settings);
+            return new Intent(context, capture, entityScope, captureNearby, Optional.of(containers), settings);
         }
         @Override public boolean hasTerrain() { return true; }
         @Override public boolean hasEntities() { return entityScope == EntityScope.LIVE; }
-        @Override public Intent terrainOnly() { return new Intent(context, capture, EntityScope.NONE, containers, settings); }
+        @Override public Intent terrainOnly() { return new Intent(context, capture, EntityScope.NONE, captureNearby, containers, settings); }
     }
 
     record Frozen(Context context, ChunkListener.DirtySnapshot terrain,

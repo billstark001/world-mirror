@@ -24,6 +24,49 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DownloadCaptureQueueTest {
     @Test
+    void resourcePauseKeepsAcceptedHintsAndUnloadStillCapturesThem() {
+        var controller = new CapturePolicy();
+        var queue = new DownloadCaptureQueue(() -> false, 1, () -> 2);
+        var first = new DownloadCaptureQueue.Key(Level.OVERWORLD, 1, 0);
+        var second = new DownloadCaptureQueue.Key(Level.OVERWORLD, 2, 0);
+        var removed = new DownloadCaptureQueue.Key(Level.OVERWORLD, 3, 0);
+        queue.queue(first, "full-chunk-packet", false);
+        queue.queue(second, "full-chunk-packet", false);
+        queue.queue(removed, "block-update", true);
+
+        controller.update(0, new CapturePolicy.Sample(98, 100, 1, 1, 0, 0));
+        queue.tick(null, CaptureBudget.forMode(controller.mode(), 1500));
+        assertEquals(3, queue.metrics().pendingCaptures());
+
+        CompoundTag terrain = new CompoundTag();
+        terrain.putString("terrain", "saved before unload");
+        assertTrue(queue.captureBeforeUnload(first, () -> false, () -> terrain));
+        assertTrue(queue.captureBeforeUnload(removed, () -> true, CompoundTag::new));
+        assertEquals("saved before unload", ChunkListener.getDimension(Level.OVERWORLD)
+                .get(new ChunkPos(1, 0)).nbt().getStringOr("terrain", ""));
+        assertTrue(ChunkListener.getDimension(Level.OVERWORLD).get(new ChunkPos(3, 0)).authoritativeEmpty());
+        assertEquals(second, queue.pollPending().key());
+        assertFalse(queue.hasWork());
+    }
+
+    @Test
+    void pausedQueueStillFinishesLightWindowsWithoutDroppingOrdinaryHints() {
+        var queue = new DownloadCaptureQueue(() -> false, 1, () -> 8);
+        var light = new DownloadCaptureQueue.Key(Level.OVERWORLD, 0, 0);
+        var terrain = new DownloadCaptureQueue.Key(Level.OVERWORLD, 1, 0);
+        ChunkListener.addChunkNbt(Level.OVERWORLD, new ChunkPos(0, 0), new CompoundTag());
+        long before = ChunkListener.getDimension(Level.OVERWORLD).get(new ChunkPos(0, 0)).revision();
+        queue.markLightDirty(light);
+        queue.queue(terrain, "full-chunk-packet", false);
+        queue.tick(null, CaptureBudget.forMode(CapturePolicy.Mode.PAUSED, 1500));
+        assertTrue(queue.isLightingPending(Level.OVERWORLD, new ChunkPos(0, 0)));
+        queue.tick(null, CaptureBudget.forMode(CapturePolicy.Mode.PAUSED, 1500));
+        assertFalse(queue.isLightingPending(Level.OVERWORLD, new ChunkPos(0, 0)));
+        assertTrue(ChunkListener.getDimension(Level.OVERWORLD).get(new ChunkPos(0, 0)).revision() > before);
+        assertEquals(terrain, queue.pollPending().key());
+    }
+
+    @Test
     void pendingStatusRetainsOverlappingLightAndCaptureHintsUntilBothFinish() {
         var queue = new DownloadCaptureQueue(() -> false, 1, () -> 8);
         var key = new DownloadCaptureQueue.Key(Level.OVERWORLD, -1, 0);
@@ -61,11 +104,11 @@ class DownloadCaptureQueueTest {
         light[0] = 7;
         ChunkListener.applyLightUpdate(Level.OVERWORLD, pos, new LightingUpdate(0, 1,
                 mask, new BitSet(), List.of(light), new BitSet(), new BitSet(), List.of()));
-        DownloadCaptureQueue queue = new DownloadCaptureQueue(() -> false, 1);
+        DownloadCaptureQueue queue = new DownloadCaptureQueue(() -> false, 1, () -> 8192);
         for (int hint = 0; hint < 10; hint++) {
             queue.markLightDirty(new DownloadCaptureQueue.Key(Level.OVERWORLD, 0, 0));
         }
-        assertTrue(queue.hasPendingLightUpdates());
+        assertTrue(queue.isLightingPending(Level.OVERWORLD, new ChunkPos(0, 0)));
 
         queue.finishLightUpdates();
         queue.clear();

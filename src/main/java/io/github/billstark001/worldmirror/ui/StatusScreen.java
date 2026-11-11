@@ -62,7 +62,7 @@ public class StatusScreen extends StatusScreenApi {
     protected StatusScreen() {
         super(Component.translatable("screen.worldmirror.status.title"));
         lastExportState = DownloadManager.isExportInProgress();
-        lastDownloadState = DownloadManager.isActive();
+        lastDownloadState = DownloadManager.isCaptureEnabled();
     }
 
     @Override
@@ -95,7 +95,7 @@ public class StatusScreen extends StatusScreenApi {
     public void tick() {
         super.tick();
         boolean export = DownloadManager.isExportInProgress();
-        boolean downloading = DownloadManager.isActive();
+        boolean downloading = DownloadManager.isCaptureEnabled();
         boolean exportFinished = lastExportState && !export;
         if (export != lastExportState || downloading != lastDownloadState) {
             lastExportState = export;
@@ -152,7 +152,7 @@ public class StatusScreen extends StatusScreenApi {
 
     private void addStatusButtons(int left) {
         toggleButton = addRenderableWidget(Button.builder(Component.translatable(
-                        DownloadManager.isActive()
+                        DownloadManager.isCaptureEnabled()
                                 ? "screen.worldmirror.status.stopDownload"
                                 : "screen.worldmirror.status.startDownload"),
                 button -> DownloadManager.toggle(Minecraft.getInstance()))
@@ -263,7 +263,7 @@ public class StatusScreen extends StatusScreenApi {
     }
 
     private void selectSaveLocation(String sourceId, ModConfig.SaveLocation target) {
-        if (DownloadManager.isActive()) {
+        if (DownloadManager.isCaptureEnabled()) {
             refreshWithSettingsResult(Component.translatable(
                     "screen.worldmirror.move.failure.download_active"), false);
             return;
@@ -329,9 +329,7 @@ public class StatusScreen extends StatusScreenApi {
         pairLine(graphics, "screen.worldmirror.status.pendingWrite",
                 String.valueOf(ChunkListener.getDirtyCount()),
                 "screen.worldmirror.status.lastSync", lastSync().getString(), x, 90);
-        graphics.text(Component.translatable(DownloadManager.isActive()
-                ? "screen.worldmirror.status.downloadActive"
-                : "screen.worldmirror.status.downloadInactive"), x, 104, 0xFFE0E0E0);
+        graphics.text(Component.translatable(DownloadManager.captureStatusKey()), x, 104, 0xFFE0E0E0);
         graphics.text(Component.translatable(DownloadManager.isExportInProgress()
                 ? "screen.worldmirror.status.exportRunning"
                 : "screen.worldmirror.status.exportIdle"), x + 182, 104, 0xFFE0E0E0);
@@ -362,7 +360,7 @@ public class StatusScreen extends StatusScreenApi {
         return MirrorMapping.getInstance().isAvailable() && Minecraft.getInstance().level != null
                 && !MirrorWorldContext.current().isMirror()
                 && Files.isDirectory(statusContext.output())
-                && !DownloadManager.isActive()
+                && !DownloadManager.isCaptureEnabled()
                 && !DownloadManager.isExportInProgress();
     }
 

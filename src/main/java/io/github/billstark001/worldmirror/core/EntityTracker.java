@@ -156,6 +156,11 @@ public final class EntityTracker {
         return dimensions.values().stream().anyMatch(EntitySnapshotStore::hasPending);
     }
 
+    /** Resource telemetry must not allocate entity snapshots or copy their upsert maps. */
+    public static synchronized void forEachDirtyRevision(java.util.function.LongConsumer visitor) {
+        dimensions.values().forEach(store -> store.forEachPendingRevision(visitor));
+    }
+
     /** Forces already-loaded chunks to satisfy the load grace period again. */
     public static synchronized void resetObservationEpochs() {
         loadedSinceByDimension.clear();
