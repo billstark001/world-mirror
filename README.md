@@ -1,6 +1,6 @@
 # World Mirror
 
-**Version:** 0.5.2 · **Minecraft:** 1.21.11, 26.1.2, 26.2, 26.3 · **Loader:** Fabric
+**Version:** 0.5.3 · **Minecraft:** 1.21.11, 26.1.2, 26.2, 26.3 · **Loader:** Fabric
 
 A client-side Fabric mod that mirrors the world you are playing on a multiplayer server —
 or even a singleplayer world — into a standard local save. As you explore, the mod captures
@@ -532,7 +532,7 @@ Choose the World Mirror JAR that exactly matches your Minecraft version:
 
 1. Install [Fabric Loader](https://fabricmc.net/use/) 0.19.5 or newer.
 2. Install the matching [Fabric API](https://modrinth.com/mod/fabric-api).
-3. Put the matching World Mirror 0.5.2 JAR in `mods/`.
+3. Put the matching World Mirror 0.5.3 JAR in `mods/`.
 4. *(Optional)* Install [Mod Menu](https://modrinth.com/mod/modmenu) for a title-screen settings entry.
 5. *(Optional)* For the Xaero overlay, install a Minecraft-matched
    [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map) and

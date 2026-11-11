@@ -16,7 +16,7 @@ changes without dropping compatibility requirements or migration guidance.
 
 ---
 
-## [Unreleased]
+## [0.5.3] — 2026-11-11
 
 ### Changed
 
