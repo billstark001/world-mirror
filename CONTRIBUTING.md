@@ -2,31 +2,33 @@
 
 ## Source layout and boundaries
 
-Root `src/main/java` is the home of version-neutral behavior. A class must not be
-copied wholesale into every `versions/shared-mc-<version>` tree merely because a
-Minecraft method name or rendering type changed. Keep the business class in root
-source and add a small package-local API adapter per target, following
-`WorldStructureCreator` + `WorldStructureApi`, `StatusScreen` + `StatusScreenApi`,
-and `WMPlayerMessages`.
+Use `src/main/java` for shared models/utilities without client dependencies,
+`src/client/java` for client behavior and game API adapters, and `src/fabric` for
+Fabric entrypoints and metadata. Keep common assets in `src/main/resources`.
+`gradle/targets.gradle` drives generated version projects and all build/collection
+matrices; do not add build scripts or copied classes under `versions/`.
 
-Version adapters translate Minecraft types, method names, data encodings, or save
-layouts. They must not acquire lifecycle policy, persistence policy, or duplicated
-UI behavior. Do not introduce a cross-version `shared-mc-26` layer until the Gradle
-source sets explicitly consume it; identical thin 26.1.2/26.2/26.3 adapters are acceptable
-while their upstream APIs remain separate compatibility targets.
+Use Manifold `#if MC_VERSION` branches for differing Minecraft types, method names,
+data encodings, and save layouts. Keep those branches small and local to the API
+boundary; lifecycle, persistence, and UI policy stay shared. The numeric macro is
+`major * 10000 + minor * 100 + patch`. Compile through Gradle, including tests.
+Published source JARs resolve those branches before Loom remapping so older targets
+never publish partly remapped sources. The compiler processor is not a runtime mod.
 
 The download package follows the same ownership rule:
 
 - `DownloadManager` is the public lifecycle and command facade.
-- `DownloadPipeline` implementations decide when an export is due. New strategies
-  implement that contract alongside the existing stable and adaptive strategies.
+- `CapturePolicy` determines resource mode independently of the user's toggle;
+  `CaptureBudget` supplies executable limits for a tick.
+- `ExportScheduler` owns periodic/adaptive/pressure cadence, deferred work ordering,
+  and retries on the client thread.
 - `DownloadCaptureQueue` owns main-thread serialization, hint coalescing, queue limits,
   and capture diagnostics.
 - `ExportWork.Intent` describes a live request; `ExportWork.Frozen` carries immutable
   terrain, entity, container, settings, and source data. Frozen requests never sample
   a later client world or acknowledge its live entity signals.
-- `DownloadExportCoordinator` owns queue ordering, snapshot preparation, durability
-  commits, and the export worker. Normal and shutdown passes execute the same
+- `DownloadExportCoordinator` owns snapshot preparation, durability commits, worker
+  dispatch, and completion receipts. Normal and shutdown passes execute the same
   `ExportJob`; its `ExportOutcome` separates verified receipts from remaining work.
 - `MirrorMapping` owns output-path selection, claiming, and per-world path settings.
 - `EntityTracker` owns game-thread vanilla serialization and observation boundaries;
@@ -218,12 +220,13 @@ Avoid implementation terms such as revision acknowledgment, queue hysteresis, im
 NBT materialization, or durability indexes in the first-use instructions. Put technical
 detail in the repository README and link-oriented contributor docs instead.
 
-The supported-target metadata in root `build.gradle` is the build source of truth. Adding,
-removing, or releasing a target also requires checking `settings.gradle`, its
-`versions/fabric-<minecraft>` and `versions/shared-mc-<minecraft>` directories, CI/release
-workflows, both READMEs, and the current changelog. CI and release jobs must call
-`buildAll` and collect artifacts from `versions/fabric-*/build/libs`; the old root
-`build/libs` path is not a multi-target distribution directory.
+The supported-target metadata in `gradle/targets.gradle` is the build source of truth.
+Adding or removing a target requires its API branches, matching bridge JAR, both
+READMEs, and changelog to stay current. Settings generates the version projects.
+CI and release jobs call `collectArtifacts`, which runs `buildAll` and verifies only
+the current producers before collecting binaries into `build/distributions`. Local
+`versions/fabric-*/build/libs` folders may also contain stale or source JARs and must
+not be globbed for release uploads.
 Every target must have a matching `libs/xaero-world-map-bridge-<minecraft>.jar`.
 The `verifyBridgeMatrix` task reads each JAR's Fabric metadata and rejects a
 different Minecraft target, a version other than `xaero_bridge_version`, or a
@@ -232,8 +235,8 @@ workflow run it. Update all four JARs and `xaero_bridge_version` together.
 Do not point a new target at an older bridge artifact merely to satisfy compilation.
 
 Before a release, run all target tests, `buildAll`, and one client startup smoke test per
-target. The shared `run/mods` directory may contain only one enabled Minecraft-version
-build of Xaero's World Map at a time. Use `-PxaeroIntegration=true` for integration
+target. Each target has its own `run/fabric-<minecraft>/mods` directory; enable only a
+matching Minecraft-version build of Xaero's World Map there. Use `-PxaeroIntegration=true` for integration
 testing; the default runtime excludes our compile-only bridge. To test genuine absence of Xaero, use
 `-PworldMirrorRunDir=build/smoke/<target>` with an empty `mods` directory and leave
 `xaeroIntegration` unset. Run the matching published map and bridge separately as an
@@ -263,7 +266,7 @@ named `MODRINTH_PROJECT_ID` with the Modrinth project slug or ID, and an Actions
 secret named `MODRINTH_TOKEN`. Use a Modrinth personal access token belonging to a project
 team member with the minimum `VERSION_CREATE` scope. When either setting is absent, tag
 releases still publish to GitHub and report that Modrinth was skipped. Each enabled
-Modrinth release is a four-entry matrix, with one primary JAR and one exact Minecraft
+Modrinth release is a matrix derived from `build/target-manifest.json`, with one primary JAR and one exact Minecraft
 version per entry. Never hard-code deployment project IDs or tokens in the workflow.
 
 `workflow_dispatch` is the recovery path for an existing tag. It uses the same validation,

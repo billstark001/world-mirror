@@ -23,6 +23,13 @@ changes without dropping compatibility requirements or migration guidance.
 - Coordinate periodic, adaptive, resource-pressure, and retry exports through one
   schedule. Finish accepted writes and drain retained snapshots on exit without
   waiting for another client tick or interrupting atomic file writes.
+- Share one source tree across Minecraft targets with compile-time version branches
+  and separate common, client, and Fabric entrypoint layers. Generate projects,
+  artifact collection, and release matrices from one version definition; isolate
+  development run directories by Minecraft target.
+- Verify distributable metadata, bytecode, entrypoints, Mixins, and bundled
+  dependencies before collection. Resolve source branches before Loom remapping
+  so the published 1.21.11 sources remain fully remapped and usable.
 
 ### Fixed
 

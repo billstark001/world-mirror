@@ -17,9 +17,11 @@ rootProject.name = "world-mirror"
 
 includeBuild("world-mirror-format")
 
-include(
-    "versions:fabric-1.21.11",
-    "versions:fabric-26.1.2",
-    "versions:fabric-26.2",
-    "versions:fabric-26.3"
-)
+apply from: file("gradle/targets.gradle")
+
+targets.keySet().each { minecraft ->
+    def targetPath = ":versions:fabric-${minecraft}"
+    include(targetPath)
+    // Gradle 9 needs a project directory even when its build is configured centrally.
+    project(targetPath).projectDir.mkdirs()
+}

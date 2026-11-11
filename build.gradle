@@ -3,42 +3,7 @@ plugins {
     id "net.fabricmc.fabric-loom-remap" version "${loom_version}" apply false
 }
 
-ext.targets = [
-    "1.21.11": [
-        minecraft: "1.21.11", javaVersion: 21, mixinJava: "JAVA_21",
-        fabricApi: "0.141.4+1.21.11", modMenu: "17.0.1-beta.1",
-        clothConfig: "21.11.153",
-        minecraftRange: "~1.21.11", remapped: true
-    ],
-    "26.1.2": [
-        minecraft: "26.1.2", javaVersion: 25, mixinJava: "JAVA_25",
-        fabricApi: "0.151.0+26.1.2", modMenu: "18.0.0",
-        clothConfig: "26.1.154",
-        minecraftRange: "~26.1.2", remapped: false
-    ],
-    "26.2": [
-        minecraft: "26.2", javaVersion: 25, mixinJava: "JAVA_25",
-        fabricApi: "0.152.2+26.2", modMenu: "20.0.1",
-        clothConfig: "26.2.155",
-        minecraftRange: "~26.2", remapped: false
-    ],
-    "26.3": [
-        minecraft: "26.3", javaVersion: 25, mixinJava: "JAVA_25",
-        fabricApi: "0.161.0+26.3", modMenu: "21.0.0-beta.1",
-        clothConfig: "26.3.158",
-        minecraftRange: "~26.3", remapped: false,
-        sharedMinecraft: "26.2",
-        sharedOverrides: [
-            "io/github/billstark001/worldmirror/WorldMirrorClient.java",
-            "io/github/billstark001/worldmirror/ui/ChunkWorldOverlayRenderApi.java",
-            "io/github/billstark001/worldmirror/io/WorldStructureApi.java"
-        ],
-        commonOverrides: [
-            "io/github/billstark001/worldmirror/io/ChunkSerializer.java",
-            "io/github/billstark001/worldmirror/mixin/ChunkDataMixin.java"
-        ]
-    ]
-]
+apply from: rootProject.file("gradle/targets.gradle")
 
 def fabricProjectPaths = targets.keySet().collect { ":versions:fabric-${it}" }
 
@@ -75,3 +40,14 @@ tasks.register("buildAll") {
     dependsOn(tasks.named("verifyBridgeMatrix"))
     dependsOn(fabricProjectPaths.collect { "${it}:build" })
 }
+
+targets.each { minecraft, target ->
+    project(":versions:fabric-${minecraft}") {
+        ext.minecraftTarget = minecraft
+        pluginManager.apply(target.remapped ? "net.fabricmc.fabric-loom-remap" : "net.fabricmc.fabric-loom")
+        pluginManager.apply("maven-publish")
+        apply from: rootProject.file("gradle/fabric-target.gradle")
+    }
+}
+
+apply from: rootProject.file("gradle/artifacts.gradle")

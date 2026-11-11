@@ -1,0 +1,43 @@
+def target = rootProject.ext.targets[project.ext.minecraftTarget]
+
+dependencies {
+    testImplementation platform("org.junit:junit-bom:5.11.4")
+    testImplementation "org.junit.jupiter:junit-jupiter"
+    testImplementation "com.google.code.gson:gson:${rootProject.gson_version}"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    doFirst {
+        // Child-JVM probes use the mapped game and toolchain of the current target.
+        systemProperty "worldmirror.test.classpath", sourceSets.test.runtimeClasspath.asPath
+    }
+}
+if (target.writesWorldgenFixture) {
+    tasks.register("writeWorldgenFixture", JavaExec) {
+        group = "verification"
+        description = "Writes a native ${target.minecraft} world for cross-version upgrade tests."
+        dependsOn tasks.named("testClasses")
+        classpath = sourceSets.test.runtimeClasspath
+        mainClass = "io.github.billstark001.worldmirror.io.CrossVersionWorldgenFixture"
+        javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(target.javaVersion) }
+        def destination = layout.buildDirectory.dir("generated/worldgen-upgrade-fixture")
+        outputs.dir(destination)
+        inputs.files(sourceSets.test.runtimeClasspath)
+        doFirst {
+            def directory = destination.get().asFile
+            directory.mkdirs()
+            workingDir directory
+            args = [directory.absolutePath]
+        }
+    }
+}
+if (target.worldgenFixtureFrom) {
+    def source = project(":versions:fabric-${target.worldgenFixtureFrom}")
+    def fixtureDirectory = source.layout.buildDirectory.dir("generated/worldgen-upgrade-fixture")
+    tasks.named("test") {
+        dependsOn "${source.path}:writeWorldgenFixture"
+        inputs.dir(fixtureDirectory)
+        systemProperty "worldmirror.test.262Fixture", fixtureDirectory.get().file("fixture-root.txt").asFile.absolutePath
+    }
+}

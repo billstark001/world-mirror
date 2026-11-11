@@ -25,7 +25,7 @@ param(
     [Parameter(Position = 0)]
     [string]$Branch,
     [string]$MinecraftVersion,
-    [string]$ModsDirectory = "run\mods",
+    [string]$ModsDirectory,
     [string]$Loader = "fabric",
     [switch]$NoCheckout,
     [switch]$SkipClean,
@@ -70,7 +70,10 @@ function Get-GradleProperty {
 }
 
 function Get-SupportedMinecraftVersions {
-    $buildFile = Join-Path $repoRoot "build.gradle"
+    $buildFile = Join-Path $repoRoot "gradle/targets.gradle"
+    if (-not (Test-Path -LiteralPath $buildFile)) {
+        $buildFile = Join-Path $repoRoot "build.gradle"
+    }
     if (-not (Test-Path -LiteralPath $buildFile)) {
         return @()
     }
@@ -110,6 +113,11 @@ try {
         }
     }
 
+    $runDirectory = if (Test-Path -LiteralPath (Join-Path $repoRoot "gradle/targets.gradle")) {
+        "run/fabric-$MinecraftVersion"
+    } else { "run" }
+    if (-not $ModsDirectory) { $ModsDirectory = "$runDirectory/mods" }
+
     if (-not $SkipClean) {
         if ($CleanBuild) {
             Remove-GeneratedPath "build"
@@ -118,9 +126,9 @@ try {
         } elseif ($CleanXaeroInspectCache) {
             Remove-GeneratedPath "build\tmp\xaero-inspect"
         }
-        Remove-GeneratedPath "run\.fabric\processedMods"
-        Remove-GeneratedPath "run\.fabric\remappedJars"
-        Remove-GeneratedPath "run\.fabric\remappedMods"
+        Remove-GeneratedPath "$runDirectory/.fabric/processedMods"
+        Remove-GeneratedPath "$runDirectory/.fabric/remappedJars"
+        Remove-GeneratedPath "$runDirectory/.fabric/remappedMods"
     }
 
     $modsPath = Resolve-RepoPath $ModsDirectory

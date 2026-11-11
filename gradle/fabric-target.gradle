@@ -1,15 +1,14 @@
 def target = rootProject.ext.targets[project.ext.minecraftTarget]
-def sharedMinecraft = target.sharedMinecraft ?: target.minecraft
 def bridgeJar = rootProject.file("libs/xaero-world-map-bridge-${target.minecraft}.jar")
 def xaeroIntegration = providers.gradleProperty("xaeroIntegration").map { it.toBoolean() }.getOrElse(false)
-def commonJava = objects.sourceDirectorySet("commonJava${target.minecraft}",
-        "Common Java sources for Minecraft ${target.minecraft}")
-commonJava.srcDir(rootProject.file("src/main/java"))
-commonJava.exclude(target.commonOverrides ?: [])
-def sharedJava = objects.sourceDirectorySet("sharedJava${target.minecraft}",
-        "Shared Java sources for Minecraft ${sharedMinecraft}")
-sharedJava.srcDir(rootProject.file("versions/shared-mc-${sharedMinecraft}/src/main/java"))
-sharedJava.exclude(target.sharedOverrides ?: [])
+
+apply from: rootProject.file("gradle/common-target.gradle")
+
+repositories {
+    maven { url = "https://maven.terraformersmc.com/releases/" }
+    maven { url = "https://maven.shedaniel.me/" }
+    mavenCentral()
+}
 
 def verifyXaeroBridge = tasks.register("verifyXaeroBridge") {
     group = "verification"
@@ -48,35 +47,6 @@ def verifyXaeroBridge = tasks.register("verifyXaeroBridge") {
 tasks.named("compileJava") { dependsOn(verifyXaeroBridge) }
 tasks.named("check") { dependsOn(verifyXaeroBridge) }
 
-group = rootProject.mod_group
-version = "${rootProject.mod_version}+${target.minecraft}-fabric"
-
-base {
-    archivesName = rootProject.archives_base_name
-}
-
-repositories {
-    maven { url = "https://maven.terraformersmc.com/releases/" }
-    maven { url = "https://maven.shedaniel.me/" }
-    mavenCentral()
-}
-
-sourceSets {
-    main {
-        java.setSrcDirs([])
-        java.source(commonJava)
-        java.source(sharedJava)
-        if (sharedMinecraft != target.minecraft) {
-            java.srcDir(rootProject.file("versions/shared-mc-${target.minecraft}/src/main/java"))
-        }
-        java.srcDir(project.file("src/main/java"))
-        resources.srcDirs = [rootProject.file("src/main/resources")]
-    }
-    test {
-        java.srcDirs = [rootProject.file("src/test/java"), project.file("src/test/java")]
-    }
-}
-
 loom {
     mods {
         "worldmirror" {
@@ -87,8 +57,9 @@ loom {
         client {
             client()
             configName = "Minecraft Client ${target.minecraft}"
+            vmArgs(target.clientJvmArgs ?: [])
             getGenerateRunConfig().set(true)
-            runDir = rootProject.file(providers.gradleProperty("worldMirrorRunDir").getOrElse("run")).absolutePath
+            runDir = rootProject.file(providers.gradleProperty("worldMirrorRunDir").getOrElse("run/fabric-${target.minecraft}")).absolutePath
         }
     }
 }
@@ -128,10 +99,6 @@ tasks.named("ideaSyncTask").configure {
 dependencies {
     implementation include("io.github.billstark001.worldmirror:world-mirror-format:0.1.2")
     compileOnly "com.google.code.gson:gson:${rootProject.gson_version}"
-    testImplementation platform("org.junit:junit-bom:5.11.4")
-    testImplementation "org.junit.jupiter:junit-jupiter"
-    testImplementation "com.google.code.gson:gson:${rootProject.gson_version}"
-    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
     minecraft "com.mojang:minecraft:${target.minecraft}"
 
     if (target.remapped) {
@@ -159,13 +126,6 @@ dependencies {
 
     implementation include("org.xerial:sqlite-jdbc:${rootProject.sqlite_version}")
 
-    testImplementation platform("org.junit:junit-bom:5.11.4")
-    testImplementation "org.junit.jupiter:junit-jupiter"
-    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
-}
-
-tasks.named("test") {
-    useJUnitPlatform()
 }
 
 tasks.register("printRuntimeClasspath") {
@@ -173,55 +133,5 @@ tasks.register("printRuntimeClasspath") {
     description = "Print resolved runtime JAR paths for tooling that inspects this Minecraft target."
     doLast {
         configurations.runtimeClasspath.files.each { println it.absolutePath }
-    }
-}
-
-def resourceProperties = [
-    version: project.version,
-    minecraftRange: target.minecraftRange,
-    loaderVersion: rootProject.loader_version,
-    javaVersion: target.javaVersion,
-    mixinJava: target.mixinJava,
-    clothConfigVersion: target.clothConfig
-]
-
-processResources {
-    inputs.properties(resourceProperties)
-    filesMatching("fabric.mod.json") { expand(resourceProperties) }
-    filesMatching("worldmirror*.mixins.json") { expand(resourceProperties) }
-}
-
-tasks.withType(JavaCompile).configureEach {
-    options.encoding = "UTF-8"
-    options.release = target.javaVersion
-}
-
-tasks.withType(Test).configureEach {
-    useJUnitPlatform()
-    doFirst {
-        // Child-JVM regression probes use this target's mapped game and Java toolchain.
-        systemProperty "worldmirror.test.classpath", sourceSets.test.runtimeClasspath.asPath
-    }
-}
-
-java {
-    withSourcesJar()
-    toolchain.languageVersion = JavaLanguageVersion.of(target.javaVersion)
-    sourceCompatibility = JavaVersion.toVersion(target.javaVersion)
-    targetCompatibility = JavaVersion.toVersion(target.javaVersion)
-}
-
-jar {
-    from(rootProject.file("LICENSE")) {
-        rename { "${it}_${rootProject.archives_base_name}" }
-    }
-}
-
-publishing {
-    publications {
-        create("mavenJava", MavenPublication) {
-            artifactId = rootProject.archives_base_name
-            from components.java
-        }
     }
 }

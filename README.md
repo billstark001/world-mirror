@@ -615,6 +615,32 @@ Each target uses `libs/xaero-world-map-bridge-<minecraft>.jar`. Run
 `./gradlew verifyBridgeMatrix` when updating a target or its bridge artifact;
 `buildAll` and IDEA synchronization run the same metadata check automatically.
 
+### Source and target layout
+
+`gradle/targets.gradle` is the single matrix for Minecraft versions, dependencies,
+Java levels, preprocessor values, and upgrade-test fixtures. Settings generates the
+`versions/fabric-<minecraft>` projects; they need no checked-in build scripts or
+source copies. Root source is split into:
+
+- `src/main/java`: shared models and utilities without client dependencies.
+- `src/client/java`: client behavior, rendering, game IO, and version API adapters.
+- `src/fabric/java` and `src/fabric/resources`: Fabric entrypoints and metadata.
+- `src/main/resources`: common assets and Mixin configuration.
+- `src/test/java`: game-dependent regressions compiled and run on each target.
+
+Manifold resolves `#if MC_VERSION` branches inside javac. The value is
+`major * 10000 + minor * 100 + patch`: 12111, 260102, 260200, and 260300 for the
+current targets. The processor is a build dependency and is not bundled or required
+at runtime. Use the Manifold IDE plugin for directive-aware editing and delegate
+compilation to Gradle. Published source JARs contain the selected target's resolved
+branches, preserving debug line positions; the 1.21.11 sources are then remapped by
+Loom, just as before.
+
+`./gradlew collectArtifacts` runs `buildAll`, verifies entrypoints, Mixins, runtime
+metadata, bundled dependencies and bytecode levels, then collects only the configured
+binary JARs into `build/distributions`. `writeTargetManifest` writes the same matrix
+and exact artifact paths to `build/target-manifest.json` for scripts and CI.
+
 For a Modrinth upload, build all targets and collect only the four distributable
 JARs in the generated root `build/modrinth` directory:
 
@@ -626,12 +652,11 @@ Use `-SkipBuild` only when the current version's four JARs have already been bui
 
 ### Development run configurations
 
-Gradle generates a separate IntelliJ IDEA client run configuration for every supported Minecraft target. All targets
-intentionally share the root `run/` directory, while their module, Loom launch file, and Java runtime remain
-version-specific. Minecraft 1.21.11 uses Java 21; Minecraft 26.x uses Java 25.
+Gradle generates a separate IntelliJ IDEA client run configuration for every supported Minecraft target. Each target uses
+its own `run/fabric-<minecraft>/` directory, module, Loom launch file, and Java runtime. Minecraft 1.21.11 uses Java 21; Minecraft 26.x uses Java 25.
 
-Because `run/mods` is shared, enable only the Xaero World Map JAR that matches the client
-being launched; the helper script keeps other downloaded versions as `.jar.disabled`.
+The helper places the matching Xaero World Map JAR in that target's
+`run/fabric-<minecraft>/mods` directory and keeps other downloaded versions disabled.
 On this multi-target branch, select the target explicitly:
 
 ```powershell
@@ -639,7 +664,7 @@ On this multi-target branch, select the target explicitly:
 ```
 
 The bridge is compile-only by default. Enable its matching, development-only runtime
-artifact with `-PxaeroIntegration=true`; install the matching World Map in `run/mods`
+artifact with `-PxaeroIntegration=true`; install the matching World Map in the target's `mods` directory
 using the helper above. For example:
 
 ```powershell
@@ -671,12 +696,13 @@ Reloading the Gradle project refreshes the configurations automatically. They ca
 Before regeneration, this removes the old generated configurations, including entries belonging to deleted targets.
 When adding or removing a Minecraft target:
 
-1. Update its metadata entry in `build.gradle`.
-2. Update the matching `versions/fabric-<minecraft>` project in `settings.gradle` and its source directories.
-3. Update the CI, release, and Modrinth matrices in `.github/workflows` and `scripts`.
+1. Update `gradle/targets.gradle`, including the numeric preprocessor version.
+2. Adjust API branches, supply the matching bridge JAR, and update the supported-version documentation.
+3. Run `collectArtifacts` and the relevant client smoke checks.
 4. Reload the Gradle project, or run `syncIdeaRunConfigurations`.
 
-`buildAll` derives its project list from `targets`, so it does not need a separate update.
+Settings, builds, distribution scripts, and release matrices derive their target list
+from the same manifest; no per-target build scripts or workflow lists need copying.
 
 ---
 

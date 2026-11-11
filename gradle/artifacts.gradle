@@ -1,0 +1,115 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+import java.util.zip.ZipFile
+
+// Query the producing tasks so collection cannot select stale or source JARs.
+def distributableJars = {
+    targets.collect { minecraft, target ->
+        def module = project(":versions:fabric-${minecraft}")
+        def producer = module.tasks.named(target.remapped ? "remapJar" : "jar").get()
+        def sources = module.tasks.named(target.remapped ? "remapSourcesJar" : "sourcesJar").get()
+        [minecraft: minecraft, target: target, file: producer.archiveFile.get().asFile,
+         sources: sources.archiveFile.get().asFile]
+    }
+}
+
+tasks.register("writeTargetManifest") {
+    group = "help"
+    description = "Writes the configured target and artifact list for local and release tooling."
+    inputs.property("version", rootProject.mod_version)
+    inputs.property("targets", targets)
+    def destination = layout.buildDirectory.file("target-manifest.json")
+    outputs.file(destination)
+    doLast {
+        def manifest = [modId: rootProject.mod_id, version: rootProject.mod_version,
+            targets: distributableJars().collect { artifact ->
+                [minecraft: artifact.minecraft, loader: "fabric", javaVersion: artifact.target.javaVersion,
+                 artifact: rootProject.relativePath(artifact.file).replace('\\', '/'),
+                 filename: artifact.file.name]
+            }]
+        def file = destination.get().asFile
+        file.parentFile.mkdirs()
+        file.setText(JsonOutput.prettyPrint(JsonOutput.toJson(manifest)), "UTF-8")
+    }
+}
+
+tasks.register("verifyArtifacts") {
+    group = "verification"
+    description = "Builds all targets and verifies their distributable contents and runtime metadata."
+    dependsOn("buildAll", "writeTargetManifest")
+    doLast {
+        distributableJars().each { artifact ->
+            def require = { boolean valid, String message ->
+                if (!valid) throw new GradleException("${artifact.file.name}: ${message}")
+            }
+            require(artifact.file.isFile(), "missing distributable JAR")
+            new ZipFile(artifact.file).withCloseable { archive ->
+                def names = archive.entries().collect { it.name }
+                require(names.size() == names.toSet().size(), "duplicate ZIP entries")
+                def readJson = { String path ->
+                    def entry = archive.getEntry(path)
+                    require(entry != null, "missing ${path}")
+                    archive.getInputStream(entry).withCloseable { stream ->
+                        new JsonSlurper().parseText(stream.getText("UTF-8"))
+                    }
+                }
+                def metadata = readJson("fabric.mod.json")
+                require(metadata.id == rootProject.mod_id, "incorrect mod ID")
+                require(metadata.version == "${rootProject.mod_version}+${artifact.minecraft}-fabric", "incorrect mod version")
+                require(metadata.environment == "client", "incorrect physical side")
+                require(metadata.depends.minecraft == artifact.target.minecraftRange, "incorrect Minecraft requirement")
+                require(metadata.depends.java == ">=${artifact.target.javaVersion}", "incorrect Java requirement")
+                require(metadata.depends.fabricloader == ">=${rootProject.loader_version}", "incorrect loader requirement")
+                require(metadata.depends['cloth-config2'] == ">=${artifact.target.clothConfig}", "incorrect Cloth Config requirement")
+                require(names.contains("LICENSE_${rootProject.archives_base_name}".toString()), "missing mod license")
+                require(names.contains(metadata.icon), "missing icon")
+                metadata.entrypoints.values().flatten().each { entrypoint ->
+                    def name = entrypoint instanceof Map ? entrypoint.value : entrypoint
+                    require(names.contains(name.replace('.', '/') + ".class"), "missing entrypoint ${name}")
+                }
+                metadata.mixins.each { mixin ->
+                    def config = readJson(mixin instanceof Map ? mixin.config : mixin)
+                    require(config.compatibilityLevel == artifact.target.mixinJava, "incorrect Mixin Java level")
+                    config.client.each { name ->
+                        require(names.contains((config.package + "." + name).replace('.', '/') + ".class"), "missing Mixin ${name}")
+                    }
+                }
+                def packagePath = rootProject.mod_group.replace('.', '/') + '/'
+                def classes = names.findAll { it.startsWith(packagePath) && it.endsWith('.class') }
+                require(!classes.isEmpty(), "missing mod bytecode")
+                classes.each { name ->
+                    archive.getInputStream(archive.getEntry(name)).withCloseable { stream ->
+                        def data = new DataInputStream(stream)
+                        require(data.readInt() == (int) 0xCAFEBABE, "invalid class ${name}")
+                        data.readUnsignedShort()
+                        require(data.readUnsignedShort() == artifact.target.javaVersion + 44, "incorrect bytecode level in ${name}")
+                    }
+                }
+                require(!names.any { it.startsWith('manifold/') || it.startsWith('net/minecraft/')
+                        || it.startsWith('io/github/billstark001/xaeroworldmapbridge/') }, "bundled compiler, game, or compile-only bridge classes")
+                def nested = metadata.jars.collect { it.file }
+                ["cloth-config", "sqlite-jdbc", "world-mirror-format"].each { dependency ->
+                    require(nested.any { it.contains(dependency) && names.contains(it) }, "missing bundled ${dependency}")
+                }
+            }
+            new ZipFile(artifact.sources).withCloseable { archive ->
+                archive.entries().findAll { it.name.endsWith('.java') }.each { entry ->
+                    archive.getInputStream(entry).withCloseable { stream ->
+                        def source = stream.getText("UTF-8")
+                        require(!(source =~ /(?m)^\s*#(if|elif|else|endif|define|undef|error)\b/).find(),
+                                "unresolved source directives in ${entry.name}")
+                    }
+                }
+            }
+            logger.lifecycle("Verified ${artifact.file.name}")
+        }
+    }
+}
+
+tasks.register("collectArtifacts", Sync) {
+    group = "distribution"
+    description = "Collects only the current, verified distributable JARs."
+    dependsOn("verifyArtifacts")
+    from { distributableJars().collect { it.file } }
+    into layout.buildDirectory.dir("distributions")
+}

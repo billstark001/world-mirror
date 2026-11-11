@@ -1,0 +1,69 @@
+def target = rootProject.ext.targets[project.ext.minecraftTarget]
+
+// Compiler-only preprocessing: neither configuration is a mod runtime dependency.
+dependencies {
+    annotationProcessor "systems.manifold:manifold-preprocessor:${rootProject.manifold_version}"
+    testAnnotationProcessor "systems.manifold:manifold-preprocessor:${rootProject.manifold_version}"
+}
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs.addAll(["-Xplugin:Manifold", "-AMC_VERSION=${target.preprocessorVersion}"])
+}
+
+// Loom's older source remapper cannot parse directives. Resolve them with the
+// same preprocessor before publishing sources, retaining line positions for debug.
+def publishedSources = layout.buildDirectory.dir("generated/published-sources")
+def preparePublishedSources = tasks.register("preparePublishedSources") {
+    inputs.files(sourceSets.main.java)
+    inputs.files(configurations.annotationProcessor)
+    inputs.property("MC_VERSION", target.preprocessorVersion)
+    outputs.dir(publishedSources)
+    doLast {
+        def directory = publishedSources.get().asFile
+        def buildRoot = layout.buildDirectory.get().asFile.canonicalFile.toPath()
+        if (!directory.canonicalFile.toPath().startsWith(buildRoot)) {
+            throw new GradleException("Published sources must stay inside the target build directory")
+        }
+        delete(directory)
+        def urls = configurations.annotationProcessor.files.collect { it.toURI().toURL() } as URL[]
+        new URLClassLoader(urls, ClassLoader.getPlatformClassLoader()).withCloseable { loader ->
+            def definitionsType = loader.loadClass("manifold.preprocessor.definitions.Definitions")
+            def fileType = loader.loadClass("manifold.api.fs.IFile")
+            def parserType = loader.loadClass("manifold.preprocessor.PreprocessorParser")
+            sourceSets.main.java.files.each { source ->
+                def sourceRoot = sourceSets.main.java.srcDirs.find { source.toPath().startsWith(it.toPath()) }
+                def relative = sourceRoot.toPath().relativize(source.toPath()).toString()
+                def original = source.getText("UTF-8")
+                def text = original
+                if (original.contains("#if ")) {
+                    def definitions = definitionsType.getConstructor(fileType).newInstance([null] as Object[])
+                    definitions.define("MC_VERSION", target.preprocessorVersion.toString())
+                    def parser = parserType.getConstructor(CharSequence, java.util.function.Consumer)
+                            .newInstance([original, { token -> } as java.util.function.Consumer] as Object[])
+                    def syntax = parser.parseFile({ message, position ->
+                        throw new GradleException("${source}:${position}: ${message}")
+                    } as java.util.function.BiConsumer)
+                    def output = new StringBuilder()
+                    syntax.execute(output, original, true, definitions)
+                    text = output.toString()
+                }
+                if (!text.isBlank()) {
+                    def destination = new File(directory, relative)
+                    destination.parentFile.mkdirs()
+                    if (text == original) destination.bytes = source.bytes
+                    else destination.setText(text, "UTF-8")
+                }
+            }
+        }
+    }
+}
+tasks.named("sourcesJar", Jar) {
+    dependsOn(preparePublishedSources)
+    from(publishedSources)
+    includeEmptyDirs = false
+    eachFile { details ->
+        if (details.name.endsWith(".java")
+                && !details.file.toPath().startsWith(publishedSources.get().asFile.toPath())) {
+            details.exclude()
+        }
+    }
+}

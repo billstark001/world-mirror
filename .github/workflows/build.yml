@@ -30,7 +30,7 @@ jobs:
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
       - name: build
-        run: ./gradlew buildAll
+        run: ./gradlew collectArtifacts
       - name: capture test reports
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
@@ -44,4 +44,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Artifacts
-          path: versions/fabric-*/build/libs/*.jar
+          path: build/distributions/*.jar

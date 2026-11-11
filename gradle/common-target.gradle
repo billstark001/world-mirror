@@ -1,0 +1,54 @@
+def target = rootProject.ext.targets[project.ext.minecraftTarget]
+
+group = rootProject.mod_group
+version = "${rootProject.mod_version}+${target.minecraft}-fabric"
+base { archivesName = rootProject.archives_base_name }
+
+sourceSets {
+    main {
+        java.srcDirs = ["main", "client", "fabric"].collect { rootProject.file("src/${it}/java") }
+        resources.srcDirs = [rootProject.file("src/main/resources"), rootProject.file("src/fabric/resources")]
+    }
+    test { java.srcDirs = [rootProject.file("src/test/java")] }
+}
+
+def resourceProperties = [
+    version: project.version,
+    minecraftRange: target.minecraftRange,
+    loaderVersion: rootProject.loader_version,
+    javaVersion: target.javaVersion,
+    mixinJava: target.mixinJava,
+    clothConfigVersion: target.clothConfig
+]
+processResources {
+    inputs.properties(resourceProperties)
+    filesMatching("fabric.mod.json") { expand(resourceProperties) }
+    filesMatching("worldmirror*.mixins.json") { expand(resourceProperties) }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
+    options.release = target.javaVersion
+}
+java {
+    withSourcesJar()
+    toolchain.languageVersion = JavaLanguageVersion.of(target.javaVersion)
+    sourceCompatibility = JavaVersion.toVersion(target.javaVersion)
+    targetCompatibility = JavaVersion.toVersion(target.javaVersion)
+}
+jar {
+    from(rootProject.file("LICENSE")) {
+        rename { "${it}_${rootProject.archives_base_name}" }
+    }
+}
+publishing {
+    publications {
+        create("mavenJava", MavenPublication) {
+            artifactId = rootProject.archives_base_name
+            from components.java
+        }
+    }
+}
+
+apply from: rootProject.file("gradle/manifold.gradle")
+apply from: rootProject.file("gradle/testing.gradle")

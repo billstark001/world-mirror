@@ -11,7 +11,7 @@ on:
         required: true
         type: string
       publish_modrinth:
-        description: 'Publish the four Modrinth versions when a token is configured'
+        description: 'Publish the configured Modrinth versions when a token is configured'
         required: true
         default: false
         type: boolean
@@ -32,6 +32,7 @@ jobs:
       channel: ${{ steps.metadata.outputs.channel }}
       prerelease: ${{ steps.metadata.outputs.prerelease }}
       publish_modrinth: ${{ steps.metadata.outputs.publish_modrinth }}
+      minecraft: ${{ steps.artifacts.outputs.minecraft }}
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
       WANT_MODRINTH: ${{ github.event_name == 'push' || inputs.publish_modrinth }}
@@ -114,23 +115,19 @@ jobs:
       - name: Build all targets once
         run: |
           chmod +x ./gradlew
-          ./gradlew buildAll
+          ./gradlew collectArtifacts
 
       - name: Collect and validate distributable JARs
+        id: artifacts
         shell: bash
-        env:
-          VERSION: ${{ steps.metadata.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p build/release
           mv release-notes.md build/release/
-          for minecraft in 1.21.11 26.1.2 26.2 26.3; do
-            jar="versions/fabric-$minecraft/build/libs/world-mirror-$VERSION+$minecraft-fabric.jar"
-            test -f "$jar"
-            cp "$jar" build/release/
-          done
-          test "$(find build/release -maxdepth 1 -name '*.jar' -type f | wc -l)" -eq 4
-          test "$(find versions -path '*/build/libs/world-mirror-*-fabric.jar' -type f | wc -l)" -eq 4
+          cp build/distributions/*.jar build/release/
+          expected="$(jq '.targets | length' build/target-manifest.json)"
+          test "$(find build/release -maxdepth 1 -name '*.jar' -type f | wc -l)" -eq "$expected"
+          echo "minecraft=$(jq -c '[.targets[].minecraft]' build/target-manifest.json)" >> "$GITHUB_OUTPUT"
 
       - name: Upload release bundle
         uses: actions/upload-artifact@v4
@@ -168,11 +165,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        minecraft:
-          - '1.21.11'
-          - '26.1.2'
-          - '26.2'
-          - '26.3'
+        minecraft: ${{ fromJSON(needs.build.outputs.minecraft) }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read

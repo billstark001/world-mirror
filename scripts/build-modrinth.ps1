@@ -11,36 +11,42 @@ $distributionDirectory = [System.IO.Path]::GetFullPath((Join-Path $buildDirector
 $versionsDirectory = Join-Path $repositoryRoot "versions"
 $propertiesPath = Join-Path $repositoryRoot "gradle.properties"
 
-if (-not $SkipBuild) {
-    & (Join-Path $repositoryRoot "gradlew.bat") buildAll
-    if ($LASTEXITCODE -ne 0) {
-        throw "The complete build failed with exit code $LASTEXITCODE."
-    }
-}
+$task = if ($SkipBuild) { "writeTargetManifest" } else { "collectArtifacts" }
+& (Join-Path $repositoryRoot "gradlew.bat") $task
+if ($LASTEXITCODE -ne 0) { throw "Gradle $task failed with exit code $LASTEXITCODE." }
 
+$manifest = Get-Content -LiteralPath (Join-Path $buildDirectory "target-manifest.json") -Raw | ConvertFrom-Json
 $versionLine = Get-Content -LiteralPath $propertiesPath | Where-Object { $_ -match '^mod_version=' } | Select-Object -First 1
-if ($null -eq $versionLine) {
-    throw "Could not find mod_version in $propertiesPath."
-}
+if ($null -eq $versionLine) { throw "Could not find mod_version in $propertiesPath." }
 $modVersion = ($versionLine -split '=', 2)[1].Trim()
-$artifactPattern = "^world-mirror-" + [regex]::Escape($modVersion) + "\+.+-fabric\.jar$"
+if ($manifest.version -ne $modVersion) { throw "Target manifest version does not match gradle.properties." }
+$targets = @($manifest.targets)
+if ($targets.Count -eq 0) { throw "The target manifest is empty." }
 
-$targets = @("1.21.11", "26.1.2", "26.2", "26.3")
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 $artifacts = @(
     foreach ($target in $targets) {
-        $libraryDirectory = Join-Path $versionsDirectory "fabric-$target\build\libs"
-        $matches = @(Get-ChildItem -LiteralPath $libraryDirectory -File -Filter "world-mirror-*.jar" |
-            Where-Object { $_.Name -match $artifactPattern -and $_.Name -eq "world-mirror-$modVersion+$target-fabric.jar" })
-        if ($matches.Count -ne 1) {
-            throw "Expected one $target distributable in $libraryDirectory, found $($matches.Count)."
+        $path = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $target.artifact))
+        $expectedDirectory = [System.IO.Path]::GetFullPath((Join-Path $versionsDirectory "fabric-$($target.minecraft)/build/libs"))
+        if ((Split-Path -Parent $path) -ne $expectedDirectory -or
+            (Split-Path -Leaf $path) -ne "world-mirror-$modVersion+$($target.minecraft)-fabric.jar") {
+            throw "Unexpected artifact path in target manifest: $path"
         }
-        $matches[0]
+        $artifact = Get-Item -LiteralPath $path
+        $archive = [System.IO.Compression.ZipFile]::OpenRead($artifact.FullName)
+        try {
+            $entry = $archive.GetEntry("fabric.mod.json")
+            if ($null -eq $entry) { throw "Missing Fabric metadata in $path" }
+            $reader = [System.IO.StreamReader]::new($entry.Open())
+            try { $metadata = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
+            if ($metadata.id -ne $manifest.modId -or
+                $metadata.version -ne "$modVersion+$($target.minecraft)-fabric") {
+                throw "Artifact metadata does not match the target manifest: $path"
+            }
+        } finally { $archive.Dispose() }
+        $artifact
     }
 )
-
-if ($artifacts.Count -ne 4) {
-    throw "Expected four distributable $modVersion Fabric JARs after building, but found $($artifacts.Count)."
-}
 
 # Check the absolute target and reject redirected directories before recursive cleanup.
 if ((Split-Path -Parent $distributionDirectory) -ne $buildDirectory -or

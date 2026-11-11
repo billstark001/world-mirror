@@ -4,7 +4,7 @@ Downloads and inspects Xaero's World Map jars for the current World Mirror branc
 
 .DESCRIPTION
 By default this script downloads the newest Xaero's World Map Modrinth release
-matching a legacy branch's `minecraft_version` or the root build's only target.
+matching a legacy branch's `minecraft_version` or the central version matrix's only target.
 On the current multi-target branch, pass `-MinecraftVersion` explicitly. It reuses
 an existing matching jar, including a `.jar.disabled` copy, instead of downloading
 the same file again.
@@ -44,7 +44,7 @@ param(
     [string]$MinecraftVersion,
     [string]$Loader = "fabric",
     [string]$ProjectSlug = "xaeros-world-map",
-    [string]$OutputDirectory = "run\mods",
+    [string]$OutputDirectory,
     [string]$XaeroVersion,
     [switch]$ListVersions,
     [switch]$Disassemble,
@@ -85,7 +85,10 @@ function Get-GradleProperty {
 }
 
 function Get-SupportedMinecraftVersions {
-    $buildFile = Join-Path $repoRoot "build.gradle"
+    $buildFile = Join-Path $repoRoot "gradle/targets.gradle"
+    if (-not (Test-Path -LiteralPath $buildFile)) {
+        $buildFile = Join-Path $repoRoot "build.gradle"
+    }
     if (-not (Test-Path -LiteralPath $buildFile)) {
         return @()
     }
@@ -105,6 +108,11 @@ if (-not $MinecraftVersion) {
     }
 }
 
+if (-not $OutputDirectory) {
+    $OutputDirectory = if (Test-Path -LiteralPath (Join-Path $repoRoot "gradle/targets.gradle")) {
+        "run/fabric-$MinecraftVersion/mods"
+    } else { "run/mods" }
+}
 $outputPath = Resolve-RepoPath $OutputDirectory
 New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
 
