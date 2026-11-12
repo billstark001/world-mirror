@@ -14,6 +14,7 @@ import io.github.billstark001.worldmirror.io.ExportProgress;
 import io.github.billstark001.worldmirror.io.MirrorWorldgenAssets;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
 import io.github.billstark001.worldmirror.io.WorldWriteLock;
+import io.github.billstark001.worldmirror.ui.ChunkStatusCache;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.util.WMPlayerMessages;
 import net.minecraft.client.Minecraft;
@@ -336,6 +337,7 @@ final class DownloadExportCoordinator {
         Frozen remaining = work;
         long latestDurableCaptureTime = work.durableCaptureTime(), indexMillis = 0L;
         boolean indexCommitted = false, metadataCommitted = false;
+        boolean repairedIndex = false;
         try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
             MirrorMigrationPlan.Inspection readiness = MirrorMigrationCoordinator.inspect(worldFolder);
             if (!readiness.mayCreateOrWriteWithoutMigration()) {
@@ -389,6 +391,7 @@ final class DownloadExportCoordinator {
                 if (dimension.getValue().isEmpty()) continue;
                 String dimensionId = dimension.getKey().identifier().toString();
                 if (db.removeUnreadableUpdates(dimensionId, dimension.getValue())) {
+                    repairedIndex = true;
                     WMLogger.warn("Removed stale durability claims for unreadable region chunks dimension="
                             + dimensionId + " chunks=" + dimension.getValue().size());
                 } else {
@@ -422,6 +425,9 @@ final class DownloadExportCoordinator {
             WMLogger.warn("Export pass failed trigger=" + work.context().trigger() + " world=" + worldFolder, failure);
         } finally {
             if (db != null) db.close();
+        }
+        if (repairedIndex || !durableWritten.isEmpty()) {
+            ChunkStatusCache.invalidateSaved(worldFolder, sourceId);
         }
         return new ExportOutcome(result, durableWritten, remaining, indexCommitted, metadataCommitted, indexMillis);
     }

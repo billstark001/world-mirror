@@ -15,10 +15,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicLong;
 
 public final class ChunkStatusCache {
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor(task -> {
@@ -29,10 +27,11 @@ public final class ChunkStatusCache {
 
     private static volatile SnapshotState snapshotState =
             new SnapshotState(null, ChunkStatusSnapshot.EMPTY, 0L);
-    private static final AtomicLong INVALIDATION = new AtomicLong();
-    private static volatile CompletableFuture<?> refreshFuture;
+    private static long snapshotGeneration;
+    private static CacheKey refreshing;
     private static volatile CountSnapshot countSnapshot = new CountSnapshot(null, -1, 0L);
-    private static volatile CompletableFuture<?> countFuture;
+    private static long countGeneration;
+    private static CountKey counting;
 
     private ChunkStatusCache() {}
 
@@ -46,26 +45,53 @@ public final class ChunkStatusCache {
         SnapshotState current = snapshotState;
         boolean contextChanged = !key.equals(current.key());
         boolean stale = now - current.loadedAtMs() >= refreshIntervalMs;
-        if ((contextChanged || stale) && (refreshFuture == null || refreshFuture.isDone())) {
-            long invalidation = INVALIDATION.get();
-            refreshFuture = CompletableFuture.runAsync(() -> {
-                ChunkStatusSnapshot loaded = loadSnapshot(key);
-                synchronized (ChunkStatusCache.class) {
-                    long loadedAtMs = invalidation == INVALIDATION.get()
-                            ? System.currentTimeMillis() : 0L;
-                    snapshotState = new SnapshotState(key, loaded, loadedAtMs);
-                }
-            }, EXECUTOR);
-        }
+        if (contextChanged || stale) scheduleRefresh(key);
         return key.equals(current.key()) ? current.snapshot() : ChunkStatusSnapshot.EMPTY;
     }
 
+    private static synchronized void scheduleRefresh(CacheKey key) {
+        if (refreshing != null) return;
+        long generation = snapshotGeneration;
+        refreshing = key;
+        EXECUTOR.execute(() -> {
+            try {
+                ChunkStatusSnapshot loaded = loadSnapshot(key);
+                synchronized (ChunkStatusCache.class) {
+                    long loadedAt = generation == snapshotGeneration ? System.currentTimeMillis() : 0L;
+                    snapshotState = new SnapshotState(key, loaded, loadedAt);
+                }
+            } finally {
+                synchronized (ChunkStatusCache.class) {
+                    refreshing = null;
+                }
+            }
+        });
+    }
+
     public static synchronized void invalidate() {
-        INVALIDATION.incrementAndGet();
+        invalidateSnapshot(snapshotState);
+        invalidateCount(countSnapshot);
+    }
+
+    /** Refresh the matching saved data after a committed export, even while a read is in flight. */
+    public static synchronized void invalidateSaved(Path worldFolder, String sourceId) {
+        CountKey target = new CountKey(worldFolder.toAbsolutePath().normalize(), sourceId);
         SnapshotState current = snapshotState;
+        if (target.matches(current.key())) invalidateSnapshot(current);
+        else if (target.matches(refreshing)) snapshotGeneration++;
+        CountSnapshot count = countSnapshot;
+        if (target.equals(count.key())) invalidateCount(count);
+        else if (target.equals(counting)) countGeneration++;
+    }
+
+    private static void invalidateSnapshot(SnapshotState current) {
+        snapshotGeneration++;
         snapshotState = new SnapshotState(current.key(), current.snapshot(), 0L);
-        CountSnapshot currentCount = countSnapshot;
-        countSnapshot = new CountSnapshot(currentCount.key(), currentCount.count(), 0L);
+    }
+
+    private static void invalidateCount(CountSnapshot current) {
+        countGeneration++;
+        countSnapshot = new CountSnapshot(current.key(), current.count(), 0L);
     }
 
     /** Polls a cheap, source-wide durable count without blocking the UI thread. */
@@ -75,19 +101,27 @@ public final class ChunkStatusCache {
         CountKey key = new CountKey(worldFolder.toAbsolutePath().normalize(), sourceId);
         long now = System.currentTimeMillis();
         CountSnapshot current = countSnapshot;
-        if ((!key.equals(current.key()) || now - current.loadedAtMs() >= refreshIntervalMs)
-                && (countFuture == null || countFuture.isDone())) {
-            long invalidation = INVALIDATION.get();
-            countFuture = CompletableFuture.runAsync(() -> {
+        if (!key.equals(current.key()) || now - current.loadedAtMs() >= refreshIntervalMs) scheduleCount(key);
+        return key.equals(current.key()) ? current.count() : -1;
+    }
+
+    private static synchronized void scheduleCount(CountKey key) {
+        if (counting != null) return;
+        long generation = countGeneration;
+        counting = key;
+        EXECUTOR.execute(() -> {
+            try {
                 int loaded = ChunkDatabase.countAllReadOnly(key.worldFolder(), key.sourceId());
                 synchronized (ChunkStatusCache.class) {
-                    long loadedAtMs = invalidation == INVALIDATION.get()
-                            ? System.currentTimeMillis() : 0L;
-                    countSnapshot = new CountSnapshot(key, loaded, loadedAtMs);
+                    long loadedAt = generation == countGeneration ? System.currentTimeMillis() : 0L;
+                    countSnapshot = new CountSnapshot(key, loaded, loadedAt);
                 }
-            }, EXECUTOR);
-        }
-        return key.equals(current.key()) ? current.count() : -1;
+            } finally {
+                synchronized (ChunkStatusCache.class) {
+                    counting = null;
+                }
+            }
+        });
     }
 
     /**
@@ -156,7 +190,11 @@ public final class ChunkStatusCache {
         }
     }
 
-    private record CountKey(Path worldFolder, String sourceId) {}
+    private record CountKey(Path worldFolder, String sourceId) {
+        boolean matches(CacheKey key) {
+            return key != null && worldFolder.equals(key.worldFolder()) && sourceId.equals(key.sourceId());
+        }
+    }
     private record CountSnapshot(CountKey key, int count, long loadedAtMs) {}
     private record SnapshotState(CacheKey key, ChunkStatusSnapshot snapshot, long loadedAtMs) {}
 
