@@ -7,7 +7,7 @@ import net.minecraft.nbt.Tag;
 
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
+import java.io.UTFDataFormatException;
 import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -15,6 +15,8 @@ import java.util.Set;
 
 /** Lossless-string preflight shared by native NBT writers. */
 final class NbtWriteSupport {
+    private static final int MAX_UTF_BYTES = 65_535;
+
     private NbtWriteSupport() { }
 
     /** Owns the native output stream; the digest describes exactly the uncompressed bytes written. */
@@ -36,20 +38,32 @@ final class NbtWriteSupport {
         Set<Tag> seenContainers = Collections.newSetFromMap(new IdentityHashMap<>());
         ArrayDeque<Tag> pending = new ArrayDeque<>();
         pending.push(root);
-        try (DataOutputStream utf = new DataOutputStream(OutputStream.nullOutputStream())) {
-            while (!pending.isEmpty()) {
-                Tag tag = pending.pop();
-                if (tag instanceof StringTag string) {
-                    utf.writeUTF(string.asString().orElseThrow());
-                } else if (tag instanceof CompoundTag compound && seenContainers.add(tag)) {
-                    for (var entry : compound.entrySet()) {
-                        utf.writeUTF(entry.getKey());
-                        pending.push(entry.getValue());
-                    }
-                } else if (tag instanceof ListTag list && seenContainers.add(tag)) {
-                    list.forEach(pending::push);
+        while (!pending.isEmpty()) {
+            Tag tag = pending.pop();
+            if (tag instanceof StringTag string) {
+                validateUtfLength(string.asString().orElseThrow());
+            } else if (tag instanceof CompoundTag compound && seenContainers.add(tag)) {
+                for (var entry : compound.entrySet()) {
+                    validateUtfLength(entry.getKey());
+                    pending.push(entry.getValue());
                 }
+            } else if (tag instanceof ListTag list && seenContainers.add(tag)) {
+                list.forEach(pending::push);
             }
+        }
+    }
+
+    private static void validateUtfLength(String value) throws UTFDataFormatException {
+        int length = value.length();
+        if (length <= MAX_UTF_BYTES / 3) return;
+        // Modified UTF-8 counts UTF-16 code units, including both halves of a surrogate pair.
+        int bytes = length;
+        for (int i = 0; i < length && bytes <= MAX_UTF_BYTES; i++) {
+            char unit = value.charAt(i);
+            if (unit == 0 || unit > 0x7F) bytes += unit <= 0x7FF ? 1 : 2;
+        }
+        if (bytes > MAX_UTF_BYTES) {
+            throw new UTFDataFormatException("NBT string exceeds " + MAX_UTF_BYTES + " modified UTF-8 bytes");
         }
     }
 }

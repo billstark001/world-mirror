@@ -45,4 +45,25 @@ class NbtWriteSupportTest {
         value.put("second", child);
         assertDoesNotThrow(() -> NbtWriteSupport.validateStrings(value));
     }
+
+    @Test
+    void acceptsTheModifiedUtfBoundaryForNamesAndValues() {
+        CompoundTag root = new CompoundTag();
+        root.putString("a".repeat(65_535), "\0".repeat(32_767) + "a");
+        root.putString("\u0800".repeat(21_845), "\uD83D\uDE00".repeat(10_922) + "\u0800");
+        assertDoesNotThrow(() -> NbtWriteSupport.validateStrings(root));
+    }
+
+    @Test
+    void rejectsOverflowInAsciiNamesAndSurrogatePairValues() {
+        CompoundTag root = new CompoundTag();
+        root.putString("a".repeat(65_536), "");
+        assertThrows(UTFDataFormatException.class, () -> NbtWriteSupport.validateStrings(root));
+
+        ListTag strings = new ListTag();
+        strings.add(StringTag.valueOf("\uD83D\uDE00".repeat(10_923)));
+        CompoundTag nested = new CompoundTag();
+        nested.put("strings", strings);
+        assertThrows(UTFDataFormatException.class, () -> NbtWriteSupport.validateStrings(nested));
+    }
 }
