@@ -33,6 +33,10 @@ final class RegionFileIntegrity {
             return new Inspection(false, Set.of(), Set.of(), failure, new int[LOCATION_COUNT]);
         }
 
+        static Inspection empty() {
+            return new Inspection(true, Set.of(), Set.of(), null, new int[LOCATION_COUNT]);
+        }
+
         void requireUsable(Path file) throws IOException {
             if (!usable || !invalidChunks.isEmpty()) {
                 throw new IOException("Invalid region file=" + file + " reason=" + failure
@@ -44,7 +48,7 @@ final class RegionFileIntegrity {
     private record Allocation(int index, int first, int end) {}
 
     static Inspection inspect(Path regionFile, int regionX, int regionZ) throws IOException {
-        if (Files.notExists(regionFile)) return Inspection.valid(Set.of(), Set.of(), new int[LOCATION_COUNT]);
+        if (Files.notExists(regionFile)) return Inspection.empty();
         try (FileChannel channel = FileChannel.open(regionFile, StandardOpenOption.READ)) {
             return inspect(channel, regionX, regionZ);
         }
@@ -53,7 +57,8 @@ final class RegionFileIntegrity {
     /** Uses the reader's channel, retaining the validated table instead of rereading each location. */
     static Inspection inspect(FileChannel channel, int regionX, int regionZ) throws IOException {
         long fileSize = channel.size();
-        if (fileSize == 0) return Inspection.valid(Set.of(), Set.of(), new int[LOCATION_COUNT]);
+        // Legacy writers can leave a placeholder with no location table or payloads.
+        if (fileSize == 0) return Inspection.empty();
         if (fileSize < HEADER_BYTES) {
             return Inspection.unusable("truncated header bytes=" + fileSize);
         }

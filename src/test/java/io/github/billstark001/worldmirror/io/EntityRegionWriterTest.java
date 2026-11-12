@@ -79,6 +79,7 @@ class EntityRegionWriterTest {
     @Test
     void completeEmptyWritesARealEmptyEntityChunk() throws Exception {
         ChunkPos pos = new ChunkPos(0, 0);
+        Path region = Files.createFile(Files.createDirectories(entitiesDir()).resolve("r.0.0.mca"));
         EntityTracker.ChunkUpdate update = new EntityTracker.ChunkUpdate(
                 7L, EntityTracker.Observation.COMPLETE, Map.of(), Set.of());
 
@@ -86,8 +87,7 @@ class EntityRegionWriterTest {
                 tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)), ExportProgress.NONE);
 
         assertEquals(7L, result.get(Level.OVERWORLD).get(pos));
-        CompoundTag written = readRegion(
-                entitiesDir().resolve("r.0.0.mca")).get(new ChunkPos(0, 0));
+        CompoundTag written = readRegion(region).get(pos);
         assertTrue(written.getListOrEmpty("Entities").isEmpty());
     }
 

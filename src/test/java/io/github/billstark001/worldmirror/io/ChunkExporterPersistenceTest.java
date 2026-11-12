@@ -33,6 +33,23 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
 class ChunkExporterPersistenceTest {
     @Test
+    void writesTerrainIntoAZeroByteRegion(@TempDir Path world) throws Exception {
+        ChunkPos pos = new ChunkPos(0, 0);
+        Path region = ChunkExporter.regionDirForDimension(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        Files.createDirectories(region.getParent());
+        Files.createFile(region);
+        CompoundTag incoming = new CompoundTag();
+        incoming.putString("marker", "captured");
+        try (ChunkDatabase db = ChunkDatabase.open(world, "server:test")) {
+            var result = ChunkExporter.exportChunks(world, snapshot(pos, incoming), Map.of(), Map.of(),
+                    new OverwriteResolver(), db, -1L, ExportProgress.NONE);
+            assertTrue(result.chunkWritesSuccessful());
+            assertEquals(1, result.totalWritten());
+            assertEquals(incoming, AnvilReader.readChunk(region, pos));
+        }
+    }
+
+    @Test
     void progressObserverFailureCannotAbortNativePersistence(@TempDir Path world) throws Exception {
         ChunkPos pos = new ChunkPos(0,0);
         try (ChunkDatabase db = ChunkDatabase.open(world, "server:observer")) {

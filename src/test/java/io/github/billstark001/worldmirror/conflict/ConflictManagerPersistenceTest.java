@@ -44,6 +44,8 @@ class ConflictManagerPersistenceTest {
     @Test
     void streamsConflictChunksToVanillaRegionFiles(@TempDir Path world) throws Exception {
         ChunkPos pos = new ChunkPos(37, -12);
+        Path directory = Files.createDirectories(ConflictManager.getConflictDir(world, Level.OVERWORLD));
+        Files.createFile(directory.resolve("r.1.-1.mca"));
         CompoundTag chunk = new CompoundTag();
         chunk.putInt("DataVersion", SharedConstants.getCurrentVersion().dataVersion().version());
         chunk.putInt("xPos", pos.getMinBlockX() >> 4);
