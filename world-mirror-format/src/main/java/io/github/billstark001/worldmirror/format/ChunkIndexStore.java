@@ -1,11 +1,15 @@
 package io.github.billstark001.worldmirror.format;
 
+import io.github.billstark001.worldmirror.format.ChunkUpdatePolicy.IndexStatus;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -18,11 +22,23 @@ import java.util.Set;
  * restoration fails, discard the connection rather than reusing it.
  */
 public final class ChunkIndexStore {
+    public static final String REPLAY_IMPORT = "replay_import";
+    private static final int REPLAY_IMPORT_PRIORITY = 10;
     private static final String UPSERT = "INSERT INTO chunks "
             + "(source, dimension, x, y, update_time, update_source) VALUES (?, ?, ?, ?, ?, ?) "
             + "ON CONFLICT(source, dimension, x, y) DO UPDATE SET "
             + "update_time=excluded.update_time, update_source=excluded.update_source "
-            + "WHERE excluded.update_time >= chunks.update_time";
+            + "WHERE excluded.update_time >= chunks.update_time OR ?";
+
+    private static final String SELECT_PRIORITIES = "SELECT update_source, "
+            + "CASE WHEN (apply_to_source IS NULL OR apply_to_source=?) "
+            + "AND (apply_to_dimension IS NULL OR apply_to_dimension=?) THEN priority END "
+            + "FROM update_sources";
+    private static final String SELECT_CHUNKS = "SELECT x, y, update_time, update_source FROM chunks "
+            + "WHERE source=? AND dimension=?";
+    private static final int REGION_SIZE = 32;
+    private static final String SELECT_REGION = SELECT_CHUNKS + " AND x IN ("
+            + String.join(", ", Collections.nCopies(REGION_SIZE, "?")) + ") AND y BETWEEN ? AND ?";
 
     private final Connection connection;
     private final String sourceId;
@@ -54,6 +70,7 @@ public final class ChunkIndexStore {
         seedSource(connection, "game_events", 20);
         seedSource(connection, "map_hp", 30);
         seedSource(connection, "map_lp", 50);
+        seedSource(connection, REPLAY_IMPORT, REPLAY_IMPORT_PRIORITY);
     }
 
     private static void seedSource(Connection connection, String source, int priority) throws SQLException {
@@ -69,6 +86,8 @@ public final class ChunkIndexStore {
 
     public boolean shouldSkipUpdate(String dimension, int x, int z,
                                     String incomingSource, long incomingTime) throws SQLException {
+        var incoming = new ChunkUpdate(dimension, new ChunkCoordinate(x, z), incomingTime, incomingSource);
+        ChunkRecord existing;
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT update_time, update_source FROM chunks "
                         + "WHERE source=? AND dimension=? AND x=? AND y=?")) {
@@ -78,35 +97,59 @@ public final class ChunkIndexStore {
             statement.setInt(4, z);
             try (ResultSet result = statement.executeQuery()) {
                 if (!result.next()) return false;
-                long existingTime = result.getLong("update_time");
-                if (incomingTime <= existingTime) return true;
-                int existingPriority = priority(result.getString("update_source"), dimension);
-                int incomingPriority = priority(incomingSource, dimension);
-                return ChunkUpdatePolicy.shouldSkip(existingTime, existingPriority,
-                        incomingTime, incomingPriority);
+                existing = new ChunkRecord(x, z, result.getLong("update_time"), result.getString("update_source"));
             }
+        }
+        if (incomingTime <= existing.updateTime()) return true;
+        try (PreparedStatement statement = connection.prepareStatement(
+                SELECT_PRIORITIES + " WHERE update_source IN (?, ?)")) {
+            statement.setString(3, existing.updateSource());
+            statement.setString(4, incomingSource);
+            return ChunkUpdatePolicy.assess(incoming, existing, readPriorities(statement, dimension))
+                    == IndexStatus.BLOCKED;
         }
     }
 
-    /** Unregistered sources receive the weakest priority; unavailable rules abort the decision. */
-    private int priority(String updateSource, String dimension) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT priority FROM update_sources WHERE update_source=? "
-                        + "AND (apply_to_source IS NULL OR apply_to_source=?) "
-                        + "AND (apply_to_dimension IS NULL OR apply_to_dimension=?)")) {
-            statement.setString(1, updateSource);
-            statement.setString(2, sourceId);
-            statement.setString(3, dimension);
-            try (ResultSet result = statement.executeQuery()) {
-                if (result.next()) return result.getInt("priority");
+    /** Resolve the source priorities applicable to this target and dimension for a batch. */
+    public Map<String, Integer> sourcePriorities(String dimension) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(SELECT_PRIORITIES)) {
+            return Map.copyOf(readPriorities(statement, dimension));
+        }
+    }
+
+    private Map<String, Integer> readPriorities(PreparedStatement statement, String dimension) throws SQLException {
+        statement.setString(1, sourceId);
+        statement.setString(2, dimension);
+        Map<String, Integer> priorities = new HashMap<>();
+        // A read-only plan against an existing save can predate source registration.
+        priorities.put(REPLAY_IMPORT, REPLAY_IMPORT_PRIORITY);
+        try (ResultSet result = statement.executeQuery()) {
+            while (result.next()) {
+                String source = result.getString(1);
+                if (source == null) continue;
+                int priority = result.getInt(2);
+                if (result.wasNull()) {
+                    priorities.remove(source);
+                } else {
+                    priorities.put(source, priority);
+                }
             }
         }
-        return Integer.MAX_VALUE;
+        return priorities;
     }
 
     /** Record the capture time represented by each already verified MCA entry. */
     public void recordUpdates(String dimension, Map<ChunkCoordinate, Long> times,
                               String updateSource) throws SQLException {
+        recordUpdates(dimension, times, updateSource, Set.of());
+    }
+
+    /** Replace outdated claims for verified writes over missing or physically empty entries. */
+    public void recordUpdates(String dimension, Map<ChunkCoordinate, Long> times,
+                              String updateSource, Set<ChunkCoordinate> replaced) throws SQLException {
+        if (!times.keySet().containsAll(replaced)) {
+            throw new IllegalArgumentException("Cannot replace an index claim without a verified write");
+        }
         if (times.isEmpty()) return;
         inTransaction(() -> {
             try (PreparedStatement statement = connection.prepareStatement(UPSERT)) {
@@ -114,6 +157,7 @@ public final class ChunkIndexStore {
                     bindKey(statement, dimension, entry.getKey());
                     statement.setLong(5, entry.getValue());
                     statement.setString(6, updateSource);
+                    statement.setBoolean(7, replaced.contains(entry.getKey()));
                     statement.addBatch();
                 }
                 statement.executeBatch();
@@ -172,17 +216,34 @@ public final class ChunkIndexStore {
     }
 
     public List<ChunkRecord> queryAll(String dimension) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(SELECT_CHUNKS)) {
+            return readRecords(statement, dimension);
+        }
+    }
+
+    /** Read only the records in the region being inspected, using the index's coordinate key. */
+    public List<ChunkRecord> queryRegion(String dimension, int regionX, int regionZ) throws SQLException {
+        long minX = (long) regionX * REGION_SIZE;
+        long minZ = (long) regionZ * REGION_SIZE;
+        try (PreparedStatement statement = connection.prepareStatement(SELECT_REGION)) {
+            int parameter = 3;
+            for (int offset = 0; offset < REGION_SIZE; offset++) {
+                statement.setLong(parameter++, minX + offset);
+            }
+            statement.setLong(parameter++, minZ);
+            statement.setLong(parameter, minZ + REGION_SIZE - 1);
+            return readRecords(statement, dimension);
+        }
+    }
+
+    private List<ChunkRecord> readRecords(PreparedStatement statement, String dimension) throws SQLException {
+        statement.setString(1, sourceId);
+        statement.setString(2, dimension);
         List<ChunkRecord> records = new ArrayList<>();
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT x, y, update_time, update_source FROM chunks "
-                        + "WHERE source=? AND dimension=?")) {
-            statement.setString(1, sourceId);
-            statement.setString(2, dimension);
-            try (ResultSet result = statement.executeQuery()) {
-                while (result.next()) {
-                    records.add(new ChunkRecord(result.getInt("x"), result.getInt("y"),
-                            result.getLong("update_time"), result.getString("update_source")));
-                }
+        try (ResultSet result = statement.executeQuery()) {
+            while (result.next()) {
+                records.add(new ChunkRecord(result.getInt("x"), result.getInt("y"),
+                        result.getLong("update_time"), result.getString("update_source")));
             }
         }
         return records;

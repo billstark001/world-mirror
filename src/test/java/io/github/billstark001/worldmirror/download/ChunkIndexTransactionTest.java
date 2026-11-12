@@ -10,6 +10,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -20,6 +21,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Uses real SQLite writes with injected JDBC failures after a batch has run. */
 class ChunkIndexTransactionTest {
+    @Test
+    void boundsRegionQueriesByBothCoordinatesSourceAndDimension() throws Exception {
+        try (Connection connection = open()) {
+            String dimension = "minecraft:overworld";
+            var index = new ChunkIndexStore(connection, "server:test");
+            var corner = new ChunkCoordinate(-32, 32);
+            index.recordUpdates(dimension, Map.of(corner, 100L, new ChunkCoordinate(-33, 32), 200L,
+                    new ChunkCoordinate(-32, 64), 300L), "world_mirror");
+            index.recordUpdates("minecraft:the_nether", Map.of(corner, 400L), "world_mirror");
+            new ChunkIndexStore(connection, "server:other")
+                    .recordUpdates(dimension, Map.of(corner, 500L), "world_mirror");
+
+            assertEquals(List.of(new ChunkIndexStore.ChunkRecord(-32, 32, 100L, "world_mirror")),
+                    index.queryRegion(dimension, -1, 1));
+        }
+    }
+
     @Test
     void rollsBackUncheckedDriverFailureAndLeavesConnectionUsable() throws Exception {
         try (Connection connection = open()) {
