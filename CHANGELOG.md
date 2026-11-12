@@ -8,6 +8,32 @@ Use Added, Changed, and Fixed categories where applicable. Combine related chang
 
 ---
 
+## [0.5.4] — 2026-11-13
+
+### Changed
+
+- Share source-priority decisions and MCA read-back verification between live sync and toolkit imports. Live sync honors the replay source's configured priority and only indexes terrain that passes verification.
+- Register `replay_import` at priority 10 when no rule exists for it. Existing source rules and save formats carry forward.
+
+### Fixed
+
+- Treat legacy zero-byte MCA placeholders as empty during terrain, entity, and conflict writes.
+
+---
+
+## world-mirror-format [0.1.3] — 2026-11-13
+
+### Added
+
+- Share scoped source-priority lookup, overwrite decisions, and region read-back sequencing between live sync and offline imports.
+- Expose region-bounded index reads and a batch priority snapshot for offline import planning.
+
+### Changed
+
+- Seed the `replay_import` source at priority 10 and preserve existing source rules. Record verified replacements of missing or physically empty chunks with their actual capture times.
+
+---
+
 ## [0.5.3] — 2026-11-11
 
 ### Changed

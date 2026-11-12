@@ -1,4 +1,4 @@
-# World Mirror Format 0.1.2
+# World Mirror Format 0.1.3
 
 Small Java 21+ contract for World Mirror save metadata and the chunk durability index. It has no Minecraft, Fabric, JSON, SQLite driver, or Maven Central dependency. The host supplies a JDBC `Connection` and its own JSON adapter.
 
@@ -19,12 +19,14 @@ repositories {
 }
 
 dependencies {
-    implementation("io.github.billstark001.worldmirror:world-mirror-format:0.1.2")
+    implementation("io.github.billstark001.worldmirror:world-mirror-format:0.1.3")
 }
 ```
 
-The mod can still consume the module directly from source through `includeBuild`. Run `gradle releaseBundle` to create the binary/source ZIP and checksum in `build/distributions/`. Pushing `world-mirror-format-v0.1.2` publishes the ZIP, checksum, and direct JAR assets without Maven Central.
+The mod consumes the module directly from source through `includeBuild`. Run `gradle releaseBundle` to create the binary/source ZIP and checksum in `build/distributions/`. Pushing `world-mirror-format-v0.1.3` publishes the ZIP, checksum, and direct JAR assets without Maven Central.
 
-Use the Ivy dependency only after that version's release assets have been published. Until then, consume the local composite build or locally built JAR. The [changelog](CHANGELOG.md) records the transaction fixes included in 0.1.2. Bumping the mod version does not release this library.
+Use the Ivy dependency after that version's release assets have been published. A local composite build can be used during development. The [changelog](CHANGELOG.md) records changes to the library independently of the mod.
 
 `ChunkIndexStore` initializes the existing `chunks` and `update_sources` tables, applies the timestamp/source-priority rule, and records only completed writes. It does not write MCA files; the caller must verify those before recording them. The host must serialize access to its JDBC connection. Mutating operations require auto-commit mode and own their transaction; nested transactions are rejected. They roll back on checked and unchecked failures. If rollback or restoring auto-commit fails, the original error retains that failure as suppressed context; the host should discard the connection. Auto-commit is left disabled after a failed rollback to avoid committing a partially applied batch.
+
+`ChunkUpdate` carries the capture information for one chunk. The index is bound to the chosen mirror `sourceId`. The `updateSource` field identifies how the chunk was acquired. For a batch, use `ChunkIndexStore.queryRegion` and `sourcePriorities` with `ChunkUpdatePolicy.assess`, then pass the result and the destination's physical state to `ChunkUpdatePolicy.decide`. The `merge` package sequences region writes and read-back verification for live sync and offline import. Callers hold the save lock, supply their own MCA reader and writer, and record only the returned verified entries.

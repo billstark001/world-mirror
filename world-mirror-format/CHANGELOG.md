@@ -2,6 +2,17 @@
 
 Releases are listed newest first by release date, after unreleased changes. Use Added, Changed, and Fixed categories where applicable. Keep the root `world-mirror-format` sections synchronized with this file; changes that belong only to one consumer remain in that consumer's changelog.
 
+## [0.1.3] — 2026-11-13
+
+### Added
+
+- Share scoped source-priority lookup, overwrite decisions, and region read-back sequencing between live sync and offline imports.
+- Expose region-bounded index reads and a batch priority snapshot for offline import planning.
+
+### Changed
+
+- Seed the `replay_import` source at priority 10 and preserve existing source rules. Record verified replacements of missing or physically empty chunks with their actual capture times.
+
 ## [0.1.2] — 2026-10-23
 
 ### Fixed
