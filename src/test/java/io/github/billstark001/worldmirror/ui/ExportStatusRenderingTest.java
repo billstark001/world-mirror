@@ -43,8 +43,9 @@ class ExportStatusRenderingTest {
                     }
                 }
             }
-            assertTrue(new ChunkMapProjection().get(saved, after,
-                    new ChunkBounds(0, 0, 0, 0), 200, 4096, true).marks().isEmpty());
+            var visible = new ChunkBounds(0, 0, 0, 0);
+            assertTrue(new ChunkMapProjection().get(saved, after, visible, 200,
+                    new ChunkBucketLayout(visible.expand(1), 1), true).marks().isEmpty());
             assertEquals(state, after.exportAt(0, 0).state(), "normal states remain available to tooltips");
         }
     }
@@ -150,10 +151,11 @@ class ExportStatusRenderingTest {
         var projection = new ChunkMapProjection();
         var saved = saved(false);
         var range = new ChunkBounds(0, 0, 0, 0);
+        var layout = new ChunkBucketLayout(range.expand(1), 1);
         assertFalse(projection.get(saved, new LiveChunkStatusSnapshot(Map.of(), Map.of(0L, metadata)),
-                range, 200, 4096, true).marks().isEmpty());
+                range, 200, layout, true).marks().isEmpty());
         var recovered = new LiveChunkStatusSnapshot(Map.of(), Map.of(0L, status(0, 0, ExportStatus.State.SUCCEEDED)));
-        assertTrue(projection.get(saved, recovered, range, 200, 4096, true).marks().isEmpty());
+        assertTrue(projection.get(saved, recovered, range, 200, layout, true).marks().isEmpty());
         lines.clear();
         ExportStatusText.append(lines, null, true);
         assertEquals("screen.worldmirror.export.historical", text(lines.getFirst()).getKey());
@@ -176,7 +178,7 @@ class ExportStatusRenderingTest {
         long visits = live.index().visits();
         for (int frame = 0; frame < 120; frame++) assertEquals(summaries, live.index().query(layout));
         assertEquals(visits, live.index().visits());
-        var map = new ChunkMapProjection().get(ChunkStatusSnapshot.EMPTY, live, range, 200, 1024, false);
+        var map = new ChunkMapProjection().get(ChunkStatusSnapshot.EMPTY, live, range, 200, layout, false);
         assertTrue(map.marks().size() <= 1024);
         assertEquals(counts.unresolved(), map.marks().values().stream()
                 .mapToInt(summary -> summary.exports().unresolved()).sum());

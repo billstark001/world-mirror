@@ -22,7 +22,10 @@ public final class ChunkMapStyle {
     }
 
     public static int freshness(long age) {
-        double progress = progress(age);
+        return freshness(progress(age));
+    }
+
+    private static int freshness(double progress) {
         return 0xFF000000 | ((int) (200 * (1 - progress)) << 8) | (int) (200 * progress);
     }
 
@@ -45,8 +48,11 @@ public final class ChunkMapStyle {
     }
 
     static ChunkTileGeometry.Cell mapCell(int x, int z, ChunkBucketIndex.Summary summary, long now, boolean denseBoundary) {
-        if (summary.newest() == null && !summary.conflict()) return null;
-        int color = summary.newest() == null ? CONFLICT : saved(summary.newest(), now);
+        ChunkRecord newest = summary.newest();
+        if (newest == null && !summary.conflict()) return null;
+        double ageProgress = newest != null && usesCaptureTimeGradient(newest.updateSource())
+                ? progress(now - newest.updateTime()) : -1.0D;
+        int color = newest == null ? (denseBoundary ? 0 : CONFLICT) : ageProgress < 0 ? EXTERNAL : freshness(ageProgress);
         int key = summary.conflict() ? 1_000_000 : color == EXTERNAL ? 900_000 : 2 + Math.min(7, ((color & 255) * 8) / 201);
         int borderColor = color;
         int priority = summary.conflict() ? 1_000_000 : (color >> 8) & 255;
@@ -54,7 +60,7 @@ public final class ChunkMapStyle {
             if (summary.conflict()) borderColor = CONFLICT;
             else if (color == EXTERNAL) priority = 900_000;
             else {
-                int bucket = Math.min(7, (int) Math.floor(progress(now - summary.newest().updateTime()) * 8));
+                int bucket = Math.min(7, (int) (ageProgress * 8));
                 key = 2 + bucket;
                 borderColor = 0xFF000000 | ((int) Math.round(200 * (1 - bucket / 7.0)) << 8) | (int) Math.round(200 * bucket / 7.0);
                 priority = (borderColor >> 8) & 255;
@@ -63,14 +69,14 @@ public final class ChunkMapStyle {
         return new ChunkTileGeometry.Cell(x, z, color, summary.conflict(), new ChunkTileGeometry.Border(key, borderColor, priority));
     }
 
-    /** Earliest coarse boundary transition; callers can cache geometry until this deadline. */
-    static long nextBoundaryChange(ChunkRecord record, long now) {
+    /** Age colors are constant until ten minutes and after thirty days. */
+    static long nextFillRefresh(ChunkRecord record, long now, long intervalMs) {
         if (record == null || !usesCaptureTimeGradient(record.updateSource())) return Long.MAX_VALUE;
-        int bucket = Math.min(7, (int) Math.floor(progress(now - record.updateTime()) * 8));
-        if (bucket == 7) return Long.MAX_VALUE;
-        long nextAge = (long) Math.ceil(AGE_MIN_MS * Math.exp(AGE_LOG_RANGE * (bucket + 1) / 8.0));
-        if (record.updateTime() > Long.MAX_VALUE - nextAge) return Long.MAX_VALUE;
-        return Math.max(now + 1, record.updateTime() + nextAge);
+        long age = now - record.updateTime();
+        if (age >= AGE_MAX_MS) return Long.MAX_VALUE;
+        if (age >= AGE_MIN_MS) return now <= Long.MAX_VALUE - intervalMs ? now + intervalMs : Long.MAX_VALUE;
+        return record.updateTime() <= Long.MAX_VALUE - AGE_MIN_MS
+                ? record.updateTime() + AGE_MIN_MS : Long.MAX_VALUE;
     }
 
     private static double progress(long age) {

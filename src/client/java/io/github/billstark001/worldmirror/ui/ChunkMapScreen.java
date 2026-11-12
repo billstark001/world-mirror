@@ -4,6 +4,7 @@ import io.github.billstark001.worldmirror.conflict.ConflictManager;
 import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
 import io.github.billstark001.worldmirror.ui.ChunkStatusCache.StatusTarget;
+import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.Minecraft;
@@ -43,6 +44,21 @@ import java.util.*;
  */
 @Environment(EnvType.CLIENT)
 public class ChunkMapScreen extends Screen {
+    private static final long PERSISTENT_REFRESH_INTERVAL_MS = 5_000L;
+    private static final long SLOW_MAP_FRAME_NS = 8_000_000L;
+
+    private static final class MeasuredCanvas implements ChunkMapView.Canvas {
+        private final ChunkMapView.Canvas target;
+        private int fills;
+
+        private MeasuredCanvas(ChunkMapView.Canvas target) { this.target = target; }
+
+        @Override
+        public void fill(int left, int top, int right, int bottom, int color) {
+            fills++;
+            target.fill(left, top, right, bottom, color);
+        }
+    }
 
     // ── View state ────────────────────────────────────────────────────────────
 
@@ -172,15 +188,36 @@ public class ChunkMapScreen extends Screen {
 #else
     public void render(GuiGraphics ctx, int mx, int my, float delta) {
 #endif
-        statusSnapshot = ChunkStatusCache.getOrScheduleRefresh(Minecraft.getInstance(), currentDimension, 1_000L);
-        ModConfig.ChunkMapConfig mapConfig = ModConfig.get().chunkMap;
+        ModConfig config = ModConfig.get();
+        ModConfig.ChunkMapConfig mapConfig = config.chunkMap;
+        boolean measure = config.performance.diagnosticPerformanceLogging;
+        long start = measure ? System.nanoTime() : 0L;
+        statusSnapshot = ChunkStatusCache.getOrScheduleRefresh(
+                this.minecraft, currentDimension, PERSISTENT_REFRESH_INTERVAL_MS);
+        long savedReady = measure ? System.nanoTime() : 0L;
         long now = System.currentTimeMillis();
         ChunkMapView.BuiltInViewport viewport = viewport(
                 mapConfig.background == ModConfig.ChunkMapBackground.TRANSPARENT);
         liveSnapshot = viewportCache.get(this.minecraft, currentDimension, ChunkMapView.visibleRange(viewport), statusSnapshot, now);
+        long liveReady = measure ? System.nanoTime() : 0L;
+        var previousFrame = measure ? projection.currentFrame() : null;
+        MeasuredCanvas measured = measure ? new MeasuredCanvas(ctx::fill) : null;
         ChunkMapView.renderBuiltIn(
-                ctx::fill, projection, statusSnapshot, liveSnapshot, viewport, now,
+                measure ? measured : ctx::fill, projection, statusSnapshot, liveSnapshot, viewport, now,
                 mapConfig.sparseRenderCellThreshold);
+        if (measure) {
+            long drawn = System.nanoTime();
+            var frame = projection.currentFrame();
+            boolean rebuilt = frame != previousFrame;
+            if (rebuilt || drawn - start >= SLOW_MAP_FRAME_NS) {
+                WMLogger.infoRateLimited("chunk-map-render", 1_000L,
+                        "[perf] chunkMap cellPx=" + viewport.cellSize() + " bucketChunks=" + frame.bucketSize()
+                                + " layoutBuckets=" + frame.projectedBuckets() + " visibleOccupiedBuckets=" + frame.occupiedBuckets()
+                                + " dense=" + frame.dense() + " rebuilt=" + rebuilt + " fills=" + measured.fills
+                                + " savedUs=" + (savedReady - start) / 1_000L + " liveUs=" + (liveReady - savedReady) / 1_000L
+                                + " geometryAndDrawUs=" + (drawn - liveReady) / 1_000L);
+            }
+        }
         hoveredChunk = chunkAt(viewport, mx, my);
 
         Minecraft client = Minecraft.getInstance();

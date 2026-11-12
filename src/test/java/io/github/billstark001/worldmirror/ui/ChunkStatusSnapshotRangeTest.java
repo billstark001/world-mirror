@@ -5,7 +5,6 @@ import net.minecraft.world.level.ChunkPos;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -13,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ChunkStatusSnapshotRangeTest {
     @Test
@@ -24,18 +24,15 @@ class ChunkStatusSnapshotRangeTest {
         ChunkStatusSnapshot snapshot = new ChunkStatusSnapshot(List.of(west, east), List.of(new ChunkPos(1_500_000, 0)));
 
         assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
-            List<ChunkDatabase.ChunkRecord> records = new ArrayList<>();
-            List<ChunkPos> conflicts = new ArrayList<>();
-            snapshot.forEachRecordInRange(-1_875_000, 1_875_000,
-                    -1_875_000, 1_875_000, records::add);
-            snapshot.forEachConflictInRange(-1_875_000, 1_875_000,
-                    -1_875_000, 1_875_000, conflicts::add);
-            assertEquals(2, records.size());
-            assertEquals(1, conflicts.size());
+            var buckets = snapshot.index().query(new ChunkBucketLayout(
+                    new ChunkBounds(-1_875_000, 1_875_000, -1_875_000, 1_875_000), 1));
+            assertEquals(2, buckets.size());
+            assertTrue(buckets.get(ChunkBounds.key(east.x(), east.z())).conflict());
         });
 
+        var visible = new ChunkBounds(-1_500_000, -1_500_000, 0, 0);
         var nearby = new ChunkMapProjection().get(snapshot, LiveChunkStatusSnapshot.EMPTY,
-                new ChunkBounds(-1_500_000, -1_500_000, 0, 0), 0L, 4096, true).boundaries();
+                visible, 0L, new ChunkBucketLayout(visible.expand(1), 1), true).boundaries();
         assertEquals(4, nearby.size());
     }
 
@@ -54,11 +51,11 @@ class ChunkStatusSnapshotRangeTest {
     }
 
     @Test
-    void recordsViewCannotInvalidateTheImmutableSnapshot() {
+    void queryResultsCannotInvalidateTheImmutableSnapshot() {
         var record = new ChunkDatabase.ChunkRecord(1, 2, 3L, "world_mirror");
         var snapshot = new ChunkStatusSnapshot(List.of(record), List.of());
-
-        assertThrows(UnsupportedOperationException.class, () -> snapshot.records().clear());
+        var buckets = snapshot.index().query(new ChunkBucketLayout(new ChunkBounds(0, 3, 0, 3), 1));
+        assertThrows(UnsupportedOperationException.class, buckets::clear);
         assertEquals(record, snapshot.getRecord(1, 2));
     }
 
@@ -67,14 +64,12 @@ class ChunkStatusSnapshotRangeTest {
         var previous = new ChunkDatabase.ChunkRecord(1, 2, 3L, "world_mirror");
         var replacement = new ChunkDatabase.ChunkRecord(1, 2, 4L, "external");
         var snapshot = new ChunkStatusSnapshot(List.of(previous, replacement), List.of(new ChunkPos(1, 2), new ChunkPos(1, 2)));
-        List<ChunkDatabase.ChunkRecord> visited = new ArrayList<>();
-        List<ChunkPos> conflicts = new ArrayList<>();
-
-        snapshot.forEachRecordInRange(0, 3, 0, 3, visited::add);
-        snapshot.forEachConflictInRange(0, 3, 0, 3, conflicts::add);
-
+        var buckets = snapshot.index().query(new ChunkBucketLayout(new ChunkBounds(0, 3, 0, 3), 1));
         assertEquals(1, snapshot.recordCount());
-        assertEquals(List.of(replacement), visited);
-        assertEquals(List.of(new ChunkPos(1, 2)), conflicts);
+        assertEquals(1, buckets.size());
+        var summary = buckets.get(ChunkBounds.key(1, 2));
+        assertEquals(replacement, snapshot.getRecord(1, 2));
+        assertEquals(replacement, summary.newest());
+        assertTrue(summary.conflict());
     }
 }

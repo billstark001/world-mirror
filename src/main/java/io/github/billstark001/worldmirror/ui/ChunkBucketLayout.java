@@ -2,11 +2,41 @@ package io.github.billstark001.worldmirror.ui;
 
 /** Shared zero-anchored bucket layout for every chunk-map projection. */
 public record ChunkBucketLayout(ChunkBounds bounds, int size) {
+    public static final int DEFAULT_MAP_BUDGET = 6_000;
+
     public ChunkBucketLayout {
         if (size <= 0) throw new IllegalArgumentException("Bucket size must be positive");
     }
     public static ChunkBucketLayout withinBudget(ChunkBounds bounds, int budget) {
         return new ChunkBucketLayout(bounds, sizeFor(bounds.minX(), bounds.maxX(), bounds.minZ(), bounds.maxZ(), budget));
+    }
+
+    /** Uses the viewport spans at the current scale to keep bucket size stable while panning. */
+    static ChunkBucketLayout forViewport(ChunkBounds bounds, long maxColumns, long maxRows, int budget) {
+        if (bounds.isEmpty() || fitsViewport(maxColumns, maxRows, 1, budget)) return new ChunkBucketLayout(bounds, 1);
+        int low = 1;
+        int high = (int) Math.min(Integer.MAX_VALUE, Math.max(maxColumns, maxRows));
+        while (high - low > 1) {
+            int middle = low + (high - low) / 2;
+            if (fitsViewport(maxColumns, maxRows, middle, budget)) high = middle;
+            else low = middle;
+        }
+        return new ChunkBucketLayout(bounds, high);
+    }
+
+    static boolean fitsViewport(long maxColumns, long maxRows, int size, int budget) {
+        // A viewport can start at the last chunk in its first bucket. Count that
+        // bucket plus however many more are needed for the remaining chunks.
+        long columns = Math.ceilDiv(maxColumns - 1, size) + 1;
+        long rows = Math.ceilDiv(maxRows - 1, size) + 1;
+        return columns <= budget / rows;
+    }
+
+    long cellCount() {
+        if (bounds.isEmpty()) return 0;
+        long columns = count(bounds.minX(), bounds.maxX(), size);
+        long rows = count(bounds.minZ(), bounds.maxZ(), size);
+        return columns <= Long.MAX_VALUE / rows ? columns * rows : Long.MAX_VALUE;
     }
     public ChunkBounds bucket(int x, int z) {
         return new ChunkBounds(ChunkBounds.clamp((long) x * size), ChunkBounds.clamp(((long) x + 1) * size - 1),
@@ -58,9 +88,11 @@ public record ChunkBucketLayout(ChunkBounds bounds, int size) {
     }
 
     private static boolean withinBudget(int minX, int maxX, int minZ, int maxZ, int size, int limit) {
-        long columns = (long) Math.floorDiv(maxX, size) - Math.floorDiv(minX, size) + 1L;
-        long rows = (long) Math.floorDiv(maxZ, size) - Math.floorDiv(minZ, size) + 1L;
-        return columns <= limit / rows;
+        return count(minX, maxX, size) <= limit / count(minZ, maxZ, size);
+    }
+
+    private static long count(int min, int max, int size) {
+        return (long) Math.floorDiv(max, size) - Math.floorDiv(min, size) + 1L;
     }
 
 }

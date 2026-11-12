@@ -88,11 +88,14 @@ class ChunkBucketIndexTest {
         var snapshot = new ChunkStatusSnapshot(records, Set.of());
         var firstView = new ChunkMapProjection();
         var secondView = new ChunkMapProjection();
-        var first = firstView.get(snapshot, LiveChunkStatusSnapshot.EMPTY, new ChunkBounds(0, 319, 0, 319), 0, 4096, false);
+        var initial = new ChunkBounds(0, 319, 0, 319);
+        var initialLayout = ChunkBucketLayout.withinBudget(initial, 4096);
+        var first = firstView.get(snapshot, LiveChunkStatusSnapshot.EMPTY, initial, 0, initialLayout, false);
         long before = snapshot.index().visits();
-        secondView.get(snapshot, LiveChunkStatusSnapshot.EMPTY, new ChunkBounds(5, 324, 5, 324), 0, 4096, false);
+        var shifted = new ChunkBounds(5, 324, 5, 324);
+        secondView.get(snapshot, LiveChunkStatusSnapshot.EMPTY, shifted, 0, ChunkBucketLayout.withinBudget(shifted, 4096), false);
         assertTrue(snapshot.index().visits() - before < 25_000, "only the new edge regions may be scanned");
-        assertSame(first, firstView.get(snapshot, LiveChunkStatusSnapshot.EMPTY, new ChunkBounds(0, 319, 0, 319), 1, 4096, false));
+        assertSame(first, firstView.get(snapshot, LiveChunkStatusSnapshot.EMPTY, initial, 1, initialLayout, false));
         long beforeSession = snapshot.index().visits();
         ChunkWorldOverlay.build(snapshot, LiveChunkStatusSnapshot.EMPTY, new ChunkBounds(0, 319, 0, 319),
                 new ChunkWorldOverlay.Settings(96, 1, true, 60, SESSION), 1);

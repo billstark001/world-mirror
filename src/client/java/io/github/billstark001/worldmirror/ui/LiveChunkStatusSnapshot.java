@@ -12,7 +12,6 @@ import net.minecraft.world.level.Level;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.Map;
-import java.util.function.Consumer;
 
 /** Small, viewport-scoped copy of live chunk status, with no chunk NBT. */
 public final class LiveChunkStatusSnapshot {
@@ -69,19 +68,11 @@ public final class LiveChunkStatusSnapshot {
         return new LiveChunkStatusSnapshot(records, exports);
     }
 
-    public boolean isEmpty() {
-        return records.isEmpty() && exports.isEmpty();
-    }
-
     public Record getRecord(int x, int z) {
         return records.get(ChunkBounds.key(x, z));
     }
 
     public ExportStatus.Chunk exportAt(int x, int z) { return exports.get(ChunkBounds.key(x, z)); }
-
-    public void forEachRecord(Consumer<Record> consumer) {
-        records.values().forEach(consumer);
-    }
 
     ChunkBucketIndex index() { return index; }
 }

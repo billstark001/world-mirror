@@ -1,5 +1,6 @@
 package io.github.billstark001.worldmirror.config;
 
+import io.github.billstark001.worldmirror.ui.ChunkBucketLayout;
 import me.shedaniel.autoconfig.AutoConfig;
 import me.shedaniel.autoconfig.ConfigData;
 import me.shedaniel.autoconfig.annotation.Config;
@@ -167,7 +168,7 @@ public class ModConfig implements ConfigData {
 
         @ConfigEntry.Gui.Tooltip
         @ConfigEntry.BoundedDiscrete(min = 1000, max = 50000)
-        public int xaeroWorldMapOverlayMaxCells = 6000;
+        public int xaeroWorldMapOverlayMaxCells = ChunkBucketLayout.DEFAULT_MAP_BUDGET;
 
         /** Draws chunk status in source worlds and on servers. */
         @ConfigEntry.Gui.Tooltip

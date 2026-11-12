@@ -3,12 +3,31 @@ package io.github.billstark001.worldmirror.ui;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeAll;
+import java.util.ArrayList;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ChunkMapViewColorTest {
+    @Test
+    void denseSavedFillsBatchEqualColorsWithoutDrawingOutsideTheViewport() {
+        var records = new ArrayList<ChunkDatabase.ChunkRecord>();
+        for (int x = -10; x <= 10; x++) records.add(new ChunkDatabase.ChunkRecord(x, 0, 100L, "world_mirror"));
+        var snapshot = new ChunkStatusSnapshot(records, java.util.Set.of());
+        var projection = new ChunkMapProjection();
+        var viewport = new ChunkMapView.BuiltInViewport(100, 100, 0, 0, 8, true);
+        var savedFills = new ArrayList<java.util.List<Integer>>();
+        ChunkMapView.renderBuiltIn((left, top, right, bottom, color) -> {
+            assertTrue(left >= 0 && top >= 0 && right <= viewport.width() && bottom <= viewport.height());
+            if (color == 0x7F00C800) savedFills.add(java.util.List.of(left, top, right, bottom));
+        }, projection, snapshot, LiveChunkStatusSnapshot.EMPTY, viewport, 200L, 1);
+
+        assertTrue(projection.currentFrame().dense());
+        assertEquals(java.util.List.of(java.util.List.of(0, 50, 100, 58)), savedFills);
+    }
+
     @BeforeAll
     static void bootstrap() {
         net.minecraft.SharedConstants.tryDetectVersion();
