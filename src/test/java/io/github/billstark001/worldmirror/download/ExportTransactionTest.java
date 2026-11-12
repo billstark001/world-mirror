@@ -52,6 +52,41 @@ class ExportTransactionTest {
     }
 
     @Test
+    void liveSyncUsesTheReplayPriorityAndOnlyReplacesItWithANewerCaptureAtEqualPriority(@TempDir Path world)
+            throws Exception {
+        String dimension = "minecraft:overworld";
+        var pos = new ChunkPos(0, 0);
+        assertTrue(DownloadExportCoordinator.write(job(terrain(1), world, new OverwriteResolver())).successful());
+        try (var db = ChunkDatabase.open(world, "server:transaction")) {
+            assertTrue(db.recordUpdates(dimension, Map.of(pos, 100L), "replay_import"));
+        }
+        Path index = world.resolve("data/world_mirror.sqlite");
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + index); var sql = connection.createStatement()) {
+            sql.executeUpdate("UPDATE update_sources SET priority=5 WHERE update_source='replay_import'");
+        }
+        var blocked = DownloadExportCoordinator.write(job(terrain(2), world, new OverwriteResolver()));
+        assertTrue(blocked.successful());
+        assertEquals(0, blocked.result().totalWritten());
+        try (var db = ChunkDatabase.open(world, "server:transaction")) {
+            assertEquals("replay_import", db.queryAll(dimension).getFirst().updateSource());
+        }
+
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + index); var sql = connection.createStatement()) {
+            sql.executeUpdate("UPDATE update_sources SET priority=10 WHERE update_source='replay_import'");
+        }
+        assertEquals(0, DownloadExportCoordinator.write(job(terrain(1), world, new OverwriteResolver()))
+                .result().totalWritten());
+        var written = DownloadExportCoordinator.write(job(terrain(2), world, new OverwriteResolver()));
+        assertTrue(written.successful());
+        assertEquals(1, written.result().totalWritten());
+        try (var db = ChunkDatabase.open(world, "server:transaction")) {
+            var row = db.queryAll(dimension).getFirst();
+            assertEquals("world_mirror", row.updateSource());
+            assertEquals(200L, row.updateTime());
+        }
+    }
+
+    @Test
     void failedEntityRegionsDoNotBlockSuccessiveTerrainAndMetadataCommits(@TempDir Path world) throws Exception {
         Path entities = io.github.billstark001.worldmirror.io.ChunkExporter.dimensionDirForDimension(world, Level.OVERWORLD)
                 .resolve("entities/r.0.0.mca");

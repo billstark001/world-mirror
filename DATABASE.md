@@ -40,12 +40,13 @@ Defines the update sources known to the system and their relative priorities.
 | `apply_to_source` | TEXT \| NULL | If set, this row only applies when `chunks.source` equals this value; NULL means all sources |
 | `apply_to_dimension` | TEXT \| NULL | If set, this row only applies in this dimension; NULL means all dimensions |
 
-**Default rows (seeded on first creation):**
+**Default rows (seeded when the index is opened):**
 
 | update_source | priority | apply_to_source | apply_to_dimension |
 |---------------|----------|-----------------|-------------------|
 | `player` | 0 | NULL | NULL |
 | `world_mirror` | 10 | NULL | NULL |
+| `replay_import` | 10 | NULL | NULL |
 | `game_events` | 20 | NULL | NULL |
 | `map_hp` | 30 | NULL | NULL |
 | `map_lp` | 50 | NULL | NULL |
@@ -63,13 +64,15 @@ Before writing a chunk, World Mirror checks whether a higher-priority source has
 5. Look up the **new** `update_source`'s priority similarly.
 6. If the existing source's priority < the new source's priority (existing has higher priority) → skip; otherwise write.
 
-An unregistered update source receives the lowest effective priority. If a priority lookup fails, World Mirror logs a rate-limited warning and also treats that source as lowest priority. If the chunk-row lookup itself fails, World Mirror fails open and allows the region write; it does not claim durability in SQLite unless the later write and index commit succeed.
+An unregistered update source receives the lowest effective priority in live sync. An unreadable index or priority lookup defers the affected writes. Toolkit mirror imports use the same priority lookup and preserve nonempty chunks whose existing source has no applicable rule.
 
 This prevents World Mirror's periodic sync from overwriting chunks attributed to a higher-priority source. The seeded `player` source (priority 0) outranks `world_mirror` (priority 10). A third-party tool that also needs overwrite protection must register a priority lower than 10 for the applicable source/dimension; the seeded `map_hp` and `map_lp` rows are lower-priority fallback inputs and do not receive that protection.
 
 ---
 
 ## Integration for third-party tools
+
+For ReplayMod input, use `world-mirror-cli import-chunks --src <export> --dst <mirror> --mode mirror`. The CLI checks the target `sourceId`, previews the plan, and revalidates it under the save lock. It reopens and decodes each imported region entry before recording the capture as `replay_import`. Use `--replace-unindexed` to replace nonempty chunks that have no matching SQLite row. See the [toolkit import options](https://github.com/billstark001/world-mirror-toolkit#build-and-run) for details.
 
 To register your tool as an update source with a custom priority:
 
