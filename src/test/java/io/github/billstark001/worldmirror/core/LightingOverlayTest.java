@@ -1,6 +1,7 @@
 package io.github.billstark001.worldmirror.core;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -27,7 +28,7 @@ class LightingOverlayTest {
                 new BitSet(), emptyBlock, List.of(),
                 new BitSet(), new BitSet(), List.of()));
 
-        CompoundTag section = onlySection(overlay.materialize(chunk));
+        CompoundTag section = onlySection(overlay.snapshot().materialize(chunk));
         assertArrayEquals(new byte[2048], section.getByteArray("BlockLight").orElseThrow());
         assertArrayEquals(bytes((byte) 11), section.getByteArray("SkyLight").orElseThrow());
     }
@@ -44,13 +45,33 @@ class LightingOverlayTest {
                 blockUpdates, new BitSet(), List.of(bytes((byte) 1), bytes((byte) 3)),
                 new BitSet(), new BitSet(), List.of()));
 
-        CompoundTag materialized = overlay.materialize(new CompoundTag());
+        CompoundTag materialized = overlay.snapshot().materialize(new CompoundTag());
         assertTrue(materialized.contains("sections"));
         ListTag sections = materialized.getListOrEmpty("sections");
         assertTrue(sections.size() == 2);
+        assertEquals(1, sections.getCompound(0).orElseThrow().getByteOr("Y", (byte) -1));
         assertArrayEquals(bytes((byte) 1), sectionAt(sections, 1).getByteArray("BlockLight").orElseThrow());
         assertArrayEquals(bytes((byte) 3), sectionAt(sections, 3).getByteArray("BlockLight").orElseThrow());
         assertFalse(sectionAt(sections, 1).contains("SkyLight"));
+    }
+
+    @Test
+    void materializedLightCannotChangeAnotherExportFromTheSameSnapshot() {
+        var overlay = new LightingOverlay();
+        BitSet updated = new BitSet();
+        updated.set(0);
+        byte[] light = bytes((byte) 9);
+        var update = new LightingUpdate(-1, 1, updated, new BitSet(), List.of(light),
+                new BitSet(), new BitSet(), List.of());
+        overlay.applyUpdate(update);
+        var snapshot = overlay.snapshot();
+
+        light[0] = 1;
+        update.blockUpdates().getFirst()[0] = 2;
+        onlySection(snapshot.materialize(new CompoundTag())).getByteArray("BlockLight").orElseThrow()[0] = 3;
+
+        var next = onlySection(snapshot.materialize(new CompoundTag()));
+        assertArrayEquals(bytes((byte) 9), next.getByteArray("BlockLight").orElseThrow());
     }
 
     private static CompoundTag chunkWithSection(int y, byte[] blockLight, byte[] skyLight) {

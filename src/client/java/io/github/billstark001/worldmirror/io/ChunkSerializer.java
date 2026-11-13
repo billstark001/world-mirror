@@ -1,13 +1,11 @@
 package io.github.billstark001.worldmirror.io;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
-import it.unimi.dsi.fastutil.shorts.ShortArrayList;
-import it.unimi.dsi.fastutil.shorts.ShortList;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.Optionull;
@@ -49,6 +47,8 @@ public class ChunkSerializer {
     }
 
     public static CompoundTag serialize(ClientLevel world, ChunkAccess chunk) {
+        // The native writer packs section palettes and offsets synchronously on
+        // the client thread. Only the resulting NBT leaves this call.
         CompoundTag chunkNbt = createSerializedChunk(world, chunk).write();
         BlockEntityNbtSupport.applyContainerOverlays(world.dimension(), chunkNbt);
         return chunkNbt;
@@ -60,34 +60,37 @@ public class ChunkSerializer {
         }
 
         ChunkPos chunkPos = chunk.getPos();
-        List<SerializableChunkData.SectionData> sections = new ArrayList<>();
         LevelChunkSection[] chunkSections = chunk.getSections();
         LevelLightEngine lightEngine = world.getChunkSource().getLightEngine();
+        int minLightSection = lightEngine.getMinLightSection();
+        int maxLightSection = lightEngine.getMaxLightSection();
+        var blockLightListener = lightEngine.getLayerListener(LightLayer.BLOCK);
+        var skyLightListener = lightEngine.getLayerListener(LightLayer.SKY);
+        List<SerializableChunkData.SectionData> sections = new ArrayList<>(maxLightSection - minLightSection);
 
-        for (int sectionY = lightEngine.getMinLightSection();
-                sectionY < lightEngine.getMaxLightSection();
-                sectionY++) {
+        for (int sectionY = minLightSection; sectionY < maxLightSection; sectionY++) {
             int sectionIndex = chunk.getSectionIndexFromSectionY(sectionY);
             boolean hasChunkSection = sectionIndex >= 0 && sectionIndex < chunkSections.length;
-            DataLayer blockLight = lightEngine.getLayerListener(LightLayer.BLOCK)
-                    .getDataLayerData(SectionPos.of(chunkPos, sectionY));
-            DataLayer skyLight = lightEngine.getLayerListener(LightLayer.SKY)
-                    .getDataLayerData(SectionPos.of(chunkPos, sectionY));
+            SectionPos sectionPos = SectionPos.of(chunkPos, sectionY);
+            DataLayer blockLight = blockLightListener.getDataLayerData(sectionPos);
+            DataLayer skyLight = skyLightListener.getDataLayerData(sectionPos);
             // A non-null but empty DataLayer means that the client explicitly
             // knows this section is all zero.  It must not be confused with a
             // null layer, which means the client has no data for that section.
+            // The writer stores these arrays directly in NBT, so copy the layers.
             DataLayer blockLightCopy = blockLight != null ? blockLight.copy() : null;
             DataLayer skyLightCopy = skyLight != null ? skyLight.copy() : null;
 
             if (hasChunkSection || blockLightCopy != null || skyLightCopy != null) {
-                LevelChunkSection section = hasChunkSection ? chunkSections[sectionIndex].copy() : null;
+                LevelChunkSection section = hasChunkSection ? chunkSections[sectionIndex] : null;
                 sections.add(new SerializableChunkData.SectionData(
                         sectionY, section, blockLightCopy, skyLightCopy));
             }
         }
 
-        List<CompoundTag> blockEntities = new ArrayList<>(chunk.getBlockEntitiesPos().size());
-        for (BlockPos blockPos : chunk.getBlockEntitiesPos()) {
+        Set<BlockPos> blockEntityPositions = chunk.getBlockEntitiesPos();
+        List<CompoundTag> blockEntities = new ArrayList<>(blockEntityPositions.size());
+        for (BlockPos blockPos : blockEntityPositions) {
             CompoundTag blockEntityNbt = chunk.getBlockEntityNbtForSaving(blockPos, world.registryAccess());
             if (blockEntityNbt != null) {
                 blockEntities.add(blockEntityNbt);
@@ -119,9 +122,6 @@ public class ChunkSerializer {
         }
 
         ChunkAccess.PackedTicks ticks = chunk.getTicksForSerialization(world.getGameTime());
-        ShortList[] postProcessing = Arrays.stream(chunk.getPostProcessing())
-                .map(entries -> entries != null && !entries.isEmpty() ? new ShortArrayList(entries) : null)
-                .toArray(ShortList[]::new);
 
         return new SerializableChunkData(
                 world.palettedContainerFactory(),
@@ -139,7 +139,7 @@ public class ChunkSerializer {
 #endif
                 heightmaps,
                 ticks,
-                postProcessing,
+                chunk.getPostProcessing(),
                 chunk.isLightCorrect(),
                 sections,
                 entities,

@@ -6,6 +6,7 @@
     "ClientEntityLifecycleMixin",
     "ChunkDataMixin",
     "ContainerMixin",
+    "SectionBlocksUpdatePacketAccessor",
     "WorldOpenFlowsMixin",
     "WorldOverlayRenderMixin"
   ],

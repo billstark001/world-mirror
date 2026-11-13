@@ -15,7 +15,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.Set;
+import java.util.function.LongConsumer;
 
 /** Live commands may be coalesced; frozen revisions are independent, non-null durability bundles. */
 sealed interface ExportWork permits ExportWork.Intent, ExportWork.Frozen {
@@ -71,9 +71,9 @@ sealed interface ExportWork permits ExportWork.Intent, ExportWork.Frozen {
         boolean hasTerrain() { return terrainCount() > 0; }
         boolean hasEntities() { return entities.values().stream().anyMatch(updates -> !updates.isEmpty()); }
         Frozen terrainOnly() { return new Frozen(context, terrain, Map.of(), containers, settings, durableCaptureTime, OptionalLong.empty()); }
-        void collectRevisions(Set<Long> terrainRevisions, Set<Long> entityRevisions) {
-            terrain.chunks().values().forEach(chunks -> chunks.values().forEach(chunk -> terrainRevisions.add(chunk.revision())));
-            entities.values().forEach(chunks -> chunks.values().forEach(update -> entityRevisions.add(update.revision())));
+        void collectRevisions(LongConsumer terrainRevisions, LongConsumer entityRevisions) {
+            terrain.chunks().values().forEach(chunks -> chunks.values().forEach(chunk -> terrainRevisions.accept(chunk.revision())));
+            entities.values().forEach(chunks -> chunks.values().forEach(update -> entityRevisions.accept(update.revision())));
         }
         Frozen entitiesOnly() { return new Frozen(context, ChunkListener.snapshotOf(Map.of()), entities, Map.of(), settings, durableCaptureTime, OptionalLong.empty()); }
         Frozen retry() {

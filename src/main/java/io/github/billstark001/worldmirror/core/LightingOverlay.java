@@ -1,145 +1,109 @@
 package io.github.billstark001.worldmirror.core;
 
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.BitSet;
-
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMaps;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 
-/**
- * The latest client-known light data for a chunk, kept independently from the
- * chunk's base NBT.  An absent entry means that the client did not have that
- * section; an empty entry means that the packet explicitly set it to zero.
- */
+/** The latest client-known light data for a chunk, kept independently from its base NBT. */
 final class LightingOverlay {
     private static final String SECTIONS_KEY = "sections";
     private static final String BLOCK_LIGHT_KEY = "BlockLight";
     private static final String SKY_LIGHT_KEY = "SkyLight";
     private static final int LIGHT_ARRAY_SIZE = 2048;
+    private static final Snapshot EMPTY = new Snapshot(Int2ObjectMaps.emptyMap(), Int2ObjectMaps.emptyMap());
 
-    private final Map<Integer, LayerValue> blockLight = new HashMap<>();
-    private final Map<Integer, LayerValue> skyLight = new HashMap<>();
+    // Null values represent explicit zero light. Missing keys represent unknown sections.
+    private final Int2ObjectOpenHashMap<byte[]> blockLight = new Int2ObjectOpenHashMap<>(0);
+    private final Int2ObjectOpenHashMap<byte[]> skyLight = new Int2ObjectOpenHashMap<>(0);
 
-    /** Freezes the section maps; immutable layer values can safely be shared. */
-    synchronized LightingOverlay snapshot() {
-        LightingOverlay snapshot = new LightingOverlay();
-        snapshot.blockLight.putAll(blockLight);
-        snapshot.skyLight.putAll(skyLight);
-        return snapshot;
+    /** Freezes section maps by copying their backing arrays. Light arrays are immutable and shared. */
+    synchronized Snapshot snapshot() {
+        if (blockLight.isEmpty() && skyLight.isEmpty()) return EMPTY;
+        return new Snapshot(freeze(blockLight), freeze(skyLight));
     }
 
-    /**
-     * Moves all known light arrays out of a freshly captured chunk NBT and
-     * into this overlay.  Tags which are absent remain unknown and therefore
-     * cannot erase an older known value already stored here.
-     */
+    private static Int2ObjectMap<byte[]> freeze(Int2ObjectOpenHashMap<byte[]> layer) {
+        return layer.isEmpty() ? Int2ObjectMaps.emptyMap() : layer.clone();
+    }
+
+    /** Moves known light arrays out of fresh chunk NBT, preserving older values for absent tags. */
     synchronized void absorbAndStrip(CompoundTag chunkNbt) {
-        forEachSection(chunkNbt, section -> {
+        ListTag sections = chunkNbt.getListOrEmpty(SECTIONS_KEY);
+        for (int i = 0; i < sections.size(); i++) {
+            CompoundTag section = sections.getCompound(i).orElse(null);
+            if (section == null) continue;
             int y = section.getByteOr("Y", (byte) 0);
-            section.getByteArray(BLOCK_LIGHT_KEY).ifPresent(data -> {
-                blockLight.put(y, LayerValue.data(data));
-                section.remove(BLOCK_LIGHT_KEY);
-            });
-            section.getByteArray(SKY_LIGHT_KEY).ifPresent(data -> {
-                skyLight.put(y, LayerValue.data(data));
-                section.remove(SKY_LIGHT_KEY);
-            });
-        });
+            absorbLayer(section, y, BLOCK_LIGHT_KEY, blockLight);
+            absorbLayer(section, y, SKY_LIGHT_KEY, skyLight);
+        }
+    }
+
+    private static void absorbLayer(CompoundTag section, int y, String key, Int2ObjectMap<byte[]> target) {
+        byte[] bytes = section.getByteArray(key).orElse(null);
+        if (bytes == null) return;
+        target.put(y, bytes.clone());
+        section.remove(key);
     }
 
     /** Records the exact section updates from a packet after vanilla applied it. */
     synchronized void applyUpdate(LightingUpdate update) {
-        applyLayer(update.minLightSection(), update.lightSectionCount(),
-                update.blockUpdateMask(), update.blockEmptyMask(),
-                update.blockUpdates(), blockLight);
-        applyLayer(update.minLightSection(), update.lightSectionCount(),
-                update.skyUpdateMask(), update.skyEmptyMask(),
-                update.skyUpdates(), skyLight);
+        update.applyTo(blockLight, skyLight);
     }
 
-    /** Produces an export-safe chunk NBT without mutating the cached base. */
-    synchronized CompoundTag materialize(CompoundTag baseChunkNbt) {
-        CompoundTag result = baseChunkNbt.copy();
-        ListTag sections = result.getList(SECTIONS_KEY).orElseGet(() -> {
-            ListTag created = new ListTag();
-            result.put(SECTIONS_KEY, created);
-            return created;
-        });
+    static final class Snapshot {
+        private final Int2ObjectMap<byte[]> blockLight;
+        private final Int2ObjectMap<byte[]> skyLight;
 
-        Map<Integer, CompoundTag> byY = new HashMap<>();
-        for (int i = 0; i < sections.size(); i++) {
-            sections.getCompound(i).ifPresent(section ->
-                    byY.put((int) section.getByteOr("Y", (byte) 0), section));
+        private Snapshot(Int2ObjectMap<byte[]> blockLight, Int2ObjectMap<byte[]> skyLight) {
+            this.blockLight = blockLight;
+            this.skyLight = skyLight;
         }
 
-        applyToSections(sections, byY, blockLight, BLOCK_LIGHT_KEY);
-        applyToSections(sections, byY, skyLight, SKY_LIGHT_KEY);
-        return result;
-    }
-
-    private static void applyLayer(
-            int minLightSection,
-            int lightSectionCount,
-            BitSet updateMask,
-            BitSet emptyMask,
-            java.util.List<byte[]> updates,
-            Map<Integer, LayerValue> target) {
-        Iterator<byte[]> updateIterator = updates.iterator();
-        for (int index = 0; index < lightSectionCount; index++) {
-            if (updateMask.get(index)) {
-                if (!updateIterator.hasNext()) {
-                    throw new IllegalArgumentException("Light packet update mask has too few arrays");
-                }
-                // LightingUpdate accessors already return independent arrays;
-                // transfer ownership instead of cloning every section again.
-                target.put(minLightSection + index, new LayerValue(updateIterator.next(), false));
-            } else if (emptyMask.get(index)) {
-                target.put(minLightSection + index, LayerValue.zero());
+        /** Produces export-safe chunk NBT with independent light arrays. */
+        CompoundTag materialize(CompoundTag baseChunkNbt) {
+            CompoundTag result = baseChunkNbt.copy();
+            ListTag sections = result.getList(SECTIONS_KEY).orElseGet(() -> {
+                ListTag created = new ListTag();
+                result.put(SECTIONS_KEY, created);
+                return created;
+            });
+            if (this == EMPTY) return result;
+            Int2ObjectMap<CompoundTag> byY = new Int2ObjectOpenHashMap<>(sections.size());
+            for (int i = 0; i < sections.size(); i++) {
+                CompoundTag section = sections.getCompound(i).orElse(null);
+                if (section != null) byY.put(section.getByteOr("Y", (byte) 0), section);
             }
-        }
-        if (updateIterator.hasNext()) {
-            throw new IllegalArgumentException("Light packet has arrays not selected by its update mask");
+            var added = applyToSections(byY, blockLight, BLOCK_LIGHT_KEY, null);
+            added = applyToSections(byY, skyLight, SKY_LIGHT_KEY, added);
+            if (added != null) {
+                // Keep the base order and append light-only sections in a stable Y order.
+                added.sort(null);
+                added.forEach((int y) -> sections.add(byY.get(y)));
+            }
+            return result;
         }
     }
 
-    private static void applyToSections(
-            ListTag sections,
-            Map<Integer, CompoundTag> byY,
-            Map<Integer, LayerValue> source,
-            String key) {
-        for (Map.Entry<Integer, LayerValue> entry : source.entrySet()) {
-            int y = entry.getKey();
+    private static IntArrayList applyToSections(Int2ObjectMap<CompoundTag> byY,
+                                               Int2ObjectMap<byte[]> source, String key, IntArrayList added) {
+        var entries = Int2ObjectMaps.fastIterator(source);
+        while (entries.hasNext()) {
+            var entry = entries.next();
+            int y = entry.getIntKey();
             CompoundTag section = byY.get(y);
             if (section == null) {
                 section = new CompoundTag();
                 section.putByte("Y", (byte) y);
-                sections.add(section);
                 byY.put(y, section);
+                if (added == null) added = new IntArrayList();
+                added.add(y);
             }
-            section.putByteArray(key, entry.getValue().bytes());
+            byte[] bytes = entry.getValue();
+            section.putByteArray(key, bytes == null ? new byte[LIGHT_ARRAY_SIZE] : bytes.clone());
         }
-    }
-
-    private static void forEachSection(CompoundTag chunkNbt, java.util.function.Consumer<CompoundTag> action) {
-        ListTag sections = chunkNbt.getListOrEmpty(SECTIONS_KEY);
-        for (int i = 0; i < sections.size(); i++) {
-            sections.getCompound(i).ifPresent(action);
-        }
-    }
-
-    private record LayerValue(byte[] data, boolean empty) {
-        static LayerValue zero() {
-            return new LayerValue(null, true);
-        }
-
-        static LayerValue data(byte[] data) {
-            return new LayerValue(data.clone(), false);
-        }
-
-        byte[] bytes() {
-            return empty ? new byte[LIGHT_ARRAY_SIZE] : data.clone();
-        }
+        return added;
     }
 }

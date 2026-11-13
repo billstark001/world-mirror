@@ -17,6 +17,7 @@ import io.github.billstark001.worldmirror.io.WorldWriteLock;
 import io.github.billstark001.worldmirror.ui.ChunkStatusCache;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.util.WMPlayerMessages;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
@@ -101,14 +102,15 @@ final class DownloadExportCoordinator {
     }
 
     CapturePolicy.Sample sampleResources() {
-        Set<Long> terrain = new HashSet<>(), entities = new HashSet<>();
+        var terrain = new LongOpenHashSet(ChunkListener.getDirtyCount());
+        var entities = new LongOpenHashSet();
         ChunkListener.forEachDirtyRevision(terrain::add);
         EntityTracker.forEachDirtyRevision(entities::add);
-        if (!closed) scheduler.pending.collectRetained(terrain, entities);
+        if (!closed) scheduler.pending.collectRetained(terrain::add, entities::add);
         int active = 0;
         if (inFlight != null) {
             Frozen work = inFlight.work();
-            work.collectRevisions(terrain, entities);
+            work.collectRevisions(terrain::add, entities::add);
             active = work.terrainCount() + work.entities().values().stream().mapToInt(Map::size).sum();
         }
         Runtime runtime = Runtime.getRuntime();
@@ -173,13 +175,29 @@ final class DownloadExportCoordinator {
     }
 
     Frozen freeze(Minecraft client, Intent intent, CaptureBudget budget) {
+        boolean diagnostic = ModConfig.get().performance.diagnosticPerformanceLogging;
+        long started = diagnostic ? System.nanoTime() : 0L;
         long revision = entityRevision;
         boolean entities = intent.entityScope() == EntityScope.LIVE;
         boolean refresh = entities && budget.refreshEntities() && client.level != null;
         if (refresh && revision > durableEntityRevision) EntityTracker.captureEntitiesForWorld(client.level);
-        return new Frozen(intent.context(), snapshotReadyTerrain(), entities ? EntityTracker.snapshot() : Map.of(),
+        Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> entitySnapshot =
+                entities ? EntityTracker.snapshot() : Map.of();
+        long entitiesFinished = diagnostic ? System.nanoTime() : 0L;
+        var terrain = snapshotReadyTerrain();
+        long terrainFinished = diagnostic ? System.nanoTime() : 0L;
+        Frozen frozen = new Frozen(intent.context(), terrain, entitySnapshot,
                 intent.containers().orElseGet(ContainerTracker::snapshotSavedData), intent.settings(), 0,
                 refresh ? OptionalLong.of(revision) : OptionalLong.empty());
+        if (diagnostic) {
+            long finished = System.nanoTime();
+            WMLogger.info("[perf] exportFreeze trigger=" + intent.context().trigger()
+                    + " chunks=" + frozen.terrainCount()
+                    + " entitiesUs=" + (entitiesFinished - started) / 1_000L
+                    + " terrainUs=" + (terrainFinished - entitiesFinished) / 1_000L
+                    + " bundleUs=" + (finished - terrainFinished) / 1_000L);
+        }
+        return frozen;
     }
     ChunkListener.DirtySnapshot snapshotReadyTerrain() {
         return ChunkListener.snapshotDirtyState((dimension, pos) -> !captureQueue.isLightingPending(dimension, pos));

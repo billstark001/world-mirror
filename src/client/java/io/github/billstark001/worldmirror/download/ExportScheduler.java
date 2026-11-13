@@ -8,6 +8,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.LongConsumer;
 
 /** Client-thread export scheduling. Shutdown explicitly transfers ownership to the export worker. */
 final class ExportScheduler {
@@ -121,7 +122,7 @@ final class ExportScheduler {
         void clearLive() { live = null; }
         void prepareForShutdown() { frozen.forEach(item -> item.readyAtMs = Long.MIN_VALUE); clearLive(); }
         int frozenCount() { return frozen.size(); }
-        void collectRetained(Set<Long> terrain, Set<Long> entities) {
+        void collectRetained(LongConsumer terrain, LongConsumer entities) {
             frozen.forEach(item -> item.work.collectRevisions(terrain, entities));
         }
         void retryNow(Source source) {

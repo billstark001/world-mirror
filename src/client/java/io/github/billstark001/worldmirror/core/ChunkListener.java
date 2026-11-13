@@ -48,11 +48,11 @@ public class ChunkListener {
      */
     public static final class DirtySnapshot {
         private final Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> chunks;
-        private final Map<ResourceKey<Level>, Map<ChunkPos, LightingOverlay>> lighting;
+        private final Map<ResourceKey<Level>, Map<ChunkPos, LightingOverlay.Snapshot>> lighting;
 
         private DirtySnapshot(
                 Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> chunks,
-                Map<ResourceKey<Level>, Map<ChunkPos, LightingOverlay>> lighting) {
+                Map<ResourceKey<Level>, Map<ChunkPos, LightingOverlay.Snapshot>> lighting) {
             this.chunks = chunks;
             this.lighting = lighting;
         }
@@ -65,15 +65,15 @@ public class ChunkListener {
         public DirtySnapshot withoutAcknowledged(
                 Map<ResourceKey<Level>, Map<ChunkPos, Long>> acknowledged) {
             Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> remaining = new HashMap<>();
-            Map<ResourceKey<Level>, Map<ChunkPos, LightingOverlay>> remainingLighting = new HashMap<>();
+            Map<ResourceKey<Level>, Map<ChunkPos, LightingOverlay.Snapshot>> remainingLighting = new HashMap<>();
             chunks.forEach((dimension, captured) -> {
                 Map<ChunkPos, Long> receipts = acknowledged.getOrDefault(dimension, Map.of());
                 Map<ChunkPos, CapturedChunk> kept = new HashMap<>();
-                Map<ChunkPos, LightingOverlay> keptLighting = new HashMap<>();
+                Map<ChunkPos, LightingOverlay.Snapshot> keptLighting = new HashMap<>();
                 captured.forEach((pos, chunk) -> {
                     if (Long.valueOf(chunk.revision()).equals(receipts.get(pos))) return;
                     kept.put(pos, chunk);
-                    LightingOverlay overlay = lighting.getOrDefault(dimension, Map.of()).get(pos);
+                    LightingOverlay.Snapshot overlay = lighting.getOrDefault(dimension, Map.of()).get(pos);
                     if (overlay != null) keptLighting.put(pos, overlay);
                 });
                 if (!kept.isEmpty()) remaining.put(dimension, Map.copyOf(kept));
@@ -84,8 +84,8 @@ public class ChunkListener {
 
         public CapturedChunk materialize(
                 ResourceKey<Level> dimension, ChunkPos pos, CapturedChunk captured) {
-            Map<ChunkPos, LightingOverlay> lightingByChunk = lighting.get(dimension);
-            LightingOverlay overlay = lightingByChunk == null ? null : lightingByChunk.get(pos);
+            Map<ChunkPos, LightingOverlay.Snapshot> lightingByChunk = lighting.get(dimension);
+            LightingOverlay.Snapshot overlay = lightingByChunk == null ? null : lightingByChunk.get(pos);
             CompoundTag nbt = overlay == null
                     ? captured.nbt().copy()
                     : overlay.materialize(captured.nbt());
@@ -193,11 +193,11 @@ public class ChunkListener {
     public static DirtySnapshot snapshotDirtyState(
             java.util.function.BiPredicate<ResourceKey<Level>, ChunkPos> include) {
         Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> result = new HashMap<>();
-        Map<ResourceKey<Level>, Map<ChunkPos, LightingOverlay>> lighting = new HashMap<>();
+        Map<ResourceKey<Level>, Map<ChunkPos, LightingOverlay.Snapshot>> lighting = new HashMap<>();
         for (Map.Entry<ResourceKey<Level>, ConcurrentHashMap<ChunkPos, CapturedChunk>> dimEntry
                 : dimChunks.entrySet()) {
             Map<ChunkPos, CapturedChunk> dirty = new HashMap<>();
-            Map<ChunkPos, LightingOverlay> dimensionLighting = new HashMap<>();
+            Map<ChunkPos, LightingOverlay.Snapshot> dimensionLighting = new HashMap<>();
             Map<ChunkPos, LightingOverlay> liveLighting = dimLighting.get(dimEntry.getKey());
             for (Map.Entry<ChunkPos, CapturedChunk> entry : dimEntry.getValue().entrySet()) {
                 if (!isClean(dimEntry.getKey(), entry.getKey(), entry.getValue())

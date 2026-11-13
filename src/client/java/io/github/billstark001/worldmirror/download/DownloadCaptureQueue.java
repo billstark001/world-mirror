@@ -70,6 +70,7 @@ final class DownloadCaptureQueue {
     private final Map<ResourceKey<Level>, Long> statusVersions = new HashMap<>();
     private long resetVersion;
     private boolean reconciliationNeeded;
+    private long estimatedCaptureNs;
     private final BooleanSupplier recordPerformance;
     private final int reconciliationRange;
     private final IntSupplier pendingLimit;
@@ -254,6 +255,7 @@ final class DownloadCaptureQueue {
         overflowBlockChanges.clear();
         pendingLightUpdates.clear();
         reconciliationNeeded = false;
+        estimatedCaptureNs = 0L;
     }
 
     void resetDiagnostics() {
@@ -338,16 +340,18 @@ final class DownloadCaptureQueue {
         ResourceKey<Level> currentDimension = world.dimension();
         int processed = 0;
         int captured = 0;
+        boolean attemptedCapture = false;
         long startedNs = System.nanoTime();
         long budgetNs = budget.tickNanos();
+        boolean diagnostics = recordPerformance.getAsBoolean();
         if (budget.scanChecks() > 0 && (!budget.scanOnlyWhenIdle() || pendingHintCount() == 0)) {
-            fillLoadedScans(world, startedNs, budgetNs, budget.scanChecks());
+            fillLoadedScans(world, startedNs, budgetNs / 4, budget.scanChecks());
         }
 
-        while (processed < budget.maxChunks()
-                && (processed == 0 || System.nanoTime() - startedNs < budgetNs)) {
-            Pending request;
-            request = pollPending();
+        while (processed < budget.maxChunks()) {
+            long expectedCost = attemptedCapture ? estimatedCaptureNs : 0L;
+            if (processed > 0 && !budget.fitsAnotherCapture(System.nanoTime() - startedNs, expectedCost)) break;
+            Pending request = pollPending();
             if (request == null) break;
             processed++;
             if (!currentDimension.equals(request.key().dimension())) continue;
@@ -356,9 +360,12 @@ final class DownloadCaptureQueue {
             if (!(chunk instanceof LevelChunk levelChunk)) continue;
 
             long captureStartedNs = System.nanoTime();
+            boolean serializing = false;
             try {
                 boolean empty = ChunkSerializer.isChunkEmpty(levelChunk);
                 if (!request.allowEmpty() && empty) continue;
+                serializing = true;
+                attemptedCapture = true;
                 CompoundTag nbt = ChunkSerializer.serialize(world, levelChunk);
                 ChunkListener.addChunkNbt(request.key().dimension(), levelChunk.getPos(), nbt,
                         request.allowEmpty() && empty);
@@ -368,8 +375,15 @@ final class DownloadCaptureQueue {
                         "Incremental capture failed chunk=" + levelChunk.getPos()
                                 + " reason=" + request.reason(), e);
             } finally {
-                if (recordPerformance.getAsBoolean()) {
-                    long elapsedUs = (System.nanoTime() - captureStartedNs) / 1_000L;
+                long elapsedNs = System.nanoTime() - captureStartedNs;
+                if (serializing) {
+                    // Smooth nearby costs and cap the influence of an isolated pause.
+                    long sample = Math.min(elapsedNs, budgetNs);
+                    estimatedCaptureNs = estimatedCaptureNs == 0L ? sample
+                            : estimatedCaptureNs + (sample - estimatedCaptureNs) / 4;
+                }
+                if (diagnostics) {
+                    long elapsedUs = elapsedNs / 1_000L;
                     String metricReason = recordReasonLatency(request.reason(), elapsedUs);
                     logSlowCapture("incremental", metricReason, request.key(),
                             Math.max(0L, (System.nanoTime() / 1_000_000L) - request.queuedAt()), elapsedUs);
@@ -377,7 +391,7 @@ final class DownloadCaptureQueue {
             }
         }
 
-        if (processed > 0 && recordPerformance.getAsBoolean()) {
+        if (processed > 0 && diagnostics) {
             long elapsedNs = System.nanoTime() - startedNs;
             captureTickLatencies.record(elapsedNs / 1_000L);
             processedCaptures += processed;
@@ -397,19 +411,15 @@ final class DownloadCaptureQueue {
     }
 
     private void flushLightUpdates(boolean force) {
-        List<Key> ready = new ArrayList<>();
         Iterator<Map.Entry<Key, Long>> iterator = pendingLightUpdates.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Key, Long> entry = iterator.next();
             if (force || entry.getValue() <= clientTick) {
-                ready.add(entry.getKey());
+                Key key = entry.getKey();
                 iterator.remove();
-                refreshPendingStatus(entry.getKey());
+                refreshPendingStatus(key);
+                ChunkListener.markChunkDirty(key.dimension(), new ChunkPos(key.chunkX(), key.chunkZ()));
             }
-        }
-
-        for (Key key : ready) {
-            ChunkListener.markChunkDirty(key.dimension(), new ChunkPos(key.chunkX(), key.chunkZ()));
         }
     }
 
@@ -447,8 +457,10 @@ final class DownloadCaptureQueue {
     }
 
     private void promoteBlockChanges() {
+        if (overflowBlockChanges.isEmpty()) return;
+        int limit = Math.max(1, pendingLimit.getAsInt());
         Iterator<Key> overflow = overflowBlockChanges.iterator();
-        while (overflow.hasNext() && pending.size() < Math.max(1, pendingLimit.getAsInt())) {
+        while (overflow.hasNext() && pending.size() < limit) {
             Key key = overflow.next();
             overflow.remove();
             queue(key, "block-change-overflow", true);

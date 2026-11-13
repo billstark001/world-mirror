@@ -1,5 +1,7 @@
 package io.github.billstark001.worldmirror.core;
 
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
@@ -65,6 +67,22 @@ public record LightingUpdate(
     @Override
     public List<byte[]> skyUpdates() {
         return copyLayers(skyUpdates);
+    }
+
+    /** Overlay layers share the validated arrays as immutable values. */
+    void applyTo(Int2ObjectMap<byte[]> blockLight, Int2ObjectMap<byte[]> skyLight) {
+        applyLayer(blockUpdateMask, blockEmptyMask, blockUpdates, blockLight);
+        applyLayer(skyUpdateMask, skyEmptyMask, skyUpdates, skyLight);
+    }
+
+    private void applyLayer(BitSet updates, BitSet empty, List<byte[]> layers, Int2ObjectMap<byte[]> target) {
+        int layer = 0;
+        for (int section = updates.nextSetBit(0); section >= 0; section = updates.nextSetBit(section + 1)) {
+            target.put(minLightSection + section, layers.get(layer++));
+        }
+        for (int section = empty.nextSetBit(0); section >= 0; section = empty.nextSetBit(section + 1)) {
+            target.put(minLightSection + section, null);
+        }
     }
 
     private static void validateLayer(int sectionCount, BitSet updates, BitSet empty, List<byte[]> layers) {

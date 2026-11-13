@@ -5,6 +5,14 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class CaptureBudgetTest {
     @Test
+    void aFurtherCaptureMustFitTheRemainingTime() {
+        var budget = CaptureBudget.forMode(CapturePolicy.Mode.NORMAL, 1_500);
+        assertTrue(budget.fitsAnotherCapture(700_000, 800_000));
+        assertFalse(budget.fitsAnotherCapture(700_000, 801_000));
+        assertFalse(budget.fitsAnotherCapture(1_500_000, 0));
+    }
+
+    @Test
     void resourceModesProduceExplicitLimitsForTheQueueAndOptionalWork() {
         var normal = CaptureBudget.forMode(CapturePolicy.Mode.NORMAL, 4_000);
         var reduced = CaptureBudget.forMode(CapturePolicy.Mode.REDUCED, 4_000);
