@@ -22,6 +22,9 @@ public final class SaveLocationMoveScreen extends Screen {
     private final MirrorTarget target;
     private final ModConfig.SaveLocation targetLocation;
     private Component failure;
+    private Button confirm;
+    private Button cancel;
+    private boolean moving;
 
     public SaveLocationMoveScreen(Screen parent, MirrorTarget target, ModConfig.SaveLocation targetLocation) {
         super(Component.translatable("screen.worldmirror.move.title"));
@@ -34,40 +37,39 @@ public final class SaveLocationMoveScreen extends Screen {
     protected void init() {
         int x = width / 2;
         int y = height / 2;
-        addRenderableWidget(
+        confirm = addRenderableWidget(
                 Button.builder(Component.translatable("screen.worldmirror.move.confirm"), button -> move())
                         .bounds(x - 102, y + 22, 98, 20)
                         .build());
-#if MC_VERSION >= 260200
-        addRenderableWidget(
-                Button.builder(Component.translatable("gui.cancel"), button -> ClientScreens.set(parent))
-#else
-        addRenderableWidget(
-                Button.builder(Component.translatable("gui.cancel"),
-                              button -> Minecraft.getInstance().setScreen(parent))
-#endif
+        cancel = addRenderableWidget(Button.builder(Component.translatable("gui.cancel"), button -> onClose())
                         .bounds(x + 4, y + 22, 98, 20)
                         .build());
+        setMoving(moving);
     }
 
-    private boolean moving;
+    @Override
+    public void onClose() {
+        if (!moving)
+            StatusScreenApi.showScreen(parent);
+    }
+
+    private void setMoving(boolean moving) {
+        this.moving = moving;
+        confirm.active = cancel.active = !moving;
+    }
 
     private void move() {
         if (moving)
             return;
-        moving = true;
+        setMoving(true);
+        failure = null;
         Minecraft client = Minecraft.getInstance();
         DownloadManager.moveMirrorWorld(client, target, targetLocation, result -> {
-            moving = false;
-#if MC_VERSION >= 260200
-            if (client.gui.screen() != this)
+            setMoving(false);
+            if (ClientDialogs.currentScreen(client) != this)
                 return;
             if (result.success())
-                ClientScreens.set(new StatusScreen());
-#else
-            if (client.screen != this) return;
-            if (result.success()) client.setScreen(new StatusScreen());
-#endif
+                onClose();
             else
                 failure = Component.translatable("screen.worldmirror.move.failure." + result.failureCode());
         });

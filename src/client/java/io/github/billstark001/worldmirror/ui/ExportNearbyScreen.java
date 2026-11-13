@@ -15,6 +15,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.network.chat.Component;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Feature 2.1 — Export Nearby Region.
@@ -98,14 +99,7 @@ public class ExportNearbyScreen extends Screen {
                       }).bounds(cx - 100, radiusY + 30, 94, 20).build());
 
         // Cancel
-        addRenderableWidget(
-                Button.builder(Component.translatable("gui.cancel"),
-#if MC_VERSION >= 260200
-                              btn -> ClientScreens.set(parent)
-#else
-                              btn -> Minecraft.getInstance().setScreen(parent)
-#endif
-                                       )
+        addRenderableWidget(Button.builder(Component.translatable("gui.cancel"), btn -> onClose())
                         .bounds(cx + 6, radiusY + 30, 94, 20)
                         .build());
     }
@@ -171,8 +165,8 @@ public class ExportNearbyScreen extends Screen {
     private Component lineageLabel() {
         return Component.translatable("screen.worldmirror.exportNearby.lineage")
                 .append(": ")
-                .append(Component.translatable(
-                        "screen.worldmirror.exportNearby.lineage." + lineageChoice.name().toLowerCase()));
+                .append(Component.translatable("screen.worldmirror.exportNearby.lineage."
+                        + lineageChoice.name().toLowerCase(Locale.ROOT)));
     }
 
     private static String defaultWorldName() {
@@ -191,6 +185,11 @@ public class ExportNearbyScreen extends Screen {
     @Override
     public boolean isPauseScreen() {
         return false;
+    }
+
+    @Override
+    public void onClose() {
+        StatusScreenApi.showScreen(parent);
     }
 
     /** Opens the ExportNearby screen on the game thread. */
