@@ -17,7 +17,7 @@ A client-side Fabric mod that mirrors the world you are playing on a multiplayer
 | **Entity capture** | Vanilla-serialized, client-visible non-player entities and passenger trees are merged into per-dimension entity region files. Versioned partial/complete observations reconcile UUID moves and safe despawns without erasing last-known data from unloaded chunks. |
 | **Container tracking** | The mod intercepts inventory packets when you open a chest, barrel, hopper, furnace, or any other container and saves the item stacks. They are merged into the block entity NBT on export. Double chests are handled correctly (each half is saved to its own position). |
 | **Block entity data** | Signs (text), beacons (effects), banners (patterns), player heads (owner), lecterns (stored book), and all other block entities whose data the server sends to the client are persisted through Minecraft's chunk serialization path. |
-| **World–mirror mapping** | Every detected server address or singleplayer world name is persistently mapped to a sanitised local folder name in `config/worldmirror/mirrors.json`. Different aliases for the same server are currently separate source IDs. |
+| **World–mirror mapping** | Each mirror save records one upstream world. World Mirror scans both save roots and keeps the graph, default download targets, and endpoint rules in `config/worldmirror/world-graph.json`. |
 | **Per-world settings** | Save location and conflict strategy can be overridden per world. Time, weather, and difficulty can also be copied manually from the current source world. |
 | **Conflict resolution** | Three built-in strategies for chunks that already exist on disk: *Overwrite* (default), *Ignore* (keep local), and *Manual* (save the server chunk to `conflict_chunks/` in MCA format for later review). |
 | **Built-in Chunk Map** | Full-screen draggable and zoomable map of recorded chunks. Shared spatial buckets keep large views responsive. Base colors show freshness/source; markers highlight failed or partial exports and unresolved conflicts. Hover for full export details. |
@@ -57,7 +57,7 @@ The status screen shows:
 - **Live status** — download active/inactive, export running/idle
 - **Action buttons** — Start/Stop Download, Export Now, Clear Data, **Export Nearby Region**
 - **Conflicts tab** — count of stored conflict chunks, with *Overwrite All* and *Discard All* buttons, plus **Open Chunk Map** to review conflicts per-chunk
-- **Per-world settings** — save-location and conflict-strategy overrides stored in `mirrors.json`, plus manual time, weather, and difficulty sync actions; moving an existing mirror requires confirmation and is blocked while downloading or exporting
+- **Per-world settings** — source save-location preferences and mirror conflict-strategy overrides stored in `world-graph.json`, plus manual time, weather, and difficulty sync actions; moving an existing mirror requires confirmation and is blocked while downloading or exporting
 - **Integration status** — output path and Xaero World Map Bridge availability
 - **Global Settings** — shortcut to the Cloth Config-generated settings screen
 
@@ -170,7 +170,9 @@ Both world types have separate overlay switches, disabled by default. Press **K*
 
 ### Save locations
 
-Generated mirror names use one safe folder segment, including for names such as `CON` or `..` that cannot be used as ordinary folders on Windows. Invalid folder paths in a manually edited `mirrors.json` are ignored when previewing or selecting an output; existing mirror contents are not moved by that fallback. An export starts only after its selected folder has been saved to `mirrors.json`. If saving a relocation fails after the folder moves, World Mirror attempts to move it back and reports the operation as failed. If that rollback also fails, the log records both paths so the intact folder can be recovered from the destination.
+Generated mirror names use one safe folder segment. A new output is reserved by mirror node ID before capture starts. The graph retains a configured default while its save is unavailable. Moving a mirror keeps its ID and uses the graph position to recover an interrupted move. If two folders carry the same ID, the last confirmed path keeps it. With no confirmed path, the order is `saves` first, then `downloaded_worlds`, with ties resolved by folder name. Other copies receive new IDs and keep their upstream edges.
+
+The graph is rebuilt from the two save roots. When multiple logical sources share a normalized address, downloads wait for an explicit source default in `endpointRules`. To change a default before the in-game graph editor is available, close the client and edit the corresponding `defaultSourceId` or `sourceSettings.<nodeId>.defaultMirrorId` in `config/worldmirror/world-graph.json`.
 
 | Mode | Path |
 |------|------|
@@ -221,21 +223,20 @@ World Mirror checks generator contents as well as metadata when opening a mirror
 |-------|-------------|
 | `modVersion` | Mod version that created / last updated the mirror |
 | `format` / `metadataSchema` | Stable World Mirror marker and metadata-document schema |
-| `mirrorKind` | `synchronized` mirror or standalone `nearby_export` |
-| `mirrorId` | Stable mirror identity that survives folder moves and copies |
-| `parentMirrorId` | Optional identity of the mirror from which a nearby export was created |
-| `sourceType` | `singleplayer` or `server` |
-| `sourceId` | `local:<level-name>` or `server:<address>` |
+| `kind` / `role` | A mirror or independent snapshot, with a role of download target or nearby export |
+| `nodeId` | Stable save identity that survives a folder move |
+| `parentNodeId` | Direct upstream node for a mirror. An independent snapshot is a root. |
+| `sourceId` | SQLite namespace for this save. Existing values are preserved during upgrade. |
 | `lastSyncTime` | Unix-millisecond capture timestamp of the newest successfully saved chunk. Existing values written by older versions as export completion times are left unchanged. |
-| `worldgenSchema` | Semantic schema of the generated mirror dimensions |
-| `worldgenAssetRevision` / `worldgenAssetDataVersion` | Global worldgen asset revision (shared by all targets) and the Minecraft data version used to write it |
-| `legacyVoidChunkCleanupRevision` | Completion marker for the backed-up legacy void-chunk cleanup |
+| `generation` | Generator mode and its worldgen, asset, and void-cleanup revisions |
 
-Per-chunk dirty-check metadata is stored in `data/world_mirror.sqlite`. Older `worldmirror_meta.json` files with a legacy `chunkUpdateTimes` field are migrated into SQLite on the first sync after upgrade. The JSON field is removed only after the database commit succeeds; a failed migration retains the original data and stops that export for retry. Mapping and metadata JSON are replaced using same-directory temporary files. A failed final metadata write leaves the export incomplete and queued for retry. Manual and automatic exports report failures through coalesced local chat/toast notices as well as the log. Compressed world-data files are also written to a temporary file and read back before replacement. Serialization failures and values the NBT writer cannot preserve leave the previous file intact. NBT uses the game's strict writer to reject oversized strings and keys. In-place region writes additionally check strings before opening a committing output stream; staged files are validated before any live replacement.
+Per-chunk dirty-check metadata is stored in `data/world_mirror.sqlite`. During the graph upgrade, World Mirror backs up old metadata, commits any legacy chunk timestamps to SQLite, then publishes metadata schema 2. It archives `mirrors.json` after publishing the graph. An open or otherwise unavailable save can be retried after it closes. Old local display names with uncertain ownership are retained as unresolved import records.
+
+Configuration and metadata JSON are replaced using same-directory temporary files. A failed final metadata write leaves the export queued for retry. Compressed world-data files are staged and read back before replacement. The NBT writer rejects oversized strings and keys, and staged files are validated before they replace live files.
 
 World-file mutations hold Minecraft's `session.lock` for the entire operation. Close the target mirror before exporting into it, applying conflicts, upgrading, or copying world settings. Conflict review can be performed from the original source world while its output mirror is closed. Read-only status queries remain available when a mirror is open.
 
-Failed mirror exports retain only unfinished frozen revisions while the client is running, even after leaving the source world. The first retry waits 10 seconds; further failures back off exponentially to 15 minutes. A manual export wakes pending retries immediately. Terrain and entity updates preserve their own source order: an entity-only failure does not block newer terrain, while a failed terrain revision must settle before later terrain from that source. Other sources can proceed. Terrain is acknowledged only after region verification and its SQLite commit; entity acknowledgement requires separate UUID verification. Retried metadata saves retain the newest already verified and indexed capture time.
+Failed mirror exports retain only unfinished frozen revisions while the client is running, even after leaving the source world. The first retry waits 10 seconds, then the delay backs off exponentially to 15 minutes. A manual export wakes pending retries immediately. Terrain and entity updates preserve their own order within a mirror. An entity-only failure permits newer terrain to proceed, while a failed terrain revision must settle before later terrain writes to the same mirror. Other mirrors can proceed. Terrain is acknowledged after region verification and the SQLite commit. Entity acknowledgement requires separate UUID verification. Retried metadata saves retain the newest verified and indexed capture time.
 
 A malformed file affects only work that depends on it. Optional saved-data repair failures leave the file untouched and allow independent terrain to save; damaged entity regions still block entity operations whose UUID uniqueness cannot be proved. Unavailable priority rules defer overwrites. Read failures are not treated as an empty database or a missing routing document. Invalid configuration is backed up before normalized settings are saved; an unknown conflict policy becomes Ignore.
 
@@ -254,7 +255,7 @@ Scheduling has one client-thread owner. The resource policy determines a mode, w
 Unfinished mirror creation has a durable ownership reservation and resumes the same directory. Moving a world within the same filesystem holds native locks at both ends, validates both identities and the complete move plan, and journals the move. It rolls back if routing cannot be saved. The old empty root retains a reservation so moving back can reuse it. Interrupted file replacements recover under the native world lock before subsequent writes or opening through the mirror recovery flow; ambiguous or corrupt recovery evidence is retained for repair. Recovery never overwrites content that matches neither the original nor the planned replacement. Cleanup failures after a verified commit do not reverse it. These guarantees cover recoverable file operations, not simultaneous multi-file visibility or all hardware power-loss scenarios. Bulk conflict application uses bounded batches and removes incoming entries only after their copied data verifies. A damaged region location table is retained for repair rather than passed to a writer that could discard its invalid entries.
 
 
-On client exit, the configured stop-time capture/export behavior runs first. The export worker finishes accepted writes and makes one final attempt at queued frozen work without interrupting region replacement. Failed revisions still block dependent updates in that final pass. The idle worker closes immediately; remaining failed snapshots are held only in memory and do not survive closing the client. Saves with a newer `metadataSchema` are treated as future data and are not rewritten. A different explicit `format` marker is not adopted as a World Mirror save; legacy metadata without that marker remains supported.
+On client exit, the configured stop-time capture/export behavior runs first. The export worker finishes accepted writes and makes one final attempt at queued frozen work without interrupting region replacement. Failed revisions still block dependent updates in that final pass. The idle worker closes immediately; remaining failed snapshots are held only in memory and do not survive closing the client. Saves with a newer `metadataSchema` or another explicit `format` marker are left intact. The upgrader recognizes unversioned metadata with a known World Mirror signature.
 
 ---
 
@@ -432,4 +433,3 @@ Contributor-facing architecture, durability, logging, and file-recovery guidance
 ## License
 
 MIT
-

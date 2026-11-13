@@ -18,7 +18,7 @@ Records terrain chunks that World Mirror (or an external tool) has durably writt
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `source` | TEXT | World/server identifier matching `worldmirror_meta.json → sourceId` (e.g. `server:play.example.com` or `local:MySPWorld`) |
+| `source` | TEXT | Index namespace matching `worldmirror_meta.json → sourceId`. The graph uses a separate node ID. |
 | `dimension` | TEXT | Minecraft dimension key, e.g. `minecraft:overworld` |
 | `x` | INTEGER | Chunk X coordinate |
 | `y` | INTEGER | Chunk Z coordinate *(named `y` for 2-D map convention)* |
@@ -72,7 +72,7 @@ This prevents World Mirror's periodic sync from overwriting chunks attributed to
 
 ## Integration for third-party tools
 
-For ReplayMod input, use `world-mirror-cli import-chunks --src <export> --dst <mirror> --mode mirror`. The CLI checks the target `sourceId`, previews the plan, and revalidates it under the save lock. It reopens and decodes each imported region entry before recording the capture as `replay_import`. Use `--replace-unindexed` to replace nonempty chunks that have no matching SQLite row. See the [toolkit import options](https://github.com/billstark001/world-mirror-toolkit#build-and-run) for details.
+For ReplayMod input, verify that the export belongs to the intended mirror, then run `world-mirror-cli import-chunks --src <export> --dst <mirror> --mode mirror --allow-source-mismatch`. Mirror mode requires metadata schema 2. Open World Mirror to migrate an older save first. The CLI previews the plan, rechecks the mirror identity under the save lock, and uses the stored `sourceId` to open its index. It reopens and decodes imported region entries before recording them as `replay_import`. Use `--replace-unindexed` to replace nonempty chunks that have no matching SQLite row. [Toolkit import options](https://github.com/billstark001/world-mirror-toolkit#build-and-run)
 
 To register your tool as an update source with a custom priority:
 
@@ -112,4 +112,4 @@ World Mirror will then respect your tool's priority when deciding whether to ove
 
 ## Legacy JSON timestamp migration
 
-On the first export of an older mirror, `worldmirror_meta.json.chunkUpdateTimes` is imported in a SQLite transaction with `INSERT OR IGNORE`, preserving rows already written by other sources. World Mirror removes the JSON field only after that transaction commits and the cleaned metadata can be saved. A database or metadata failure stops the export and preserves the legacy data for an idempotent retry. Keep the JSON field intact when diagnosing a failed migration.
+During the offline graph migration for an older mirror, `worldmirror_meta.json.chunkUpdateTimes` is imported in a SQLite transaction with `INSERT OR IGNORE`, preserving rows already written by other sources. World Mirror removes the JSON field only after that transaction commits and the cleaned metadata can be saved. A database or metadata failure stops the export and preserves the legacy data for an idempotent retry. Keep the JSON field intact when diagnosing a failed migration.

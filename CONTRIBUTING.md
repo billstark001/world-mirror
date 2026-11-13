@@ -12,9 +12,9 @@ The download package follows the same ownership rule:
 - `CapturePolicy` determines resource mode independently of the user's toggle; `CaptureBudget` supplies executable limits for a tick.
 - `ExportScheduler` owns periodic/adaptive/pressure cadence, deferred work ordering, and retries on the client thread.
 - `DownloadCaptureQueue` owns main-thread serialization, hint coalescing, queue limits, and capture diagnostics.
-- `ExportWork.Intent` describes a live request; `ExportWork.Frozen` carries immutable terrain, entity, container, settings, and source data. Frozen requests never sample a later client world or acknowledge its live entity signals.
+- `ExportWork.Intent` describes a live request. `ExportWork.Frozen` carries immutable terrain, entity, container, settings, and destination identity. Completion receipts are applied to the matching capture session.
 - `DownloadExportCoordinator` owns snapshot preparation, durability commits, worker dispatch, and completion receipts. Normal and shutdown passes execute the same `ExportJob`; its `ExportOutcome` separates verified receipts from remaining work.
-- `MirrorMapping` owns output-path selection, claiming, and per-world path settings.
+- `WorldGraph` validates identity and parent edges. `WorldGraphService` reconciles save folders, reserves download targets, and persists routing. Disk metadata owns the edge and SQLite namespace. The graph config owns endpoint bindings, saved defaults, and the last confirmed path used to resolve copies.
 - `EntityTracker` owns game-thread vanilla serialization and observation boundaries; `EntitySnapshotStore` owns versioned partial/complete reconciliation; and `EntityRegionWriter` owns UUID-aware recoverable entity-region merging.
 
 Avoid adding queue locks, region transactions, strategy-specific state, or path-claiming logic back to the manager. Prefer extending an existing owner over adding a one-method utility file, but do not merge unrelated state merely to reduce the file count.
@@ -23,7 +23,7 @@ Captured world state is scoped to one source world. Join, server-world, and dime
 
 Capture-cache mutations, including durable acknowledgements, belong to the game thread. Background exporters consume frozen snapshots and dispatch their exact revision receipts back to that thread; they must not remove live terrain, lighting, entity, or container state while capture callbacks are running. Container cleanup must also preserve newer overlays and overlays awaiting a pending chunk capture.
 
-Entity dirtiness is independent from terrain-cache retention. Never prune entity updates because a terrain entry was evicted. A successfully reopened and UUID-verified entity-region replacement acknowledges only the exact captured revisions it represents. Stop-time exports deferred behind an active worker must carry immutable terrain, entity, and container snapshots so disconnect or a new source cannot change their meaning. Terrain and entity retries preserve source order independently; an entity-only failure must not hold up newer terrain or cause successful terrain to be rewritten. A final metadata failure retains the verified capture-time floor. Shutdown never interrupts an accepted region transaction or waits for a game-thread acknowledgement; its frozen queue gets a finite final pass, with failed revisions still blocking dependent work.
+Entity dirtiness is independent from terrain-cache retention. Never prune entity updates because a terrain entry was evicted. A successfully reopened and UUID-verified entity-region replacement acknowledges only the exact captured revisions it represents. Stop-time exports deferred behind an active worker must carry immutable terrain, entity, and container snapshots so disconnect or a new source cannot change their meaning. Terrain and entity retries preserve their own order within a destination mirror. A final metadata failure retains the verified capture-time floor. On shutdown the frozen queue gets a finite final pass without interrupting an accepted region transaction or waiting for a game-thread acknowledgement.
 
 Version-specific saved-data repairs belong in `WorldStructureApi`. Match only a known World Mirror-owned malformed shape, preserve unrelated or extended payloads, replace the file atomically, and exercise the target Minecraft codec in a round-trip test. A target that does not use that saved-data file should provide only the no-op adapter required by the shared orchestrator.
 
@@ -38,11 +38,17 @@ Version-specific saved-data repairs belong in `WorldStructureApi`. Match only a 
 
 Unit tests check display semantics, clipped and sparse views, cache bounds, and candidate work counts. These tests do not establish in-game GPU frame rates; use `docs/world-overlay-manual-test.md` for interactive rendering checks.
 
+## Graph and metadata migration
+
+Graph reconciliation and relocation take the graph lock before any save lock. Hold the graph lock through publication so another client cannot recover an in-progress move or race a target reservation. Missing parents retain their edges. Cycles and unresolved duplicate IDs make the affected branches unavailable for writes.
+
+Runtime readers require the current metadata schema. Legacy readers belong at import and recovery entry points. Preserve the SQLite namespace when rewriting a node ID. Back up legacy metadata and commit its timestamp import before publishing the new document. Test interrupted writes at the boundary that publishes the next durable state.
+
 ## Mirror worldgen revision policy
 
-`worldgenAssetRevision` is one global, monotonically increasing integer for every supported Minecraft target. All artifacts in one mod release write the same value to both `worldmirror_meta.json` and the embedded data-pack manifest. Never select this revision from the Minecraft or data-pack version. Increment it across all targets when a release changes the embedded worldgen assets or the serialized worldgen settings for any target. A target whose bytes did not change still adopts the new revision; this keeps migration ordering consistent.
+`generation.assetRevision` in `worldmirror_meta.json` is one global, monotonically increasing integer for every supported Minecraft target. All artifacts in one mod release write the same value to mirror metadata and the embedded data-pack manifest. Increment it across all targets when the embedded worldgen assets or serialized worldgen settings change for any target. A target whose bytes did not change still adopts the new revision to keep migration ordering consistent.
 
-`worldgenAssetDataVersion` separately records the Minecraft data version used to write those assets. The revision does not imply identical encodings across Minecraft targets. `worldgenSchema` tracks semantic changes to the mirror's dimension layout and is bumped only when that schema changes. Do not reuse any of these numbers for a different purpose or decrease them in a later release.
+`generation.dataVersion` records the Minecraft data version used to write those assets. `generation.revision` tracks semantic changes to the mirror's dimension layout. Preserve the meaning and monotonic ordering of both revisions across versions.
 
 An older revision or data version requires an approved upgrade: back up the affected files, regenerate the data pack and worldgen settings with the target Minecraft codec, then advance both metadata markers after the write succeeds. A newer revision or data version is treated as future data and must not be overwritten. Test the revision transition and generated settings on every supported target; test the exact new codec on the target whose encoding changed.
 
@@ -119,7 +125,7 @@ Do not log complete NBT, packet or inventory payloads, authentication/session da
 
 ### Player messages
 
-Logs and player messages are separate interfaces. `ExportNotifications` turns typed export health into translated chat and toast notices, including automatic failures. Coalesce per source, retain undelivered failures while no player exists, limit reminders to 30 seconds, allow escalation/recovery, and space global deliveries by two seconds. Only report recovery once all related work has settled. Other player messages use `WMPlayerMessages` at explicit command or lifecycle boundaries. Detailed exception data belongs in `latest.log`; worker completion never waits for UI delivery. The notification tick uses event/deadline wakeups and forgets recovered sources; healthy play must not repeatedly scan source history.
+Logs and player messages are separate interfaces. `ExportNotifications` turns typed export health into translated chat and toast notices, including automatic failures. Coalesce per destination mirror, retain undelivered failures while no player exists, limit reminders to 30 seconds, allow escalation and recovery, and space global deliveries by two seconds. Only report recovery once all related work has settled. Other player messages use `WMPlayerMessages` at explicit command or lifecycle boundaries. Detailed exception data belongs in `latest.log`. Worker completion never waits for UI delivery. The notification tick uses event and deadline wakeups and forgets recovered mirrors.
 
 ### Performance diagnostics
 
