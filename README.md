@@ -1,6 +1,6 @@
 # World Mirror
 
-**Version:** 0.5.4 · **Minecraft:** 1.21.11, 26.1.2, 26.2, 26.3 · **Loader:** Fabric
+**Development version:** 0.6.0 · **Minecraft:** 1.21.11, 26.1.2, 26.2, 26.3 · **Loader:** Fabric
 
 A client-side Fabric mod that mirrors the world you are playing on a multiplayer server — or even a singleplayer world — into a standard local save. As you explore, the mod captures client-visible chunk terrain, block entities, best-effort entity snapshots, and opened container contents. Choose the `Saves Folder` output mode to make the mirror appear directly in Minecraft's singleplayer world list.
 
@@ -314,7 +314,7 @@ Choose the World Mirror JAR that exactly matches your Minecraft version:
 
 1. Install [Fabric Loader](https://fabricmc.net/use/) 0.19.5 or newer.
 2. Install the matching [Fabric API](https://modrinth.com/mod/fabric-api).
-3. Put the matching World Mirror 0.5.4 JAR in `mods/`.
+3. Put the World Mirror JAR for your Minecraft version in `mods/`.
 4. *(Optional)* Install [Mod Menu](https://modrinth.com/mod/modmenu) for a title-screen settings entry.
 5. *(Optional)* For the Xaero overlay, install a Minecraft-matched [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map) and [Xaero World Map Bridge](https://github.com/billstark001/xaero-world-map-bridge/releases). Use bridge 0.1.2 or newer for the exact Minecraft version. For Minecraft 26.3, use a 26.3 build of Xaero 1.46.2 or newer.
 

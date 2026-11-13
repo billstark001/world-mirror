@@ -8,6 +8,26 @@ Use Added, Changed, and Fixed categories where applicable. Combine related chang
 
 ---
 
+## [0.6.0] — Unreleased
+
+### Added
+
+- Track upstream worlds and multiple mirrors in a graph built from `saves` and `downloaded_worlds`. Remember a default download target for each source.
+- Give extra copies new world IDs while retaining their upstream edges. Preserve IDs when moving saves and retain edges to unavailable worlds.
+
+### Changed
+
+- Migrate older mirror metadata and routing to schema 2. Back up the original metadata, preserve SQLite namespaces and existing chunk history, and archive the old routing file after the graph is saved.
+- Scope downloads, retries, conflict handling, maps, and notifications to the destination mirror. Record lineage for nearby exports when requested.
+- Use explicit endpoint routing when several logical sources share an address. Offline replay imports into upgraded mirrors require Toolkit support for schema 2.
+
+### Fixed
+
+- Recover interrupted mirror moves and migration journals before using the affected save. Keep writes away from ambiguous graph branches and reject symbolic links and Windows directory junctions in migration and recovery paths.
+- Keep queued exports and confirmations bound to the original world. Old export completions leave a newer capture session's state alone.
+
+---
+
 ## [0.5.4] — 2026-11-13
 
 ### Changed
