@@ -172,7 +172,7 @@ Both world types have separate overlay switches, disabled by default. Press **K*
 
 Generated mirror names use one safe folder segment. A new output is reserved by mirror node ID before capture starts. The graph retains a configured default while its save is unavailable. Moving a mirror keeps its ID and uses the graph position to recover an interrupted move. If two folders carry the same ID, the last confirmed path keeps it. With no confirmed path, the order is `saves` first, then `downloaded_worlds`, with ties resolved by folder name. Other copies receive new IDs and keep their upstream edges.
 
-The graph is rebuilt from the two save roots. When multiple logical sources share a normalized address, downloads wait for an explicit source default in `endpointRules`. To change a default before the in-game graph editor is available, close the client and edit the corresponding `defaultSourceId` or `sourceSettings.<nodeId>.defaultMirrorId` in `config/worldmirror/world-graph.json`.
+The graph is rebuilt from the two save roots. Use **World Mirror Routes** to configure a server's default source and a world's default mirror. For a single connection, use **Choose Download Source** when prompted and **Choose mirror** in the Settings tab. The next start or one-shot export uses the saved defaults and conflict policy unless you selected a different target for that connection. [World routing guide](docs/world-routing.md)
 
 | Mode                          | Path                                                                         |
 | ----------------------------- | ---------------------------------------------------------------------------- |
