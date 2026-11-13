@@ -54,6 +54,18 @@ public final class MirrorClaim {
                 file, new Claim(UUID.randomUUID(), replacementId, parentId, current.sourceId()), stamp);
     }
 
+    static void repairParent(Path folder, String nodeId, String previousParent, String parentId)
+            throws IOException {
+        Path file = folder.resolve(FILE_NAME);
+        FileProof.Version stamp = FileProof.version(file);
+        Claim current = read(folder);
+        if (current == null || !nodeId.equals(current.nodeId())
+                || !previousParent.equals(current.parentNodeId()))
+            throw new IOException("Mirror reservation changed: " + folder);
+        JsonSupport.compareAndWriteDocument(
+                file, new Claim(current.operationId(), nodeId, parentId, current.sourceId()), stamp);
+    }
+
     static void finish(Path folder, String nodeId) throws IOException {
         if (ownedBy(folder, nodeId)
                 && WorldMetadata.loadIfPresent(folder)

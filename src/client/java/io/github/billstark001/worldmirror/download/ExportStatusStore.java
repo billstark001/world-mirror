@@ -61,7 +61,7 @@ public final class ExportStatusStore {
     private long version;
 
     synchronized void queued(ExportWork.Frozen work) {
-        String source = work.context().source().id();
+        String source = work.context().session().id();
         work.terrain().chunks().forEach((key, chunks) -> {
             Dimension dimension = dimension(source, key);
             chunks.forEach((pos, capture) -> {
@@ -83,7 +83,7 @@ public final class ExportStatusStore {
 
     synchronized void writing(ExportWork.Frozen work, ExportProgress.Part part, ResourceKey<Level> key,
             Collection<ChunkPos> chunks) {
-        Dimension dimension = dimension(work.context().source().id(), key);
+        Dimension dimension = dimension(work.context().session().id(), key);
         var terrainCaptures = work.terrain().chunks().getOrDefault(key, Map.of());
         var entityCaptures = work.entities().getOrDefault(key, Map.of());
         for (ChunkPos pos : chunks) {
@@ -105,7 +105,7 @@ public final class ExportStatusStore {
     }
 
     synchronized ExportStatus.Health finish(ExportWork.Frozen work, ExportOutcome outcome) {
-        String id = work.context().source().id();
+        String id = work.context().session().id();
         Source source = sources.computeIfAbsent(id, Source::new);
         long floor = outcome.remaining().durableCaptureTime();
         work.terrain().chunks().forEach((key, chunks) -> {

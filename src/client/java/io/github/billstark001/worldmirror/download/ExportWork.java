@@ -3,7 +3,6 @@ package io.github.billstark001.worldmirror.download;
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.core.EntityTracker;
 import io.github.billstark001.worldmirror.io.ChunkExporter;
-import io.github.billstark001.worldmirror.io.WorldSettingsSnapshot;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceKey;
@@ -40,30 +39,10 @@ sealed interface ExportWork permits ExportWork.Intent, ExportWork.Frozen {
             return priority;
         }
     }
-    record Source(WorldGraphService.Target target,
-            io.github.billstark001.worldmirror.config.ModConfig.ConflictStrategy strategy) {
-        public Source {
-            Objects.requireNonNull(target);
-            Objects.requireNonNull(strategy);
-        }
-        String id() {
-            return target.nodeId();
-        }
-
-        @Override
-        public boolean equals(Object other) {
-            return other instanceof Source source && id().equals(source.id());
-        }
-
-        @Override
-        public int hashCode() {
-            return id().hashCode();
-        }
-    }
-    record Context(Trigger trigger, boolean notifyPlayer, Source source) {
+    record Context(Trigger trigger, boolean notifyPlayer, CaptureSession session) {
         public Context {
             Objects.requireNonNull(trigger);
-            Objects.requireNonNull(source);
+            Objects.requireNonNull(session);
         }
     }
     enum CapturePhase { REQUIRED, READY }
@@ -71,35 +50,31 @@ sealed interface ExportWork permits ExportWork.Intent, ExportWork.Frozen {
     Context context();
 
     record Intent(Context context, CapturePhase capture, EntityScope entityScope, boolean captureNearby,
-            Optional<Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>>> containers,
-            WorldSettingsSnapshot settings) implements ExportWork {
+            Optional<Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>>> containers) implements ExportWork {
         public Intent {
             Objects.requireNonNull(context);
             Objects.requireNonNull(capture);
             Objects.requireNonNull(entityScope);
             containers = Objects.requireNonNull(containers).map(ExportWork::freezeMap);
-            Objects.requireNonNull(settings);
         }
         Intent ready() {
-            return new Intent(context, CapturePhase.READY, entityScope, captureNearby, containers, settings);
+            return new Intent(context, CapturePhase.READY, entityScope, captureNearby, containers);
         }
         Intent withContainers(Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> containers) {
-            return new Intent(
-                    context, capture, entityScope, captureNearby, Optional.of(containers), settings);
+            return new Intent(context, capture, entityScope, captureNearby, Optional.of(containers));
         }
         Intent terrainOnly() {
-            return new Intent(context, capture, EntityScope.NONE, captureNearby, containers, settings);
+            return new Intent(context, capture, EntityScope.NONE, captureNearby, containers);
         }
     }
 
     record Frozen(Context context, ChunkListener.DirtySnapshot terrain,
             Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> entities,
-            Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> containers, WorldSettingsSnapshot settings,
-            long durableCaptureTime, OptionalLong liveEntitySignal) implements ExportWork {
+            Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> containers, long durableCaptureTime,
+            OptionalLong liveEntitySignal) implements ExportWork {
         public Frozen {
             Objects.requireNonNull(context);
             Objects.requireNonNull(terrain);
-            Objects.requireNonNull(settings);
             entities = freezeMap(entities);
             containers = freezeMap(containers);
             Objects.requireNonNull(liveEntitySignal);
@@ -114,8 +89,8 @@ sealed interface ExportWork permits ExportWork.Intent, ExportWork.Frozen {
             return entities.values().stream().anyMatch(updates -> !updates.isEmpty());
         }
         Frozen terrainOnly() {
-            return new Frozen(context, terrain, Map.of(), containers, settings, durableCaptureTime,
-                    OptionalLong.empty());
+            return new Frozen(
+                    context, terrain, Map.of(), containers, durableCaptureTime, OptionalLong.empty());
         }
         void collectRevisions(LongConsumer terrainRevisions, LongConsumer entityRevisions) {
             terrain.chunks().values().forEach(
@@ -124,12 +99,12 @@ sealed interface ExportWork permits ExportWork.Intent, ExportWork.Frozen {
                     chunks -> chunks.values().forEach(update -> entityRevisions.accept(update.revision())));
         }
         Frozen entitiesOnly() {
-            return new Frozen(context, ChunkListener.snapshotOf(Map.of()), entities, Map.of(), settings,
+            return new Frozen(context, ChunkListener.snapshotOf(Map.of()), entities, Map.of(),
                     durableCaptureTime, OptionalLong.empty());
         }
         Frozen retry() {
-            return new Frozen(new Context(Trigger.RETRY, context.notifyPlayer(), context.source()), terrain,
-                    entities, containers, settings, durableCaptureTime, OptionalLong.empty());
+            return new Frozen(new Context(Trigger.RETRY, context.notifyPlayer(), context.session()), terrain,
+                    entities, containers, durableCaptureTime, OptionalLong.empty());
         }
 
         /** Release only exact receipts. Remaining revisions keep their original frozen lighting. */
@@ -168,7 +143,7 @@ sealed interface ExportWork permits ExportWork.Intent, ExportWork.Frozen {
                 if (!pending.isEmpty())
                     remainingContainers.put(dimension, pending);
             });
-            return new Frozen(context, remainingTerrain, remainingEntities, remainingContainers, settings,
+            return new Frozen(context, remainingTerrain, remainingEntities, remainingContainers,
                     Math.max(durableCaptureTime, durableTime), OptionalLong.empty());
         }
     }

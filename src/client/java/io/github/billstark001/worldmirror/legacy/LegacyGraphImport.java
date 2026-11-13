@@ -173,11 +173,18 @@ public final class LegacyGraphImport {
             String targetId = node == null ? null : node.id();
             String folder = entry.preferredFolderName();
             SourceSettings previous =
-                    sources.getOrDefault(parent, new SourceSettings(null, null, null, null));
-            if (previous.defaultMirrorId() == null) {
+                    sources.getOrDefault(parent, new SourceSettings(null, null, null, null, null));
+            if (previous.inheritedMirrorId() == null) {
                 sources.put(parent,
-                        new SourceSettings(targetId, entry.saveLocation(), folder,
-                                node == null ? entry.conflictStrategy() : null));
+                        new SourceSettings(previous.defaultMirrorId(),
+                                previous.saveLocation() == null ? entry.saveLocation()
+                                                                : previous.saveLocation(),
+                                previous.preferredFolderName() == null ? folder
+                                                                       : previous.preferredFolderName(),
+                                previous.conflictStrategy() == null && node == null
+                                        ? entry.conflictStrategy()
+                                        : previous.conflictStrategy(),
+                                targetId));
             }
             if (node != null && entry.conflictStrategy() != null) {
                 mirrors.putIfAbsent(node.id(), new MirrorSettings(entry.conflictStrategy()));

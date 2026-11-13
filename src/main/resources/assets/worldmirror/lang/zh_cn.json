@@ -55,6 +55,10 @@
   "screen.worldmirror.status.age.days": "%s 天前",
   "screen.worldmirror.status.downloadActive": "§a正在下载：激活",
   "screen.worldmirror.status.downloadInactive": "§c下载：已停用",
+  "screen.worldmirror.status.downloadPreparing": "§e下载：正在准备镜像…",
+  "screen.worldmirror.status.downloadNeedsReview": "§e下载：需要升级镜像",
+  "screen.worldmirror.status.downloadReviewHint": "请在 World Mirror 设置中确认镜像升级，再继续下载。",
+  "screen.worldmirror.status.reviewDownloadPreparation": "查看镜像升级",
   "screen.worldmirror.status.exportRunning": "§e导出：进行中…",
   "screen.worldmirror.status.exportIdle": "导出：空闲",
   "screen.worldmirror.status.currentMirror.current": "当前世界是镜像存档 — 正在显示其捕获状态",
@@ -119,7 +123,6 @@
   "screen.worldmirror.captureMirror.title": "正在从镜像存档捕获",
   "screen.worldmirror.captureMirror.body": "当前世界是 World Mirror 镜像存档。仍可继续捕获；状态地图读取此存档自身的捕获状态。",
   "screen.worldmirror.captureMirror.outdated": "此镜像存档需要升级。仍可继续捕获，但在依赖其世界生成前，请退出并在世界列表中升级。",
-  "screen.worldmirror.captureMirror.continue": "继续捕获",
 
   "screen.worldmirror.upgrade.checking": "正在检查镜像世界生成设置…",
   "screen.worldmirror.repair.title": "修复 World Mirror 存档？",
@@ -342,5 +345,10 @@
   "msg.worldmirror.exportToast.health": "%s · %s 项未解决",
 
   "msg.worldmirror.fileOperationFailed": "World Mirror 文件操作需要处理",
-  "msg.worldmirror.fileOperationDetails": "来源：%s；阶段：%s；路径：%s；原因：%s。原始数据保留，请查看日志并修复后重试。"
+  "msg.worldmirror.fileOperationDetails": "来源：%s；阶段：%s；路径：%s；原因：%s。原始数据保留，请查看日志并修复后重试。",
+  "screen.worldmirror.captureRoute.chooseSource": "选择下载来源",
+  "screen.worldmirror.captureRoute.title": "为 %s 选择来源世界",
+  "screen.worldmirror.captureRoute.newSource": "创建新来源世界",
+  "screen.worldmirror.captureRoute.waiting": "正在等待服务器公布已绑定的世界 ID",
+  "screen.worldmirror.captureRoute.selectionRequired": "请在 World Mirror 设置中选择下载来源以继续。"
 }

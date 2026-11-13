@@ -5,6 +5,7 @@ import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.FileTransaction;
 import io.github.billstark001.worldmirror.util.JsonSupport;
+import io.github.billstark001.worldmirror.legacy.LegacyGraphPolicy;
 import io.github.billstark001.worldmirror.legacy.LegacyRouting;
 
 import java.io.IOException;
@@ -31,16 +32,24 @@ public final class WorldGraphConfig {
     public static final int SCHEMA = 2;
     private static final int DEFAULT_PORT = 25565;
 
-    public enum IdPolicy { AUTO, ENDPOINT_ONLY, REQUIRE_BOUND_ID }
+    public enum IdPolicy { ENDPOINT_ONLY, PREFER_BOUND_ID, REQUIRE_BOUND_ID }
 
     public record SourceSettings(String defaultMirrorId, ModConfig.SaveLocation saveLocation,
-            String preferredFolderName, ModConfig.ConflictStrategy conflictStrategy) {
+            String preferredFolderName, ModConfig.ConflictStrategy conflictStrategy,
+            String inheritedMirrorId) {
         public SourceSettings {
             if (defaultMirrorId != null)
                 requireKey(defaultMirrorId, "default mirror");
+            if (inheritedMirrorId != null)
+                requireKey(inheritedMirrorId, "inherited mirror");
             if (preferredFolderName != null && !MirrorFolders.isUsableFolderName(preferredFolderName)) {
                 throw new IllegalArgumentException("Invalid preferred folder name");
             }
+        }
+
+        public SourceSettings withDefaultMirror(String mirrorId) {
+            return new SourceSettings(
+                    mirrorId, saveLocation, preferredFolderName, conflictStrategy, inheritedMirrorId);
         }
     }
 
@@ -72,6 +81,10 @@ public final class WorldGraphConfig {
 
         private AdvertisedKey key() {
             return new AdvertisedKey(provider, addressGroupId, advertisedId);
+        }
+
+        boolean matches(String provider, String addressGroupId, String advertisedId) {
+            return key().equals(new AdvertisedKey(provider, addressGroupId, advertisedId));
         }
     }
 
@@ -130,6 +143,76 @@ public final class WorldGraphConfig {
             return new Snapshot(schema, observed, updated, sourceSettings, mirrorSettings, endpointRules,
                     stableBindings, pendingImports);
         }
+
+        public Snapshot withEndpointRule(String endpoint, EndpointRule rule) {
+            Map<String, EndpointRule> updated = new TreeMap<>(endpointRules);
+            replaceEntry(updated, normalizeEndpoint(endpoint), rule);
+            return new Snapshot(schema, nodes, locations, sourceSettings, mirrorSettings, updated,
+                    stableBindings, pendingImports);
+        }
+
+        /** Adds a candidate without changing the policy or default of an existing address. */
+        public Snapshot withEndpointSource(String endpoint, String sourceNodeId) {
+            String address = normalizeEndpoint(endpoint);
+            EndpointRule old = endpointRules.get(address);
+            Set<String> candidates = new TreeSet<>(old == null ? Set.of() : old.sourceIds());
+            candidates.add(sourceNodeId);
+            return withEndpointRule(address,
+                    new EndpointRule(
+                            old == null ? deterministicId("endpoint", address) : old.addressGroupId(),
+                            candidates, old == null ? null : old.defaultSourceId(),
+                            old == null ? IdPolicy.PREFER_BOUND_ID : old.idPolicy()));
+        }
+
+        public Snapshot withSourceSettings(String sourceNodeId, SourceSettings settings) {
+            Map<String, SourceSettings> updated = new TreeMap<>(sourceSettings);
+            replaceEntry(updated, sourceNodeId, settings);
+            return new Snapshot(schema, nodes, locations, updated, mirrorSettings, endpointRules,
+                    stableBindings, pendingImports);
+        }
+
+        public Snapshot withMirrorSettings(String mirrorNodeId, MirrorSettings settings) {
+            Map<String, MirrorSettings> updated = new TreeMap<>(mirrorSettings);
+            replaceEntry(updated, mirrorNodeId, settings);
+            return new Snapshot(schema, nodes, locations, sourceSettings, updated, endpointRules,
+                    stableBindings, pendingImports);
+        }
+
+        public boolean hasEndpointSource(String addressGroupId, String sourceNodeId) {
+            return endpointRules.values().stream().anyMatch(rule
+                    -> rule.addressGroupId().equals(addressGroupId)
+                            && rule.sourceIds().contains(sourceNodeId));
+        }
+
+        public Snapshot withStableBinding(StableBinding binding) {
+            if (!hasEndpointSource(binding.addressGroupId(), binding.sourceId())) {
+                throw new IllegalArgumentException("Stable ID must name a source in its address group");
+            }
+            List<StableBinding> updated = new java.util.ArrayList<>(stableBindings);
+            updated.removeIf(existing -> existing.key().equals(binding.key()));
+            updated.add(binding);
+            return withStableBindings(updated);
+        }
+
+        public Snapshot withoutStableBinding(String provider, String addressGroupId, String advertisedId) {
+            return withStableBindings(stableBindings.stream()
+                            .filter(binding -> !binding.matches(provider, addressGroupId, advertisedId))
+                            .toList());
+        }
+
+        private Snapshot withStableBindings(List<StableBinding> updated) {
+            return new Snapshot(schema, nodes, locations, sourceSettings, mirrorSettings, endpointRules,
+                    updated, pendingImports);
+        }
+
+        private static <V> void replaceEntry(Map<String, V> map, String key, V value) {
+            requireKey(key, "configuration key");
+            if (value == null) {
+                map.remove(key);
+            } else {
+                map.put(key, value);
+            }
+        }
     }
 
     private record Published(Snapshot snapshot, FileProof.Version version) {}
@@ -147,7 +230,9 @@ public final class WorldGraphConfig {
         Path path = file.toAbsolutePath().normalize();
         FileTransaction.recover(path.getParent());
         FileProof.Version observed = stamp(path);
-        JsonSupport.Document<Snapshot> document = JsonSupport.readDocument(path, Snapshot.class);
+        var loaded = LegacyGraphPolicy.readAndUpgrade(path, observed);
+        observed = loaded.version();
+        JsonSupport.Document<Snapshot> document = loaded.document();
         if (!Objects.equals(observed, stamp(path)))
             throw new IOException("World graph changed while loading: " + path);
         return switch (document.state()) {
@@ -275,7 +360,7 @@ public final class WorldGraphConfig {
         return Collections.unmodifiableMap(ordered);
     }
 
-    private static void requireKey(String value, String label) {
+    static void requireKey(String value, String label) {
         if (value == null || value.isBlank() || value.chars().anyMatch(Character::isISOControl)) {
             throw new IllegalArgumentException("Invalid " + label);
         }

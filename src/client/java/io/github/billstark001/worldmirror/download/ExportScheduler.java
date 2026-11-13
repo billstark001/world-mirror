@@ -23,7 +23,7 @@ final class ExportScheduler {
         CLOSED
     }
     final Pending pending = new Pending();
-    private final Map<Source, Integer> retryAttempts = new HashMap<>();
+    private final Map<String, Integer> retryAttempts = new HashMap<>();
     private ModConfig.DownloadPipelineMode mode = ModConfig.DownloadPipelineMode.STABLE_PERIODIC;
     private long lastStarted, nextAttempt = Long.MIN_VALUE, lastPressureAttempt = Long.MIN_VALUE;
     private long maximumLatencyMs = 30_000, adaptiveCooldownMs = 10_000;
@@ -79,12 +79,12 @@ final class ExportScheduler {
             nextAttempt = now + 1_000;
     }
     void completed(Frozen work, boolean successful, long now) {
-        Source source = work.context().source();
+        String target = work.context().session().id();
         if (successful) {
-            if (!pending.hasEntitiesForSource(source))
-                retryAttempts.remove(source);
+            if (!pending.hasEntitiesForTarget(target))
+                retryAttempts.remove(target);
         } else {
-            int attempt = retryAttempts.merge(source, 1, Integer::sum);
+            int attempt = retryAttempts.merge(target, 1, Integer::sum);
             long delayMs = Math.min(900L, 10L << Math.min(7, attempt - 1)) * 1_000;
             pending.retry(work.retry(), now + delayMs);
         }
@@ -95,15 +95,15 @@ final class ExportScheduler {
                 ? next.context().trigger()
                 : previous.context().trigger();
         Context context = new Context(trigger,
-                previous.context().notifyPlayer() || next.context().notifyPlayer(), next.context().source());
+                previous.context().notifyPlayer() || next.context().notifyPlayer(), next.context().session());
         CapturePhase phase = previous.capture() == CapturePhase.READY && next.capture() == CapturePhase.READY
                 ? CapturePhase.READY
                 : CapturePhase.REQUIRED;
         return new Intent(context, phase, next.entityScope(),
                 previous.captureNearby() || next.captureNearby(),
-                next.containers().isPresent() ? next.containers() : previous.containers(), next.settings());
+                next.containers().isPresent() ? next.containers() : previous.containers());
     }
-    /** Source FIFO is enforced independently for terrain and entity revisions; owned by this scheduler. */
+    /** Target FIFO is enforced independently for terrain and entity revisions. */
     static final class Pending {
         private static final class Scheduled {
             private Frozen work;
@@ -115,61 +115,74 @@ final class ExportScheduler {
         }
         private final ArrayDeque<Scheduled> frozen = new ArrayDeque<>();
         private Intent live;
+        // Routing edits run off-thread; keep the queue and its iterators on their owning thread.
+        private volatile boolean hasWork;
         void enqueue(Frozen work) {
             frozen.addLast(new Scheduled(work, Long.MIN_VALUE));
+            hasWork = true;
         }
         boolean request(Intent intent) {
-            boolean coalesced = live != null && live.context().source().equals(intent.context().source());
+            boolean coalesced = live != null && live.context().session() == intent.context().session();
             live = coalesced ? mergeIntents(live, intent) : intent;
+            hasWork = true;
             return coalesced;
         }
         ExportWork poll(boolean capturesPending, long nowMs) {
-            Set<Source> blockedTerrain = new HashSet<>(), blockedEntities = new HashSet<>();
+            Set<String> blockedTerrain = new HashSet<>(), blockedEntities = new HashSet<>();
             Iterator<Scheduled> iterator = frozen.iterator();
             while (iterator.hasNext()) {
                 Scheduled scheduled = iterator.next();
                 Frozen work = scheduled.work;
-                Source source = work.context().source();
+                String target = work.context().session().id();
                 boolean ready = scheduled.readyAtMs == Long.MIN_VALUE || nowMs - scheduled.readyAtMs >= 0;
-                if (ready && !(work.hasTerrain() && blockedTerrain.contains(source))) {
-                    if (work.hasEntities() && blockedEntities.contains(source)) {
+                if (ready && !(work.hasTerrain() && blockedTerrain.contains(target))) {
+                    if (work.hasEntities() && blockedEntities.contains(target)) {
                         if (work.hasTerrain()) {
                             scheduled.work = work.entitiesOnly();
                             return work.terrainOnly();
                         }
                     } else {
                         iterator.remove();
+                        publishAvailability();
                         return work;
                     }
                 }
                 if (work.hasTerrain())
-                    blockedTerrain.add(source);
+                    blockedTerrain.add(target);
                 if (work.hasEntities())
-                    blockedEntities.add(source);
+                    blockedEntities.add(target);
             }
-            if (live == null || blockedTerrain.contains(live.context().source())
+            if (live == null || blockedTerrain.contains(live.context().session().id())
                     || (capturesPending && live.captureNearby() && live.capture() == CapturePhase.READY))
                 return null;
             Intent work = live;
-            live = null;
-            return blockedEntities.contains(work.context().source()) ? work.terrainOnly() : work;
+            clearLive();
+            return blockedEntities.contains(work.context().session().id()) ? work.terrainOnly() : work;
         }
         void retry(Frozen work, long readyAtMs) {
             frozen.addFirst(new Scheduled(work, readyAtMs));
+            hasWork = true;
         }
-        boolean hasTerrainForSource(Source source) {
+        boolean hasTerrainForTarget(String target) {
             return frozen.stream().anyMatch(
-                    item -> source.equals(item.work.context().source()) && item.work.hasTerrain());
+                    item -> target.equals(item.work.context().session().id()) && item.work.hasTerrain());
         }
-        boolean hasEntitiesForSource(Source source) {
+        boolean hasEntitiesForTarget(String target) {
             return frozen.stream().anyMatch(
-                    item -> source.equals(item.work.context().source()) && item.work.hasEntities());
+                    item -> target.equals(item.work.context().session().id()) && item.work.hasEntities());
         }
         boolean hasManualRequest() {
             return live != null && live.context().trigger() == Trigger.MANUAL;
         }
+        boolean hasWork() {
+            return hasWork;
+        }
         void clearLive() {
             live = null;
+            publishAvailability();
+        }
+        private void publishAvailability() {
+            hasWork = live != null || !frozen.isEmpty();
         }
         void prepareForShutdown() {
             frozen.forEach(item -> item.readyAtMs = Long.MIN_VALUE);
@@ -181,9 +194,9 @@ final class ExportScheduler {
         void collectRetained(LongConsumer terrain, LongConsumer entities) {
             frozen.forEach(item -> item.work.collectRevisions(terrain, entities));
         }
-        void retryNow(Source source) {
+        void retryNow(String target) {
             frozen.stream()
-                    .filter(item -> item.work.context().source().equals(source))
+                    .filter(item -> item.work.context().session().id().equals(target))
                     .forEach(item -> item.readyAtMs = Long.MIN_VALUE);
         }
     }

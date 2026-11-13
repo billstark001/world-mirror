@@ -55,6 +55,10 @@
   "screen.worldmirror.status.age.days": "%s 日前",
   "screen.worldmirror.status.downloadActive": "§aダウンロード：有効",
   "screen.worldmirror.status.downloadInactive": "§cダウンロード：無効",
+  "screen.worldmirror.status.downloadPreparing": "§eダウンロード：ミラーを準備中…",
+  "screen.worldmirror.status.downloadNeedsReview": "§eダウンロード：更新が必要",
+  "screen.worldmirror.status.downloadReviewHint": "World Mirror の設定でミラーの更新を確認すると、ダウンロードを続けられます。",
+  "screen.worldmirror.status.reviewDownloadPreparation": "ミラーの更新を確認",
   "screen.worldmirror.status.exportRunning": "§eエクスポート：実行中…",
   "screen.worldmirror.status.exportIdle": "エクスポート：待機中",
   "screen.worldmirror.status.currentMirror.current": "現在のワールドはミラーセーブです — そのキャプチャ状態を表示中",
@@ -119,7 +123,6 @@
   "screen.worldmirror.captureMirror.title": "ミラーセーブからキャプチャ",
   "screen.worldmirror.captureMirror.body": "このワールドは World Mirror のミラーセーブです。キャプチャは継続でき、状態マップはこのセーブ自身の状態を表示します。",
   "screen.worldmirror.captureMirror.outdated": "このミラーセーブは更新が必要です。キャプチャは継続できますが、ワールド生成に依存する前に終了してワールド一覧から更新してください。",
-  "screen.worldmirror.captureMirror.continue": "キャプチャを続行",
 
   "screen.worldmirror.upgrade.checking": "ミラーワールドの生成設定を確認中…",
   "screen.worldmirror.repair.title": "World Mirror セーブを修復しますか？",
@@ -342,5 +345,10 @@
   "msg.worldmirror.exportToast.health": "%s · 未解決 %s",
 
   "msg.worldmirror.fileOperationFailed": "World Mirror のファイル操作を確認してください",
-  "msg.worldmirror.fileOperationDetails": "接続先：%s、段階：%s、パス：%s、原因：%s。元のデータは保持されています。ログを確認し、修復後に再試行してください。"
+  "msg.worldmirror.fileOperationDetails": "接続先：%s、段階：%s、パス：%s、原因：%s。元のデータは保持されています。ログを確認し、修復後に再試行してください。",
+  "screen.worldmirror.captureRoute.chooseSource": "ダウンロード元を選択",
+  "screen.worldmirror.captureRoute.title": "%s のソースを選択",
+  "screen.worldmirror.captureRoute.newSource": "新しいソースを作成",
+  "screen.worldmirror.captureRoute.waiting": "サーバーに登録済みのワールド ID を待機中",
+  "screen.worldmirror.captureRoute.selectionRequired": "World Mirror の設定でダウンロード元を選択してください。"
 }

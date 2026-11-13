@@ -55,6 +55,10 @@
   "screen.worldmirror.status.age.days": "%s d ago",
   "screen.worldmirror.status.downloadActive": "§aDownloading: Active",
   "screen.worldmirror.status.downloadInactive": "§cDownloading: Off",
+  "screen.worldmirror.status.downloadPreparing": "§eDownloading: Preparing mirror…",
+  "screen.worldmirror.status.downloadNeedsReview": "§eDownloading: Update required",
+  "screen.worldmirror.status.downloadReviewHint": "Open World Mirror settings to review the mirror update before downloading.",
+  "screen.worldmirror.status.reviewDownloadPreparation": "Review Mirror Update",
   "screen.worldmirror.status.exportRunning": "§eExport: Running…",
   "screen.worldmirror.status.exportIdle": "Export: Idle",
   "screen.worldmirror.status.currentMirror.current": "Current world is a mirror save — showing its capture state",
@@ -119,7 +123,6 @@
   "screen.worldmirror.captureMirror.title": "Capturing from a mirror save",
   "screen.worldmirror.captureMirror.body": "This world is a World Mirror save. Capture remains allowed; its status map reads this save's own capture state.",
   "screen.worldmirror.captureMirror.outdated": "This mirror save needs an upgrade. Capture may continue, but exit and upgrade it from the world list before relying on its world generation.",
-  "screen.worldmirror.captureMirror.continue": "Continue capturing",
 
   "screen.worldmirror.upgrade.checking": "Checking mirror world generation…",
   "screen.worldmirror.repair.title": "Repair World Mirror save?",
@@ -342,5 +345,10 @@
   "msg.worldmirror.exportToast.health": "%s · %s unresolved",
 
   "msg.worldmirror.fileOperationFailed": "World Mirror file operation needs attention",
-  "msg.worldmirror.fileOperationDetails": "Source: %s; stage: %s; path: %s; reason: %s. Original data is retained; check the log, repair and retry."
+  "msg.worldmirror.fileOperationDetails": "Source: %s; stage: %s; path: %s; reason: %s. Original data is retained; check the log, repair and retry.",
+  "screen.worldmirror.captureRoute.chooseSource": "Choose Download Source",
+  "screen.worldmirror.captureRoute.title": "Choose a source for %s",
+  "screen.worldmirror.captureRoute.newSource": "Create new source",
+  "screen.worldmirror.captureRoute.waiting": "Waiting for the server's bound world ID",
+  "screen.worldmirror.captureRoute.selectionRequired": "Open World Mirror settings and choose the download source to continue."
 }

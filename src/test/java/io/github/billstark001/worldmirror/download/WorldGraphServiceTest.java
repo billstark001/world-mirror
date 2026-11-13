@@ -1,6 +1,10 @@
 package io.github.billstark001.worldmirror.download;
 
 import io.github.billstark001.worldmirror.config.ModConfig;
+import io.github.billstark001.worldmirror.download.WorldSourceResolver.ProviderObservation;
+import io.github.billstark001.worldmirror.download.WorldSourceResolver.State;
+import io.github.billstark001.worldmirror.format.ChunkIndexStore;
+import io.github.billstark001.worldmirror.format.MirrorFormat;
 import io.github.billstark001.worldmirror.legacy.LegacyWorldMetadata;
 import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.JsonSupport;
@@ -31,6 +35,86 @@ class WorldGraphServiceTest {
     private static final String MIRROR_UUID = "a0866b26-53bd-42f1-97be-753132b30794";
     private static final String MIRROR = "mirror:" + MIRROR_UUID;
     @TempDir Path game;
+
+    @Test
+    void resolvesTwoLogicalWorldsAndFourMirrorsWithoutRekeyingSaveData() throws Exception {
+        String first = "remote:first", second = "remote:second", group = "endpoint:fixture";
+        String alias = "alias.example.org";
+        String firstA = "mirror:first-a", firstB = "mirror:first-b";
+        String secondA = "mirror:second-a", secondB = "mirror:second-b";
+        Path firstFolder = folder("downloaded_worlds", "first-a");
+        writeMirror(firstFolder, firstA, first);
+        writeMirror(folder("saves", "first-b"), firstB, first);
+        writeMirror(folder("downloaded_worlds", "second-a"), secondA, second);
+        writeMirror(folder("saves", "second-b"), secondB, second);
+        try (var connection = ChunkDatabase.openWritableConnection(firstFolder)) {
+            ChunkIndexStore.initialize(connection);
+            new ChunkIndexStore(connection, SOURCE)
+                    .recordUpdates("minecraft:overworld",
+                            Map.of(new ChunkIndexStore.ChunkCoordinate(0, 0), 1L), "world_mirror");
+        }
+        Path metadata = firstFolder.resolve(WorldMetadata.FILE_NAME);
+        Path database = firstFolder.resolve(MirrorFormat.DATABASE_FILE);
+        byte[] oldMetadata = Files.readAllBytes(metadata), oldDatabase = Files.readAllBytes(database);
+        var service = service();
+        service.refresh();
+        var rule = new WorldGraphConfig.EndpointRule(
+                group, Set.of(first, second), first, WorldGraphConfig.IdPolicy.PREFER_BOUND_ID);
+        service.editRouting(snapshot
+                -> snapshot.withEndpointRule(ENDPOINT, rule)
+                        .withEndpointRule(alias, rule)
+                        .withStableBinding(new WorldGraphConfig.StableBinding("xaero", group, "17", first))
+                        .withStableBinding(new WorldGraphConfig.StableBinding("xaero", group, "-8", second))
+                        .withSourceSettings(first,
+                                new WorldGraphConfig.SourceSettings(firstB, null, null, null, firstA)));
+        service.beginObservation(new WorldGraphService.Source(null, alias, alias));
+        assertEquals(State.WAITING_ID, service.currentResolution().state());
+        assertTrue(service.observeProvider(ProviderObservation.advertised("xaero", "17"), false));
+        assertEquals(firstB, service.target(service.source()).nodeId());
+        assertEquals(firstA, service.prepare(service.source(), firstA, false, () -> true).nodeId());
+        assertEquals(firstB, service.target(service.source()).nodeId());
+        service.editRouting(snapshot
+                -> snapshot.withSourceSettings(
+                        first, snapshot.sourceSettings().get(first).withDefaultMirror(null)));
+        assertEquals(firstA, service.target(service.source()).nodeId());
+
+        assertTrue(service.observeProvider(ProviderObservation.advertised("xaero", "-8"), false));
+        assertEquals(second, service.currentResolution().sourceNodeId());
+        assertEquals(Set.of(secondA, secondB),
+                service.targetsForSource(second)
+                        .stream()
+                        .map(WorldGraphService.Target::nodeId)
+                        .collect(java.util.stream.Collectors.toSet()));
+        assertTrue(service.observeProvider(ProviderObservation.advertised("xaero", "99"), true));
+        assertEquals(State.CHOOSE_SOURCE, service.currentResolution().state());
+        assertEquals(second, service.chooseSource(service.observation(), second, false));
+        assertEquals(secondA, service.prepare(service.source()).nodeId());
+
+        service.editRouting(snapshot -> snapshot.withEndpointRule(alias, null));
+        assertArrayEquals(oldMetadata, Files.readAllBytes(metadata));
+        assertArrayEquals(oldDatabase, Files.readAllBytes(database));
+    }
+
+    @Test
+    void persistsNewSourceAndItsBindingWhenDownloadTargetIsPrepared() throws Exception {
+        var service = service();
+        service.refresh();
+        service.beginObservation(remote());
+        var id = ProviderObservation.advertised("xaero", "987");
+        assertTrue(service.observeProvider(id, false));
+        assertEquals(State.CHOOSE_SOURCE, service.currentResolution().state());
+        String selected = service.chooseSource(service.observation(), null, true);
+        service.setSaveLocation(service.source(), ModConfig.SaveLocation.DOWNLOADED);
+        var target = service.prepare(service.source());
+        assertEquals(selected, target.parentNodeId());
+        assertEquals(selected, target.sourceId());
+        var reopened = service();
+        reopened.refresh();
+        reopened.beginObservation(remote());
+        reopened.observeProvider(id, false);
+        assertEquals(selected, reopened.currentResolution().sourceNodeId());
+        assertEquals(target, reopened.target(reopened.source()));
+    }
 
     @Test
     void migratesLegacyConfigMetadataAndIndexThenOnlyUsesTheGraph() throws Exception {

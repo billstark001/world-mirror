@@ -9,18 +9,17 @@ class ExportSchedulerTest {
     @Test
     void captureReadinessAndNotificationAreIndependentRequestProperties() {
         var pending = new ExportScheduler.Pending();
-        var source = ExportTestTargets.source("server:request");
+        var source = ExportTestTargets.session("server:request");
         var quietScan = new ExportWork.Intent(
                 new ExportWork.Context(ExportWork.Trigger.MANUAL, false, source),
-                ExportWork.CapturePhase.READY, ExportWork.EntityScope.LIVE, true, java.util.Optional.empty(),
-                io.github.billstark001.worldmirror.io.WorldSettingsSnapshot.defaults());
+                ExportWork.CapturePhase.READY, ExportWork.EntityScope.LIVE, true, java.util.Optional.empty());
         pending.request(quietScan);
         assertEquals(null, pending.poll(true, 0));
         assertEquals(quietScan, pending.poll(false, 0));
         var notifiedExport =
                 new ExportWork.Intent(new ExportWork.Context(ExportWork.Trigger.MANUAL, true, source),
                         ExportWork.CapturePhase.READY, ExportWork.EntityScope.LIVE, false,
-                        java.util.Optional.empty(), quietScan.settings());
+                        java.util.Optional.empty());
         pending.request(notifiedExport);
         assertEquals(notifiedExport, pending.poll(true, 0));
     }

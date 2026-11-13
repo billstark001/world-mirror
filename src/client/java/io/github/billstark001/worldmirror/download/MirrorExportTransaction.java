@@ -61,15 +61,15 @@ final class MirrorExportTransaction {
         try {
             worldFolder = output.claim();
         } catch (Exception preparationFailure) {
-            OperationFailures.report(work.context().source().id(), "output_claim", null, preparationFailure);
+            OperationFailures.report(work.context().session().id(), "output_claim", null, preparationFailure);
             return ExportOutcome.failed(work);
         }
-        var target = work.context().source().target();
+        var target = work.context().session().target();
         String sourceId = target.sourceId();
         var snapshot = work.terrain();
         var entitySnapshot = work.entities();
         var containerSnapshot = work.containers();
-        var worldSettings = work.settings();
+        var worldSettings = work.context().session().settings().worldSettings();
         ChunkDatabase db = null;
         var result = ExportOutcome.failed(work).result();
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> durableWritten = new HashMap<>();

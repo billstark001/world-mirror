@@ -15,7 +15,7 @@ final class LocalWorldIdentity {
 
     private record Document(int schema, String nodeId) {
         boolean valid() {
-            return schema == 1 && nodeId != null && nodeId.startsWith("local:") && nodeId.length() > 6;
+            return schema == 1 && WorldGraph.isNodeId(nodeId) && nodeId.startsWith("local:");
         }
     }
 

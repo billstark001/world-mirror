@@ -49,7 +49,7 @@ final class WorldGraphInventory {
     private record
             Candidate(Location location, Path path, WorldMetadata metadata, LegacyWorldMetadata legacy) {}
     private record RemoteEvidence(String indexSource, String parentId) {}
-    record Result(Snapshot graph, Map<String, String> indexSources) {}
+    record Result(Snapshot graph, Map<String, String> indexSources, List<Location> untrackedLocalWorlds) {}
 
     private final Path game;
     private final Path configDirectory;
@@ -73,6 +73,26 @@ final class WorldGraphInventory {
     Location locationOf(Path folder) {
         return new Location(folder.getParent().equals(root(Root.SAVES)) ? Root.SAVES : Root.DOWNLOADED,
                 folder.getFileName().toString());
+    }
+
+    /** Checks a local original before a caller assigns or reuses its persistent identity. */
+    Path localOriginal(Location location) throws IOException {
+        if (location.root() != Root.SAVES)
+            throw new IOException("Local original must be in the saves directory: " + location.folder());
+        Path saves = root(Root.SAVES);
+        Path folder = saves.resolve(location.folder());
+        requirePlainRoot(saves);
+        requirePlainRoot(folder);
+        requireLocalOriginalFiles(folder);
+        return folder;
+    }
+
+    private static void requireLocalOriginalFiles(Path folder) throws IOException {
+        Path level = folder.resolve("level.dat");
+        FileProof.requirePlainFile(level);
+        if (!Files.isReadable(level) || WorldMetadata.inspectSchema(folder) != WorldMetadata.Schema.MISSING
+                || !Files.notExists(folder.resolve(MirrorClaim.FILE_NAME), LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("Local original unavailable: " + folder);
     }
 
     static void requirePlainRoot(Path path) throws IOException {
@@ -174,8 +194,8 @@ final class WorldGraphInventory {
                         "World metadata upgrade deferred: " + candidate.path(), failure);
             }
         }
-        scanLocalWorldsAndClaims(folders, deferred, legacy, legacyClaims, remoteIds, knownLegacyIds, observed,
-                byLocation, pending);
+        List<Location> untrackedLocalWorlds = scanLocalWorldsAndClaims(folders, deferred, legacy,
+                legacyClaims, remoteIds, knownLegacyIds, observed, byLocation, pending);
         rules.values()
                 .stream()
                 .flatMap(rule -> rule.sourceIds().stream())
@@ -224,7 +244,7 @@ final class WorldGraphInventory {
                 indexSources.put(node.id(), indexSource);
             }
         }
-        publish.accept(new Result(graph, Map.copyOf(indexSources)));
+        publish.accept(new Result(graph, Map.copyOf(indexSources), untrackedLocalWorlds));
         migration.complete(allocations, pending.keySet());
     }
 
@@ -273,9 +293,11 @@ final class WorldGraphInventory {
         return candidates;
     }
 
-    private void scanLocalWorldsAndClaims(List<Path> folders, Set<Path> deferred, LegacyRouting legacy,
-            Map<Path, String> legacyClaims, Map<String, String> remoteIds, Map<String, String> knownLegacyIds,
-            List<Node> observed, Map<Location, Candidate> byLocation, Map<String, PendingImport> pending) {
+    private List<Location> scanLocalWorldsAndClaims(List<Path> folders, Set<Path> deferred,
+            LegacyRouting legacy, Map<Path, String> legacyClaims, Map<String, String> remoteIds,
+            Map<String, String> knownLegacyIds, List<Node> observed, Map<Location, Candidate> byLocation,
+            Map<String, PendingImport> pending) {
+        List<Location> untracked = new ArrayList<>();
         Map<String, List<WorldMetadata>> completed = new HashMap<>();
         for (Candidate candidate : byLocation.values()) {
             WorldMetadata metadata = candidate.metadata();
@@ -291,6 +313,7 @@ final class WorldGraphInventory {
             PendingImport previous = pending.get(key);
             if (previous != null && !previous.reason().equals("claim_upgrade_deferred")
                     && !previous.reason().equals("local_identity_deferred")
+                    && !previous.reason().equals("duplicate_identity_deferred")
                     && !previous.reason().equals("relocation_deferred")
                     && !previous.reason().equals("invalid_mirror_claim"))
                 continue;
@@ -336,24 +359,21 @@ final class WorldGraphInventory {
                     }
                     continue;
                 }
-                if (WorldMetadata.inspectSchema(folder) != WorldMetadata.Schema.MISSING
-                        || !Files.isRegularFile(folder.resolve("level.dat"), LinkOption.NOFOLLOW_LINKS)
-                        || location.root() != Root.SAVES)
+                if (location.root() != Root.SAVES
+                        || !Files.isRegularFile(folder.resolve("level.dat"), LinkOption.NOFOLLOW_LINKS))
                     continue;
+                requireLocalOriginalFiles(folder);
                 String id = LocalWorldIdentity.read(folder);
-                if (id == null) {
-                    try (WorldWriteLock ignored = WorldWriteLock.acquire(folder)) {
-                        if (WorldMetadata.inspectSchema(folder) != WorldMetadata.Schema.MISSING)
-                            continue;
-                        id = LocalWorldIdentity.ensure(folder);
-                    }
-                }
                 pending.remove(key);
-                observed.add(new Node(id, null, location, Kind.LOCAL, null));
+                if (id == null)
+                    untracked.add(location);
+                else
+                    observed.add(new Node(id, null, location, Kind.LOCAL, null));
             } catch (IOException | RuntimeException failure) {
                 pending.put(key, new PendingImport(null, location, "local_identity_deferred"));
             }
         }
+        return List.copyOf(untracked);
     }
 
     private Snapshot repairDuplicates(List<Node> observed, Map<String, Location> affinity,

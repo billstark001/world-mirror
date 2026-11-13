@@ -5,10 +5,12 @@
   "client": [
     "ClientEntityLifecycleMixin",
     "ChunkDataMixin",
+    "ConnectionRoutingMixin",
     "ContainerMixin",
     "SectionBlocksUpdatePacketAccessor",
     "WorldOpenFlowsMixin",
-    "WorldOverlayRenderMixin"
+    "WorldOverlayRenderMixin",
+    "XaeroWorldIdentityMixin"
   ],
   "injectors": {
     "defaultRequire": 1

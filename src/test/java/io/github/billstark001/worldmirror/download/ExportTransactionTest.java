@@ -5,7 +5,6 @@ import io.github.billstark001.worldmirror.conflict.OverwriteResolver;
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.core.EntityTracker;
 import io.github.billstark001.worldmirror.io.ExportProgress;
-import io.github.billstark001.worldmirror.io.WorldSettingsSnapshot;
 import net.minecraft.SharedConstants;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.Bootstrap;
@@ -110,7 +109,7 @@ class ExportTransactionTest {
         for (int revision = 1; revision <= 2; revision++) {
             var base = terrain(revision);
             var work = new ExportWork.Frozen(base.context(), base.terrain(),
-                    Map.of(Level.OVERWORLD, Map.of(new ChunkPos(0, 0), update)), Map.of(), base.settings(), 0,
+                    Map.of(Level.OVERWORLD, Map.of(new ChunkPos(0, 0), update)), Map.of(), 0,
                     OptionalLong.empty());
             status.queued(work);
             var phases = new java.util.ArrayList<ExportProgress.Part>();
@@ -121,7 +120,7 @@ class ExportTransactionTest {
                         status.writing(work, part, dimension, chunks);
                         phases.add(part);
                         assertEquals(ExportStatus.State.WRITING,
-                                status.inRange(work.context().source().id(), dimension, 0, 0, 0, 0)
+                                status.inRange(work.context().session().id(), dimension, 0, 0, 0, 0)
                                         .getFirst()
                                         .state());
                     });
@@ -146,7 +145,7 @@ class ExportTransactionTest {
         assertTrue(recovered.successful());
         assertEquals(0, recovered.result().totalWritten());
         assertTrue(status.finish(retry, recovered).settled());
-        assertEquals(1, status.health(retry.context().source().id()).counts().succeeded());
+        assertEquals(1, status.health(retry.context().session().id()).counts().succeeded());
     }
 
     @Test
@@ -163,7 +162,7 @@ class ExportTransactionTest {
             var failed = write(work, world, new OverwriteResolver());
             assertEquals(1, status.finish(work, failed).counts().failed());
             assertEquals(
-                    ExportStatus.FailureStage.INDEX, status.health(work.context().source().id()).stage());
+                    ExportStatus.FailureStage.INDEX, status.health(work.context().session().id()).stage());
             assertTrue(failed.result().chunkWritesSuccessful());
             assertFalse(failed.indexCommitted());
             assertTrue(failed.durableWritten().isEmpty());
@@ -236,8 +235,8 @@ class ExportTransactionTest {
                 Map.of(new ChunkPos(0, 0),
                         new ChunkListener.CapturedChunk(nbt, revision * 100L, revision, false))));
         return new ExportWork.Frozen(new ExportWork.Context(ExportWork.Trigger.STOP, false,
-                                             ExportTestTargets.source("server:transaction")),
-                snapshot, Map.of(), Map.of(), WorldSettingsSnapshot.defaults(), 0, OptionalLong.empty());
+                                             ExportTestTargets.session("server:transaction")),
+                snapshot, Map.of(), Map.of(), 0, OptionalLong.empty());
     }
 
     private static MirrorExportTransaction.ExportOutcome write(
@@ -258,8 +257,8 @@ class ExportTransactionTest {
         Path blocked = io.github.billstark001.worldmirror.io.WorldSaveLayout.regionDirectory(world, bad);
         Files.createDirectories(blocked.getParent());
         Files.writeString(blocked, "not a directory");
-        var work = new ExportWork.Frozen(original.context(), snapshot, Map.of(), Map.of(),
-                original.settings(), 0, OptionalLong.empty());
+        var work = new ExportWork.Frozen(
+                original.context(), snapshot, Map.of(), Map.of(), 0, OptionalLong.empty());
         var outcome = write(work, world, new OverwriteResolver());
         assertEquals(2, outcome.result().totalWritten());
         assertTrue(outcome.indexCommitted());
@@ -278,7 +277,7 @@ class ExportTransactionTest {
                         Map.of(new ChunkPos(0, 0),
                                 new EntityTracker.ChunkUpdate(
                                         2, EntityTracker.Observation.COMPLETE, Map.of(), Set.of()))),
-                Map.of(), original.settings(), 0, OptionalLong.empty());
+                Map.of(), 0, OptionalLong.empty());
         var outcome = write(work, world, new OverwriteResolver());
         assertEquals(1, outcome.result().totalWritten());
         assertTrue(outcome.indexCommitted());

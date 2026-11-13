@@ -35,11 +35,11 @@ class WorldGraphConfigTest {
                 Map.of(node.id(), node.location()),
                 Map.of("remote:missing-source",
                         new WorldGraphConfig.SourceSettings(node.id(), ModConfig.SaveLocation.SAVES, "镜像",
-                                ModConfig.ConflictStrategy.IGNORE)),
+                                ModConfig.ConflictStrategy.IGNORE, null)),
                 Map.of(node.id(), new WorldGraphConfig.MirrorSettings(ModConfig.ConflictStrategy.MANUAL)),
                 Map.of("example.test",
-                        new WorldGraphConfig.EndpointRule(
-                                "group", sources, "remote:missing-source", WorldGraphConfig.IdPolicy.AUTO)),
+                        new WorldGraphConfig.EndpointRule("group", sources, "remote:missing-source",
+                                WorldGraphConfig.IdPolicy.PREFER_BOUND_ID)),
                 bindings,
                 Map.of("pending",
                         new WorldGraphConfig.PendingImport(null, location, "local_source_ambiguous")));
@@ -64,9 +64,52 @@ class WorldGraphConfigTest {
         assertThrows(IllegalArgumentException.class,
                 ()
                         -> new WorldGraphConfig.EndpointRule("group", Set.of("mirror:physical-save"), null,
-                                WorldGraphConfig.IdPolicy.AUTO));
+                                WorldGraphConfig.IdPolicy.PREFER_BOUND_ID));
         assertThrows(IllegalArgumentException.class,
                 () -> new WorldGraphConfig.StableBinding("provider", "group", "advertised", "local:world"));
+    }
+
+    @Test
+    void opensPreviouslyPersistedAutoPolicyAndPublishesTheNewSpelling(@TempDir Path root) throws Exception {
+        Path file = root.resolve(WorldGraphConfig.FILE_NAME);
+        Files.writeString(file, """
+                {"schema":2,"nodes":{},"locations":{},"sourceSettings":{},"mirrorSettings":{},
+                 "endpointRules":{"example.test":{"addressGroupId":"group","sourceIds":["remote:world"],
+                 "defaultSourceId":"remote:world","idPolicy":"AUTO"}},"stableBindings":[],"pendingImports":{}}
+                """);
+        WorldGraphConfig store = WorldGraphConfig.open(file);
+        var before = store.snapshot();
+        assertEquals(WorldGraphConfig.IdPolicy.PREFER_BOUND_ID,
+                before.endpointRules().get("example.test").idPolicy());
+        assertFalse(Files.readString(file).contains("AUTO"));
+        assertTrue(Files.readString(file).contains("PREFER_BOUND_ID"));
+        var next = before.withStableBinding(
+                new WorldGraphConfig.StableBinding("xaero", "group", "-1", "remote:world"));
+        assertTrue(store.replace(before, next));
+        assertTrue(Files.readString(file).contains("PREFER_BOUND_ID"));
+        assertEquals(next, WorldGraphConfig.open(file).snapshot());
+    }
+
+    @Test
+    void aliasChangesLeaveGraphNodesAndStableBindingsInPlace() {
+        var node = new WorldGraph.Node("remote:world", null, null, WorldGraph.Kind.REMOTE, null);
+        var binding = new WorldGraphConfig.StableBinding("xaero", "group", "-1", node.id());
+        var rule = new WorldGraphConfig.EndpointRule(
+                "group", Set.of(node.id()), node.id(), WorldGraphConfig.IdPolicy.PREFER_BOUND_ID);
+        var snapshot = WorldGraphConfig.Snapshot.empty()
+                               .withNodes(Map.of(node.id(), node))
+                               .withEndpointRule("first.test", rule)
+                               .withEndpointRule("second.test", rule)
+                               .withStableBinding(binding);
+        assertThrows(IllegalArgumentException.class,
+                ()
+                        -> snapshot.withStableBinding(
+                                new WorldGraphConfig.StableBinding("xaero", "other", "-1", node.id())));
+        var unaliased = snapshot.withEndpointRule("FIRST.test:25565", null);
+        assertEquals(Map.of("second.test", rule), unaliased.endpointRules());
+        assertEquals(snapshot.nodes(), unaliased.nodes());
+        assertEquals(List.of(binding), unaliased.stableBindings());
+        assertEquals(List.of(), unaliased.withoutStableBinding("xaero", "group", "-1").stableBindings());
     }
 
     @Test

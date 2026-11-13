@@ -4,7 +4,6 @@ import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.core.EntityTracker;
 import io.github.billstark001.worldmirror.io.ChunkExporter;
 import io.github.billstark001.worldmirror.io.ExportProgress;
-import io.github.billstark001.worldmirror.io.WorldSettingsSnapshot;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
@@ -20,6 +19,12 @@ import static org.junit.jupiter.api.Assertions.*;
 class ExportStatusStoreTest {
     private static final ChunkPos POS = new ChunkPos(-33, 65);
 
+    @org.junit.jupiter.api.BeforeAll
+    static void bootstrap() {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
+    }
+
     @Test
     void mixedBatchCountersMatchItsPublishedChunkReceipts() {
         var chunks = new java.util.HashMap<ChunkPos, ChunkListener.CapturedChunk>();
@@ -32,8 +37,8 @@ class ExportStatusStoreTest {
         }
         var base = work("mixed", -1, -1);
         var work = new ExportWork.Frozen(base.context(),
-                ChunkListener.snapshotOf(Map.of(Level.OVERWORLD, chunks)), Map.of(), Map.of(),
-                base.settings(), 0, OptionalLong.empty());
+                ChunkListener.snapshotOf(Map.of(Level.OVERWORLD, chunks)), Map.of(), Map.of(), 0,
+                OptionalLong.empty());
         var store = new ExportStatusStore();
         store.queued(work);
         store.writing(work, ExportProgress.Part.TERRAIN, Level.OVERWORLD, chunks.keySet());
@@ -171,6 +176,18 @@ class ExportStatusStoreTest {
     }
 
     @Test
+    void siblingsSharingAnIndexNamespaceKeepSeparateReceipts() {
+        var store = new ExportStatusStore();
+        var a = work(ExportTestTargets.session("mirror:first", "remote:shared", "server:shared"), 1, -1);
+        var b = work(ExportTestTargets.session("mirror:second", "remote:shared", "server:shared"), 2, -1);
+        store.queued(a);
+        store.queued(b);
+        store.finish(a, outcome(a, true, true, true));
+        assertEquals(SUCCEEDED, chunk(store, "first").state());
+        assertEquals(QUEUED, chunk(store, "second").state());
+    }
+
+    @Test
     void completedObservationSurvivesWithoutLiveCacheAndNewCaptureBecomesQueued() {
         var store = new ExportStatusStore();
         var work = work("a", 1, -1);
@@ -204,8 +221,11 @@ class ExportStatusStoreTest {
         return store.inRange("mirror:" + source, Level.OVERWORLD, -33, -33, 65, 65).getFirst();
     }
     static ExportWork.Frozen work(String source, long terrain, long entity) {
-        return new ExportWork.Frozen(
-                new ExportWork.Context(ExportWork.Trigger.PERIODIC, false, ExportTestTargets.source(source)),
+        return work(ExportTestTargets.session(source), terrain, entity);
+    }
+
+    private static ExportWork.Frozen work(CaptureSession session, long terrain, long entity) {
+        return new ExportWork.Frozen(new ExportWork.Context(ExportWork.Trigger.PERIODIC, false, session),
                 ChunkListener.snapshotOf(terrain < 0
                                 ? Map.of()
                                 : Map.of(Level.OVERWORLD,
@@ -217,7 +237,7 @@ class ExportStatusStoreTest {
                                      Map.of(POS,
                                              new EntityTracker.ChunkUpdate(entity,
                                                      EntityTracker.Observation.PARTIAL, Map.of(), Set.of()))),
-                Map.of(), WorldSettingsSnapshot.defaults(), 0, OptionalLong.empty());
+                Map.of(), 0, OptionalLong.empty());
     }
     static MirrorExportTransaction.ExportOutcome outcome(
             ExportWork.Frozen work, boolean terrain, boolean entities, boolean metadata) {

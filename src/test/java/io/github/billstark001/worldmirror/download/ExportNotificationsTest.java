@@ -65,7 +65,7 @@ class ExportNotificationsTest {
         store.queued(automatic);
         notices.observe(store.finish(automatic, ExportStatusStoreTest.outcome(automatic, true, false, true)));
         assertFalse(notices.poll(0).recovered());
-        for (int i = 1; i < 100; i++) notices.observe(store.health(automatic.context().source().id()));
+        for (int i = 1; i < 100; i++) notices.observe(store.health(automatic.context().session().id()));
         assertNull(notices.poll(29_999));
         assertEquals(99, notices.poll(30_000).merged());
         assertNull(notices.poll(30_001));

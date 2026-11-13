@@ -7,11 +7,17 @@ import io.github.billstark001.worldmirror.core.EntityTracker;
 import io.github.billstark001.worldmirror.io.ChunkExporter;
 import io.github.billstark001.worldmirror.io.ChunkSerializer;
 import io.github.billstark001.worldmirror.io.MirrorTarget;
-import io.github.billstark001.worldmirror.io.WorldSettingsSnapshot;
+import io.github.billstark001.worldmirror.io.WorldStructureCreator;
+import io.github.billstark001.worldmirror.download.WorldSourceResolver.ConnectionObservation;
+import io.github.billstark001.worldmirror.download.WorldSourceResolver.ProviderObservation;
+import io.github.billstark001.worldmirror.download.WorldSourceResolver.State;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.util.WMPlayerMessages;
+import io.github.billstark001.worldmirror.util.OfflineTasks;
 import io.github.billstark001.worldmirror.ui.ClientDialogs;
 import io.github.billstark001.worldmirror.ui.MirrorPrompt;
+import io.github.billstark001.worldmirror.ui.CaptureRouteScreen;
+import io.github.billstark001.worldmirror.xaero.XaeroWorldIdentity;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -30,6 +36,7 @@ import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -56,7 +63,9 @@ public final class DownloadManager {
     private static final int INITIAL_CAPTURE_RANGE = 33;
     private static final int STOP_CAPTURE_RANGE = 6;
     private static final long CACHE_EVICTION_INTERVAL_MS = 5_000L;
-    private static volatile boolean mirrorCaptureWarningShown;
+    private static final long PREPARING_NOTICE_NS = 200_000_000L;
+    private static final long SOURCE_WAIT_NOTICE_NS = 2_000_000_000L;
+    private static boolean mirrorCaptureWarningShown;
     private static final ExportScheduler exportScheduler = new ExportScheduler();
     private static final LatencyWindow worldFrameIntervals = new LatencyWindow(8192);
     private static final LatencyWindow worldMirrorTickWork = new LatencyWindow(4096);
@@ -85,7 +94,42 @@ public final class DownloadManager {
     private static volatile ResourceKey<Level> lastDimension = null;
 
     /** Target and conflict policy frozen for the current capture session. */
-    private static volatile ExportWork.Source captureSource;
+    private static volatile CaptureSession captureSession;
+    private static volatile long sourceEpoch;
+    private static volatile String selectedMirror;
+    private static volatile boolean createMirror;
+    private static volatile boolean preparingRoute;
+    private static volatile PendingRoute pendingRoute;
+    private static volatile boolean preparingDownload;
+    private static volatile long routeRequestId;
+    private static PreparationReview downloadReview;
+    private static boolean respawnBoundary;
+    private static long respawnDeadline;
+
+    private record PendingRoute(long id, ClientPacketListener connection, Runnable action, boolean manual,
+            long requestedAt, boolean announced) {
+        PendingRoute announcedNow() {
+            return new PendingRoute(id, connection, action, manual, requestedAt, true);
+        }
+    }
+
+    public static boolean isDownloadPreparing() {
+        return preparingDownload;
+    }
+
+    public static boolean hasDownloadPreparationReview() {
+        var review = downloadReview;
+        return review != null && review.origin().matches(Minecraft.getInstance());
+    }
+
+    public static void reviewDownloadPreparation() {
+        var review = downloadReview;
+        var client = Minecraft.getInstance();
+        if (review == null || !review.origin().matches(client) || preparingRoute)
+            return;
+        showOutputProblem(
+                client, review.origin(), review.target(), review.onReady(), review.plan(), true, false);
+    }
 
     /** User-enabled capture, including resource pauses; packet and unload hooks stay enabled. */
     public static boolean isCaptureEnabled() {
@@ -94,8 +138,12 @@ public final class DownloadManager {
 
     /** Enabled capture can be temporarily reduced or paused without changing its toggle. */
     public static String captureStatusKey() {
-        if (!captureEnabled)
-            return "screen.worldmirror.status.downloadInactive";
+        if (!captureEnabled) {
+            if (hasDownloadPreparationReview())
+                return "screen.worldmirror.status.downloadNeedsReview";
+            return preparingDownload ? "screen.worldmirror.status.downloadPreparing"
+                                     : "screen.worldmirror.status.downloadInactive";
+        }
         return switch (capturePolicy.mode()) {
             case NORMAL -> "screen.worldmirror.status.downloadActive";
             case REDUCED -> "screen.worldmirror.status.downloadDegraded";
@@ -142,7 +190,7 @@ public final class DownloadManager {
         if (!captureEnabled || world == null)
             return false;
         Minecraft client = Minecraft.getInstance();
-        return client.level == world && WorldGraphService.instance().observationIsCurrent(client);
+        return client.level == world && sessionIsCurrent(client, captureSession);
     }
 
     public static void markEntitiesDirty(ClientLevel world) {
@@ -211,12 +259,19 @@ public final class DownloadManager {
             return;
         if (captureEnabled) {
             captureEnabled = false;
-            finishPendingBlockChanges(client);
-            clearPendingCaptureState();
+            if (sessionIsCurrent(client, captureSession))
+                finishPendingBlockChanges(client);
+            clearPendingCaptureState(!respawnBoundary);
             finalizeCaptureOnStop(client, "manual-toggle");
             WMPlayerMessages.sendOverlayMessage(
                     client.player, Component.translatable("msg.worldmirror.downloadStop"));
             WMLogger.debug("Download deactivated");
+            return;
+        }
+        if (preparingDownload || hasDownloadPreparationReview()) {
+            cancelRouteRequest();
+            WMPlayerMessages.sendOverlayMessage(
+                    client.player, Component.translatable("msg.worldmirror.downloadStop"));
             return;
         }
         requestDownloadStart(client, "manual-toggle");
@@ -226,24 +281,34 @@ public final class DownloadManager {
      * Performs an immediate one-shot export regardless of the toggle state.
      */
     public static void exportNow(Minecraft client) {
-        if (manualExportChecking || client.level == null
-                || !WorldGraphService.instance().observationIsCurrent(client))
+        if (preparingDownload || hasDownloadPreparationReview() || manualExportChecking
+                || client.level == null || !WorldGraphService.instance().observationIsCurrent(client))
             return;
-        requestOutputReady(client, OutputOrigin.current(client), () -> exportNowReady(client), true);
+        if (noManualExportWork(client)) {
+            WMPlayerMessages.sendSystemMessage(
+                    client.player, Component.translatable("msg.worldmirror.noChunks"));
+            return;
+        }
+        requestRoute(client, () -> exportNowReady(client), true);
+    }
+
+    private static boolean noManualExportWork(Minecraft client) {
+        if (ModConfig.get().lifecycle.captureNearbyBeforeExport && client.level != null
+                && client.player != null)
+            return false;
+        return ChunkListener.isEmpty() && !EntityTracker.hasDirtyUpdates()
+                && (captureSession == null || !exportCoordinator.hasEntityWork());
     }
 
     private static void exportNowReady(Minecraft client) {
         updateResourceState(client, System.nanoTime() / 1_000_000L);
-        boolean canPreCapture = ModConfig.get().lifecycle.captureNearbyBeforeExport && client.level != null
-                && client.player != null;
-        if (ChunkListener.isEmpty() && !exportCoordinator.hasEntityWork() && !EntityTracker.hasDirtyUpdates()
-                && !canPreCapture) {
+        if (noManualExportWork(client)) {
             Component msg = Component.translatable("msg.worldmirror.noChunks");
             WMPlayerMessages.sendSystemMessage(client.player, msg);
             WMLogger.debug("Manual export ignored because no chunks are cached.");
             return;
         }
-        var request = exportRequest(client, ExportWork.Trigger.MANUAL, true);
+        var request = exportRequest(ExportWork.Trigger.MANUAL, true);
         if (exportCoordinator.isInProgress()) {
             WMPlayerMessages.sendSystemMessage(
                     client.player, Component.translatable("msg.worldmirror.exportBusy"));
@@ -279,9 +344,8 @@ public final class DownloadManager {
         downloadSessionStartedAtMs = 0L;
         boolean wasActive = captureEnabled;
         captureEnabled = false;
-        if (wasActive)
-            freezeStoppedSource();
-        captureSource = null;
+        freezeStoppedSource(false);
+        resetRoute();
         clearPendingCaptureState(false);
         clearCapturedWorldState();
         mirrorCaptureWarningShown = false;
@@ -304,19 +368,19 @@ public final class DownloadManager {
     public static void onLeaveWorld(Minecraft client) {
         if (captureEnabled) {
             captureEnabled = false;
-            if (WorldGraphService.instance().observationIsCurrent(client)) {
+            if (sessionIsCurrent(client, captureSession)) {
                 finishPendingBlockChanges(client);
                 clearPendingCaptureState();
                 finalizeCaptureOnStop(client, "leave-world");
             } else {
-                freezeStoppedSource();
+                freezeStoppedSource(false);
                 clearPendingCaptureState(false);
             }
         } else {
             clearPendingCaptureState();
         }
         lastDimension = null;
-        captureSource = null;
+        resetRoute();
         captureEnabled = false; // no world to download — always stop
         ContainerTracker.clear();
         WMLogger.debug("Left world; download deactivated.");
@@ -356,33 +420,33 @@ public final class DownloadManager {
     }
 
     private static void processClientTick(Minecraft client) {
-        exportCoordinator.drainCompletions(captureSource);
+        exportCoordinator.drainCompletions(captureSession);
         if (client.level == null) {
             dispatchExports(client, currentBudget(), System.nanoTime() / 1_000_000L);
             return;
         }
 
         ResourceKey<Level> currentDim = client.level.dimension();
-        if (WorldGraphService.instance().updateRemoteObservation(client)) {
-            boolean wasActive = captureEnabled;
-            captureEnabled = false;
-            clearPendingCaptureState(false);
-            if (wasActive)
-                freezeStoppedSource();
-            captureSource = null;
-            clearCapturedWorldState();
+        var graph = WorldGraphService.instance();
+        if (graph.updateRemoteObservation(client)) {
+            logicalWorldChanged(client);
             lastDimension = currentDim;
-            var behavior = ModConfig.get().lifecycle.onServerWorldChange;
-            if (behavior == ModConfig.TransitionBehavior.START
-                    || (behavior == ModConfig.TransitionBehavior.KEEP && wasActive)) {
-                requestDownloadStart(client, "server-world-change");
-            } else if (wasActive) {
-                WMPlayerMessages.sendOverlayMessage(
-                        client.player, Component.translatable("msg.worldmirror.downloadStop"));
+        }
+        var evidence = XaeroWorldIdentity.observe(client);
+        if (graph.observeProvider(evidence, captureSession != null))
+            logicalWorldChanged(client);
+        if (respawnBoundary && System.nanoTime() - respawnDeadline >= 0L) {
+            respawnBoundary = false;
+            if (graph.expectsIdentity() && captureSession != null) {
+                graph.requireSourceChoice();
+                logicalWorldChanged(client);
+            } else if (captureEnabled) {
+                queueLoadedScan(client, "respawn-capture");
             }
         }
+        continuePendingRoute(client);
         // ── Detect dimension change (Overworld ↔ Nether ↔ End, etc.) ──────────
-        if (lastDimension != null && !lastDimension.equals(currentDim)) {
+        if (!respawnBoundary && lastDimension != null && !lastDimension.equals(currentDim)) {
             WMLogger.debug("Dimension change detected: '" + lastDimension.identifier() + "' → '"
                     + currentDim.identifier() + "'");
             lastDimension = currentDim;
@@ -401,7 +465,8 @@ public final class DownloadManager {
         if (captureEnabled || captureQueue.hasWork() || exportCoordinator.isInProgress())
             updateResourceState(client, now);
         CaptureBudget budget = currentBudget();
-        captureQueue.tick(client, budget);
+        if (sessionIsCurrent(client, captureSession))
+            captureQueue.tick(client, budget);
         dispatchExports(client, budget, now);
         if (!captureEnabled)
             return;
@@ -422,6 +487,12 @@ public final class DownloadManager {
     private static void applyTransition(
             Minecraft client, ModConfig.TransitionBehavior behavior, String eventName) {
         boolean wasActive = captureEnabled;
+        if (behavior == ModConfig.TransitionBehavior.STOP
+                && (preparingDownload || hasDownloadPreparationReview())) {
+            cancelRouteRequest();
+            WMPlayerMessages.sendOverlayMessage(
+                    client.player, Component.translatable("msg.worldmirror.downloadStop"));
+        }
         boolean desired;
         switch (behavior) {
             case START -> desired = true;
@@ -451,8 +522,109 @@ public final class DownloadManager {
     // ── Output path ───────────────────────────────────────────────────────────
 
     public static WorldGraphService.Target captureTarget() {
-        var current = captureSource;
+        var live = liveCaptureTarget();
+        if (live != null)
+            return live;
+        return WorldGraphService.instance().targetById(selectedMirror);
+    }
+
+    public static WorldGraphService.Target liveCaptureTarget() {
+        var current = captureSession;
         return current == null ? null : current.target();
+    }
+
+    public static void selectMirror(String id) {
+        selectMirror(id, false);
+    }
+
+    public static void createDownloadMirror() {
+        if (WorldGraphService.instance().currentResolution().state() != State.RESOLVED)
+            throw new IllegalArgumentException("Resolve the download source first");
+        selectMirror(null, true);
+    }
+
+    public static boolean isNewMirrorSelected() {
+        return createMirror;
+    }
+
+    public static boolean canChooseDownloadSource() {
+        var graph = WorldGraphService.instance();
+        var observation = graph.observation();
+        if (!graph.available() || observation == null || observation.endpoint() == null || hasManualExport())
+            return false;
+        var rule = graph.configSnapshot().endpointRules().get(observation.endpoint());
+        return rule == null || rule.idPolicy() != WorldGraphConfig.IdPolicy.REQUIRE_BOUND_ID
+                || graph.currentResolution().state() != State.WAITING_ID;
+    }
+
+    public static void chooseDownloadSource() {
+        if (!canChooseDownloadSource())
+            return;
+        var graph = WorldGraphService.instance();
+        var client = Minecraft.getInstance();
+        var connection = client.getConnection();
+        var observation = graph.observation();
+        var resolution = graph.currentResolution();
+        openSourceChooser(client, observation, resolution, (id, create) -> {
+            if (connection != client.getConnection() || !graph.observationIsCurrent(client))
+                return;
+            String selected = graph.chooseSource(observation, id, create);
+            if (selected == null || Objects.equals(resolution.sourceNodeId(), selected))
+                return;
+            boolean active = captureEnabled;
+            boolean restart = preparingDownload || downloadReview != null;
+            if (!active && restart && pendingRoute != null) {
+                // Resolve the retained start request without creating another action or dropping the choice.
+                continuePendingRoute(client);
+                return;
+            }
+            if (sessionIsCurrent(client, captureSession)) {
+                finishPendingBlockChanges(client);
+                captureQueue.finishLightUpdates();
+            }
+            endCaptureSession(true);
+            cancelRouteRequest();
+            selectedMirror = null;
+            createMirror = false;
+            if (active || restart)
+                requestDownloadStart(client, "source-selection");
+        });
+    }
+
+    private static void selectMirror(String id, boolean create) {
+        var graph = WorldGraphService.instance();
+        var target = graph.targetById(id);
+        if (id != null
+                && (target == null
+                        || !target.parentNodeId().equals(graph.currentResolution().sourceNodeId())))
+            throw new IllegalArgumentException(
+                    "Selected mirror is not a direct target of the resolved source");
+        if (Objects.equals(id, selectedMirror) && create == createMirror)
+            return;
+        if (id == null && !create)
+            target = graph.target(graph.source());
+        var client = Minecraft.getInstance();
+        boolean active = captureEnabled;
+        boolean restart = preparingDownload || hasDownloadPreparationReview();
+        if (captureSession != null && (target == null || !target.nodeId().equals(captureSession.id()))) {
+            boolean safeToSample = sessionIsCurrent(client, captureSession);
+            if (safeToSample)
+                finishPendingBlockChanges(client);
+            endCaptureSession(safeToSample);
+        } else if (captureSession == null) {
+            sourceEpoch++;
+        }
+        selectedMirror = id;
+        createMirror = create;
+        if (restart)
+            cancelRouteRequest();
+        if ((active || restart) && !captureEnabled)
+            requestDownloadStart(client, "mirror-selection");
+    }
+
+    static boolean hasRoutingWork() {
+        // A source choice can wait for user configuration, but a resolved disk check or export owns its route.
+        return captureEnabled || preparingRoute || exportCoordinator.hasQueuedWork();
     }
 
     public static void moveMirrorWorld(Minecraft client, MirrorTarget expected,
@@ -466,7 +638,7 @@ public final class DownloadManager {
             return;
         }
         var graph = WorldGraphService.instance();
-        var target = graph.target(graph.source());
+        var target = graph.targetById(expected.nodeId());
         if (target == null || !graph.observationIsCurrent(client)
                 || !expected.equals(new MirrorTarget(target.folder(), target.nodeId(), target.sourceId()))) {
             completed.accept(MirrorMoveResult.failure("source_missing"));
@@ -493,118 +665,304 @@ public final class DownloadManager {
     }
 
     private static void requestDownloadStart(Minecraft client, String reason) {
-        var origin = OutputOrigin.current(client);
-        if (!origin.matches(client))
+        if (captureEnabled || preparingDownload || client.level == null
+                || !WorldGraphService.instance().observationIsCurrent(client))
             return;
-        Runnable continueStart =
-                () -> requestOutputReady(client, origin, () -> activateDownload(client, reason), false);
-        MirrorWorldContext.Snapshot currentMirror = MirrorWorldContext.current();
-        if (currentMirror.isMirror() && !mirrorCaptureWarningShown) {
-            String bodyKey = currentMirror.state() == MirrorWorldContext.State.OUTDATED
-                    ? "screen.worldmirror.captureMirror.outdated"
-                    : "screen.worldmirror.captureMirror.body";
-            ClientDialogs.confirm(client,
-                    new MirrorPrompt.Confirmation(
-                            new MirrorPrompt.Text("screen.worldmirror.captureMirror.title"),
-                            new MirrorPrompt.Text(bodyKey),
-                            new MirrorPrompt.Text("screen.worldmirror.captureMirror.continue"),
-                            new MirrorPrompt.Text("gui.cancel")),
-                    ()
-                            -> {
-                        if (!origin.matches(client))
-                            return;
-                        mirrorCaptureWarningShown = true;
-                        continueStart.run();
-                    },
-                    () -> {});
+        preparingDownload = true;
+        WMPlayerMessages.sendOverlayMessage(
+                client.player, Component.translatable("screen.worldmirror.status.downloadPreparing"));
+        requestRoute(client, () -> activateDownload(client, reason), false);
+    }
+
+    public static void onRespawnBoundary(ClientPacketListener connection) {
+        var client = Minecraft.getInstance();
+        if (connection == client.getConnection() && client.getSingleplayerServer() == null) {
+            if (captureSession != null && sessionIsCurrent(client, captureSession)) {
+                finishPendingBlockChanges(client);
+                captureQueue.finishLightUpdates();
+                captureQueue.clear();
+            }
+            respawnBoundary = true;
+            respawnDeadline = System.nanoTime()
+                    + (WorldGraphService.instance().expectsIdentity() ? 2_000_000_000L : 0L);
+        }
+    }
+
+    public static void observeProvider(ClientPacketListener connection, ProviderObservation evidence) {
+        var client = Minecraft.getInstance();
+        var graph = WorldGraphService.instance();
+        if (connection != client.getConnection())
+            return;
+        boolean wasFenced = respawnBoundary;
+        boolean advertised = evidence.state() == WorldSourceResolver.ProviderState.ADVERTISED;
+        boolean routeChanged = graph.observeProvider(evidence, captureSession != null && !wasFenced);
+        if (wasFenced && advertised) {
+            respawnBoundary = false;
+            if (!routeChanged && captureEnabled)
+                queueLoadedScan(client, "respawn-capture");
+        }
+        if (routeChanged)
+            logicalWorldChanged(client);
+    }
+
+    private static void logicalWorldChanged(Minecraft client) {
+        lastDimension = client.level == null ? null : client.level.dimension();
+        selectedMirror = null;
+        createMirror = false;
+        if (captureSession == null && (pendingRoute != null || !preparingRoute && downloadReview == null))
+            return; // first provider response; keep any pending join action
+        boolean active = captureEnabled;
+        boolean starting = preparingDownload || downloadReview != null;
+        endCaptureSession(false);
+        cancelRouteRequest();
+        var behavior = ModConfig.get().lifecycle.onServerWorldChange;
+        if (behavior == ModConfig.TransitionBehavior.START || (starting && !active)
+                || (active && behavior == ModConfig.TransitionBehavior.KEEP)) {
+            requestDownloadStart(client, "server-world-change");
+        } else if (active) {
+            WMPlayerMessages.sendOverlayMessage(
+                    client.player, Component.translatable("msg.worldmirror.downloadStop"));
+        }
+    }
+
+    private static void endCaptureSession(boolean finishLighting) {
+        captureEnabled = false;
+        if (finishLighting)
+            captureQueue.finishLightUpdates();
+        freezeStoppedSource(true);
+        captureSession = null;
+        sourceEpoch++;
+        clearPendingCaptureState(false);
+        clearCapturedWorldState();
+    }
+
+    private static void resetRoute() {
+        captureSession = null;
+        cancelRouteRequest();
+        selectedMirror = null;
+        createMirror = false;
+        respawnBoundary = false;
+        sourceEpoch++;
+    }
+
+    private static void cancelRouteRequest() {
+        routeRequestId++;
+        pendingRoute = null;
+        preparingDownload = false;
+        downloadReview = null;
+    }
+
+    private static boolean sessionIsCurrent(Minecraft client, CaptureSession session) {
+        var graph = WorldGraphService.instance();
+        return session != null && !respawnBoundary && session.connectionEpoch() == graph.connectionEpoch()
+                && session.sourceEpoch() == sourceEpoch && graph.observationIsCurrent(client);
+    }
+
+    private static void requestRoute(Minecraft client, Runnable action, boolean manual) {
+        if (client.level == null)
+            return;
+        pendingRoute = new PendingRoute(
+                ++routeRequestId, client.getConnection(), action, manual, System.nanoTime(), false);
+        continuePendingRoute(client);
+    }
+
+    private static void continuePendingRoute(Minecraft client) {
+        var request = pendingRoute;
+        if (request == null || preparingRoute || client.level == null || respawnBoundary)
+            return;
+        long elapsed = System.nanoTime() - request.requestedAt();
+        // Give the HUD and status screen a chance to show preparation even for cached targets.
+        if (!request.manual() && elapsed < PREPARING_NOTICE_NS)
+            return;
+        var graph = WorldGraphService.instance();
+        if (request.connection() != client.getConnection() || !graph.observationIsCurrent(client)) {
+            cancelRouteRequest();
             return;
         }
-        continueStart.run();
+        if (!graph.available())
+            return;
+        if (graph.needsLocalIdentity(client)) {
+            preparingRoute = true;
+            manualExportChecking = request.manual();
+            graph.requireLinkedSource(client).whenComplete((id, failure) -> {
+                preparingRoute = false;
+                manualExportChecking = false;
+                if (pendingRoute != request || request.connection() != client.getConnection())
+                    return;
+                if (failure == null) {
+                    continuePendingRoute(client);
+                } else {
+                    cancelRouteRequest();
+                    WMLogger.warnRateLimited("local-world-identity", 30_000L,
+                            "Could not assign the active world's identity", failure);
+                    showOutputProblem(client, OutputOrigin.current(client), null, request.action(), null,
+                            request.manual(), request.manual());
+                }
+            });
+            return;
+        }
+        var resolution = graph.currentResolution();
+        if (resolution.state() == State.RESOLVED) {
+            pendingRoute = null;
+            requestOutputReady(client, OutputOrigin.current(client), request.action(), request.manual());
+            return;
+        }
+        if (resolution.state() == State.WAITING_ID && !request.manual() && elapsed < SOURCE_WAIT_NOTICE_NS)
+            return;
+        var observation = graph.observation();
+        if (observation == null || observation.endpoint() == null) {
+            cancelRouteRequest();
+            return;
+        }
+        var config = graph.configSnapshot();
+        var rule = config.endpointRules().get(observation.endpoint());
+        boolean canChoose = resolution.state() == State.CHOOSE_SOURCE || rule == null
+                || rule.idPolicy() != WorldGraphConfig.IdPolicy.REQUIRE_BOUND_ID;
+        if (!canChoose || !request.manual()) {
+            // An arriving ID or an explicit source choice can resume this action without interrupting play.
+            if (!request.announced()) {
+                pendingRoute = request.announcedNow();
+                WMPlayerMessages.sendSystemMessage(client.player,
+                        Component.translatable(canChoose ? "screen.worldmirror.captureRoute.selectionRequired"
+                                                         : "screen.worldmirror.captureRoute.waiting"));
+            }
+            return;
+        }
+        pendingRoute = null;
+        openSourceChooser(client, observation, resolution, (id, create) -> {
+            if (request.id() != routeRequestId || request.connection() != client.getConnection()
+                    || graph.chooseSource(observation, id, create) == null)
+                return;
+            requestRoute(client, request.action(), request.manual());
+        });
+    }
+
+    private static void openSourceChooser(Minecraft client, ConnectionObservation observation,
+            WorldSourceResolver.Resolution resolution,
+            java.util.function.BiConsumer<String, Boolean> selected) {
+        var choices = new java.util.TreeSet<>(resolution.candidateSourceIds());
+        CaptureRouteScreen.open(
+                ClientDialogs.currentScreen(client), observation.endpoint(), choices, selected);
     }
 
     /** Ensures an output world is current only after an explicit confirmation. */
     private static void requestOutputReady(
             Minecraft client, OutputOrigin origin, Runnable onReady, boolean manualExport) {
-        if (!origin.matches(client))
+        if (!origin.matches(client) || preparingRoute)
             return;
         var graph = WorldGraphService.instance();
         var observation = origin.source();
-        var preparedSource = captureSource;
+        var preparedSession = captureSession;
+        var chosen = selectedMirror;
+        var makeMirror = createMirror;
+        preparingRoute = true;
         Screen parentScreen = manualExport ? ClientDialogs.currentScreen(client) : null;
-        Runnable close;
-        if (manualExport) {
-            manualExportChecking = true;
-            close = () -> manualExportChecking = false;
-        } else {
-            MirrorPrompt.ProgressHandle progress = ClientDialogs.progress(
-                    client, new MirrorPrompt.Text("screen.worldmirror.upgrade.checking"));
-            close = progress::close;
-        }
-        io.github.billstark001.worldmirror.util.OfflineTasks.start("WM-InspectOutput",
+        manualExportChecking = manualExport;
+        OfflineTasks.start("WM-InspectOutput",
                 ()
                         -> {
-                    if (graph.source() != observation)
-                        throw new java.io.IOException("Connection changed during output preparation");
-                    var target = preparedSource == null
-                            ? graph.prepare(observation, () -> graph.source() == observation)
-                            : graph.currentTarget(preparedSource.target());
+                    if (!origin.matchesRoute())
+                        return null;
+                    var target = preparedSession == null
+                            ? graph.prepare(observation, chosen, makeMirror, origin::matchesRoute)
+                            : graph.currentTarget(preparedSession.target());
                     return new PreparedOutput(
                             target, MirrorMigrationCoordinator.recoverAndInspect(target.folder()));
                 },
                 failure
                 -> {
-                    OperationFailures.report(observation == null ? "world_graph" : observation.label(),
-                            "worldgen_check", null, failure);
+                    if (origin.matchesRoute())
+                        OperationFailures.report(observation.label(), "worldgen_check", null, failure);
                     return null;
                 },
                 client::execute,
                 prepared
                 -> {
-                    if (!origin.matches(client))
+                    if (!origin.matches(client)) {
+                        if (routeRequestId == origin.requestId() && !manualExport)
+                            retryDownloadStart(client, onReady);
                         return;
-                    boolean showDialog = !manualExport || ClientDialogs.currentScreen(client) == parentScreen;
+                    }
+                    preparingDownload = false;
+                    boolean showDialog = manualExport && ClientDialogs.currentScreen(client) == parentScreen;
                     if (prepared == null) {
-                        showOutputProblem(client, origin, null, onReady, null, showDialog);
+                        showOutputProblem(client, origin, null, onReady, null, showDialog, manualExport);
                         return;
                     }
                     var target = prepared.target();
                     Runnable accept = () -> {
                         if (!origin.matches(client))
                             return;
-                        var previous = captureSource;
-                        var strategy = graph.conflictStrategy(target.nodeId(), target.parentNodeId());
-                        if (previous == null || !previous.target().equals(target)
-                                || previous.strategy() != strategy) {
-                            captureSource = new ExportWork.Source(target, strategy);
+                        if (captureSession == null) {
+                            var config = ModConfig.get();
+                            var settings = new CaptureSession.Settings(
+                                    graph.conflictStrategy(target.nodeId(), target.parentNodeId()),
+                                    WorldStructureCreator.resolveNewWorldSettings(
+                                            WorldStructureCreator.captureWorldSettings(client.level)),
+                                    config.cache.invalidateAfterExport);
+                            captureSession = new CaptureSession(origin.observation().connectionEpoch(),
+                                    sourceEpoch, target.parentNodeId(), target, settings);
+                            if (makeMirror) {
+                                selectedMirror = target.nodeId();
+                                createMirror = false;
+                            }
                         }
                         onReady.run();
                     };
                     if (prepared.inspection().mayCreateOrWriteWithoutMigration())
                         accept.run();
                     else
-                        showOutputProblem(client, origin, target, accept, prepared.inspection(), showDialog);
+                        showOutputProblem(client, origin, target, accept, prepared.inspection(), showDialog,
+                                manualExport);
                 },
-                close);
+                () -> finishRoutePreparation(origin));
     }
 
     private record
             PreparedOutput(WorldGraphService.Target target, MirrorMigrationPlan.Inspection inspection) {}
 
-    private record OutputOrigin(WorldGraphService.Source source, ClientPacketListener connection) {
+    private record OutputOrigin(WorldGraphService.Source source, ConnectionObservation observation,
+            String sourceNodeId, long epoch, long requestId, ClientPacketListener connection) {
         static OutputOrigin current(Minecraft client) {
-            return new OutputOrigin(WorldGraphService.instance().source(), client.getConnection());
+            var graph = WorldGraphService.instance();
+            return new OutputOrigin(graph.source(), graph.observation(),
+                    graph.currentResolution().sourceNodeId(), sourceEpoch, routeRequestId,
+                    client.getConnection());
+        }
+
+        boolean matchesRoute() {
+            var graph = WorldGraphService.instance();
+            return source != null && source == graph.source() && epoch == sourceEpoch
+                    && requestId == routeRequestId
+                    && Objects.equals(sourceNodeId, graph.currentResolution().sourceNodeId());
         }
 
         boolean matches(Minecraft client) {
-            var graph = WorldGraphService.instance();
-            return source != null && connection == client.getConnection() && source == graph.source()
-                    && graph.observationIsCurrent(client);
+            return matchesRoute() && connection == client.getConnection()
+                    && WorldGraphService.instance().observationIsCurrent(client);
         }
+    }
+
+    private record PreparationReview(OutputOrigin origin, WorldGraphService.Target target, Runnable onReady,
+            MirrorMigrationPlan.Inspection plan) {}
+
+    private static void finishRoutePreparation(OutputOrigin origin) {
+        manualExportChecking = false;
+        preparingRoute = false;
+        if (routeRequestId == origin.requestId())
+            preparingDownload = false;
+    }
+
+    private static void retryDownloadStart(Minecraft client, Runnable onReady) {
+        if (client.level == null || !WorldGraphService.instance().observationIsCurrent(client))
+            return;
+        preparingDownload = true;
+        requestRoute(client, onReady, false);
     }
 
     private static void showOutputProblem(Minecraft client, OutputOrigin origin,
             WorldGraphService.Target target, Runnable onReady, MirrorMigrationPlan.Inspection plan,
-            boolean showDialog) {
+            boolean showDialog, boolean manualExport) {
         if (plan == null) {
             showOutputAlert(client, showDialog,
                     new MirrorPrompt.Text("screen.worldmirror.upgrade.unavailableTitle"),
@@ -626,9 +984,17 @@ public final class DownloadManager {
                                                     ? "screen.worldmirror.repair.downloadConfirm"
                                                     : "screen.worldmirror.upgrade.downloadConfirm"),
                                     new MirrorPrompt.Text("gui.cancel")),
-                            () -> migrateOutputAndContinue(client, origin, target, onReady), () -> {});
-                else
+                            ()
+                                    -> migrateOutputAndContinue(
+                                            client, origin, target, onReady, manualExport),
+                            () -> {});
+                else if (!manualExport) {
+                    downloadReview = new PreparationReview(origin, target, onReady, plan);
+                    ClientDialogs.toast(client, title,
+                            new MirrorPrompt.Text("screen.worldmirror.status.downloadReviewHint"));
+                } else {
                     ClientDialogs.toast(client, title, message);
+                }
             }
             case FUTURE ->
                 showOutputAlert(client, showDialog,
@@ -653,22 +1019,24 @@ public final class DownloadManager {
             ClientDialogs.toast(client, title, message);
     }
 
-    private static void migrateOutputAndContinue(
-            Minecraft client, OutputOrigin origin, WorldGraphService.Target target, Runnable onReady) {
-        if (!origin.matches(client))
+    private static void migrateOutputAndContinue(Minecraft client, OutputOrigin origin,
+            WorldGraphService.Target target, Runnable onReady, boolean manualExport) {
+        if (!origin.matches(client) || preparingRoute)
             return;
-        MirrorPrompt.ProgressHandle progress = ClientDialogs.progress(
-                client, new MirrorPrompt.Text("screen.worldmirror.upgrade.progressTitle"));
-        io.github.billstark001.worldmirror.util.OfflineTasks.start("WM-MirrorMigration",
+        downloadReview = null;
+        preparingRoute = true;
+        preparingDownload = !manualExport;
+        manualExportChecking = manualExport;
+        OfflineTasks.start("WM-MirrorMigration",
                 ()
                         -> {
                     var graph = WorldGraphService.instance();
-                    if (origin.source() != graph.source())
+                    if (!origin.matchesRoute())
                         return MirrorMigrationCoordinator.Result.failure("source_changed");
                     var resolved = graph.currentTarget(target);
                     var mirror = new MirrorTarget(resolved.folder(), target.nodeId(), target.sourceId());
                     return MirrorMigrationCoordinator.migrateApproved(
-                            mirror, new MirrorMigrationProgress(client, progress));
+                            mirror, MirrorMigrationCoordinator.ProgressListener.NONE);
                 },
                 failure
                 -> MirrorMigrationCoordinator.Result.failure("unexpected_failure"),
@@ -678,13 +1046,10 @@ public final class DownloadManager {
                     if (!origin.matches(client))
                         return;
                     if (!result.success()) {
-                        ClientDialogs.alert(client,
-                                new MirrorPrompt.Alert(
-                                        new MirrorPrompt.Text("screen.worldmirror.upgrade.failedTitle"),
-                                        new MirrorPrompt.Text(
-                                                "screen.worldmirror.upgrade.failedBody", result.failure()),
-                                        new MirrorPrompt.Text("gui.done")),
-                                () -> {});
+                        ClientDialogs.toast(client,
+                                new MirrorPrompt.Text("screen.worldmirror.upgrade.failedTitle"),
+                                new MirrorPrompt.Text(
+                                        "screen.worldmirror.upgrade.failedBody", result.failure()));
                         return;
                     }
                     ClientDialogs.toast(client,
@@ -692,12 +1057,20 @@ public final class DownloadManager {
                             new MirrorPrompt.Text("screen.worldmirror.upgrade.completeBody"));
                     onReady.run();
                 },
-                progress::close);
+                () -> finishRoutePreparation(origin));
     }
 
     private static void activateDownload(Minecraft client, String reason) {
         if (captureEnabled)
             return;
+        var mirror = MirrorWorldContext.current();
+        if (mirror.isMirror() && !mirrorCaptureWarningShown) {
+            mirrorCaptureWarningShown = true;
+            ClientDialogs.toast(client, new MirrorPrompt.Text("screen.worldmirror.captureMirror.title"),
+                    new MirrorPrompt.Text(mirror.state() == MirrorWorldContext.State.OUTDATED
+                                    ? "screen.worldmirror.captureMirror.outdated"
+                                    : "screen.worldmirror.captureMirror.body"));
+        }
         captureEnabled = true;
         capturePolicy.reset();
         downloadSessionStartedAtMs = System.currentTimeMillis();
@@ -771,21 +1144,18 @@ public final class DownloadManager {
         return CaptureBudget.forMode(capturePolicy.mode(), ModConfig.get().performance.captureBudgetMicros);
     }
 
-    private static ExportWork.Intent exportRequest(
-            Minecraft client, ExportWork.Trigger trigger, boolean notifyPlayer) {
-        var source = java.util.Objects.requireNonNull(captureSource, "No capture target");
-        var settings = io.github.billstark001.worldmirror.io.WorldStructureCreator.resolveNewWorldSettings(
-                io.github.billstark001.worldmirror.io.WorldStructureCreator.captureWorldSettings(
-                        client.level));
-        return new ExportWork.Intent(new ExportWork.Context(trigger, notifyPlayer, source),
+    private static ExportWork.Intent exportRequest(ExportWork.Trigger trigger, boolean notifyPlayer) {
+        var session = Objects.requireNonNull(captureSession, "No capture target");
+        return new ExportWork.Intent(new ExportWork.Context(trigger, notifyPlayer, session),
                 ExportWork.CapturePhase.REQUIRED, ExportWork.EntityScope.LIVE,
                 trigger == ExportWork.Trigger.MANUAL && ModConfig.get().lifecycle.captureNearbyBeforeExport,
-                java.util.Optional.empty(), settings);
+                java.util.Optional.empty());
     }
 
     private static void dispatchExports(Minecraft client, CaptureBudget budget, long now) {
-        exportCoordinator.dispatch(client, budget, captureEnabled, now, ModConfig.get(),
-                trigger -> exportRequest(client, trigger, false));
+        var session = sessionIsCurrent(client, captureSession) ? captureSession : null;
+        exportCoordinator.dispatch(client, budget, session, captureEnabled, now, ModConfig.get(),
+                trigger -> exportRequest(trigger, false));
     }
 
     // ── Internal ─────────────────────────────────────────────────────────────
@@ -797,7 +1167,7 @@ public final class DownloadManager {
      */
     private static void queueLoadedScan(Minecraft client, String reason) {
         ClientLevel world = client.level;
-        if (world == null || client.player == null)
+        if (world == null || client.player == null || !sessionIsCurrent(client, captureSession))
             return;
 
         ResourceKey<Level> dimension = world.dimension();
@@ -861,28 +1231,33 @@ public final class DownloadManager {
      */
     private static void finalizeCaptureOnStop(Minecraft client, String reason) {
         ModConfig.LifecycleConfig lifecycle = ModConfig.get().lifecycle;
-        if (captureSource == null)
+        if (captureSession == null)
             return;
+        if (!sessionIsCurrent(client, captureSession)) {
+            freezeStoppedSource(false);
+            return;
+        }
         if (lifecycle.captureNearbyOnStop && client.level != null && currentBudget().preExportScan()) {
             captureNearbyLoadedChunksSync(client, "stop-" + reason);
         }
 
         if (lifecycle.exportAllCachedOnStop) {
             exportCoordinator.enqueue(exportCoordinator.freeze(
-                    client, exportRequest(client, ExportWork.Trigger.STOP, false).ready(), currentBudget()));
+                    client, exportRequest(ExportWork.Trigger.STOP, false).ready(), currentBudget()));
             dispatchExports(client, currentBudget(), System.nanoTime() / 1_000_000L);
         }
     }
 
     /** A changed connection can retain captured data without sampling the new world. */
-    private static void freezeStoppedSource() {
-        if (captureSource == null || !ModConfig.get().lifecycle.exportAllCachedOnStop)
+    private static void freezeStoppedSource(boolean force) {
+        if (captureSession == null || (!force && !ModConfig.get().lifecycle.exportAllCachedOnStop))
             return;
-        exportCoordinator.enqueue(
-                new ExportWork.Frozen(new ExportWork.Context(ExportWork.Trigger.STOP, false, captureSource),
-                        ChunkListener.snapshotDirtyState(), EntityTracker.snapshot(),
-                        ContainerTracker.snapshotSavedData(), WorldSettingsSnapshot.defaults(), 0L,
-                        java.util.OptionalLong.empty()));
+        var frozen =
+                new ExportWork.Frozen(new ExportWork.Context(ExportWork.Trigger.STOP, false, captureSession),
+                        exportCoordinator.snapshotReadyTerrain(), EntityTracker.snapshot(),
+                        ContainerTracker.snapshotSavedData(), 0L, java.util.OptionalLong.empty());
+        if (frozen.hasTerrain() || frozen.hasEntities())
+            exportCoordinator.enqueue(frozen);
     }
 
     /** Finishes applied lighting before dropping pending capture and unprepared export requests. */
@@ -891,7 +1266,7 @@ public final class DownloadManager {
     }
 
     private static void finishPendingBlockChanges(Minecraft client) {
-        if (client.level != null && captureSource != null) {
+        if (client.level != null && captureSession != null) {
             captureQueue.finishBlockChanges(client.level);
         }
     }
