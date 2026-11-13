@@ -2,6 +2,7 @@ package io.github.billstark001.worldmirror.ui.map;
 
 import io.github.billstark001.worldmirror.conflict.ConflictManager;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
+import io.github.billstark001.worldmirror.download.DownloadManager;
 import io.github.billstark001.worldmirror.download.MirrorWorldContext;
 import io.github.billstark001.worldmirror.download.OperationFailures;
 import io.github.billstark001.worldmirror.download.WorldGraphService;
@@ -13,85 +14,92 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class ChunkStatusCache {
+    private static final int MAX_CACHED_VIEWS = 8;
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor(task -> {
         Thread thread = new Thread(task, "WorldMirror Chunk Status Loader");
         thread.setDaemon(true);
         return thread;
     });
 
-    private static volatile SnapshotState snapshotState =
-            new SnapshotState(null, ChunkStatusSnapshot.EMPTY, 0L);
-    private static long snapshotGeneration;
-    private static CacheKey refreshing;
+    private static final Map<CacheKey, SnapshotEntry> snapshots = new LinkedHashMap<>(16, 0.75f, true);
     private static volatile CountSnapshot countSnapshot = new CountSnapshot(null, -1, 0L);
     private static long countGeneration;
     private static MirrorTarget counting;
 
     private ChunkStatusCache() {}
 
-    public static ChunkStatusSnapshot getOrScheduleRefresh(
+    public static synchronized ChunkStatusSnapshot getOrScheduleRefresh(
             StatusTarget target, ResourceKey<Level> dimension, long refreshIntervalMs) {
         if (target == null)
             return ChunkStatusSnapshot.EMPTY;
         CacheKey key = new CacheKey(target.mirror(), dimension != null ? dimension : Level.OVERWORLD);
         long now = System.currentTimeMillis();
-        SnapshotState current = snapshotState;
-        boolean contextChanged = !key.equals(current.key());
-        boolean stale = now - current.loadedAtMs() >= refreshIntervalMs;
-        if (contextChanged || stale)
-            scheduleRefresh(key);
-        return key.equals(current.key()) ? current.snapshot() : ChunkStatusSnapshot.EMPTY;
+        SnapshotEntry entry = snapshots.get(key);
+        if (entry == null) {
+            if (snapshots.size() >= MAX_CACHED_VIEWS) {
+                var idle = snapshots.entrySet().iterator();
+                while (idle.hasNext()) {
+                    if (idle.next().getValue().loading)
+                        continue;
+                    idle.remove();
+                    break;
+                }
+                if (snapshots.size() >= MAX_CACHED_VIEWS)
+                    return ChunkStatusSnapshot.EMPTY;
+            }
+            entry = new SnapshotEntry();
+            snapshots.put(key, entry);
+        }
+        if (!entry.loading && now - entry.loadedAtMs >= refreshIntervalMs)
+            scheduleRefresh(key, entry);
+        return entry.snapshot;
     }
 
-    private static synchronized void scheduleRefresh(CacheKey key) {
-        if (refreshing != null)
-            return;
-        long generation = snapshotGeneration;
-        refreshing = key;
+    private static void scheduleRefresh(CacheKey key, SnapshotEntry entry) {
+        long generation = entry.generation;
+        ChunkStatusSnapshot previous = entry.snapshot;
+        entry.loading = true;
         EXECUTOR.execute(() -> {
             try {
-                ChunkStatusSnapshot loaded = loadSnapshot(key);
+                ChunkStatusSnapshot loaded = loadSnapshot(key, previous);
                 synchronized (ChunkStatusCache.class) {
-                    long loadedAt = generation == snapshotGeneration ? System.currentTimeMillis() : 0L;
-                    snapshotState = new SnapshotState(key, loaded, loadedAt);
+                    entry.loadedAtMs = generation == entry.generation ? System.currentTimeMillis() : 0L;
+                    entry.snapshot = loaded;
                 }
             } finally {
                 synchronized (ChunkStatusCache.class) {
-                    refreshing = null;
+                    entry.loading = false;
                 }
             }
         });
     }
 
     public static synchronized void invalidate() {
-        invalidateSnapshot(snapshotState);
-        invalidateCount(countSnapshot);
+        snapshots.clear();
+        countGeneration++;
+        countSnapshot = new CountSnapshot(null, -1, 0L);
     }
 
     /** Refresh the matching saved data after a committed export, even while a read is in flight. */
     public static synchronized void invalidateSaved(Path worldFolder, String nodeId, String sourceId) {
         MirrorTarget target = new MirrorTarget(worldFolder, nodeId, sourceId);
-        SnapshotState current = snapshotState;
-        if (matches(target, current.key()))
-            invalidateSnapshot(current);
-        else if (matches(target, refreshing))
-            snapshotGeneration++;
+        snapshots.forEach((key, entry) -> {
+            if (target.equals(key.mirror()))
+                entry.invalidate();
+        });
         CountSnapshot count = countSnapshot;
         if (target.equals(count.key()))
             invalidateCount(count);
         else if (target.equals(counting))
             countGeneration++;
-    }
-
-    private static void invalidateSnapshot(SnapshotState current) {
-        snapshotGeneration++;
-        snapshotState = new SnapshotState(current.key(), current.snapshot(), 0L);
     }
 
     private static void invalidateCount(CountSnapshot current) {
@@ -123,8 +131,9 @@ public final class ChunkStatusCache {
                 if (loaded >= 0 && !key.matchesSavedIdentity())
                     loaded = -1;
                 synchronized (ChunkStatusCache.class) {
-                    long loadedAt = generation == countGeneration ? System.currentTimeMillis() : 0L;
-                    countSnapshot = new CountSnapshot(key, loaded, loadedAt);
+                    if (generation == countGeneration) {
+                        countSnapshot = new CountSnapshot(key, loaded, System.currentTimeMillis());
+                    }
                 }
             } finally {
                 synchronized (ChunkStatusCache.class) {
@@ -140,27 +149,44 @@ public final class ChunkStatusCache {
      * otherwise the source world's configured output mirror remains the target.
      */
     public static StatusTarget targetFor(Minecraft client) {
+        StatusTarget opened = openedTarget(client);
+        return opened == null ? downloadTarget(client) : opened;
+    }
+
+    public static StatusTarget openedTarget(Minecraft client) {
         if (client == null || client.level == null)
             return null;
         MirrorWorldContext.Snapshot current = MirrorWorldContext.current();
-        if (current.isMirror() && current.worldFolder() != null) {
-            var metadata = current.metadata();
-            return metadata == null ? null
-                                    : new StatusTarget(new MirrorTarget(current.worldFolder(),
-                                                               metadata.nodeId, metadata.sourceId),
-                                              true);
-        }
+        var metadata = current.metadata();
+        return !current.isMirror() || current.worldFolder() == null || metadata == null
+                ? null
+                : new StatusTarget(
+                          new MirrorTarget(current.worldFolder(), metadata.nodeId, metadata.sourceId), true);
+    }
+
+    public static StatusTarget downloadTarget(Minecraft client) {
+        if (client == null || client.level == null)
+            return null;
         var graphs = WorldGraphService.instance();
         if (!graphs.observationIsCurrent(client))
             return null;
-        var target = graphs.target(graphs.source());
+        var target = DownloadManager.captureTarget();
+        if (target == null && !DownloadManager.isNewMirrorSelected())
+            target = graphs.target(graphs.source());
+        if (target != null) {
+            var installed = graphs.targetById(target.nodeId());
+            if (installed == null || !installed.parentNodeId().equals(target.parentNodeId())
+                    || !installed.sourceId().equals(target.sourceId()))
+                return null;
+            target = installed;
+        }
         return target == null
                 ? null
                 : new StatusTarget(
                           new MirrorTarget(target.folder(), target.nodeId(), target.sourceId()), false);
     }
 
-    private static ChunkStatusSnapshot loadSnapshot(CacheKey key) {
+    private static ChunkStatusSnapshot loadSnapshot(CacheKey key, ChunkStatusSnapshot previous) {
         MirrorTarget target = key.mirror();
         try {
             if (!target.matchesSavedIdentity())
@@ -172,28 +198,30 @@ public final class ChunkStatusCache {
             if (!target.matchesSavedIdentity())
                 return ChunkStatusSnapshot.EMPTY;
             OperationFailures.recovered(target.nodeId(), "status_read");
-            SnapshotState current = snapshotState;
-            if (key.equals(current.key()) && current.snapshot().matchesData(records, conflicts)) {
-                return current.snapshot();
-            }
+            if (previous.matchesData(records, conflicts))
+                return previous;
             return new ChunkStatusSnapshot(records, conflicts);
         } catch (Exception t) {
             WMLogger.warnRateLimited(
                     "chunk-status-snapshot", 30_000L, "Chunk status snapshot load failed", t);
             OperationFailures.report(target.nodeId(), "status_read", target.folder(), t);
-            SnapshotState current = snapshotState;
-            return key.equals(current.key()) && target.matchesSavedIdentity() ? current.snapshot()
-                                                                              : ChunkStatusSnapshot.EMPTY;
+            return target.matchesSavedIdentity() ? previous : ChunkStatusSnapshot.EMPTY;
         }
-    }
-
-    private static boolean matches(MirrorTarget target, CacheKey key) {
-        return key != null && target.equals(key.mirror());
     }
 
     private record CacheKey(MirrorTarget mirror, ResourceKey<Level> dimension) {}
     private record CountSnapshot(MirrorTarget key, int count, long loadedAtMs) {}
-    private record SnapshotState(CacheKey key, ChunkStatusSnapshot snapshot, long loadedAtMs) {}
+    private static final class SnapshotEntry {
+        ChunkStatusSnapshot snapshot = ChunkStatusSnapshot.EMPTY;
+        long loadedAtMs;
+        long generation;
+        boolean loading;
+
+        void invalidate() {
+            generation++;
+            loadedAtMs = 0L;
+        }
+    }
 
     public record StatusTarget(MirrorTarget mirror, boolean currentWorldIsMirror) {}
 }

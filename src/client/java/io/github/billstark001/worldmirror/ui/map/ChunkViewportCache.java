@@ -19,7 +19,11 @@ public final class ChunkViewportCache {
         return span <= 513 ? MIN_CAPTURE_INTERVAL_MS : span <= 4_097 ? 1_000L : 5_000L;
     }
     record Context(Object source, ResourceKey<Level> dimension, ChunkStatusSnapshot saved, long liveVersion,
-            long pendingVersion, long exportVersion) {}
+            long pendingVersion, long exportVersion) {
+        boolean observesLiveCapture() {
+            return liveVersion >= 0L;
+        }
+    }
     private WeakReference<Object> world = new WeakReference<>(null);
     private Context context;
     private ChunkBounds bounds;
@@ -33,7 +37,7 @@ public final class ChunkViewportCache {
             return LiveChunkStatusSnapshot.EMPTY;
         }
         String nodeId = target.mirror().nodeId();
-        var capture = DownloadManager.captureTarget();
+        var capture = DownloadManager.liveCaptureTarget();
         boolean includeLive = capture != null && nodeId.equals(capture.nodeId());
         Context next = new Context(target, dimension, saved,
                 includeLive ? ChunkListener.mapStatusVersion(dimension) : -1L,
@@ -47,7 +51,8 @@ public final class ChunkViewportCache {
             Function<ChunkBounds, LiveChunkStatusSnapshot> capture) {
         boolean sameSource = nextWorld == world.get() && context != null
                 && java.util.Objects.equals(context.source(), next.source())
-                && context.dimension().equals(next.dimension()) && context.saved() == next.saved();
+                && context.dimension().equals(next.dimension()) && context.saved() == next.saved()
+                && context.observesLiveCapture() == next.observesLiveCapture();
         if (sameSource && bounds.contains(visible) && now >= capturedAt
                 && (next.equals(context) || now - capturedAt < refreshInterval(visible)))
             return snapshot;

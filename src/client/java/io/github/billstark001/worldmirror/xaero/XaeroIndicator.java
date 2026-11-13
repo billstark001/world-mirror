@@ -27,8 +27,8 @@ public final class XaeroIndicator {
     }
 
     public static void render(Minecraft client, Canvas canvas, int width) {
-        StatusTarget target = ChunkStatusCache.targetFor(client);
-        if (target == null || !target.currentWorldIsMirror()) {
+        StatusTarget target = ChunkStatusCache.openedTarget(client);
+        if (target == null) {
             toastShown = false;
             return;
         }

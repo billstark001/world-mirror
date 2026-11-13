@@ -346,6 +346,9 @@
 
   "msg.worldmirror.fileOperationFailed": "World Mirror 文件操作需要处理",
   "msg.worldmirror.fileOperationDetails": "来源：%s；阶段：%s；路径：%s；原因：%s。原始数据保留，请查看日志并修复后重试。",
+  "screen.worldmirror.status.viewDestination": "查看下载镜像",
+  "screen.worldmirror.status.viewOpened": "查看当前存档",
+  "screen.worldmirror.chunkmap.destination": "下载镜像：%s",
   "msg.worldmirror.nearbySourceUnavailable": "无法确定此快照的来源世界。",
   "screen.worldmirror.captureRoute.chooseSource": "选择下载来源",
   "screen.worldmirror.captureRoute.title": "为 %s 选择来源世界",

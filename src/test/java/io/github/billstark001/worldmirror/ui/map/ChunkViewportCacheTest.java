@@ -9,6 +9,21 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ChunkViewportCacheTest {
     @Test
+    void detachingLiveCaptureRebuildsImmediatelyEvenWhenTheViewedMirrorStaysTheSame() {
+        var cache = new ChunkViewportCache();
+        Object world = new Object();
+        var range = new ChunkBounds(0, 0, 0, 0);
+        var live = new ChunkViewportCache.Context(
+                "mirror:one", Level.OVERWORLD, ChunkStatusSnapshot.EMPTY, 1, 1, 1);
+        var detached = new ChunkViewportCache.Context(
+                "mirror:one", Level.OVERWORLD, ChunkStatusSnapshot.EMPTY, -1, -1, 1);
+        Function<ChunkBounds, LiveChunkStatusSnapshot> capture =
+                ignored -> new LiveChunkStatusSnapshot(Map.of(), Map.of());
+        var previous = cache.get(world, live, range, 10, capture);
+        assertNotSame(previous, cache.get(world, detached, range, 11, capture));
+    }
+
+    @Test
     void coarseViewportProgressUsesBoundedRefreshIntervals() {
         for (int radius : new int[] {128, 1_024, 16_384}) {
             var cache = new ChunkViewportCache();

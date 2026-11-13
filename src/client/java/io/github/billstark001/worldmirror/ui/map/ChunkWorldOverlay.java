@@ -60,7 +60,12 @@ public final class ChunkWorldOverlay {
         boolean showInnerGrid = config.showWorldChunkOverlayInnerGrid;
         int opacityPercent = Math.max(0, Math.min(100, config.worldChunkOverlayOpacityPercent));
         long now = System.currentTimeMillis();
-        long sessionStartedAtMs = DownloadManager.downloadSessionStartedAtMs();
+        var target = ChunkStatusCache.targetFor(client);
+        var sessionTarget = DownloadManager.liveCaptureTarget();
+        long sessionStartedAtMs = target != null && sessionTarget != null
+                        && target.mirror().nodeId().equals(sessionTarget.nodeId())
+                ? DownloadManager.downloadSessionStartedAtMs()
+                : 0L;
         // Wide views can scan many saved records; their coarse tiles do not
         // need the same update cadence as a nearby per-chunk view.
         ChunkBounds range =
@@ -68,7 +73,6 @@ public final class ChunkWorldOverlay {
         long rebuildIntervalMs = ChunkViewportCache.refreshInterval(range);
         Settings settings =
                 new Settings(height, sessionStartedAtMs, showInnerGrid, opacityPercent, colorMode);
-        var target = ChunkStatusCache.targetFor(client);
         ViewState view = new ViewState(dimension, range, settings, target);
         if (now >= lastBuildMs && now - lastBuildMs < rebuildIntervalMs && client.level == lastLevel.get()
                 && view.equals(lastView))

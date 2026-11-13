@@ -79,6 +79,8 @@ public class ChunkMapScreen extends Screen {
     private final ChunkViewportCache viewportCache = new ChunkViewportCache();
     private final ChunkMapProjection projection = new ChunkMapProjection();
     private StatusTarget statusTarget;
+    private boolean viewOpenedSave;
+    private Button mirrorViewButton;
     private boolean resolvingConflict;
     private ResourceKey<Level> currentDimension;
 
@@ -94,7 +96,12 @@ public class ChunkMapScreen extends Screen {
     // ── Construction ─────────────────────────────────────────────────────────
 
     public ChunkMapScreen() {
+        this(true);
+    }
+
+    private ChunkMapScreen(boolean viewOpenedSave) {
         super(Component.translatable("screen.worldmirror.chunkmap.title"));
+        this.viewOpenedSave = viewOpenedSave;
     }
 
     @Override
@@ -124,6 +131,13 @@ public class ChunkMapScreen extends Screen {
                               btn -> loadData(Minecraft.getInstance()))
                         .bounds(this.width - 120, this.height - 24, 54, 20)
                         .build());
+        mirrorViewButton = addRenderableWidget(
+                Button.builder(viewLabel(), button -> {
+                          viewOpenedSave = !viewOpenedSave;
+                          button.setMessage(viewLabel());
+                          loadData(client);
+                      }).bounds(6, height - 24, 145, 20).build());
+        mirrorViewButton.visible = ChunkStatusCache.openedTarget(client) != null;
 
         // Dialog buttons (hidden initially)
         int dw = 220, dh = 90;
@@ -162,7 +176,7 @@ public class ChunkMapScreen extends Screen {
         Minecraft client = Minecraft.getInstance();
         if (resolvingConflict || dialogChunk == null || selected == null || currentDimension == null
                 || client.level == null || !currentDimension.equals(client.level.dimension())
-                || !selected.equals(ChunkStatusCache.targetFor(client)))
+                || !selected.equals(selectedTarget(client)))
             return;
         resolvingConflict = true;
         ConflictActions.resolve(selected.mirror(), dialogChunk, currentDimension, overwrite, () -> {
@@ -184,7 +198,9 @@ public class ChunkMapScreen extends Screen {
     }
 
     private void updateTarget(Minecraft client) {
-        StatusTarget next = ChunkStatusCache.targetFor(client);
+        if (mirrorViewButton != null)
+            mirrorViewButton.visible = ChunkStatusCache.openedTarget(client) != null;
+        StatusTarget next = selectedTarget(client);
         ResourceKey<Level> dimension =
                 client == null || client.level == null ? Level.OVERWORLD : client.level.dimension();
         if (!Objects.equals(statusTarget, next) || !dimension.equals(currentDimension)) {
@@ -192,6 +208,15 @@ public class ChunkMapScreen extends Screen {
             statusTarget = next;
             currentDimension = dimension;
         }
+    }
+
+    private StatusTarget selectedTarget(Minecraft client) {
+        return viewOpenedSave ? ChunkStatusCache.targetFor(client) : ChunkStatusCache.downloadTarget(client);
+    }
+
+    private Component viewLabel() {
+        return Component.translatable(viewOpenedSave ? "screen.worldmirror.status.viewDestination"
+                                                     : "screen.worldmirror.status.viewOpened");
     }
 
     // ── Rendering ─────────────────────────────────────────────────────────────
@@ -248,6 +273,16 @@ public class ChunkMapScreen extends Screen {
 #else
             ctx.drawCenteredString(this.font,
                     Component.translatable("screen.worldmirror.chunkmap.currentMirror"),
+#endif
+                    width / 2, 16, 0xFFFFFF55);
+        } else if (statusTarget != null) {
+            var folder = statusTarget.mirror().folder();
+            Component title = Component.translatable("screen.worldmirror.chunkmap.destination",
+                    folder.getParent().getFileName() + "/" + folder.getFileName());
+#if MC_VERSION >= 260102
+            ctx.centeredText(this.font, title,
+#else
+            ctx.drawCenteredString(this.font, title,
 #endif
                     width / 2, 16, 0xFFFFFF55);
         }
@@ -347,6 +382,8 @@ public class ChunkMapScreen extends Screen {
     }
 
     private void setDialogButtonsVisible(boolean visible) {
+        if (mirrorViewButton != null)
+            mirrorViewButton.active = !visible;
         if (dialogCancelBtn != null)
             dialogCancelBtn.visible = visible;
         if (dialogOverwriteBtn != null)
@@ -432,11 +469,15 @@ public class ChunkMapScreen extends Screen {
 
     /** Opens a fresh ChunkMapScreen on the game thread. */
     public static void open() {
+        open(true);
+    }
+
+    public static void open(boolean viewOpenedSave) {
 #if MC_VERSION >= 260200
-        ClientScreens.setLater(new ChunkMapScreen());
+        ClientScreens.setLater(new ChunkMapScreen(viewOpenedSave));
 #else
         Minecraft mc = Minecraft.getInstance();
-        mc.execute(() -> mc.setScreen(new ChunkMapScreen()));
+        mc.execute(() -> mc.setScreen(new ChunkMapScreen(viewOpenedSave)));
 #endif
     }
 }

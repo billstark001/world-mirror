@@ -346,6 +346,9 @@
 
   "msg.worldmirror.fileOperationFailed": "World Mirror file operation needs attention",
   "msg.worldmirror.fileOperationDetails": "Source: %s; stage: %s; path: %s; reason: %s. Original data is retained; check the log, repair and retry.",
+  "screen.worldmirror.status.viewDestination": "View download mirror",
+  "screen.worldmirror.status.viewOpened": "View opened save",
+  "screen.worldmirror.chunkmap.destination": "Download mirror: %s",
   "msg.worldmirror.nearbySourceUnavailable": "The source world could not be resolved for this snapshot.",
   "screen.worldmirror.captureRoute.chooseSource": "Choose Download Source",
   "screen.worldmirror.captureRoute.title": "Choose a source for %s",

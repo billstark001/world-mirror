@@ -43,6 +43,10 @@ public final class XaeroBridgeOverlay {
 
         ResourceKey<Level> dimension = client.level.dimension();
         var target = ChunkStatusCache.targetFor(client);
+        if (target == null) {
+            viewportCache.clear();
+            return;
+        }
         long refreshMs = Math.max(1, config.xaeroWorldMapOverlayRefreshSeconds) * 1_000L;
         ChunkStatusSnapshot snapshot = ChunkStatusCache.getOrScheduleRefresh(target, dimension, refreshMs);
         long now = System.currentTimeMillis();
