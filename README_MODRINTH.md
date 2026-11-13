@@ -56,9 +56,11 @@ Resource pressure reduces capture work and can temporarily pause ordinary captur
 
 ### What it cannot save perfectly
 
-World Mirror is not a server backup. Unopened inventories, server datapacks, structure metadata, hidden entity state, and chunks the server never sends may be absent. Entities in unloaded chunks keep their last client-known state until the chunk is observed again. Uncaptured terrain is void in the generated save. Servers that host multiple logical worlds behind one address require an explicit source binding to distinguish them.
+World Mirror is not a server backup. Unopened inventories, server datapacks, structure metadata, hidden entity state, and chunks the server never sends may be absent. Entities in unloaded chunks keep their last client-known state until the chunk is observed again. Uncaptured terrain is void by default. Servers that host multiple logical worlds behind one address require an explicit source binding to distinguish them.
 
 One source can have several mirror saves. Downloads use the configured default mirror. If no default is configured, World Mirror picks a mirror in a consistent order and remembers it. Moving a save preserves its identity. Copying a save gives the extra copy a new identity while preserving its upstream world.
+
+Open **World Mirror Routes** from the title screen or the in-game settings. Select a mirror to change its storage folder, choose or remove its upstream, or delete it. **World Seed** lets you preview applying or removing a seed while the mirror is closed. A seed generates terrain where no saved chunks exist. When removing it, you can keep the generated chunks or remove those World Mirror can verify are unchanged. Experimental Overworld blending can smooth joins where new terrain meets captured chunks.
 
 On upgrade, World Mirror scans both save folders, backs up older mirror metadata, and carries the existing chunk history forward. If a save is open elsewhere, close it and return to the world list to retry. Use a Toolkit version that supports mirror metadata schema 2 when importing ReplayMod chunks.
 
