@@ -61,13 +61,15 @@ The status screen shows:
 - **Integration status** — output path and Xaero World Map Bridge availability
 - **Global Settings** — shortcut to the Cloth Config-generated settings screen
 
+**Export Now** checks the target in the background. You can keep the status screen open through the export, including in singleplayer. If the target needs an upgrade or repair, World Mirror asks before writing.
+
 ---
 
 ## Built-in Chunk Map (M key)
 
 ![Built-in chunk map](assets/builtin-map.png)
 
-Drag to pan, use the mouse wheel to zoom, and hover a cell to inspect its chunk coordinates, update age, and update source. The map queries an asynchronous, viewport-indexed status snapshot rather than the SQLite database from the render loop. At low zoom it aggregates chunks into bounded buckets and merges same-state runs and boundaries. The built-in map, Xaero layer, and both world-overlay color modes share spatial queries and cached bucket facts; each view keeps its own derived geometry. Partial buckets use only coordinates inside the viewport. Clicking a conflicted chunk opens the **Overwrite / Discard / Cancel** dialog.
+Drag to pan, use the mouse wheel to zoom, and hover a cell to inspect its chunk coordinates, update age, and update source. The map reads an asynchronously refreshed, viewport-indexed status snapshot. The built-in map and Xaero layer use the same viewport-based aggregation, with a 6,000-cell budget for the built-in map and a configurable budget for Xaero. Bucket size stays stable while panning at a fixed zoom, and partial buckets use only coordinates inside the viewport. Both maps merge same-state runs and boundaries and reuse geometry until its inputs change. Clicking a conflicted chunk opens the **Overwrite / Discard / Cancel** dialog.
 
 ---
 
@@ -90,7 +92,7 @@ Click **Global Settings** in the status screen. If Mod Menu is installed, the sa
 | Maximum cache distance | 0–64 chunks; 0 disables the limit | 32 |
 | Maximum cache age | 0–14400 s; 0 disables the limit | 1800 s |
 | Invalidate cache after export | `true` / `false` | `true` |
-| Main-thread capture scheduling ceiling | 250–5000 µs/tick | 1500 µs/tick |
+| Main-thread capture budget | 250–5000 µs/tick | 1500 µs/tick |
 | Adaptive dirty high watermark | 32–8192 chunks | 512 chunks |
 | Adaptive high-watermark export cooldown | 1–60 s | 10 s |
 | Maximum pending capture hints | 512–32768 | 8192 |
@@ -120,7 +122,7 @@ Cache age, distance, and count settings evict only data already saved successful
 
 ### Optional Xaero integration
 
-The Xaero overlay is an optional integration: World Mirror runs normally without Xaero's World Map or the bridge. To enable it, install a matching Minecraft-version build of [Xaero World Map Bridge](https://github.com/billstark001/xaero-world-map-bridge/releases) alongside [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map). Use bridge 0.1.2 or newer for every supported Minecraft version; bridge 0.1.0 has an Xaero version upper bound. For Minecraft 26.3, use its 26.3 bridge artifact with Xaero's World Map 1.46.x. World Mirror's Chunk Map settings control whether and how often its layer is rendered. The bridge's own Mod Menu page controls exact mixin injection and the safe tail fallback; World Mirror only supplies the chunk-status layer through the bridge API.
+The Xaero overlay is an optional integration: World Mirror runs normally without Xaero's World Map or the bridge. To enable it, install a matching Minecraft-version build of [Xaero World Map Bridge](https://github.com/billstark001/xaero-world-map-bridge/releases) alongside [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map). Use bridge 0.1.2 or newer for every supported Minecraft version; bridge 0.1.0 has an Xaero version upper bound. For Minecraft 26.3, use its 26.3 bridge artifact with a 26.3 build of Xaero's World Map 1.46.2 or newer. World Mirror's Chunk Map settings control whether and how often its layer is rendered. The bridge's own Mod Menu page controls exact mixin injection and the safe tail fallback; World Mirror only supplies the chunk-status layer through the bridge API.
 
 The built-in map and Xaero overlay use the same live colours. Yellow means a chunk without a saved record is waiting for capture; yellow-green means a saved record already exists but a new capture is pending. Bright lime means a new in-memory capture is waiting to be saved, and light green means that an older saved record already exists while the new capture waits to be saved. After terrain and its index commit, chunks return to the green-to-blue capture-age gradient. Orange identifies sources other than `world_mirror` and `replay_import`, including registered third-party sources; it does not mean only an unknown source. Purple marks unresolved conflicts. A pending light update can also temporarily appear as waiting for capture.
 
@@ -134,7 +136,7 @@ Only the built-in chunk map adds export warning markers and conflict hints:
 
 Queued, writing, and successful exports have no corner glyphs. Hover a chunk for its full export state, separate terrain/entity results, and metadata status. These warnings preserve the base colors; a red accent remains during a retry until its previous failure is resolved, and purple conflict borders can coexist with failures. Cells smaller than eight GUI pixels use simple dots: red for failure, light red for partial failure, and purple for conflicts. Coarse buckets retain unresolved failures; zoom in to inspect individual chunks. Frozen work remains available after its live cache is cleared. Xaero and the in-world overlays keep their coverage colors and boundaries without export or conflict corner glyphs.
 
-Export observations last for the current client process. Existing database rows prove historical terrain coverage, not entity completion, so reopening the client reports historical terrain without inferring entity completion. Map refreshes remain asynchronous: stable views refresh changed live data at most every 0.5, 1, or 5 seconds as their chunk extent grows. Status readers use immutable region pages; an export updates only the changed pages. Observed chunk metadata still grows with the number of chunks seen during this client run, without retaining NBT.
+Export observations last for the current client process. Existing database rows prove historical terrain coverage, not entity completion, so reopening the client reports historical terrain without inferring entity completion. Map refreshes remain asynchronous. Stable views refresh changed live data at most every 0.5, 1, or 5 seconds as their chunk extent grows. Verified terrain exports and index repairs trigger a saved-status refresh for the affected world and source. Status readers use immutable region pages; an export updates only the changed pages. Observed chunk metadata still grows with the number of chunks seen during this client run, without retaining NBT.
 
 Automatic and manual export failures produce merged chat and top-right toast notifications. Repeated notices for one source are limited to once per 30 seconds; escalation and recovery can arrive sooner, with at least two seconds between deliveries. The status screen keeps the current counts and failure stage visible. Partial failures log at WARN; blocked exports and index/metadata failures log at ERROR. Unfinished work remains available for retry.
 
@@ -237,6 +239,8 @@ Failed mirror exports retain only unfinished frozen revisions while the client i
 
 A malformed file affects only work that depends on it. Optional saved-data repair failures leave the file untouched and allow independent terrain to save; damaged entity regions still block entity operations whose UUID uniqueness cannot be proved. Unavailable priority rules defer overwrites. Read failures are not treated as an empty database or a missing routing document. Invalid configuration is backed up before normalized settings are saved; an unknown conflict policy becomes Ignore.
 
+Legacy zero-byte MCA placeholders are treated as empty when reading or writing terrain, entity, and conflict regions. Malformed nonempty regions still require validation before writes proceed.
+
 NBT/JSON reads have finite budgets. Unchanged malformed NBT is not repeatedly decoded, and manual export retries validation. File failures outside chunk writes also produce coalesced local chat/toast notices.
 
 Resource pressure preserves the download toggle and pending capture tasks. At 80% JVM heap use, a large unsaved backlog, or several retained retry bundles, capture runs with a smaller tick budget and defers optional entity refreshes and nearby export scans. Pressure also makes exports eligible every five seconds. Sustained 90% heap use with unsaved data, or 16,384 retained chunk revisions, pauses ordinary capture after two seconds; 97% heap use with unsaved data pauses it immediately. Packet hints, applied light updates, exports, and final capture before chunk unload continue during the pause. Shared live/frozen/in-flight terrain revisions and entity updates are counted once; these counts are scheduling signals, not byte budgets.
@@ -245,7 +249,7 @@ After heap use stays below 75%, retained revisions fall below 8,192, and fewer t
 
 Pending data and unload captures still use memory. A sustained storage failure can continue growing that data; no disk spool or crash-persistent capture queue exists.
 
-Scheduling has one client-thread owner. The resource policy determines a mode, which becomes an explicit capture budget; the export scheduler selects queued work and periodic, adaptive, pressure, or retry requests. User capture intent is kept separate from those resource decisions. Elapsed-time deadlines use a monotonic clock, persisted capture times use wall time, and light windows use client ticks. The worker consumes frozen snapshots and returns completion receipts for the client thread to apply. Shutdown transfers the remaining queue to the worker for its final drain, without waiting for another client tick or interrupting an atomic write.
+Scheduling has one client-thread owner. The resource policy determines a mode, which becomes an explicit capture budget; the export scheduler selects queued work and periodic, adaptive, pressure, or retry requests. Ordinary capture uses recent capture cost to decide whether another chunk fits in the current tick. One synchronous capture can exceed the budget, and unload capture has its own timing. User capture intent is kept separate from those resource decisions. Elapsed-time deadlines use a monotonic clock, persisted capture times use wall time, and light windows use client ticks. The worker consumes frozen snapshots and returns completion receipts for the client thread to apply. Shutdown transfers the remaining queue to the worker for its final drain, without waiting for another client tick or interrupting an atomic write.
 
 Unfinished mirror creation has a durable ownership reservation and resumes the same directory. Moving a world within the same filesystem holds native locks at both ends, validates both identities and the complete move plan, and journals the move. It rolls back if routing cannot be saved. The old empty root retains a reservation so moving back can reuse it. Interrupted file replacements recover under the native world lock before subsequent writes or opening through the mirror recovery flow; ambiguous or corrupt recovery evidence is retained for repair. Recovery never overwrites content that matches neither the original nor the planned replacement. Cleanup failures after a verified commit do not reverse it. These guarantees cover recoverable file operations, not simultaneous multi-file visibility or all hardware power-loss scenarios. Bulk conflict application uses bounded batches and removes incoming entries only after their copied data verifies. A damaged region location table is retained for repair rather than passed to a writer that could discard its invalid entries.
 
@@ -311,7 +315,7 @@ Choose the World Mirror JAR that exactly matches your Minecraft version:
 2. Install the matching [Fabric API](https://modrinth.com/mod/fabric-api).
 3. Put the matching World Mirror 0.5.4 JAR in `mods/`.
 4. *(Optional)* Install [Mod Menu](https://modrinth.com/mod/modmenu) for a title-screen settings entry.
-5. *(Optional)* For the Xaero overlay, install a Minecraft-matched [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map) and [Xaero World Map Bridge](https://github.com/billstark001/xaero-world-map-bridge/releases). Use bridge 0.1.2 or newer for the exact Minecraft version. Minecraft 26.3 needs Xaero 1.46.x.
+5. *(Optional)* For the Xaero overlay, install a Minecraft-matched [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map) and [Xaero World Map Bridge](https://github.com/billstark001/xaero-world-map-bridge/releases). Use bridge 0.1.2 or newer for the exact Minecraft version. For Minecraft 26.3, use a 26.3 build of Xaero 1.46.2 or newer.
 
 Cloth Config and SQLite JDBC are bundled in the World Mirror JAR. LibGui is not used and does not need to be installed.
 

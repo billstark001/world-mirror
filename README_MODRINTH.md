@@ -22,6 +22,8 @@ Use it to archive a build, keep a personal record of an area, or take a permitte
 
 Automatic export on stop is available in settings but is disabled by default, so using **O before stopping** is the safest simple workflow.
 
+You can also press **I** and choose **Export Now**. The status screen stays open while it checks and writes the mirror. If the mirror needs an upgrade or repair, confirm before writing.
+
 ## Controls
 
 | Key | Action |
@@ -44,7 +46,7 @@ All controls can be rebound under *Options → Controls → World Mirror*. Clear
 - Best-effort snapshots of client-visible mobs, vehicles, paintings, item frames, armour stands, dropped items, and rider/passenger groups. Moves and despawns are reconciled in areas the client can safely observe without deleting last-known entities from unloaded chunks.
 - Changes over time, with periodic background exports and an optional experimental adaptive mode for busier sessions.
 
-The built-in map shows recorded chunks and unresolved conflicts. Drag to pan, use the mouse wheel to zoom, and hover a chunk for its coordinates, age, and source. Purple borders mark unresolved conflicts. Orange marks other data sources, including known third-party tools. Only the built-in map adds warning markers for failed exports (red cross), partial success (red/green), and unresolved conflicts (purple). Small cells use simple warning dots. Queued, writing, and successful exports have no corner glyphs; hover for the full export state and terrain/entity and metadata details. Failures survive live-cache eviction during this client run; historical terrain rows do not imply entity completion after restarting the client.
+The built-in map shows recorded chunks and unresolved conflicts. Drag to pan, use the mouse wheel to zoom, and hover a chunk for its coordinates, age, and source. At low zoom, both the built-in map and Xaero overlay group chunks to keep wide views responsive. Group size stays stable while panning. Purple borders mark unresolved conflicts. Orange marks other data sources, including known third-party tools. Only the built-in map adds warning markers for failed exports (red cross), partial success (red/green), and unresolved conflicts (purple). Small cells use simple warning dots. Queued, writing, and successful exports have no corner glyphs; hover for the full export state and terrain/entity and metadata details. Failures survive live-cache eviction during this client run; historical terrain rows do not imply entity completion after restarting the client.
 
 Enable the in-world chunk overlay in Chunk Map settings, or press **K**, to show one-block-high coverage boxes at an adjustable height. Source worlds and mirror worlds have separate switches, both disabled by default. The default fixed height is Y=96; existing configured heights are preserved. Choose **Session** colors (yellow for queued captures, green for current-session captures, blue for historical chunks and replay imports) or **Map** colors (the same age gradient, source colors, and live queue colors as both chunk maps) in settings. The boxes keep a consistent fill opacity from above and below; water and clouds behind them no longer erase their color. Solid terrain still hides boxes behind it. Session colors show what you have captured, including unsaved data; they are not a save-success indicator. At long distances, a single tile can summarize several chunks. Xaero and both in-world overlay modes retain their coverage colors and boundaries without export or conflict corner glyphs. In the built-in map, failures take priority in coarse tiles and a red accent persists until a retry resolves its failure. Wide views refresh less often to bound work with large histories.
 
@@ -105,7 +107,7 @@ World Mirror works without Xaero. To display World Mirror's chunk status on Xaer
 - [Xaero's World Map](https://modrinth.com/mod/xaeros-world-map) for your Minecraft version; and
 - the matching Minecraft-version Fabric file from [Xaero World Map Bridge](https://github.com/billstark001/xaero-world-map-bridge/releases).
 
-Use the bridge's matching Fabric file from release 0.1.2 or newer for every Minecraft version; bridge 0.1.0 restricts newer Xaero releases. For Minecraft 26.3, use Xaero's World Map 1.46.x and the bridge's 26.3 file.
+Use the bridge's matching Fabric file from release 0.1.2 or newer for every Minecraft version; bridge 0.1.0 restricts newer Xaero releases. For Minecraft 26.3, use a 26.3 build of Xaero's World Map 1.46.2 or newer and the bridge's 26.3 file.
 
 ## Reporting a performance problem
 

@@ -66,7 +66,7 @@ Before writing a chunk, World Mirror checks whether a higher-priority source has
 
 An unregistered update source receives the lowest effective priority in live sync. An unreadable index or priority lookup defers the affected writes. Toolkit mirror imports use the same priority lookup and preserve nonempty chunks whose existing source has no applicable rule.
 
-This prevents World Mirror's periodic sync from overwriting chunks attributed to a higher-priority source. The seeded `player` source (priority 0) outranks `world_mirror` (priority 10). A third-party tool that also needs overwrite protection must register a priority lower than 10 for the applicable source/dimension; the seeded `map_hp` and `map_lp` rows are lower-priority fallback inputs and do not receive that protection.
+This prevents World Mirror's periodic sync from overwriting chunks attributed to a higher-priority source. The seeded `player` source (priority 0) outranks `world_mirror` and `replay_import` (both priority 10). For a nonempty chunk with equal source priority, an eligible newer capture can replace the existing one. A third-party tool that also needs overwrite protection must register a priority lower than 10 for the applicable source/dimension; the seeded `map_hp` and `map_lp` rows are lower-priority fallback inputs and do not receive that protection.
 
 ---
 
@@ -99,6 +99,8 @@ Close the save before writing it. Offline tools should acquire Minecraft's nativ
 Commit the `chunks` row only after the corresponding region entry is durably written and can be reopened and decoded. A database row is a durability claim, not a work queue: if a tool advances `update_time` before its MCA write succeeds, World Mirror may correctly skip the older client snapshot and leave the save without the claimed chunk version. Use one database transaction for a batch of completed region writes, and roll it back if the batch cannot be committed.
 
 World Mirror follows the same rule internally. It validates the Anvil location table, reopens the region file, decodes each staged chunk, and only then records the represented capture timestamp. Updates that arrive during an export retain a newer monotonic revision and remain dirty for the next pass. When an existing region entry cannot be read, stale World Mirror durability rows for that entry are removed so a future capture can repair it. An indexed chunk is settled only after the actual MCA entry can be decoded. When that entry is missing, the current pass retains its capture and removes the stale claim; a later pass writes the capture and records its real timestamp. This order prevents a monotonic UPSERT from retaining a newer timestamp from lost data.
+
+Legacy zero-byte MCA placeholders contain no region entries and can be initialized as empty files by writers. An unreadable allocated entry in a nonempty region still requires verification and recovery.
 
 Terrain and entity receipts are independent. A terrain region can be verified and its row committed even when entity output fails. An entity-only retry retains its entity revisions and does not block newer terrain. A failed index commit retains the affected terrain revision even if its MCA write succeeded. If only the final metadata save fails, the retry carries the verified capture-time floor without rewriting already committed terrain. Entity success is verified through entity regions and UUIDs, not inferred from a `chunks` row.
 

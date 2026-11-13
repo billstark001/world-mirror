@@ -14,10 +14,18 @@ Use Added, Changed, and Fixed categories where applicable. Combine related chang
 
 - Share source-priority decisions and MCA read-back verification between live sync and toolkit imports. Live sync honors the replay source's configured priority and only indexes terrain that passes verification.
 - Register `replay_import` at priority 10 when no rule exists for it. Existing source rules and save formats carry forward.
+- Use the same zoom-bucket selection and drawing path in the built-in map and Xaero overlay. Keep bucket sizes stable while panning and bound work at every zoom level.
+- Validate NBT string lengths without encoding strings twice. Buffer export reads and writes while retaining exact content checks and native region formats.
+- Reduce client-thread capture work by queueing each section update packet once, checking the remaining tick budget before starting more captures, and avoiding redundant terrain and lighting copies.
+- Add optional performance diagnostics for map rendering and the entity, terrain, and bundle stages of preparing an export.
+- Reuse map geometry when the visible data and colors stay the same.
 
 ### Fixed
 
 - Treat legacy zero-byte MCA placeholders as empty during terrain, entity, and conflict writes.
+- Refresh the matching saved chunk map and count after a durable export or index repair, including when a previous refresh is still in flight.
+- [fabric-1.21.11] Fix a crash when the status screen requests background blur twice in one frame.
+- Keep the status screen open during manual export. Check the target in the background and let singleplayer continue processing the export while the screen is open.
 
 ---
 
