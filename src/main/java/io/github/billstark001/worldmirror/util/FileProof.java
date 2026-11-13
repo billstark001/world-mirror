@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.DigestInputStream;
 import java.util.HexFormat;
@@ -94,24 +95,55 @@ public final class FileProof {
     }
 
     public static String sha256(Path file) throws IOException {
+        return sha256(file, null);
+    }
+
+    /** Checks cancellation between bounded reads without altering the file. */
+    public static String sha256(Path file, Runnable checkpoint) throws IOException {
         MessageDigest digest = sha256();
         try (var input = new DigestInputStream(
                      Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS), digest)) {
-            input.transferTo(java.io.OutputStream.nullOutputStream());
+            if (checkpoint == null) {
+                input.transferTo(java.io.OutputStream.nullOutputStream());
+            } else {
+                byte[] buffer = new byte[64 * 1024];
+                do {
+                    checkpoint.run();
+                } while (input.read(buffer) != -1);
+            }
         }
         return HexFormat.of().formatHex(digest.digest());
     }
 
     /** Hashes during copying, then checks the stored copy without reading the source a second time. */
     public static String copyVerified(Path source, Path destination) throws IOException {
+        return copyVerified(source, destination, null);
+    }
+
+    /** Checks cancellation during the copy and the read-back of the private destination. */
+    public static String copyVerified(Path source, Path destination, Runnable checkpoint) throws IOException {
         Version before = version(source);
         MessageDigest digest = sha256();
         try (var input = new DigestInputStream(
                      Files.newInputStream(source, LinkOption.NOFOLLOW_LINKS), digest)) {
-            Files.copy(input, destination);
+            if (checkpoint == null) {
+                Files.copy(input, destination);
+            } else {
+                try (var output = Files.newOutputStream(
+                             destination, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+                    byte[] buffer = new byte[64 * 1024];
+                    while (true) {
+                        checkpoint.run();
+                        int count = input.read(buffer);
+                        if (count < 0)
+                            break;
+                        output.write(buffer, 0, count);
+                    }
+                }
+            }
         }
         String expected = HexFormat.of().formatHex(digest.digest());
-        if (!before.equals(version(source)) || !expected.equals(sha256(destination))) {
+        if (!before.equals(version(source)) || !expected.equals(sha256(destination, checkpoint))) {
             throw new IOException("Copy verification failed: " + source);
         }
         return expected;

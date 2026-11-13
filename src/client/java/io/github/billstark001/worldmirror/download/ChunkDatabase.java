@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.IntStream;
@@ -49,7 +50,25 @@ public class ChunkDatabase implements Closeable {
 
     /** Keeps cooperative status readers out of a database and sidecar file replacement. */
     public static ReplacementLease lockForReplacement(Path worldFolder) {
-        return new ReplacementLease(replacementLock(worldFolder).writeLock());
+        return lock(replacementLock(worldFolder).writeLock());
+    }
+
+    static ReplacementLease lockForReplacement(Path worldFolder, Runnable checkpoint) throws IOException {
+        Lock lock = replacementLock(worldFolder).writeLock();
+        try {
+            do {
+                checkpoint.run();
+            } while (!lock.tryLock(100, TimeUnit.MILLISECONDS));
+            return new ReplacementLease(lock);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted while waiting for the chunk index", interrupted);
+        }
+    }
+
+    private static ReplacementLease lock(Lock lock) {
+        lock.lock();
+        return new ReplacementLease(lock);
     }
 
     public static final class ReplacementLease implements AutoCloseable {
@@ -57,7 +76,6 @@ public class ChunkDatabase implements Closeable {
 
         private ReplacementLease(Lock lock) {
             this.lock = lock;
-            lock.lock();
         }
 
         @Override
@@ -344,7 +362,7 @@ public class ChunkDatabase implements Closeable {
 
     private static <T> T withReadOnlyConnection(Path worldFolder, T missing, ReadConnection<T> read)
             throws SQLException {
-        try (var ignored = new ReplacementLease(replacementLock(worldFolder).readLock())) {
+        try (var ignored = lock(replacementLock(worldFolder).readLock())) {
             Path database = worldFolder.resolve(MirrorFormat.DATABASE_FILE);
             try {
                 requireSafeFiles(worldFolder);

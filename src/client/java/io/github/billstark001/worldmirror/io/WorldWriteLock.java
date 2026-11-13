@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.channels.OverlappingFileLockException;
 import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
 /** Holds Minecraft's session lock for one complete offline world mutation. */
@@ -47,6 +48,11 @@ public final class WorldWriteLock implements AutoCloseable {
      * while acquiring this lease. Close it on the acquiring thread.
      */
     public static WorldWriteLock acquire(Path folder) throws IOException {
+        return acquire(folder, null);
+    }
+
+    /** Checks cooperative cancellation while waiting for the in-process guard. */
+    public static WorldWriteLock acquire(Path folder, Runnable checkpoint) throws IOException {
         Path world = folder.toAbsolutePath().normalize();
         Ownership current = OWNED.get();
         if (current != null) {
@@ -62,8 +68,10 @@ public final class WorldWriteLock implements AutoCloseable {
             return new WorldWriteLock(current);
         }
         ReentrantLock guard = LOCKS[Math.floorMod(world.hashCode(), LOCKS.length)];
-        guard.lock();
+        awaitGuard(guard, checkpoint);
         try {
+            if (checkpoint != null)
+                checkpoint.run();
             Ownership acquired = new Ownership(world, guard, acquireDirectory(world));
             OWNED.set(acquired);
             try {
@@ -81,6 +89,21 @@ public final class WorldWriteLock implements AutoCloseable {
         } catch (IOException | RuntimeException | Error failure) {
             guard.unlock();
             throw failure;
+        }
+    }
+
+    private static void awaitGuard(ReentrantLock guard, Runnable checkpoint) throws IOException {
+        if (checkpoint == null) {
+            guard.lock();
+            return;
+        }
+        try {
+            do {
+                checkpoint.run();
+            } while (!guard.tryLock(100, TimeUnit.MILLISECONDS));
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted while waiting for the world write lock", interrupted);
         }
     }
 

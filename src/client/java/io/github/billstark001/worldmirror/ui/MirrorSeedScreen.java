@@ -1,34 +1,43 @@
 package io.github.billstark001.worldmirror.ui;
 
 import io.github.billstark001.worldmirror.download.SeedConversion;
+import io.github.billstark001.worldmirror.download.SeedConversion.Phase;
+import io.github.billstark001.worldmirror.download.SeedConversion.Progress;
+import io.github.billstark001.worldmirror.download.SeedConversion.ProgressSnapshot;
 import io.github.billstark001.worldmirror.download.WorldGraphService;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
 import io.github.billstark001.worldmirror.util.OfflineTasks;
+import io.github.billstark001.worldmirror.util.WMLogger;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
+import java.nio.file.Path;
 import java.util.Locale;
+import java.util.concurrent.CancellationException;
+import java.util.function.Consumer;
 
 /** Offline seed conversion for one verified mirror save. */
 final class MirrorSeedScreen extends StatusScreenApi {
     private final Screen parent;
-    private final java.nio.file.Path folder;
+    private final Path folder;
     private final Runnable returned;
     private String nodeId;
-    private boolean loaded, seeded, blendingEnabled, busy, blend, remove, editingSeed, changed;
+    private boolean loaded, seeded, blendingEnabled, blend, remove, editingSeed, changed;
     private String seed = "";
     private String failure;
     private Long currentSeed;
     private SeedConversion.Plan pending;
+    private Progress task;
+    private Button cancelButton;
 
-    MirrorSeedScreen(Screen parent, String nodeId, java.nio.file.Path folder) {
+    MirrorSeedScreen(Screen parent, String nodeId, Path folder) {
         this(parent, nodeId, folder, () -> {});
     }
 
-    MirrorSeedScreen(Screen parent, String nodeId, java.nio.file.Path folder, Runnable returned) {
+    MirrorSeedScreen(Screen parent, String nodeId, Path folder, Runnable returned) {
         super(label("title"));
         this.parent = parent;
         this.folder = folder;
@@ -41,16 +50,19 @@ final class MirrorSeedScreen extends StatusScreenApi {
     @Override
     protected void init() {
         int x = width / 2;
-        int y = height / 2;
+        int y = Math.max(97, height / 2);
         int span = Math.min(300, Math.max(100, width - 24));
-        if (!loaded && !busy)
+        cancelButton = null;
+        if (!loaded && task == null)
             load();
         if (pending != null) {
-            button(label("apply"), x - span / 2, height - 31, span / 2 - 3, this::apply);
-            button(Component.translatable("gui.back"), x + 3, height - 31, span / 2 - 3, () -> {
-                pending = null;
-                rebuildWidgets();
-            });
+            if (task == null) {
+                button(label("apply"), x - span / 2, height - 31, span / 2 - 3, this::apply);
+                button(Component.translatable("gui.back"), x + 3, height - 31, span / 2 - 3, () -> {
+                    pending = null;
+                    rebuildWidgets();
+                });
+            }
         } else {
             if (loaded && available) {
                 if (!seeded || editingSeed) {
@@ -60,8 +72,9 @@ final class MirrorSeedScreen extends StatusScreenApi {
                     field.setHint(label("input"));
                     field.setValue(seed);
                     field.setResponder(value -> seed = value);
-                    field.active = !busy;
-                    setInitialFocus(field);
+                    field.active = task == null;
+                    if (field.active)
+                        setInitialFocus(field);
                     button(label(blend ? "blendOn" : "blendOff"), x - span / 2, y - 21, span, () -> {
                         blend = !blend;
                         rebuildWidgets();
@@ -98,17 +111,26 @@ final class MirrorSeedScreen extends StatusScreenApi {
                                 () -> preview(SeedConversion.Request.regenerateBorder()));
                 }
             }
-            button(Component.translatable("gui.done"), x - 55, height - 31, 110, this::onClose);
+            if (task == null)
+                button(Component.translatable("gui.done"), x - 55, height - 31, 110, this::onClose);
+        }
+        if (task != null) {
+            cancelButton = addRenderableWidget(
+                    Button.builder(Component.translatable("gui.cancel"), ignored -> onClose())
+                            .bounds(x - 55, height - 31, 110, 20)
+                            .build());
+            cancelButton.active = task.snapshot().canCancel();
+            setInitialFocus(cancelButton);
         }
     }
 
     private void button(Component text, int x, int y, int width, Runnable action) {
         addRenderableWidget(Button.builder(text, ignored -> action.run()).bounds(x, y, width, 20).build())
-                .active = !busy;
+                .active = task == null;
     }
 
     private void load() {
-        run("WM-ReadSeed", () -> SeedConversion.inspectTarget(folder, nodeId), mode -> {
+        run("WM-ReadSeed", progress -> SeedConversion.inspectTarget(folder, nodeId, progress), mode -> {
             loaded = true;
             available = mode != null;
             if (mode != null) {
@@ -121,15 +143,18 @@ final class MirrorSeedScreen extends StatusScreenApi {
 
     private void preview(SeedConversion.Request request) {
         run("WM-PreviewSeed",
-                () -> SeedConversion.preview(folder, nodeId, request), result -> pending = result);
+                progress
+                -> SeedConversion.preview(folder, nodeId, request, progress),
+                result -> pending = result);
     }
 
     private void apply() {
         var approved = pending;
         run("WM-ApplySeed",
-                ()
-                        -> {
-                    SeedConversion.apply(approved);
+                progress
+                -> {
+                    SeedConversion.apply(approved, progress);
+                    WorldGraphService.instance().refreshAsync();
                     return approved.nodeId();
                 },
                 success -> {
@@ -140,43 +165,86 @@ final class MirrorSeedScreen extends StatusScreenApi {
                         loaded = false;
                         remove = false;
                         editingSeed = false;
-                        WorldGraphService.instance().refreshAsync();
                     }
                 });
     }
 
-    private <T> void run(String name, OfflineTasks.Work<T> work, java.util.function.Consumer<T> completed) {
-        if (busy)
+    @FunctionalInterface
+    private interface SeedWork<T> {
+        T run(Progress progress) throws Exception;
+    }
+
+    private <T> void run(String name, SeedWork<T> work, Consumer<T> completed) {
+        if (task != null)
             return;
         failure = null;
-        busy = true;
+        var progress = new Progress();
+        task = progress;
         var client = Minecraft.getInstance();
         if (loaded)
             rebuildWidgets();
         OfflineTasks.start(name,
                 ()
-                        -> new Outcome<>(work.run(), null),
-                error -> new Outcome<T>(null, error.getMessage()), client::execute, outcome -> {
+                        -> {
+                    try {
+                        return new Outcome<>(work.run(progress), null);
+                    } catch (CancellationException cancelled) {
+                        return new Outcome<T>(null, null);
+                    }
+                },
+                error
+                -> new Outcome<T>(null, error.getMessage()),
+                client::execute,
+                outcome
+                -> {
+                    boolean cancelled = progress.snapshot().phase() == Phase.CANCELLING;
+                    if (cancelled)
+                        WMLogger.info("Cancelled mirror seed check: folder=" + folder + " worker=" + name);
                     if (ClientDialogs.currentScreen(client) != this)
                         return;
+                    if (cancelled) {
+                        if (!loaded)
+                            onClose();
+                        else
+                            rebuildWidgets();
+                        return;
+                    }
                     completed.accept(outcome.result());
                     if (outcome.error() != null)
                         failure = outcome.error();
                     rebuildWidgets();
-                }, () -> busy = false);
+                },
+                ()
+                        -> task = null,
+                () -> {
+                    task = null;
+                    if (ClientDialogs.currentScreen(client) == this) {
+                        loaded = true;
+                        failure = label("interrupted").getString();
+                        rebuildWidgets();
+                    }
+                });
     }
 
     private record Outcome<T>(T result, String error) {}
 
     @Override
+    public void tick() {
+        super.tick();
+        if (task != null && cancelButton != null)
+            cancelButton.active = task.snapshot().canCancel();
+    }
+
+    @Override
     protected void renderContent(Canvas graphics) {
         int x = width / 2;
         graphics.centered(title, x, 16, 0xFFFFFFFF);
-        if (busy) {
-            graphics.centered(label("working"), x, 33, 0xFFFFFF55);
-        } else if (currentSeed != null && pending == null) {
-            graphics.centered(label("current", currentSeed), x, 35, 0xFFE0E0E0);
+        if (task != null) {
+            renderProgress(graphics, task.snapshot());
+            return;
         }
+        if (currentSeed != null && pending == null)
+            graphics.centered(label("current", currentSeed), x, 35, 0xFFE0E0E0);
         if (pending != null) {
             var preview = pending.preview();
             int top = 40;
@@ -200,13 +268,49 @@ final class MirrorSeedScreen extends StatusScreenApi {
                     0xFFFF6666);
     }
 
+    private void renderProgress(Canvas graphics, ProgressSnapshot progress) {
+        String key = switch (progress.phase()) {
+            case CHECKING -> "working";
+            case SCANNING -> "scanning";
+            case VERIFYING -> "verifying";
+            case APPLYING -> "applying";
+            case CANCELLING -> "cancelling";
+        };
+        int center = width / 2;
+        graphics.centered(label(key), center, 33, 0xFFFFFF55);
+        int barWidth = Math.clamp(width - 16, 4, 160);
+        int left = center - barWidth / 2;
+        int top = 46;
+        graphics.fill(left, top, left + barWidth, top + 5, 0xC0000000);
+        if (progress.total() > 0) {
+            int filled = (int) ((long) barWidth * progress.completed() / progress.total());
+            if (filled > 0)
+                graphics.fill(left, top, left + filled, top + 5, 0xFF80BDFF);
+            return;
+        }
+        int segment = barWidth / 4;
+        int range = barWidth - segment;
+        int offset = Math.abs(Math.floorMod(System.nanoTime() / 10_000_000L, range * 2) - range);
+        graphics.fill(left + offset, top, left + offset + segment, top + 5, 0xFF80BDFF);
+    }
+
     @Override
     public void onClose() {
-        if (!busy) {
-            showScreen(parent);
-            if (changed)
-                returned.run();
+        if (task != null) {
+            if (task.cancel() && cancelButton != null)
+                cancelButton.active = false;
+            return;
         }
+        showScreen(parent);
+        if (changed)
+            returned.run();
+    }
+
+    @Override
+    public void removed() {
+        if (task != null)
+            task.cancel();
+        super.removed();
     }
 
     private static Component label(String key, Object... arguments) {

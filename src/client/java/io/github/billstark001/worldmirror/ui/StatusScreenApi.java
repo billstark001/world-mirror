@@ -20,6 +20,7 @@ abstract class StatusScreenApi extends Screen {
     protected interface Canvas {
         void text(Component text, int x, int y, int color);
         void centered(Component text, int x, int y, int color);
+        void fill(int left, int top, int right, int bottom, int color);
     }
 
     protected StatusScreenApi(Component title) {
@@ -43,6 +44,11 @@ abstract class StatusScreenApi extends Screen {
         super.render(graphics, modal ? -1 : mouseX, modal ? -1 : mouseY, delta);
 #endif
         renderContent(new Canvas() {
+            @Override
+            public void fill(int left, int top, int right, int bottom, int color) {
+                graphics.fill(left, top, right, bottom, color);
+            }
+
             @Override
             public void text(Component text, int x, int y, int color) {
 #if MC_VERSION >= 260102

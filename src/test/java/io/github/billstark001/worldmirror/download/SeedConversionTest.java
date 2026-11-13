@@ -10,6 +10,8 @@ import io.github.billstark001.worldmirror.io.SeedChunkProvenance;
 import io.github.billstark001.worldmirror.io.WorldSaveLayout;
 import io.github.billstark001.worldmirror.io.WorldSettingsSnapshot;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
+import io.github.billstark001.worldmirror.io.WorldWriteLock;
+import io.github.billstark001.worldmirror.util.FileProof;
 import net.minecraft.SharedConstants;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -25,6 +27,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -56,11 +59,22 @@ class SeedConversionTest {
             assertTrue(index.recordUpdates("minecraft:overworld", Map.of(CAPTURE, 42L), "world_mirror"));
         }
 
-        var set = SeedConversion.preview(target, SeedConversion.Request.set(25L, true));
+        var steps = new java.util.ArrayList<SeedConversion.ProgressSnapshot>();
+        var progress = new SeedConversion.Progress(steps::add);
+        var set = SeedConversion.preview(
+                world, target.nodeId(), SeedConversion.Request.set(25L, true), progress);
+        var scan = steps.stream().filter(step -> step.phase() == SeedConversion.Phase.SCANNING).toList();
+        assertEquals(java.util.List.of(0, 1, 2, 3),
+                scan.stream().map(SeedConversion.ProgressSnapshot::completed).toList());
+        assertTrue(scan.stream().allMatch(step -> step.total() == 3));
+        assertEquals(SeedConversion.Phase.VERIFYING, steps.getLast().phase());
         assertEquals(1, set.preview().removed());
         assertEquals(1, set.preview().repairedBiomes());
         assertEquals(1, set.preview().blended());
-        assertTrue(Files.isRegularFile(SeedConversion.apply(set)));
+        var apply = new SeedConversion.Progress();
+        assertTrue(Files.isRegularFile(SeedConversion.apply(set, apply)));
+        assertEquals(SeedConversion.Phase.APPLYING, apply.snapshot().phase());
+        assertFalse(apply.cancel());
         assertEquals(25L, WorldStructureCreator.readSeed(world));
         assertNull(AnvilReader.readChunk(region, PLACEHOLDER));
         var preserved = AnvilReader.readChunk(region, CAPTURE);
@@ -88,6 +102,48 @@ class SeedConversionTest {
         assertNotEquals(ChunkIndexStore.SEED_GENERATED, records.getFirst().updateSource());
         assertEquals(WorldMetadata.GenerationMode.VOID,
                 WorldMetadata.loadIfPresent(world).orElseThrow().generation.mode());
+    }
+
+    @Test
+    void cancellationDuringPreviewAndRevalidationLeavesSaveUnchanged(@TempDir Path world) throws Exception {
+        var target = mirror(world);
+        Path region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        McaWriteSupport.writeChunks(region, Level.OVERWORLD,
+                Map.of(PLACEHOLDER, terrain("minecraft:air", "worldmirror:mirror_overworld")));
+        try (var index = ChunkDatabase.open(world, target.sourceId())) {
+            assertTrue(index.recordUpdates("minecraft:overworld", Map.of(CAPTURE, 42L), "world_mirror"));
+        }
+        Path database = world.resolve(SeedIndexSnapshot.DATABASE);
+        String indexDigest = FileProof.sha256(database);
+        String level = FileProof.sha256(world.resolve("level.dat"));
+        String metadata = FileProof.sha256(world.resolve(WorldMetadata.FILE_NAME));
+        String terrain = FileProof.sha256(region);
+        var request = SeedConversion.Request.set(25L, false);
+
+        var scanning = new SeedConversion.Progress[1];
+        scanning[0] = new SeedConversion.Progress(step -> {
+            if (step.phase() == SeedConversion.Phase.SCANNING && step.completed() == 1)
+                assertTrue(scanning[0].cancel());
+        });
+        assertThrows(CancellationException.class,
+                () -> SeedConversion.preview(world, target.nodeId(), request, scanning[0]));
+
+        var approved = SeedConversion.preview(target, request);
+        var verifying = new SeedConversion.Progress[1];
+        verifying[0] = new SeedConversion.Progress(step -> {
+            if (step.phase() == SeedConversion.Phase.VERIFYING)
+                assertTrue(verifying[0].cancel());
+        });
+        assertThrows(CancellationException.class, () -> SeedConversion.apply(approved, verifying[0]));
+        try (var ignored = WorldWriteLock.acquire(world)) {
+            assertEquals(level, FileProof.sha256(world.resolve("level.dat")));
+            assertEquals(metadata, FileProof.sha256(world.resolve(WorldMetadata.FILE_NAME)));
+            assertEquals(terrain, FileProof.sha256(region));
+            assertEquals(indexDigest, FileProof.sha256(database));
+            assertFalse(Files.exists(database.resolveSibling(database.getFileName() + "-wal")));
+            assertFalse(Files.exists(database.resolveSibling(database.getFileName() + "-shm")));
+            assertFalse(Files.exists(world.resolve("backups")));
+        }
     }
 
     @Test

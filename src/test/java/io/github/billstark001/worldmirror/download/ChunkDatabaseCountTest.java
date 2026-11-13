@@ -1,8 +1,13 @@
 package io.github.billstark001.worldmirror.download;
 
-import net.minecraft.world.level.ChunkPos;
 import io.github.billstark001.worldmirror.format.ChunkIndexStore;
 import io.github.billstark001.worldmirror.format.MirrorFormat;
+import io.github.billstark001.worldmirror.io.WorldWriteLock;
+import io.github.billstark001.worldmirror.util.FileProof;
+import net.minecraft.SharedConstants;
+import net.minecraft.server.Bootstrap;
+import net.minecraft.world.level.ChunkPos;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -16,6 +21,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ChunkDatabaseCountTest {
+    @BeforeAll
+    static void bootstrap() {
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+    }
+
     @Test
     void upgradesAnExistingIndexWithoutCreatingOneForOtherWorlds(@TempDir Path root) throws Exception {
         Path existing = root.resolve("existing"), missing = root.resolve("missing");
@@ -74,6 +85,26 @@ class ChunkDatabaseCountTest {
             database.removeSeedGenerated(dimension, Set.of(new ChunkPos(0, 0)));
             assertEquals(1, ChunkDatabase.countAllReadOnly(world, source));
             assertEquals(2, ChunkDatabase.countAllReadOnly(stage, source));
+        }
+    }
+
+    @Test
+    void seedSnapshotReadsCommittedWalRowsWithoutTouchingTheOriginal(@TempDir Path world) throws Exception {
+        String source = "source:a", dimension = "minecraft:overworld";
+        Path database = world.resolve(SeedIndexSnapshot.DATABASE);
+        Path wal = database.resolveSibling(database.getFileName() + "-wal");
+        Path shm = database.resolveSibling(database.getFileName() + "-shm");
+        try (var lock = WorldWriteLock.acquire(world); var writer = ChunkDatabase.open(world, source)) {
+            assertTrue(writer.recordUpdates(dimension, Map.of(new ChunkPos(3, 4), 100L), "world_mirror"));
+            assertTrue(Files.size(wal) > 0);
+            String walDigest = FileProof.sha256(wal);
+            String shmDigest = FileProof.sha256(shm);
+            try (var index = ChunkDatabase.lockForReplacement(world);
+                    var snapshot = SeedIndexSnapshot.open(world, () -> {})) {
+                assertEquals(1, ChunkDatabase.countAllReadOnly(snapshot.root(), source));
+            }
+            assertEquals(walDigest, FileProof.sha256(wal));
+            assertEquals(shmDigest, FileProof.sha256(shm));
         }
     }
 

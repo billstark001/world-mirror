@@ -1,6 +1,5 @@
 package io.github.billstark001.worldmirror.download;
 
-import io.github.billstark001.worldmirror.format.MirrorFormat;
 import io.github.billstark001.worldmirror.io.AnvilReader;
 import io.github.billstark001.worldmirror.io.MirrorTarget;
 import io.github.billstark001.worldmirror.io.MirrorWorldgenAssets;
@@ -30,13 +29,62 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
+import java.util.function.Consumer;
 
 /** Offline seed changes are previewed and committed under the native save lease. */
 public final class SeedConversion {
     private static final Path OWNED_PACK = Path.of("datapacks", MirrorWorldgenAssets.PACK_DIRECTORY);
-    private static final Path DATABASE = Path.of(MirrorFormat.DATABASE_FILE);
+    private static final Path DATABASE = SeedIndexSnapshot.DATABASE;
 
     public enum Operation { SET, RESEED, REMOVE, REGENERATE_BORDER }
+
+    public enum Phase { CHECKING, SCANNING, VERIFYING, APPLYING, CANCELLING }
+
+    public record ProgressSnapshot(Phase phase, int completed, int total) {
+        public boolean canCancel() {
+            return phase != Phase.APPLYING && phase != Phase.CANCELLING;
+        }
+    }
+
+    /** A cancellation request takes effect at the next checkpoint before publication begins. */
+    public static final class Progress {
+        private final Consumer<ProgressSnapshot> listener;
+        private volatile ProgressSnapshot snapshot = new ProgressSnapshot(Phase.CHECKING, 0, 0);
+
+        public Progress() {
+            this(ignored -> {});
+        }
+
+        public Progress(Consumer<ProgressSnapshot> listener) {
+            this.listener = listener;
+        }
+
+        public ProgressSnapshot snapshot() {
+            return snapshot;
+        }
+
+        public synchronized boolean cancel() {
+            if (!snapshot.canCancel())
+                return false;
+            snapshot = new ProgressSnapshot(Phase.CANCELLING, 0, 0);
+            return true;
+        }
+
+        void checkpoint() {
+            if (snapshot.phase() == Phase.CANCELLING)
+                throw new CancellationException();
+        }
+
+        void update(Phase phase, int completed, int total) {
+            ProgressSnapshot next = new ProgressSnapshot(phase, completed, total);
+            synchronized (this) {
+                checkpoint();
+                snapshot = next;
+            }
+            listener.accept(next);
+        }
+    }
 
     public record Request(Operation operation, long seed, boolean removeGenerated, boolean blendTerrain) {
         public static Request set(long seed, boolean blend) {
@@ -120,7 +168,7 @@ public final class SeedConversion {
         try {
             if (!isCurrentOwnedVoid(root))
                 return false;
-            ChunkDatabase.readOrphanNamespace(root);
+            inspectOrphanNamespace(root, new Progress());
             return true;
         } catch (Exception unsupported) {
             return false;
@@ -128,48 +176,92 @@ public final class SeedConversion {
     }
 
     public static TargetStatus inspectTarget(Path folder, String expectedNodeId) throws Exception {
-        var target = inspectTarget(folder.toAbsolutePath().normalize(), expectedNodeId, null, false);
+        return inspectTarget(folder, expectedNodeId, new Progress());
+    }
+
+    public static TargetStatus inspectTarget(Path folder, String expectedNodeId, Progress progress)
+            throws Exception {
+        progress.checkpoint();
+        var target = inspectTarget(folder.toAbsolutePath().normalize(), expectedNodeId, null, progress, null);
         var generation = target.metadata() == null ? null : target.metadata().generation;
         boolean seeded = generation != null && generation.mode() == WorldMetadata.GenerationMode.SEEDED;
-        return new TargetStatus(seeded, seeded && generation.blendTerrain(),
+        var status = new TargetStatus(seeded, seeded && generation.blendTerrain(),
                 seeded ? WorldStructureCreator.readSeed(target.folder()) : null);
+        progress.checkpoint();
+        WMLogger.debug("Read mirror seed settings: folder=" + folder + " seeded=" + seeded);
+        return status;
     }
 
     public static Plan preview(MirrorTarget target, Request request) throws Exception {
-        return preview(target.folder(), target.nodeId(), target, request);
+        return preview(target.folder(), target.nodeId(), target, request, new Progress());
     }
 
     public static Plan preview(Path folder, String expectedNodeId, Request request) throws Exception {
-        return preview(folder.toAbsolutePath().normalize(), expectedNodeId, null, request);
+        return preview(folder, expectedNodeId, request, new Progress());
     }
 
-    private static Plan preview(Path root, String expectedNodeId, MirrorTarget existing, Request request)
+    public static Plan preview(Path folder, String expectedNodeId, Request request, Progress progress)
             throws Exception {
+        return preview(folder.toAbsolutePath().normalize(), expectedNodeId, null, request, progress);
+    }
+
+    private static Plan preview(Path root, String expectedNodeId, MirrorTarget existing, Request request,
+            Progress progress) throws Exception {
+        progress.checkpoint();
         rejectBusyTarget(root, expectedNodeId);
         requireAvailableFolder(root);
-        try (WorldWriteLock ignored = WorldWriteLock.acquire(root)) {
-            var target = inspectTarget(root, expectedNodeId, null, true);
+        Plan plan;
+        try (WorldWriteLock ignored = WorldWriteLock.acquire(root, progress::checkpoint);
+                var index = ChunkDatabase.lockForReplacement(root, progress::checkpoint);
+                var snapshot = SeedIndexSnapshot.open(root, progress::checkpoint)) {
+            progress.checkpoint();
+            var target = inspectTarget(root, expectedNodeId, null, progress, snapshot);
             if (existing != null && !existing.equals(target.existing()))
                 throw new IOException("The selected mirror identity changed");
-            return inspect(target, request);
+            plan = inspect(target, request, progress, snapshot);
         }
+        WMLogger.info("Previewed mirror seed operation: folder=" + root + " operation=" + request.operation()
+                + summary(plan.preview()));
+        return plan;
     }
 
     public static Path apply(Plan approved) throws Exception {
+        return apply(approved, new Progress());
+    }
+
+    public static Path apply(Plan approved, Progress progress) throws Exception {
         var target = approved.target;
+        progress.checkpoint();
         rejectBusyTarget(target.folder(), target.expectedNodeId());
         Path root = target.folder();
         requireAvailableFolder(root);
-        try (WorldWriteLock ignored = WorldWriteLock.acquire(root);
-                var index = ChunkDatabase.lockForReplacement(root)) {
-            var verified = inspectTarget(root, target.expectedNodeId(), target.metadata().nodeId, true);
+        Path backup;
+        try (WorldWriteLock ignored = WorldWriteLock.acquire(root, progress::checkpoint);
+                var index = ChunkDatabase.lockForReplacement(root, progress::checkpoint);
+                var snapshot = SeedIndexSnapshot.open(root, progress::checkpoint)) {
+            progress.checkpoint();
+            var verified = inspectTarget(
+                    root, target.expectedNodeId(), target.metadata().nodeId, progress, snapshot);
             if (!sameTarget(target, verified))
                 throw new IOException("The selected mirror changed after preview");
-            Plan fresh = inspect(verified, approved.request);
+            Plan fresh = inspect(verified, approved.request, progress, snapshot);
             if (!fresh.proofs.equals(approved.proofs) || !fresh.terrain.equals(approved.terrain))
                 throw new IOException("The mirror changed after preview. Preview the operation again.");
-            return publish(fresh);
+            progress.update(Phase.APPLYING, 0, 0);
+            WMLogger.info("Applying mirror seed operation: folder=" + root
+                    + " operation=" + approved.request.operation());
+            backup = publish(fresh, snapshot);
         }
+        WMLogger.info("Finished mirror seed operation: folder=" + root
+                + " operation=" + approved.request.operation() + " changed=" + (backup != null)
+                + summary(approved.preview()));
+        return backup;
+    }
+
+    private static String summary(Preview preview) {
+        return " removed=" + preview.removed() + " biomeRepairs=" + preview.repairedBiomes()
+                + " blended=" + preview.blended() + " protected=" + preview.protectedChunks()
+                + " unknown=" + preview.unknownChunks();
     }
 
     private static void rejectBusyTarget(Path root, String nodeId) throws IOException {
@@ -206,8 +298,8 @@ public final class SeedConversion {
                 && Files.isRegularFile(root.resolve("level.dat"), LinkOption.NOFOLLOW_LINKS);
     }
 
-    private static Target inspectTarget(Path root, String nodeId, String plannedId, boolean prepare)
-            throws Exception {
+    private static Target inspectTarget(Path root, String nodeId, String plannedId, Progress progress,
+            SeedIndexSnapshot snapshot) throws Exception {
         requireAvailableFolder(root);
         if (MirrorMigrationCoordinator.needsRecovery(root))
             throw new IOException("The selected world requires recovery before seed changes");
@@ -233,13 +325,25 @@ public final class SeedConversion {
         }
         if (nodeId != null || !isOrphanVoid(root))
             throw new IOException("The selected world is not an unregistered World Mirror save");
-        String namespace = ChunkDatabase.readOrphanNamespace(root);
-        if (!prepare)
+        if (snapshot == null) {
+            inspectOrphanNamespace(root, progress);
             return new Target(root, null, null, null, null, false);
+        }
+        String namespace = snapshot.orphanNamespace();
         String id = plannedId == null ? "snapshot:" + UUID.randomUUID() : plannedId;
         var metadata = WorldMetadata.create(id, WorldGraph.Kind.SNAPSHOT, null, WorldGraph.Role.SNAPSHOT,
                 namespace == null ? id : namespace);
         return new Target(root, null, null, metadata, null, false);
+    }
+
+    private static void inspectOrphanNamespace(Path root, Progress progress) throws Exception {
+        if (Files.notExists(root.resolve(DATABASE), LinkOption.NOFOLLOW_LINKS))
+            return;
+        try (var world = WorldWriteLock.acquire(root, progress::checkpoint);
+                var index = ChunkDatabase.lockForReplacement(root, progress::checkpoint);
+                var snapshot = SeedIndexSnapshot.open(root, progress::checkpoint)) {
+            snapshot.orphanNamespace();
+        }
     }
 
     private static boolean isUnmaterializedClaim(Path root) throws IOException {
@@ -263,7 +367,9 @@ public final class SeedConversion {
                 && WorldStructureCreator.hasUnmodifiedVoidAssets(root);
     }
 
-    private static Plan inspect(Target target, Request request) throws Exception {
+    private static Plan inspect(Target target, Request request, Progress progress, SeedIndexSnapshot snapshot)
+            throws Exception {
+        progress.checkpoint();
         Path root = target.folder();
         WorldMetadata metadata = target.metadata();
         if (target.existing() == null && request.operation() != Operation.SET)
@@ -290,25 +396,26 @@ public final class SeedConversion {
                     "The assigned native world generation settings changed outside World Mirror.");
         } else if (request.operation() == Operation.REGENERATE_BORDER
                 && !metadata.generation.blendTerrain()) {
-            throw new IOException("This mirror does not have experimental blending enabled.");
+            throw new IOException("This mirror does not have terrain blending enabled.");
         }
         if (seeded && target.existing() != null)
             target.existing().requireCurrent();
         var terrain = SeedTerrain.scan(root, metadata, request.operation(), request.seed(),
-                request.removeGenerated(), request.blendTerrain());
+                request.removeGenerated(), request.blendTerrain(), progress, snapshot.root());
+        progress.update(Phase.VERIFYING, 0, 0);
         Map<Path, String> proofs = new LinkedHashMap<>(terrain.proofs());
-        SeedTerrain.proof(root, root.resolve(WorldMetadata.FILE_NAME), proofs);
+        proofs.putAll(snapshot.proofs());
+        SeedTerrain.proof(root, root.resolve(WorldMetadata.FILE_NAME), proofs, progress);
         if (target.claim() != null)
-            SeedTerrain.proof(root, root.resolve(MirrorClaim.FILE_NAME), proofs);
+            SeedTerrain.proof(root, root.resolve(MirrorClaim.FILE_NAME), proofs, progress);
         for (Path path : WorldStructureCreator.generationFiles(root))
-            SeedTerrain.proof(root, root.resolve(path), proofs);
-        for (String suffix : new String[] {"", "-wal", "-journal"})
-            SeedTerrain.proof(root, root.resolve(DATABASE.toString() + suffix), proofs);
-        for (Path file : packFiles(root)) SeedTerrain.proof(root, file, proofs);
+            SeedTerrain.proof(root, root.resolve(path), proofs, progress);
+        for (Path file : packFiles(root)) SeedTerrain.proof(root, file, proofs, progress);
+        progress.checkpoint();
         return new Plan(target, request, terrain, proofs);
     }
 
-    private static Path publish(Plan plan) throws Exception {
+    private static Path publish(Plan plan, SeedIndexSnapshot snapshot) throws Exception {
         Path root = plan.target.folder();
         var operation = plan.request.operation();
         var metadata = plan.target.metadata();
@@ -349,7 +456,9 @@ public final class SeedConversion {
                                 (pos, chunk) -> auxiliary.contains(pos) ? null : chunk);
                 }
             }
-            if (ChunkDatabase.stageWithoutSeedGenerated(root, staged, metadata.sourceId, removed)) {
+            if (snapshot.root() != null
+                    && ChunkDatabase.stageWithoutSeedGenerated(
+                            snapshot.root(), staged, metadata.sourceId, removed)) {
                 writes.put(DATABASE, staged.resolve(DATABASE));
                 for (String suffix : new String[] {"-wal", "-shm", "-journal"}) {
                     Path sidecar = Path.of(DATABASE.toString() + suffix);

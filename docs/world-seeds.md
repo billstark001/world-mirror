@@ -1,5 +1,7 @@
 # Mirror seeds
 
+The seed screen shows progress while inspecting and scanning the save. Use **Cancel** or Escape to stop a check. The scan reads a private copy of the chunk index, including any committed WAL entries. After confirmation, you can still cancel while the save is rechecked. Applying the verified changes runs to completion once staging starts.
+
 Close the mirror, open **World Mirror Routes**, select the world in the graph, then open **World Seed**. Enter a number or text as you would when creating a Minecraft world. The preview shows how many void placeholders will be removed and how many retained chunks need a biome palette change. The height comparison samples up to 128 columns in captured Overworld terrain against vanilla's normal preset. A mean difference of 12 blocks or more shows a warning. Datapacks that change vanilla world generation can affect the result.
 
 Applying a seed switches the save to the native normal preset. World Mirror stores the seed in Minecraft's own generator settings and records the preset, generation batch and settings fingerprint in mirror metadata. It removes World Mirror's void datapack and remaps its biome IDs in retained chunks to plains, nether wastes or the End, as appropriate. Captured, imported, and edited terrain is preserved. A save with custom generator settings must be converted back to an owned World Mirror generator before using this operation.

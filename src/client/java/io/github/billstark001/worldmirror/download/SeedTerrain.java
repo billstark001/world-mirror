@@ -1,5 +1,7 @@
 package io.github.billstark001.worldmirror.download;
 
+import io.github.billstark001.worldmirror.download.SeedConversion.Phase;
+import io.github.billstark001.worldmirror.download.SeedConversion.Progress;
 import io.github.billstark001.worldmirror.format.ChunkIndexStore;
 import io.github.billstark001.worldmirror.format.SeedTerrainDigest;
 import io.github.billstark001.worldmirror.io.AnvilReader;
@@ -58,13 +60,29 @@ public final class SeedTerrain {
     private SeedTerrain() {}
 
     static Plan scan(Path root, WorldMetadata metadata, SeedConversion.Operation operation, long seed,
-            boolean cleanup, boolean blending) throws Exception {
+            boolean cleanup, boolean blending, Progress progress, Path indexRoot) throws Exception {
+        Map<ResourceKey<Level>, List<Region>> dimensions = new LinkedHashMap<>();
+        int total = 0;
+        for (var dimension : DIMENSIONS) {
+            var directory = WorldSaveLayout.regionDirectory(root, dimension);
+            var regions = regions(root, directory, dimension, progress);
+            dimensions.put(dimension, regions);
+            boolean overworld = dimension.equals(Level.OVERWORLD);
+            int passes = 2;
+            if (overworld && operation == SeedConversion.Operation.REGENERATE_BORDER)
+                passes++;
+            if (overworld && blending && operation != SeedConversion.Operation.REMOVE)
+                passes++;
+            total += regions.size() * passes;
+        }
         var surface =
                 operation == SeedConversion.Operation.SET || operation == SeedConversion.Operation.RESEED
                 ? WorldStructureCreator.seedSurface(seed)
                 : null;
-        var scan = new Scan(root, metadata, operation, cleanup, blending, surface);
-        for (var dimension : DIMENSIONS) scan.dimension(dimension);
+        var scan =
+                new Scan(root, metadata, operation, cleanup, blending, surface, progress, total, indexRoot);
+        progress.update(Phase.SCANNING, 0, total);
+        for (var dimension : dimensions.entrySet()) scan.dimension(dimension.getKey(), dimension.getValue());
         return new Plan(Map.copyOf(scan.edits), Map.copyOf(scan.proofs), scan.removed, scan.repaired,
                 scan.blended, scan.protectedChunks, scan.unknown, scan.samples,
                 scan.samples == 0 ? 0 : (double) scan.heightDifference / scan.samples);
@@ -76,33 +94,56 @@ public final class SeedTerrain {
         final SeedConversion.Operation operation;
         final boolean cleanup, blending;
         final WorldStructureCreator.SeedSurface surface;
+        final Progress progress;
+        final int total;
+        final Path indexRoot;
         final Map<Region, Map<ChunkPos, Edit>> edits = new LinkedHashMap<>();
         final Map<Path, String> proofs = new LinkedHashMap<>();
         int removed, repaired, blended, protectedChunks, unknown, samples;
+        int completed;
         long heightDifference;
 
         Scan(Path root, WorldMetadata metadata, SeedConversion.Operation operation, boolean cleanup,
-                boolean blending, WorldStructureCreator.SeedSurface surface) {
+                boolean blending, WorldStructureCreator.SeedSurface surface, Progress progress, int total,
+                Path indexRoot) {
             this.root = root;
             this.metadata = metadata;
             this.operation = operation;
             this.cleanup = cleanup;
             this.blending = blending;
             this.surface = surface;
+            this.progress = progress;
+            this.total = total;
+            this.indexRoot = indexRoot;
         }
 
-        void dimension(ResourceKey<Level> dimension) throws Exception {
-            var directory = WorldSaveLayout.dimensionDirectory(root, dimension);
+        private void regionScanned() {
+            progress.update(Phase.SCANNING, ++completed, total);
+        }
+
+        private void loadIndexRows(String dimension, Map<ChunkPos, String> rows)
+                throws java.sql.SQLException {
+            for (var row : ChunkDatabase.queryAllReadOnly(indexRoot, metadata.sourceId, dimension)) {
+                progress.checkpoint();
+                rows.put(new ChunkPos(row.x(), row.z()), row.updateSource());
+            }
+        }
+
+        void dimension(ResourceKey<Level> dimension, List<Region> regions) throws Exception {
+            progress.checkpoint();
             var dim = dimension.identifier().toString();
             Map<ChunkPos, String> rows = new HashMap<>();
-            for (var row : ChunkDatabase.queryAllReadOnly(root, metadata.sourceId, dim))
-                rows.put(new ChunkPos(row.x(), row.z()), row.updateSource());
-            List<Region> regions = regions(root, directory.resolve("region"), dimension);
+            if (indexRoot != null)
+                loadIndexRows(dim, rows);
             Set<ChunkPos> present = new HashSet<>();
-            for (Region region : regions)
+            for (Region region : regions) {
+                progress.checkpoint();
                 present.addAll(McaWriteSupport.listChunkPositions(region.file(), region.x(), region.z()));
+                regionScanned();
+            }
             Set<ChunkPos> captured = new HashSet<>();
             for (var entry : rows.entrySet()) {
+                progress.checkpoint();
                 if (present.contains(entry.getKey()) && isCaptured(entry.getValue()))
                     captured.add(entry.getKey());
             }
@@ -111,14 +152,14 @@ public final class SeedTerrain {
                     ? findRegenerationDonors(regions, captured)
                     : Set.of();
             Map<ChunkPos, Region> regeneration = new HashMap<>();
-            Set<ChunkPos> nearDonors = regenerationBand(donors, present);
+            Set<ChunkPos> nearDonors = regenerationBand(donors, present, progress);
             Set<ChunkPos> removedHere = new HashSet<>();
             for (Region region : regions) {
                 Path entities = sibling(region, "entities");
                 Path poi = sibling(region, "poi");
-                proof(root, region.file(), proofs);
-                proof(root, entities, proofs);
-                proof(root, poi, proofs);
+                proof(root, region.file(), proofs, progress);
+                proof(root, entities, proofs, progress);
+                proof(root, poi, proofs, progress);
                 Map<ChunkPos, Edit> changes = new HashMap<>();
                 try (var terrain = AnvilReader.open(region.file(), region.x(), region.z());
                         var entityData = AnvilReader.open(entities, region.x(), region.z());
@@ -128,9 +169,9 @@ public final class SeedTerrain {
                                     .sorted(java.util.Comparator.comparingInt(SeedTerrain::x)
                                                     .thenComparingInt(SeedTerrain::z))
                                     .toList()) {
-                        proof(root, external(region.file(), pos), proofs);
-                        proof(root, external(entities, pos), proofs);
-                        proof(root, external(poi, pos), proofs);
+                        proof(root, external(region.file(), pos), proofs, progress);
+                        proof(root, external(entities, pos), proofs, progress);
+                        proof(root, external(poi, pos), proofs, progress);
                         CompoundTag chunk = terrain.read(pos);
                         String source = rows.get(pos);
                         boolean ownedBlend = hasOwnedBlend(chunk);
@@ -192,8 +233,10 @@ public final class SeedTerrain {
                 }
                 if (!changes.isEmpty())
                     edits.put(region, changes);
+                regionScanned();
             }
-            for (ChunkPos pos : regenerationBand(donors, regeneration.keySet())) {
+            for (ChunkPos pos : regenerationBand(donors, regeneration.keySet(), progress)) {
+                progress.checkpoint();
                 edits.computeIfAbsent(regeneration.get(pos), ignored -> new HashMap<>())
                         .put(pos, new Edit(true, false, false, false));
                 removedHere.add(pos);
@@ -205,8 +248,10 @@ public final class SeedTerrain {
                 present.removeAll(removedHere);
                 Set<ChunkPos> candidates = regenerate ? donors : captured;
                 for (Region region : regions) {
+                    progress.checkpoint();
                     try (var terrain = AnvilReader.open(region.file(), region.x(), region.z())) {
                         for (ChunkPos pos : terrain.positions()) {
+                            progress.checkpoint();
                             if (!candidates.contains(pos) || !hasGap(pos, present))
                                 continue;
                             CompoundTag chunk = terrain.read(pos);
@@ -223,6 +268,7 @@ public final class SeedTerrain {
                             blended++;
                         }
                     }
+                    regionScanned();
                 }
             }
         }
@@ -230,19 +276,24 @@ public final class SeedTerrain {
         private Set<ChunkPos> findRegenerationDonors(List<Region> regions, Set<ChunkPos> captured)
                 throws IOException {
             Set<ChunkPos> donors = new HashSet<>();
-            if (captured.isEmpty())
+            if (captured.isEmpty()) {
+                completed += regions.size();
+                progress.update(Phase.SCANNING, completed, total);
                 return donors;
+            }
             for (Region region : regions) {
-                proof(root, region.file(), proofs);
+                proof(root, region.file(), proofs, progress);
                 try (var terrain = AnvilReader.open(region.file(), region.x(), region.z())) {
                     for (ChunkPos pos : terrain.positions()) {
+                        progress.checkpoint();
                         if (!captured.contains(pos))
                             continue;
-                        proof(root, external(region.file(), pos), proofs);
+                        proof(root, external(region.file(), pos), proofs, progress);
                         if (canDonateBlend(terrain.read(pos)))
                             donors.add(pos);
                     }
                 }
+                regionScanned();
             }
             return donors;
         }
@@ -316,23 +367,29 @@ public final class SeedTerrain {
         return region.getParent().resolve("c." + x(pos) + "." + z(pos) + ".mcc");
     }
 
-    static void proof(Path root, Path path, Map<Path, String> proofs) throws IOException {
+    static void proof(Path root, Path path, Map<Path, String> proofs, Progress progress) throws IOException {
+        progress.checkpoint();
         FileProof.requirePlainPath(root, path);
         if (Files.notExists(path, LinkOption.NOFOLLOW_LINKS))
             return;
         Path relative = root.relativize(path);
         if (!proofs.containsKey(relative))
-            proofs.put(relative, FileProof.sha256(path));
+            proofs.put(relative, FileProof.sha256(path, progress::checkpoint));
     }
 
-    static List<Region> regions(Path root, Path directory, ResourceKey<Level> dimension) throws IOException {
+    private static List<Region> regions(
+            Path root, Path directory, ResourceKey<Level> dimension, Progress progress) throws IOException {
+        progress.checkpoint();
         FileProof.requirePlainPath(root, directory);
         FileProof.requirePlainDirectory(directory);
         if (Files.notExists(directory, LinkOption.NOFOLLOW_LINKS))
             return List.of();
         List<Region> files = new ArrayList<>();
         try (var entries = Files.list(directory)) {
-            for (Path file : entries.sorted().toList()) {
+            var sorted = entries.peek(ignored -> progress.checkpoint()).sorted().iterator();
+            while (sorted.hasNext()) {
+                Path file = sorted.next();
+                progress.checkpoint();
                 if (!AnvilReader.REGION_NAME.matcher(file.getFileName().toString()).matches())
                     continue;
                 if (FileProof.requirePlainFile(file).size() == 0)
@@ -346,16 +403,19 @@ public final class SeedTerrain {
 
     private record Distance(ChunkPos pos, int cost) {}
 
-    private static Set<ChunkPos> regenerationBand(Set<ChunkPos> donors, Set<ChunkPos> eligible) {
+    private static Set<ChunkPos> regenerationBand(
+            Set<ChunkPos> donors, Set<ChunkPos> eligible, Progress progress) {
         if (donors.isEmpty() || eligible.isEmpty())
             return Set.of();
         Map<ChunkPos, Integer> distances = new HashMap<>();
         var frontier = new PriorityQueue<Distance>(java.util.Comparator.comparingInt(Distance::cost));
         for (ChunkPos donor : donors) {
+            progress.checkpoint();
             if (hasGap(donor, donors))
                 frontier.add(new Distance(donor, 0));
         }
         while (!frontier.isEmpty()) {
+            progress.checkpoint();
             Distance from = frontier.remove();
             if (from.cost() > distances.getOrDefault(from.pos(), from.cost()))
                 continue;

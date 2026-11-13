@@ -13,10 +13,12 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.channels.OverlappingFileLockException;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -90,6 +92,30 @@ class WorldWriteLockTest {
             assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
         }
         assertFalse(DirectoryLock.isLocked(world));
+    }
+
+    @Test
+    void cancellationReleasesAWaitingWriterBeforeNativeLockAcquisition(@TempDir Path world) throws Exception {
+        try (var executor = Executors.newSingleThreadExecutor()) {
+            try (WorldWriteLock first = WorldWriteLock.acquire(world)) {
+                var polling = new CountDownLatch(1);
+                var cancel = new AtomicBoolean(false);
+                var second = executor.submit(() -> assertThrows(CancellationException.class, () -> {
+                    try (var acquired = WorldWriteLock.acquire(world, () -> {
+                        polling.countDown();
+                        if (cancel.get())
+                            throw new CancellationException();
+                    })) {
+                        org.junit.jupiter.api.Assertions.fail("Cancelled writer acquired the save");
+                    }
+                }));
+                assertTrue(polling.await(5, TimeUnit.SECONDS));
+                cancel.set(true);
+                second.get(5, TimeUnit.SECONDS);
+                assertVanillaCannotOpen(world);
+            }
+            assertFalse(DirectoryLock.isLocked(world));
+        }
     }
 
     @Test
