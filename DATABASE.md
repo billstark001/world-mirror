@@ -42,14 +42,17 @@ Defines the update sources known to the system and their relative priorities.
 
 **Default rows (seeded when the index is opened):**
 
-| update_source   | priority | apply_to_source | apply_to_dimension |
-| --------------- | -------- | --------------- | ------------------ |
-| `player`        | 0        | NULL            | NULL               |
-| `world_mirror`  | 10       | NULL            | NULL               |
-| `replay_import` | 10       | NULL            | NULL               |
-| `game_events`   | 20       | NULL            | NULL               |
-| `map_hp`        | 30       | NULL            | NULL               |
-| `map_lp`        | 50       | NULL            | NULL               |
+| update_source    | priority | apply_to_source | apply_to_dimension |
+| ---------------- | -------- | --------------- | ------------------ |
+| `player`         | 0        | NULL            | NULL               |
+| `world_mirror`   | 10       | NULL            | NULL               |
+| `replay_import`  | 10       | NULL            | NULL               |
+| `game_events`    | 20       | NULL            | NULL               |
+| `map_hp`         | 30       | NULL            | NULL               |
+| `map_lp`         | 50       | NULL            | NULL               |
+| `seed_generated` | 100      | NULL            | NULL               |
+
+Writable initialization registers missing defaults in SQLite and preserves existing rules. `seed_generated` rows have timestamp zero and are hidden from map and overlay views. The versioned terrain attachment stores the generation epoch, Minecraft data version, canonical terrain digest, and whether the chunk has been edited.
 
 ---
 
@@ -72,7 +75,7 @@ This prevents World Mirror's periodic sync from overwriting chunks attributed to
 
 ## Integration for third-party tools
 
-For ReplayMod input, verify that the export belongs to the intended mirror, then run `world-mirror-cli import-chunks --src <export> --dst <mirror> --mode mirror --allow-source-mismatch`. Mirror mode requires metadata schema 2. Open World Mirror to migrate an older save first. The CLI previews the plan, rechecks the mirror identity under the save lock, and uses the stored `sourceId` to open its index. It reopens and decodes imported region entries before recording them as `replay_import`. Use `--replace-unindexed` to replace nonempty chunks that have no matching SQLite row. [Toolkit import options](https://github.com/billstark001/world-mirror-toolkit#build-and-run)
+For ReplayMod input, verify that the export belongs to the intended mirror, then run `world-mirror-cli import-chunks --src <export> --dst <mirror> --mode mirror --allow-source-mismatch`. Mirror mode requires metadata schema 2. Open older mirrors in World Mirror to migrate their metadata and register source defaults before timestamp imports. The CLI previews the plan, rechecks the mirror identity under the save lock, and uses the stored `sourceId` to open its index. It reopens and decodes imported region entries before recording them as `replay_import`. Timestamp imports verify generated terrain against its matching receipt before replacing it. Use `--replace-unindexed` to replace nonempty chunks with no matching SQLite row or seed receipt. [Toolkit import options](https://github.com/billstark001/world-mirror-toolkit#build-and-run)
 
 To register your tool as an update source with a custom priority:
 

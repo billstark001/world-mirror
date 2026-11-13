@@ -28,23 +28,7 @@ public final class RegionWriteTransaction {
         synchronized (McaWriteSupport.lockFor(target)) {
             try (FileTransaction transaction = new FileTransaction(target.getParent())) {
                 Path staged = transaction.stagingDirectory().resolve(target.getFileName());
-                Map<ChunkPos, byte[]> proofs = new HashMap<>();
-                Set<ChunkPos> missing = new HashSet<>(requested);
-                try (AnvilReader.Reader source = AnvilReader.open(target, regionX, regionZ);
-                        RegionFile writer =
-                                new RegionFile(new RegionStorageInfo("world_mirror", dimension, "entity"),
-                                        staged, staged.getParent(), false)) {
-                    for (ChunkPos pos : source.positions()) {
-                        write(writer, proofs, pos, transform.apply(pos, source.read(pos)));
-                        missing.remove(pos);
-                    }
-                    for (ChunkPos pos : missing) {
-                        if (pos.getRegionX() != regionX || pos.getRegionZ() != regionZ)
-                            throw new IOException("Foreign region update: " + pos);
-                        write(writer, proofs, pos, transform.apply(pos, null));
-                    }
-                }
-                verify(staged, regionX, regionZ, proofs);
+                stage(target, staged, dimension, regionX, regionZ, requested, transform);
                 Map<Path, Path> replacements = new HashMap<>();
                 try (var files = Files.list(transaction.stagingDirectory())) {
                     for (Path file : files.toList()) replacements.put(file.getFileName(), file);
@@ -52,6 +36,28 @@ public final class RegionWriteTransaction {
                 transaction.commit(replacements);
             }
         }
+    }
+
+    /** Writes and verifies a region in the caller's staging tree without publishing it. */
+    public static void stage(Path sourceFile, Path staged, ResourceKey<Level> dimension, int regionX,
+            int regionZ, Set<ChunkPos> requested, Transform transform) throws IOException {
+        Files.createDirectories(staged.getParent());
+        Map<ChunkPos, byte[]> proofs = new HashMap<>();
+        Set<ChunkPos> missing = new HashSet<>(requested);
+        try (AnvilReader.Reader source = AnvilReader.open(sourceFile, regionX, regionZ);
+                RegionFile writer = new RegionFile(new RegionStorageInfo("world_mirror", dimension, "chunk"),
+                        staged, staged.getParent(), false)) {
+            for (ChunkPos pos : source.positions()) {
+                write(writer, proofs, pos, transform.apply(pos, source.read(pos)));
+                missing.remove(pos);
+            }
+            for (ChunkPos pos : missing) {
+                if (pos.getRegionX() != regionX || pos.getRegionZ() != regionZ)
+                    throw new IOException("Foreign region update: " + pos);
+                write(writer, proofs, pos, transform.apply(pos, null));
+            }
+        }
+        verify(staged, regionX, regionZ, proofs);
     }
 
     private static void write(RegionFile writer, Map<ChunkPos, byte[]> proofs, ChunkPos pos,

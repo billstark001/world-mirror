@@ -52,7 +52,7 @@ class WorldSettingsCreationTest {
     void creationUsesTheCapturedSourceSettings(@TempDir Path world) throws Exception {
         WorldSettingsSnapshot settings = new WorldSettingsSnapshot(12_345L, 6_789L, true, true, 3);
 
-        assertTrue(WorldStructureCreator.createLoadableWorld(world, "test", true, true, settings));
+        assertTrue(WorldStructureCreator.createVoidWorld(world, "test", settings));
 
         CompoundTag data = readLevelData(world);
         assertEquals(12_345L, data.getLongOr("Time", -1L));
@@ -70,8 +70,7 @@ class WorldSettingsCreationTest {
 
     @Test
     void manualActionsChangeOnlyTheSelectedSetting(@TempDir Path world) throws Exception {
-        assertTrue(WorldStructureCreator.createLoadableWorld(
-                world, "test", true, true, WorldSettingsSnapshot.defaults()));
+        assertTrue(WorldStructureCreator.createVoidWorld(world, "test", WorldSettingsSnapshot.defaults()));
         var metadata = WorldMetadata.create("mirror:settings", WorldGraph.Kind.MIRROR, "local:settings",
                 WorldGraph.Role.SYNC, "local:settings");
         metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(),

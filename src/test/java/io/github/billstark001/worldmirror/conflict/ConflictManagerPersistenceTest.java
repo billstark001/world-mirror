@@ -307,8 +307,8 @@ class ConflictManagerPersistenceTest {
         if (Files.exists(world) && !Files.isDirectory(world))
             return;
         if (Files.notExists(world.resolve(WorldMetadata.FILE_NAME))) {
-            assertTrue(io.github.billstark001.worldmirror.io.WorldStructureCreator.createLoadableWorld(world,
-                    "conflict fixture", true, true,
+            assertTrue(io.github.billstark001.worldmirror.io.WorldStructureCreator.createVoidWorld(world,
+                    "conflict fixture",
                     io.github.billstark001.worldmirror.io.WorldSettingsSnapshot.defaults()));
             var metadata = WorldMetadata.create("mirror:conflict-test", WorldGraph.Kind.MIRROR,
                     "remote:conflict-test", WorldGraph.Role.SYNC, "server:conflict-test");

@@ -14,6 +14,8 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.sql.SQLException;
 import java.util.HashMap;
@@ -49,7 +51,7 @@ final class MirrorExportTransaction {
         }
         static ExportOutcome failed(Frozen work) {
             return new ExportOutcome(new ChunkExporter.ExportResult(Map.of(), Map.of(), Map.of(), Map.of(),
-                                             false, false, EMPTY_TIMINGS),
+                                             false, false, EMPTY_TIMINGS, 0L, false),
                     Map.of(), work, false, false, 0L, null);
         }
     }
@@ -103,8 +105,15 @@ final class MirrorExportTransaction {
             if (createFreshWorld)
                 metadata = WorldMetadata.create(target.nodeId(), WorldGraph.Kind.MIRROR,
                         target.parentNodeId(), WorldGraph.Role.SYNC, sourceId);
-            boolean worldgenReady = WorldStructureCreator.createLoadableWorld(
-                    worldFolder, sourceId, createFreshWorld, createFreshWorld, worldSettings);
+            boolean worldgenReady;
+            if (!createFreshWorld) {
+                worldgenReady = WorldStructureCreator.maintainWorld(worldFolder, sourceId);
+            } else if (Files.notExists(worldFolder.resolve("level.dat"), LinkOption.NOFOLLOW_LINKS)) {
+                worldgenReady = WorldStructureCreator.createVoidWorld(worldFolder, sourceId, worldSettings);
+            } else {
+                // NEW can include a partially materialized, verified claim after a failed first export.
+                worldgenReady = WorldStructureCreator.upgradeVoidWorld(worldFolder, sourceId);
+            }
             if (!worldgenReady) {
                 WMLogger.warn("World generation setup failed; export aborted before writing chunks.");
                 return ExportOutcome.failed(work);
@@ -126,6 +135,8 @@ final class MirrorExportTransaction {
             }
             result = ChunkExporter.exportChunks(worldFolder, snapshot, entitySnapshot, containerSnapshot,
                     resolver, db, slowRegionThresholdMs, progress);
+            repairedIndex = result.recoveredIndex();
+            latestDurableCaptureTime = Math.max(latestDurableCaptureTime, result.recoveredCaptureTime());
 
             indexCommitted = true;
             long durabilityStartedNs = System.nanoTime();

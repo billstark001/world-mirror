@@ -22,8 +22,8 @@ class MirrorWorldContextTest {
     }
 
     private static void createWorld(Path world) {
-        assertTrue(io.github.billstark001.worldmirror.io.WorldStructureCreator.createLoadableWorld(world,
-                "test", true, true, io.github.billstark001.worldmirror.io.WorldSettingsSnapshot.defaults()));
+        assertTrue(io.github.billstark001.worldmirror.io.WorldStructureCreator.createVoidWorld(
+                world, "test", io.github.billstark001.worldmirror.io.WorldSettingsSnapshot.defaults()));
     }
 
     @Test
@@ -125,7 +125,7 @@ class MirrorWorldContextTest {
 
         MirrorMigrationPlan.Inspection pending = MirrorMigrationPlan.inspect(world, 100);
         assertEquals(MirrorMigrationPlan.State.OUTDATED, pending.state());
-        assertTrue(pending.cleanupLegacyVoidChunks());
+        assertEquals(MirrorMigrationPlan.TerrainWork.REMOVE_LEGACY_VOID_CHUNKS, pending.terrainWork());
 
         metadata.markWorldgenCurrent(100, MirrorWorldgenAssets.ASSET_REVISION);
         metadata.save(world);
@@ -142,8 +142,7 @@ class MirrorWorldContextTest {
         MirrorMigrationPlan.Inspection inspection = MirrorMigrationPlan.inspect(world, 100);
         assertEquals(3, MirrorWorldgenAssets.ASSET_REVISION);
         assertEquals(MirrorMigrationPlan.State.OUTDATED, inspection.state());
-        assertFalse(inspection.migrateWorldgen());
-        assertTrue(inspection.refreshAssets());
+        assertEquals(MirrorMigrationPlan.WorldgenWork.REFRESH_VOID_ASSETS, inspection.worldgenWork());
     }
 
     private static WorldMetadata metadata() {

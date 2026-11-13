@@ -36,7 +36,8 @@ class CrossVersionWorldgenTest {
     @Test
     void real262WorldMigratesAndLoadsWithNative263Registries(@TempDir Path world) throws Exception {
         copyFixture(world);
-        assertFalse(MirrorMigrationCoordinator.inspect(world).repairWorldgen());
+        assertNotEquals(MirrorMigrationPlan.WorldgenWork.REPAIR_VOID_GENERATOR,
+                MirrorMigrationCoordinator.inspect(world).worldgenWork());
         upgradeAndLoad(world);
     }
 
@@ -49,7 +50,8 @@ class CrossVersionWorldgenTest {
         metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(),
                 MirrorWorldgenAssets.ASSET_REVISION);
         assertTrue(metadata.save(world));
-        assertTrue(MirrorMigrationCoordinator.inspect(world).repairWorldgen());
+        assertEquals(MirrorMigrationPlan.WorldgenWork.REPAIR_VOID_GENERATOR,
+                MirrorMigrationCoordinator.inspect(world).worldgenWork());
         upgradeAndLoad(world);
     }
 

@@ -1,10 +1,13 @@
 package io.github.billstark001.worldmirror.io;
 
 import io.github.billstark001.worldmirror.config.ModConfig;
+import io.github.billstark001.worldmirror.download.OperationFailures;
+import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.nbt.ByteTag;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.DoubleTag;
 import net.minecraft.nbt.FloatTag;
@@ -16,11 +19,13 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.OptionalLong;
 import java.util.UUID;
 
 /** Version-neutral orchestration for creating and updating playable mirror saves. */
@@ -28,6 +33,11 @@ import java.util.UUID;
 public final class WorldStructureCreator {
     public enum Setting { TIME, WEATHER, DIFFICULTY }
     public enum GeneratorEncoding { BEFORE_26_3, FROM_26_3 }
+
+    @FunctionalInterface
+    public interface SeedSurface {
+        int height(int blockX, int blockZ);
+    }
 
     private WorldStructureCreator() {}
 
@@ -83,9 +93,86 @@ public final class WorldStructureCreator {
         }
         worldGenSettings.put("dimensions", dimensions);
         worldGenSettings.putByte("bonus_chest", (byte) 0);
-        worldGenSettings.putByte("generate_structures", (byte) 0);
+        worldGenSettings.putByte(WorldStructureApi.structureGenerationKey(), (byte) 0);
         worldGenSettings.putLong("seed", 0L);
         return worldGenSettings;
+    }
+
+    /** The native paths a transaction must stage before converting generation. */
+    public static List<Path> generationFiles(Path worldFolder) {
+        Path level = Path.of("level.dat");
+        Path settings = worldFolder.relativize(WorldStructureApi.worldgenDataPath(worldFolder));
+        return settings.equals(level) ? List.of(level) : List.of(level, settings);
+    }
+
+    public static OptionalLong parseSeed(String text) {
+        return net.minecraft.world.level.levelgen.WorldOptions.parseSeed(text);
+    }
+
+    public static long readSeed(Path worldFolder) throws IOException {
+        return SeededWorldgen.seed(SeededWorldgen.readSettings(worldFolder));
+    }
+
+    public static SeedSurface seedSurface(long seed) {
+        return SeededWorldgen.surface(seed);
+    }
+
+    /** Installs a native normal preset in a staging tree; the caller removes the live owned pack transactionally. */
+    public static String stageSeededGeneration(Path stagedWorld, long seed) throws IOException {
+        if (!hasCanonicalVoidGeneration(stagedWorld))
+            throw new IOException("Seed conversion requires the current, unmodified World Mirror generator");
+        return writeStagedSeededSettings(stagedWorld, SeededWorldgen.settings(seed));
+    }
+
+    /** Replaces only the seed in a previously verified native normal preset. */
+    public static String stageReseededGeneration(Path stagedWorld, String existingDigest, long seed)
+            throws IOException {
+        CompoundTag settings = SeededWorldgen.readSettings(stagedWorld);
+        if (!matchesSeededSettings(stagedWorld, settings, existingDigest))
+            throw new IOException("Assigned world generation changed before reseeding");
+        SeededWorldgen.seed(settings);
+        settings.putLong("seed", seed);
+        return writeStagedSeededSettings(stagedWorld, settings);
+    }
+
+    private static String writeStagedSeededSettings(Path stagedWorld, CompoundTag settings)
+            throws IOException {
+        WorldStructureApi.replaceGeneration(stagedWorld, settings, false);
+        CompoundTag verified = SeededWorldgen.readSettings(stagedWorld);
+        if (!settings.equals(verified) || WorldStructureApi.hasMirrorDataPack(stagedWorld))
+            throw new IOException("Staged normal world generation did not round-trip");
+        return SeededWorldgen.digest(verified);
+    }
+
+    /** Installs the owned void generator and its data pack in a staging tree. */
+    public static void stageVoidGeneration(Path stagedWorld) throws IOException {
+        MirrorWorldgenAssets.install(stagedWorld, WorldStructureApi.dataPackFormat());
+        WorldStructureApi.replaceGeneration(stagedWorld, createMirrorWorldGenSettings(), true);
+        if (MirrorWorldgenCheck.inspectFresh(stagedWorld).state() != MirrorWorldgenCheck.State.CURRENT
+                || !WorldStructureApi.hasMirrorDataPack(stagedWorld))
+            throw new IOException("Staged void world generation did not round-trip");
+    }
+
+    public static boolean hasCanonicalVoidGeneration(Path worldFolder) throws IOException {
+        return WorldStructureApi.matchesOwnedVoidSettings(
+                       SeededWorldgen.readSettings(worldFolder), createMirrorWorldGenSettings())
+                && WorldStructureApi.hasMirrorDataPack(worldFolder);
+    }
+
+    public static boolean hasUnmodifiedVoidAssets(Path worldFolder) throws IOException {
+        return MirrorWorldgenAssets.matchesInstalled(worldFolder, WorldStructureApi.dataPackFormat());
+    }
+
+    /** Checks the stored generator digest without reading player data or the SQLite index. */
+    public static boolean matchesSeededGeneration(Path worldFolder, String digest) throws IOException {
+        return matchesSeededSettings(worldFolder, SeededWorldgen.readSettings(worldFolder), digest);
+    }
+
+    private static boolean matchesSeededSettings(Path worldFolder, CompoundTag settings, String digest)
+            throws IOException {
+        return settings.get(WorldStructureApi.structureGenerationKey()) instanceof ByteTag
+                && digest.equals(SeededWorldgen.digest(settings))
+                && !WorldStructureApi.hasMirrorDataPack(worldFolder);
     }
 
     public static boolean createLoadableWorldWithSpawn(Path worldFolder, String levelName, int spawnX,
@@ -99,7 +186,7 @@ public final class WorldStructureCreator {
             ResourceKey<Level> spawnDimension, int spawnX, int spawnY, int spawnZ,
             WorldSettingsSnapshot settings) {
         try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
-            if (!createLoadableWorld(worldFolder, levelName, true, true, settings))
+            if (!createVoidWorld(worldFolder, levelName, settings))
                 return false;
             UUID playerId = singleplayerUuid(levelName);
             WorldStructureApi.writeSpawnedLevelData(worldFolder, levelName, playerId, spawnDimension, spawnX,
@@ -114,51 +201,85 @@ public final class WorldStructureCreator {
         }
     }
 
-    public static boolean createLoadableWorld(Path worldFolder, String levelName, boolean migrateWorldgen,
-            boolean refreshAssets, WorldSettingsSnapshot settings) {
-        File folder = worldFolder.toFile();
+    /** Initializes a new mirror with the current owned void generator. */
+    public static boolean createVoidWorld(
+            Path worldFolder, String levelName, WorldSettingsSnapshot settings) {
         try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
-            boolean firstTime = Files.notExists(worldFolder.resolve("level.dat"));
-            if (!folder.exists())
-                folder.mkdirs();
-            for (String directory : WorldStructureApi.worldSubdirectories()) {
-                new File(folder, directory).mkdirs();
-            }
-
-            if (firstTime) {
-                MirrorWorldgenAssets.install(worldFolder, WorldStructureApi.dataPackFormat());
-                UUID playerId = singleplayerUuid(levelName);
-                WorldStructureApi.createInitialWorld(
-                        worldFolder, levelName, playerId, createMirrorWorldGenSettings(), settings);
-                writeVerifiedWorldData(
-                        WorldStructureApi.playerDataPath(worldFolder, playerId), createPlayerData(0, 80, 0));
-                WMLogger.debug("World structure created at: " + folder.getAbsolutePath()
-                        + " (name: " + resolvedLevelName(levelName) + ")");
-            } else {
-                try {
-                    WorldStructureApi.repairOwnedSavedData(worldFolder);
-                    io.github.billstark001.worldmirror.download.OperationFailures.recovered(
-                            levelName, "optional_saved_data");
-                } catch (Exception repairFailure) {
-                    // Optional maintenance is not proof that terrain cannot be persisted.
-                    // Leave the damaged file untouched; world loadability remains unverified.
-                    io.github.billstark001.worldmirror.download.OperationFailures.report(
-                            levelName, "optional_saved_data", worldFolder, repairFailure);
-                }
-                if (migrateWorldgen || refreshAssets) {
-                    if (!Files.isRegularFile(worldFolder.resolve("level.dat"))) {
-                        throw new IOException(
-                                "Required world data is unavailable: " + worldFolder.resolve("level.dat"));
-                    }
-                    MirrorWorldgenAssets.install(worldFolder, WorldStructureApi.dataPackFormat());
-                    WorldStructureApi.updateOwnedLevelData(worldFolder);
-                }
-                WMLogger.debug("World structure updated (incremental sync): " + folder.getAbsolutePath());
-            }
+            Path level = worldFolder.resolve("level.dat");
+            if (!Files.notExists(level, LinkOption.NOFOLLOW_LINKS))
+                throw new IOException("Cannot create a mirror over existing world data: " + level);
+            ensureWorldDirectories(worldFolder);
+            UUID playerId = singleplayerUuid(levelName);
+            Path playerData = WorldStructureApi.playerDataPath(worldFolder, playerId);
+            FileProof.requirePlainPath(worldFolder, playerData);
+            FileProof.requirePlainPath(worldFolder,
+                    worldFolder.resolve("datapacks").resolve(MirrorWorldgenAssets.PACK_DIRECTORY));
+            MirrorWorldgenAssets.install(worldFolder, WorldStructureApi.dataPackFormat());
+            WorldStructureApi.createInitialWorld(
+                    worldFolder, levelName, playerId, createMirrorWorldGenSettings(), settings);
+            writeVerifiedWorldData(playerData, createPlayerData(0, 80, 0));
+            WMLogger.debug("World structure created at: " + worldFolder.toAbsolutePath()
+                    + " (name: " + resolvedLevelName(levelName) + ")");
             return true;
         } catch (Exception e) {
-            WMLogger.warn("Mirror world structure update failed path=" + folder, e);
+            WMLogger.warn("Mirror world structure creation failed path=" + worldFolder, e);
             return false;
+        }
+    }
+
+    /** Refreshes the generator and pack for a verified void mirror or migration stage. */
+    public static boolean upgradeVoidWorld(Path stagedWorld, String levelName) {
+        try (WorldWriteLock ignored = WorldWriteLock.acquire(stagedWorld)) {
+            requireWorldData(stagedWorld);
+            ensureWorldDirectories(stagedWorld);
+            repairOptionalSavedData(stagedWorld, levelName);
+            MirrorWorldgenAssets.install(stagedWorld, WorldStructureApi.dataPackFormat());
+            WorldStructureApi.updateOwnedLevelData(stagedWorld);
+            return true;
+        } catch (Exception e) {
+            WMLogger.warn("Mirror world generation upgrade failed path=" + stagedWorld, e);
+            return false;
+        }
+    }
+
+    /** Repairs optional saved data while leaving the selected generator and its packs alone. */
+    public static boolean maintainWorld(Path worldFolder, String levelName) {
+        try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
+            requireWorldData(worldFolder);
+            ensureWorldDirectories(worldFolder);
+            repairOptionalSavedData(worldFolder, levelName);
+            return true;
+        } catch (Exception e) {
+            WMLogger.warn("Mirror world maintenance failed path=" + worldFolder, e);
+            return false;
+        }
+    }
+
+    private static void ensureWorldDirectories(Path worldFolder) {
+        for (String directory : WorldStructureApi.worldSubdirectories()) {
+            Path path = worldFolder.resolve(directory);
+            try {
+                FileProof.requirePlainPath(worldFolder, path);
+                Files.createDirectories(path);
+            } catch (IOException failure) {
+                // Each writer validates its own destination; unrelated directories can still be used.
+                WMLogger.warnRateLimited("prepare-world-directory-" + path, 30_000L,
+                        "Cannot prepare world directory: " + path, failure);
+            }
+        }
+    }
+
+    private static void requireWorldData(Path worldFolder) throws IOException {
+        Path level = worldFolder.resolve("level.dat");
+        FileProof.requirePlainFile(level);
+    }
+
+    private static void repairOptionalSavedData(Path worldFolder, String levelName) {
+        try {
+            WorldStructureApi.repairOwnedSavedData(worldFolder);
+            OperationFailures.recovered(levelName, "optional_saved_data");
+        } catch (Exception repairFailure) {
+            OperationFailures.report(levelName, "optional_saved_data", worldFolder, repairFailure);
         }
     }
 

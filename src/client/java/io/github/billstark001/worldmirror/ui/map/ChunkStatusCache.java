@@ -126,7 +126,7 @@ public final class ChunkStatusCache {
         EXECUTOR.execute(() -> {
             try {
                 int loaded = key.matchesSavedIdentity()
-                        ? ChunkDatabase.countAllReadOnly(key.folder(), key.sourceId())
+                        ? ChunkDatabase.countVisibleReadOnly(key.folder(), key.sourceId())
                         : -1;
                 if (loaded >= 0 && !key.matchesSavedIdentity())
                     loaded = -1;
@@ -193,7 +193,7 @@ public final class ChunkStatusCache {
                 return ChunkStatusSnapshot.EMPTY;
             String dimensionId = key.dimension().identifier().toString();
             List<ChunkDatabase.ChunkRecord> records =
-                    ChunkDatabase.queryAllReadOnly(target.folder(), target.sourceId(), dimensionId);
+                    ChunkDatabase.queryVisibleReadOnly(target.folder(), target.sourceId(), dimensionId);
             Set<ChunkPos> conflicts = ConflictManager.listConflicts(target.folder(), key.dimension());
             if (!target.matchesSavedIdentity())
                 return ChunkStatusSnapshot.EMPTY;

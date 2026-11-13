@@ -1,6 +1,10 @@
 package io.github.billstark001.worldmirror.io;
 
 import io.github.billstark001.worldmirror.legacy.LegacyWorldClocks;
+import io.github.billstark001.worldmirror.util.FileProof;
+import net.minecraft.nbt.DoubleTag;
+import net.minecraft.nbt.FloatTag;
+import java.io.IOException;
 #if MC_VERSION >= 260300
 import com.mojang.serialization.Lifecycle;
 import net.minecraft.SharedConstants;
@@ -185,6 +189,87 @@ final class WorldStructureApi {
 #endif
     }
 
+    static String structureGenerationKey() {
+#if MC_VERSION >= 260102
+        return "generate_structures";
+#else
+        return "generate_features";
+#endif
+    }
+
+    static boolean matchesOwnedVoidSettings(CompoundTag observed, CompoundTag expected) {
+        CompoundTag normalized = observed.copy();
+        for (var definition : MirrorWorldgenDefinition.DIMENSIONS) {
+            var router = normalized.getCompoundOrEmpty("dimensions")
+                                 .getCompoundOrEmpty(definition.dimensionType())
+                                 .getCompoundOrEmpty("generator")
+                                 .getCompoundOrEmpty("settings")
+                                 .getCompoundOrEmpty("noise_router");
+            // Vanilla serializes the constant density codec as floats on save.
+            for (String field : router.keySet()) {
+                if (router.get(field) instanceof FloatTag constant)
+                    router.put(field, DoubleTag.valueOf(constant.value()));
+            }
+        }
+        return normalized.equals(expected)
+                || io.github.billstark001.worldmirror.legacy.LegacyWorldgen.matchesVoidStructureOptions(
+                        normalized, expected, structureGenerationKey());
+    }
+
+    /** Writes native options and pack selection into a staged copy of the save. */
+    static void replaceGeneration(Path worldFolder, CompoundTag settings, boolean mirrorPack)
+            throws IOException {
+        Path level = worldFolder.resolve("level.dat");
+        CompoundTag levelRoot = NbtReadSupport.readWorldData(level);
+        MirrorWorldgenCheck.requireSupportedVersion(levelRoot);
+        if (!(levelRoot.get("Data") instanceof CompoundTag levelData))
+            throw new IOException("Missing native level data");
+        if (mirrorPack)
+            enableDataPack(levelData);
+        else
+            removeMirrorDataPack(levelData);
+#if MC_VERSION >= 260102
+        Path generationFile = worldgenDataPath(worldFolder);
+        CompoundTag generationRoot = NbtReadSupport.readWorldData(generationFile);
+        MirrorWorldgenCheck.requireSupportedVersion(generationRoot);
+        generationRoot.put("data", settings);
+        NbtUtils.addCurrentDataVersion(generationRoot);
+        WorldStructureCreator.writeVerifiedWorldData(generationFile, generationRoot);
+#else
+        levelData.put("WorldGenSettings", settings);
+#endif
+        WorldStructureCreator.writeVerifiedWorldData(level, levelRoot);
+    }
+
+    private static void removeMirrorDataPack(CompoundTag levelData) {
+        CompoundTag packs = levelData.getCompoundOrEmpty("DataPacks");
+        for (String list : new String[] {"Enabled", "Disabled"}) {
+            ListTag entries = packs.getListOrEmpty(list);
+            for (int i = entries.size() - 1; i >= 0; i--) {
+                if (MirrorWorldgenAssets.PACK_ID.equals(entries.getStringOr(i, "")))
+                    entries.remove(i);
+            }
+            packs.put(list, entries);
+        }
+        levelData.put("DataPacks", packs);
+    }
+
+    static boolean hasMirrorDataPack(Path worldFolder) throws IOException {
+        Path level = worldFolder.resolve("level.dat");
+        FileProof.requirePlainFile(level);
+        CompoundTag root = NbtReadSupport.readWorldData(level);
+        MirrorWorldgenCheck.requireSupportedVersion(root);
+        if (!(root.get("Data") instanceof CompoundTag data))
+            throw new IOException("Missing native level data");
+        CompoundTag packs = data.getCompoundOrEmpty("DataPacks");
+        ListTag enabled = packs.getListOrEmpty("Enabled");
+        for (int i = 0; i < enabled.size(); i++) {
+            if (MirrorWorldgenAssets.PACK_ID.equals(enabled.getStringOr(i, "")))
+                return true;
+        }
+        return false;
+    }
+
     static int dataPackFormat() {
         return SharedConstants.getCurrentVersion().packVersion(PackType.SERVER_DATA).major();
     }
@@ -219,12 +304,16 @@ final class WorldStructureApi {
     static void createInitialWorld(Path worldFolder, String levelName, UUID playerId,
             CompoundTag worldGenSettings, WorldSettingsSnapshot settings) throws Exception {
 #if MC_VERSION >= 260102
+        var minecraftData = worldFolder.resolve("data/minecraft");
+        FileProof.requirePlainPath(worldFolder, worldgenDataPath(worldFolder));
+        FileProof.requirePlainPath(worldFolder, minecraftData.resolve("game_rules.dat"));
+        FileProof.requirePlainPath(worldFolder, minecraftData.resolve("weather.dat"));
+        FileProof.requirePlainPath(worldFolder, minecraftData.resolve("world_clocks.dat"));
         PrimaryLevelData data = createLevelData(levelName, 0, 80, 0, settings);
-        writeSavedData(worldFolder.resolve("data/minecraft/world_gen_settings.dat"), worldGenSettings);
+        writeSavedData(worldgenDataPath(worldFolder), worldGenSettings);
         LevelStorageSource.writeGameRules(data, worldFolder, createGameRules(data.getDataConfiguration()));
-        writeSavedData(worldFolder.resolve("data/minecraft/weather.dat"), createWeatherData(settings));
-        writeSavedData(worldFolder.resolve("data/minecraft/world_clocks.dat"),
-                createWorldClocksData(settings.dayTime()));
+        writeSavedData(minecraftData.resolve("weather.dat"), createWeatherData(settings));
+        writeSavedData(minecraftData.resolve("world_clocks.dat"), createWorldClocksData(settings.dayTime()));
         writeLevelData(worldFolder.resolve("level.dat"), data, playerId);
 #else
         writeLevelData(worldFolder.resolve("level.dat"),
@@ -259,6 +348,7 @@ final class WorldStructureApi {
     }
 
     static void repairOwnedSavedData(Path worldFolder) throws Exception {
+        FileProof.requirePlainPath(worldFolder, worldFolder.resolve("data/minecraft/world_clocks.dat"));
         LegacyWorldClocks.repair(worldFolder, WorldStructureApi::roundTripWorldClocksData);
 #else
         Path levelDat = worldFolder.resolve("level.dat");

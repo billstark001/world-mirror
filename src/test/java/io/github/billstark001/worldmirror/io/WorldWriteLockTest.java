@@ -94,8 +94,7 @@ class WorldWriteLockTest {
 
     @Test
     void worldSettingsCannotBePatchedWhileVanillaHasTheSaveOpen(@TempDir Path world) throws Exception {
-        assertTrue(WorldStructureCreator.createLoadableWorld(
-                world, "test", true, true, WorldSettingsSnapshot.defaults()));
+        assertTrue(WorldStructureCreator.createVoidWorld(world, "test", WorldSettingsSnapshot.defaults()));
         var metadata = WorldMetadata.create("mirror:settings", WorldGraph.Kind.MIRROR, "local:settings",
                 WorldGraph.Role.SYNC, "local:settings");
         metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(),

@@ -5,7 +5,6 @@ import io.github.billstark001.worldmirror.legacy.LegacyWorldRecovery;
 import io.github.billstark001.worldmirror.io.MirrorWorldgenAssets;
 import io.github.billstark001.worldmirror.io.MirrorTarget;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
-import io.github.billstark001.worldmirror.io.WorldSettingsSnapshot;
 import io.github.billstark001.worldmirror.io.WorldWriteLock;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.util.FileTransaction;
@@ -115,7 +114,7 @@ public final class MirrorMigrationCoordinator {
             LegacyVoidChunkCleanup.Plan voidCleanup;
             try {
                 safeProgress.update(Phase.SCANNING_VOID_CHUNKS, 0, 1);
-                voidCleanup = plan.cleanupLegacyVoidChunks()
+                voidCleanup = plan.terrainWork() == MirrorMigrationPlan.TerrainWork.REMOVE_LEGACY_VOID_CHUNKS
                         ? LegacyVoidChunkCleanup.plan(normalized,
                                   (completed, total)
                                           -> safeProgress.update(
@@ -146,10 +145,11 @@ public final class MirrorMigrationCoordinator {
                     return Result.failure("backup_failed");
                 }
                 safeProgress.update(Phase.WRITING_WORLD_DATA, 0, 1);
-                boolean created = WorldStructureCreator.createLoadableWorld(stagedWorld,
-                        displayName(normalized, plan.metadata()), plan.migrateWorldgen(),
-                        plan.refreshAssets(), WorldSettingsSnapshot.defaults());
-                if (!created)
+                String worldName = displayName(normalized, plan.metadata());
+                boolean ready = plan.worldgenWork() != MirrorMigrationPlan.WorldgenWork.NONE
+                        ? WorldStructureCreator.upgradeVoidWorld(stagedWorld, worldName)
+                        : WorldStructureCreator.maintainWorld(stagedWorld, worldName);
+                if (!ready)
                     return Result.failure("worldgen_write_failed");
                 safeProgress.update(Phase.WRITING_WORLD_DATA, 1, 1);
                 var stagedRegions = voidCleanup.regions()
@@ -213,8 +213,8 @@ public final class MirrorMigrationCoordinator {
     }
 
     /** Creates a compact, recoverable backup of every file this migration may change. */
-    private static Path backupTouchedFiles(
-            Path worldFolder, Path snapshot, java.util.Map<Path, String> expected) throws IOException {
+    static Path backupTouchedFiles(Path worldFolder, Path snapshot, java.util.Map<Path, String> expected)
+            throws IOException {
         Path backupRoot = worldFolder.resolve("backups");
         FileProof.requirePlainDirectory(backupRoot);
         if (Files.notExists(backupRoot, LinkOption.NOFOLLOW_LINKS))
@@ -296,7 +296,7 @@ public final class MirrorMigrationCoordinator {
         files.add(file);
     }
 
-    private static java.util.Map<Path, String> copyTouchedFiles(
+    static java.util.Map<Path, String> copyTouchedFiles(
             Path source, Path destination, java.util.List<Path> touched) throws IOException {
         java.util.Map<Path, String> hashes = new java.util.LinkedHashMap<>();
         for (Path file : touched) {
@@ -308,7 +308,7 @@ public final class MirrorMigrationCoordinator {
         return hashes;
     }
 
-    private static void verifyOriginals(Path root, java.util.Set<Path> replacements,
+    static void verifyOriginals(Path root, java.util.Set<Path> replacements,
             java.util.Map<Path, String> snapshot) throws IOException {
         for (Path relative : replacements) {
             Path file = root.resolve(relative);

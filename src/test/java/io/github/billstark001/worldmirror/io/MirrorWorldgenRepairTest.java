@@ -67,7 +67,7 @@ class MirrorWorldgenRepairTest {
 
         var plan = MirrorMigrationCoordinator.inspect(world);
         assertEquals(MirrorMigrationPlan.State.OUTDATED, plan.state());
-        assertTrue(plan.repairWorldgen());
+        assertEquals(MirrorMigrationPlan.WorldgenWork.REPAIR_VOID_GENERATOR, plan.worldgenWork());
         assertTrue(plan.requiresApproval());
         assertFalse(plan.mayCreateOrWriteWithoutMigration());
         // Inspection/cancelling at this point is entirely read-only.
@@ -228,7 +228,8 @@ class MirrorWorldgenRepairTest {
         assertFalse(result.success());
         assertEquals("worldgen_verification_failed", result.failure());
         assertSnapshot(world, original);
-        assertTrue(MirrorMigrationCoordinator.inspect(world).repairWorldgen());
+        assertEquals(MirrorMigrationPlan.WorldgenWork.REPAIR_VOID_GENERATOR,
+                MirrorMigrationCoordinator.inspect(world).worldgenWork());
         assertTrue(MirrorMigrationCoordinator.migrateApproved(world).success());
     }
 
@@ -287,17 +288,18 @@ class MirrorWorldgenRepairTest {
             assertTrue(WorldRecovery.required(world));
             return;
         }
-        assertTrue(MirrorMigrationCoordinator.recoverAndInspect(world).repairWorldgen());
+        assertEquals(MirrorMigrationPlan.WorldgenWork.REPAIR_VOID_GENERATOR,
+                MirrorMigrationCoordinator.recoverAndInspect(world).worldgenWork());
         assertSnapshot(world, original);
         assertFalse(Files.exists(journal));
         assertFalse(WorldRecovery.required(world));
-        assertTrue(MirrorMigrationCoordinator.inspect(world).repairWorldgen());
+        assertEquals(MirrorMigrationPlan.WorldgenWork.REPAIR_VOID_GENERATOR,
+                MirrorMigrationCoordinator.inspect(world).worldgenWork());
         assertTrue(MirrorMigrationCoordinator.migrateApproved(world).success());
     }
 
     private static void createOldWorld(Path world) throws Exception {
-        assertTrue(WorldStructureCreator.createLoadableWorld(
-                world, "test", true, true, WorldSettingsSnapshot.defaults()));
+        assertTrue(WorldStructureCreator.createVoidWorld(world, "test", WorldSettingsSnapshot.defaults()));
         WorldMetadata metadata = WorldMetadata.create("mirror:repair", WorldGraph.Kind.MIRROR, "local:repair",
                 WorldGraph.Role.SYNC, "local:repair");
         metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(),

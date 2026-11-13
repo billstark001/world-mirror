@@ -22,6 +22,62 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** Uses real SQLite writes with injected JDBC failures after a batch has run. */
 class ChunkIndexTransactionTest {
     @Test
+    void openingAnOldIndexRegistersBothSourcesOnDiskAndPreservesConfiguredRules() throws Exception {
+        try (Connection connection = open(); var sql = connection.createStatement()) {
+            var index = new ChunkIndexStore(connection, "server:test");
+            sql.executeUpdate(
+                    "DELETE FROM update_sources WHERE update_source IN ('replay_import', 'seed_generated')");
+            sql.executeUpdate(
+                    "UPDATE update_sources SET priority=2, apply_to_dimension='minecraft:the_nether' "
+                    + "WHERE update_source='world_mirror'");
+            assertFalse(
+                    index.sourcePriorities("minecraft:overworld").containsKey(ChunkIndexStore.REPLAY_IMPORT));
+
+            ChunkIndexStore.initialize(connection);
+            ChunkIndexStore.initialize(connection);
+
+            assertTrue(index.hasRegisteredSource(ChunkIndexStore.REPLAY_IMPORT));
+            assertTrue(index.hasRegisteredSource(ChunkIndexStore.SEED_GENERATED));
+            assertEquals(
+                    10, index.sourcePriorities("minecraft:overworld").get(ChunkIndexStore.REPLAY_IMPORT));
+            assertEquals(
+                    100, index.sourcePriorities("minecraft:overworld").get(ChunkIndexStore.SEED_GENERATED));
+            assertEquals(2, index.sourcePriorities("minecraft:the_nether").get("world_mirror"));
+            assertFalse(index.sourcePriorities("minecraft:overworld").containsKey("world_mirror"));
+        }
+    }
+
+    @Test
+    void seedRowsAreWeakInvisibleAndGuardedAgainstOverwritingOtherClaims() throws Exception {
+        String dimension = "minecraft:overworld";
+        String seed = ChunkIndexStore.SEED_GENERATED;
+        var generated = new ChunkCoordinate(1, 2);
+        var capture = new ChunkCoordinate(3, 4);
+        try (Connection connection = open()) {
+            var index = new ChunkIndexStore(connection, "server:test");
+            index.recordUpdates(dimension, Map.of(capture, 10L), "world_mirror");
+            index.recordSeedGeneratedIfMissing(dimension, java.util.Set.of(generated, capture));
+            index.recordUpdates(dimension, Map.of(capture, 0L), seed);
+            assertThrows(IllegalArgumentException.class,
+                    () -> index.recordUpdates(dimension, Map.of(generated, 1L), seed));
+            assertThrows(IllegalArgumentException.class,
+                    ()
+                            -> index.recordUpdates(
+                                    dimension, Map.of(generated, 0L), seed, java.util.Set.of(generated)));
+            assertFalse(index.shouldSkipUpdate(dimension, 1, 2, ChunkIndexStore.REPLAY_IMPORT, 1L));
+            assertEquals(2, index.countAll());
+            assertEquals(1, index.countVisible());
+            assertEquals(List.of(new ChunkIndexStore.ChunkRecord(3, 4, 10L, "world_mirror")),
+                    index.queryVisible(dimension));
+
+            index.removeSeedGenerated(dimension, java.util.Set.of(generated, capture));
+
+            assertEquals(1, index.countAll());
+            assertEquals("world_mirror", index.queryAll(dimension).getFirst().updateSource());
+        }
+    }
+
+    @Test
     void boundsRegionQueriesByBothCoordinatesSourceAndDimension() throws Exception {
         try (Connection connection = open()) {
             String dimension = "minecraft:overworld";

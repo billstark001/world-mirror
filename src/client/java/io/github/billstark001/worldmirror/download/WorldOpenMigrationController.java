@@ -1,6 +1,7 @@
 package io.github.billstark001.worldmirror.download;
 
 import io.github.billstark001.worldmirror.io.MirrorTarget;
+import io.github.billstark001.worldmirror.io.WorldWriteLock;
 import io.github.billstark001.worldmirror.ui.ClientDialogs;
 import io.github.billstark001.worldmirror.ui.MirrorPrompt;
 import io.github.billstark001.worldmirror.legacy.LegacyWorldMetadata;
@@ -12,6 +13,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.sql.SQLException;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -42,7 +44,10 @@ public final class WorldOpenMigrationController {
                     if (recovery || LegacyWorldMetadata.hasLegacyHeader(worldFolder)
                             || ambiguous(worldFolder))
                         return new OpenCheck(null, true);
-                    return new OpenCheck(MirrorMigrationCoordinator.inspect(worldFolder), false);
+                    var plan = MirrorMigrationCoordinator.inspect(worldFolder);
+                    if (plan.state() == MirrorMigrationPlan.State.CURRENT)
+                        upgradeIndex(worldFolder);
+                    return new OpenCheck(plan, false);
                 },
                 check
                 -> {
@@ -99,6 +104,15 @@ public final class WorldOpenMigrationController {
         };
     }
 
+    private static void upgradeIndex(Path folder) {
+        try {
+            ChunkDatabase.upgradeExisting(folder);
+            OperationFailures.recovered(folder.toString(), "index_upgrade");
+        } catch (IOException | SQLException failure) {
+            OperationFailures.report(folder.toString(), "index_upgrade", folder, failure);
+        }
+    }
+
     private static boolean ambiguous(Path folder) {
         var location = new WorldGraph.Location(WorldGraph.Root.SAVES, folder.getFileName().toString());
         return WorldGraphService.instance().graph().duplicates().stream().anyMatch(duplicate
@@ -116,6 +130,11 @@ public final class WorldOpenMigrationController {
             }
             if (hasPendingOperation(folder) || ambiguous(folder))
                 throw new IOException("Save recovery did not resolve the pending operation: " + folder);
+            if (plan.state() == MirrorMigrationPlan.State.CURRENT) {
+                try (var ignored = WorldWriteLock.acquire(folder)) {
+                    upgradeIndex(folder);
+                }
+            }
             return plan;
         }, plan -> showDecision(client, folder, reload, reopen, plan), () -> {});
     }
@@ -153,7 +172,7 @@ public final class WorldOpenMigrationController {
             var metadata = plan.metadata();
             var target = new MirrorTarget(worldFolder, metadata.nodeId, metadata.sourceId);
             Runnable upgrade = () -> migrateThenReopen(client, target, reopen, reloadCallback);
-            if (plan.repairWorldgen()) {
+            if (plan.worldgenWork() == MirrorMigrationPlan.WorldgenWork.REPAIR_VOID_GENERATOR) {
                 ClientDialogs.confirm(client,
                         new MirrorPrompt.Confirmation(
                                 new MirrorPrompt.Text("screen.worldmirror.repair.title"),
@@ -178,9 +197,24 @@ public final class WorldOpenMigrationController {
         runWithProgress(client, new MirrorPrompt.Text("screen.worldmirror.upgrade.progressTitle"),
                 "WM-OpenMirrorMigration",
                 progress
-                -> MirrorMigrationCoordinator.migrateApproved(
-                        target, new MirrorMigrationProgress(client, progress)),
-                failure -> MirrorMigrationCoordinator.Result.failure("unexpected_failure"), result -> {
+                -> {
+                    var result = MirrorMigrationCoordinator.migrateApproved(
+                            target, new MirrorMigrationProgress(client, progress));
+                    if (result.success()) {
+                        try (var ignored = WorldWriteLock.acquire(target.folder())) {
+                            target.requireCurrent();
+                            upgradeIndex(target.folder());
+                        } catch (IOException failure) {
+                            OperationFailures.report(
+                                    target.nodeId(), "index_upgrade", target.folder(), failure);
+                        }
+                    }
+                    return result;
+                },
+                failure
+                -> MirrorMigrationCoordinator.Result.failure("unexpected_failure"),
+                result
+                -> {
                     if (result.success()) {
                         ClientDialogs.toast(client,
                                 new MirrorPrompt.Text("screen.worldmirror.upgrade.completeTitle"),
@@ -195,7 +229,8 @@ public final class WorldOpenMigrationController {
                                             "screen.worldmirror.upgrade.failedBody", result.failure()),
                                     new MirrorPrompt.Text("gui.done")),
                             reloadCallback);
-                }, () -> {});
+                },
+                () -> {});
     }
 
     private static <T> void runWithProgress(Minecraft client, MirrorPrompt.Text title, String name,

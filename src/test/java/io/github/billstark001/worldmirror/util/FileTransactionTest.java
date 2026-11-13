@@ -70,6 +70,39 @@ class FileTransactionTest {
     }
 
     @Test
+    void commitsReplacementAndDeletionTogether(@TempDir Path root) throws Exception {
+        Files.writeString(root.resolve("settings"), "void");
+        Files.writeString(root.resolve("owned_pack"), "pack");
+        try (var transaction = new FileTransaction(root)) {
+            Path staged = Files.writeString(transaction.stagingDirectory().resolve("settings"), "seed");
+            transaction.commit(Map.of(Path.of("settings"), staged), java.util.Set.of(Path.of("owned_pack")));
+        }
+        assertEquals("seed", Files.readString(root.resolve("settings")));
+        assertFalse(Files.exists(root.resolve("owned_pack")));
+    }
+
+    @Test
+    void interruptedDeletionRestoresTheProvenOriginal(@TempDir Path root) throws Exception {
+        Path journal = Files.createDirectory(root.resolve(FileTransaction.PREFIX + "delete-fixture"));
+        Files.createDirectory(journal.resolve("old"));
+        Files.writeString(journal.resolve("old/0"), "pack");
+        Properties manifest = new Properties();
+        manifest.setProperty("schema", "3");
+        manifest.setProperty("count", "1");
+        manifest.setProperty("path.0", "owned_pack");
+        manifest.setProperty("existed.0", "true");
+        manifest.setProperty("sha256.0", FileProof.sha256(journal.resolve("old/0")));
+        manifest.setProperty("delete.0", "true");
+        try (var output = Files.newOutputStream(journal.resolve("prepared"))) {
+            manifest.store(output, "interrupted deletion");
+        }
+        Files.writeString(journal.resolve("manifest.sha256"), FileProof.sha256(journal.resolve("prepared")));
+        FileTransaction.recover(root);
+        assertEquals("pack", Files.readString(root.resolve("owned_pack")));
+        assertFalse(Files.exists(journal));
+    }
+
+    @Test
     void recoveryNeverFollowsAnEscapingTarget(@TempDir Path root) throws Exception {
         try (FileTransaction transaction = new FileTransaction(root)) {
             Path staged = Files.writeString(transaction.stagingDirectory().resolve("data"), "new");

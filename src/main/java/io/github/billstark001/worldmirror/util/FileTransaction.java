@@ -114,6 +114,12 @@ public final class FileTransaction implements AutoCloseable {
      * has those exact bytes before recording a commit decision. Cleanup cannot undo that decision.
      */
     public Map<Path, FileProof.Version> commit(Map<Path, Path> replacements) throws IOException {
+        return commit(replacements, Set.of());
+    }
+
+    /** Publishes file replacements and removals under the same recoverable decision. */
+    public Map<Path, FileProof.Version> commit(Map<Path, Path> replacements, Set<Path> deletions)
+            throws IOException {
         if (attempted || closed)
             throw new IllegalStateException("Replacement transaction already used");
         attempted = true;
@@ -122,6 +128,7 @@ public final class FileTransaction implements AutoCloseable {
         if (!worldOwned)
             recoverPeers(root, directory);
         List<Path> targets = new ArrayList<>(replacements.keySet());
+        targets.addAll(deletions);
         if (targets.size() > MAX_FILES)
             throw new IOException("Replacement set exceeds recovery budget");
         targets.sort(Comparator.comparing(Path::toString));
@@ -131,21 +138,27 @@ public final class FileTransaction implements AutoCloseable {
             Path destination = target(root, relative.toString());
             if (!unique.add(destination))
                 throw new IOException("Aliased replacement target: " + relative);
-            Path staged = replacements.get(relative).toAbsolutePath().normalize();
-            if (!uniqueStaged.add(staged))
-                throw new IOException("Reused staged file: " + staged);
-            plainFile(staged, stagingDirectory());
+            if (!deletions.contains(relative)) {
+                Path staged = replacements.get(relative).toAbsolutePath().normalize();
+                if (!uniqueStaged.add(staged))
+                    throw new IOException("Reused staged file: " + staged);
+                plainFile(staged, stagingDirectory());
+            }
         }
         rejectOverlaps(root, unique);
         Properties manifest = new Properties();
-        manifest.setProperty("schema", "2");
+        manifest.setProperty("schema", deletions.isEmpty() ? "2" : "3");
         manifest.setProperty("count", Integer.toString(targets.size()));
         for (int i = 0; i < targets.size(); i++) {
             Path relative = targets.get(i), destination = target(root, relative.toString());
             Path staged = replacements.get(relative);
-            force(staged);
-            manifest.setProperty("new." + i, FileProof.sha256(staged));
-            boolean exists = !Files.notExists(destination);
+            if (deletions.contains(relative)) {
+                manifest.setProperty("delete." + i, "true");
+            } else {
+                force(staged);
+                manifest.setProperty("new." + i, FileProof.sha256(staged));
+            }
+            boolean exists = !Files.notExists(destination, LinkOption.NOFOLLOW_LINKS);
             if (exists) {
                 plainFile(destination, root);
                 Path backup = directory.resolve("old").resolve(Integer.toString(i));
@@ -176,6 +189,12 @@ public final class FileTransaction implements AutoCloseable {
             for (int i = 0; i < targets.size(); i++) {
                 Path relative = targets.get(i);
                 Path destination = target(root, relative.toString());
+                if (deletions.contains(relative)) {
+                    Files.deleteIfExists(destination);
+                    if (!Files.notExists(destination, LinkOption.NOFOLLOW_LINKS))
+                        throw new IOException("Published deletion could not be verified: " + destination);
+                    continue;
+                }
                 Files.createDirectories(destination.getParent());
                 replace(replacements.get(relative), destination);
                 force(destination);
@@ -316,7 +335,8 @@ public final class FileTransaction implements AutoCloseable {
     private static void rollback(Path root, Path directory, Properties manifest) throws IOException {
         try {
             int count = Integer.parseInt(manifest.getProperty("count"));
-            if (count < 0 || count > MAX_FILES || !"2".equals(manifest.getProperty("schema")))
+            String schema = manifest.getProperty("schema");
+            if (count < 0 || count > MAX_FILES || !Set.of("2", "3").contains(schema))
                 throw new IOException("Unsupported recovery manifest");
             List<Entry> restore = new ArrayList<>();
             Set<Path> unique = new HashSet<>();
@@ -330,7 +350,12 @@ public final class FileTransaction implements AutoCloseable {
                 String original = Boolean.parseBoolean(existed)
                         ? digestValue(manifest.getProperty("sha256." + i))
                         : null;
-                String replacement = digestValue(manifest.getProperty("new." + i));
+                String deletion = manifest.getProperty("delete." + i);
+                if (deletion != null
+                        && (!"3".equals(schema) || !"true".equals(deletion)
+                                || manifest.containsKey("new." + i)))
+                    throw new IOException("Invalid deletion entry");
+                String replacement = deletion != null ? null : digestValue(manifest.getProperty("new." + i));
                 Path backup = directory.resolve("old").resolve(Integer.toString(i));
                 if (original != null) {
                     plainFile(backup, directory);

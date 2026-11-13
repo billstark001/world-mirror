@@ -3,9 +3,15 @@ package io.github.billstark001.worldmirror.io;
 import io.github.billstark001.worldmirror.conflict.OverwriteResolver;
 import io.github.billstark001.worldmirror.conflict.ManualResolver;
 import io.github.billstark001.worldmirror.conflict.ConflictManager;
+import io.github.billstark001.worldmirror.conflict.IgnoreResolver;
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.core.EntityTracker;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
+import io.github.billstark001.worldmirror.download.SeedTerrain;
+import io.github.billstark001.worldmirror.download.WorldGraph;
+import io.github.billstark001.worldmirror.download.WorldMetadata;
+import io.github.billstark001.worldmirror.format.ChunkIndexStore;
+import io.github.billstark001.worldmirror.format.SeedTerrainDigest;
 import net.minecraft.SharedConstants;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -275,5 +281,88 @@ class ChunkExporterPersistenceTest {
     private static ChunkListener.DirtySnapshot snapshot(ChunkPos pos, CompoundTag nbt) {
         return ChunkListener.snapshotOf(
                 Map.of(Level.OVERWORLD, Map.of(pos, new ChunkListener.CapturedChunk(nbt, 100L, 1L, false))));
+    }
+
+    @Test
+    void replacesRetainedSeedTerrainAndRecoversIndexWithoutRewritingIt(@TempDir Path world) throws Exception {
+        var metadata = WorldMetadata.create("mirror:retained-seed", WorldGraph.Kind.MIRROR,
+                "remote:retained-seed", WorldGraph.Role.SYNC, "server:retained-seed");
+        assertTrue(metadata.save(world));
+        var pos = new ChunkPos(0, 0);
+        var region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        var original = new CompoundTag();
+        int version = SharedConstants.getCurrentVersion().dataVersion().version();
+        original.putInt("DataVersion", version);
+        original.put("sections", new ListTag());
+        var evidence = SeedChunkProvenance.baseline(original, UUID.randomUUID(), version);
+        var marker = new CompoundTag();
+        marker.putInt(SeedTerrainDigest.SEED_SCHEMA, SeedTerrainDigest.SEED_SCHEMA_VERSION);
+        marker.putString(SeedTerrainDigest.EPOCH, evidence.epoch().toString());
+        marker.putInt(SeedTerrainDigest.DATA_VERSION, version);
+        marker.putString(SeedTerrainDigest.BASELINE, evidence.baseline());
+        marker.putBoolean(SeedTerrainDigest.SEED_EDITED, false);
+        var attachments = new CompoundTag();
+        attachments.put(SeedTerrainDigest.ATTACHMENT, marker);
+        original.put(SeedTerrainDigest.ATTACHMENTS, attachments);
+        McaWriteSupport.writeChunks(region, Level.OVERWORLD, Map.of(pos, original));
+
+        var incoming = new CompoundTag();
+        incoming.putString("marker", "captured");
+        var capture = snapshot(pos, incoming);
+        try (var db = ChunkDatabase.open(world, metadata.sourceId)) {
+            String dimension = "minecraft:overworld";
+            db.recordSeedGeneratedIfMissing(dimension, Set.of(pos));
+            var first = ChunkExporter.exportChunks(
+                    world, capture, Map.of(), Map.of(), new IgnoreResolver(), db, -1L, ExportProgress.NONE);
+            assertTrue(first.chunkWritesSuccessful());
+            assertEquals(1, first.totalWritten());
+            assertEquals(ChunkIndexStore.SEED_GENERATED, db.queryChunk(dimension, pos).updateSource());
+
+            byte[] replaced = Files.readAllBytes(region);
+            var retry = ChunkExporter.exportChunks(
+                    world, capture, Map.of(), Map.of(), new IgnoreResolver(), db, -1L, ExportProgress.NONE);
+            assertTrue(retry.chunkWritesSuccessful());
+            assertEquals(0, retry.totalWritten());
+            assertEquals(1L, retry.settledRevisions().get(Level.OVERWORLD).get(pos));
+            assertTrue(retry.recoveredIndex());
+            assertEquals(100L, retry.recoveredCaptureTime());
+            assertEquals("world_mirror", db.queryChunk(dimension, pos).updateSource());
+            assertEquals(100L, db.queryChunk(dimension, pos).updateTime());
+            assertArrayEquals(replaced, Files.readAllBytes(region));
+        }
+    }
+
+    @Test
+    void refreshesAnOwnedBlendMarkerWhenACaptureFillsAnExistingBorder(@TempDir Path world) throws Exception {
+        UUID epoch = UUID.randomUUID();
+        var metadata = WorldMetadata.create("mirror:blend-recapture", WorldGraph.Kind.MIRROR,
+                "remote:blend-recapture", WorldGraph.Role.SYNC, "server:blend-recapture");
+        metadata.markSeededGeneration(
+                SharedConstants.getCurrentVersion().dataVersion().version(), "a".repeat(64), epoch, true);
+        assertTrue(metadata.save(world));
+        var pos = new ChunkPos(5, 5);
+        var initial = new CompoundTag();
+        initial.putString("Status", "minecraft:full");
+        SeedTerrain.markBlend(initial, epoch);
+        initial.getCompoundOrEmpty(SeedTerrainDigest.BLENDING_DATA).put("heights", new ListTag());
+        var region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        var neighbors = new java.util.HashMap<ChunkPos, CompoundTag>();
+        for (int x = 4; x <= 6; x++)
+            for (int z = 4; z <= 6; z++) neighbors.put(new ChunkPos(x, z), new CompoundTag());
+        neighbors.put(pos, initial);
+        McaWriteSupport.writeChunks(region, Level.OVERWORLD, neighbors);
+
+        var incoming = new CompoundTag();
+        incoming.putString("Status", "minecraft:full");
+        incoming.putString("marker", "recaptured");
+        try (var db = ChunkDatabase.open(world, metadata.sourceId)) {
+            var result = ChunkExporter.exportChunks(world, snapshot(pos, incoming), Map.of(), Map.of(),
+                    new OverwriteResolver(), db, -1L, ExportProgress.NONE);
+            assertEquals(1, result.totalWritten());
+        }
+        var recaptured = AnvilReader.readChunk(region, pos);
+        assertTrue(SeedTerrain.ownsBlend(recaptured, epoch));
+        assertEquals("recaptured", recaptured.getStringOr("marker", ""));
+        assertFalse(recaptured.getCompoundOrEmpty(SeedTerrainDigest.BLENDING_DATA).contains("heights"));
     }
 }

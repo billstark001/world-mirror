@@ -3,6 +3,7 @@ package io.github.billstark001.worldmirror.download;
 import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.io.ChunkSerializer;
+import io.github.billstark001.worldmirror.io.SeedChunkTracking;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.util.ChunkRegionIndex;
 import net.minecraft.client.Minecraft;
@@ -95,13 +96,13 @@ final class DownloadCaptureQueue {
     }
 
     void queueChunk(ClientLevel world, ChunkPos pos, String reason) {
-        if (world == null || pos == null)
+        if (world == null || pos == null || SeedChunkTracking.hidden(world, pos))
             return;
         queue(new Key(world.dimension(), pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4), reason, false);
     }
 
     void queueBlockChange(ClientLevel world, ChunkPos pos, String reason) {
-        if (world == null || pos == null)
+        if (world == null || pos == null || SeedChunkTracking.hidden(world, pos))
             return;
         if (!(world.getChunk(pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4, ChunkStatus.FULL, false)
                             instanceof LevelChunk))
@@ -115,6 +116,13 @@ final class DownloadCaptureQueue {
             return;
         Key key = new Key(
                 world.dimension(), chunk.getPos().getMinBlockX() >> 4, chunk.getPos().getMinBlockZ() >> 4);
+        if (SeedChunkTracking.hidden(world, chunk)) {
+            pending.remove(key);
+            overflowBlockChanges.remove(key);
+            pendingLightUpdates.remove(key);
+            refreshPendingStatus(key);
+            return;
+        }
         captureBeforeUnload(key,
                 () -> ChunkSerializer.isChunkEmpty(chunk), () -> ChunkSerializer.serialize(world, chunk));
     }
@@ -159,7 +167,7 @@ final class DownloadCaptureQueue {
     }
 
     void markLightDirty(ClientLevel world, ChunkPos pos) {
-        if (world == null || pos == null)
+        if (world == null || pos == null || SeedChunkTracking.hidden(world, pos))
             return;
         markLightDirty(new Key(world.dimension(), pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4));
     }
@@ -370,7 +378,7 @@ final class DownloadCaptureQueue {
                 continue;
             ChunkAccess chunk =
                     world.getChunk(request.key().chunkX(), request.key().chunkZ(), ChunkStatus.FULL, false);
-            if (!(chunk instanceof LevelChunk levelChunk))
+            if (!(chunk instanceof LevelChunk levelChunk) || SeedChunkTracking.hidden(world, levelChunk))
                 continue;
 
             long captureStartedNs = System.nanoTime();
@@ -470,8 +478,9 @@ final class DownloadCaptureQueue {
                         -> pending.size() < Math.max(1, pendingLimit.getAsInt())
                         && System.nanoTime() - startedNs < budgetNs,
                 key
-                -> world.getChunk(key.chunkX(), key.chunkZ(), ChunkStatus.FULL, false) instanceof LevelChunk
-                        && queue(key, scan.reason(), false));
+                -> world.getChunk(key.chunkX(), key.chunkZ(), ChunkStatus.FULL, false)
+                                        instanceof LevelChunk chunk
+                        && !SeedChunkTracking.hidden(world, chunk) && queue(key, scan.reason(), false));
         if (scan.coordinates().isComplete())
             scans.removeFirst();
     }

@@ -8,6 +8,7 @@ import io.github.billstark001.worldmirror.io.ChunkExporter;
 import io.github.billstark001.worldmirror.io.ChunkSerializer;
 import io.github.billstark001.worldmirror.io.MirrorTarget;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
+import io.github.billstark001.worldmirror.io.SeedChunkTracking;
 import io.github.billstark001.worldmirror.download.WorldSourceResolver.ConnectionObservation;
 import io.github.billstark001.worldmirror.download.WorldSourceResolver.ProviderObservation;
 import io.github.billstark001.worldmirror.download.WorldSourceResolver.State;
@@ -979,16 +980,17 @@ public final class DownloadManager {
         }
         switch (plan.state()) {
             case OUTDATED -> {
-                var title = new MirrorPrompt.Text(plan.repairWorldgen() ? "screen.worldmirror.repair.title"
-                                                                        : "screen.worldmirror.upgrade.title");
-                var message = new MirrorPrompt.Text(plan.repairWorldgen()
-                                ? "screen.worldmirror.repair.downloadBody"
-                                : "screen.worldmirror.upgrade.downloadBody",
+                boolean repair =
+                        plan.worldgenWork() == MirrorMigrationPlan.WorldgenWork.REPAIR_VOID_GENERATOR;
+                var title = new MirrorPrompt.Text(
+                        repair ? "screen.worldmirror.repair.title" : "screen.worldmirror.upgrade.title");
+                var message = new MirrorPrompt.Text(repair ? "screen.worldmirror.repair.downloadBody"
+                                                           : "screen.worldmirror.upgrade.downloadBody",
                         target.folder().getFileName());
                 if (showDialog)
                     ClientDialogs.confirm(client,
                             new MirrorPrompt.Confirmation(title, message,
-                                    new MirrorPrompt.Text(plan.repairWorldgen()
+                                    new MirrorPrompt.Text(repair
                                                     ? "screen.worldmirror.repair.downloadConfirm"
                                                     : "screen.worldmirror.upgrade.downloadConfirm"),
                                     new MirrorPrompt.Text("gui.cancel")),
@@ -1212,7 +1214,7 @@ public final class DownloadManager {
         for (int cx = playerCX - STOP_CAPTURE_RANGE; cx <= playerCX + STOP_CAPTURE_RANGE; cx++) {
             for (int cz = playerCZ - STOP_CAPTURE_RANGE; cz <= playerCZ + STOP_CAPTURE_RANGE; cz++) {
                 ChunkAccess chunk = world.getChunk(cx, cz, ChunkStatus.FULL, false);
-                if (!(chunk instanceof LevelChunk wc))
+                if (!(chunk instanceof LevelChunk wc) || SeedChunkTracking.hidden(world, wc))
                     continue;
                 try {
                     if (ChunkSerializer.isChunkEmpty(wc))

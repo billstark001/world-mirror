@@ -8,6 +8,10 @@
     "ConnectionRoutingMixin",
     "ContainerMixin",
     "SectionBlocksUpdatePacketAccessor",
+    "SeedBlockEntityEditMixin",
+    "SeedChunkEditMixin",
+    "SeedChunkLoadMixin",
+    "SeedChunkStorageMixin",
     "WorldOpenFlowsMixin",
     "WorldOverlayRenderMixin",
     "XaeroWorldIdentityMixin"

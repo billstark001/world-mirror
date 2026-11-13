@@ -67,8 +67,8 @@ public final class LargeRegionProbe {
     }
 
     private static void verifyLargeConflictBatches(Path world, int chunks, byte[] opaque) throws Exception {
-        if (!WorldStructureCreator.createLoadableWorld(
-                    world, "large conflict probe", true, true, WorldSettingsSnapshot.defaults())) {
+        if (!WorldStructureCreator.createVoidWorld(
+                    world, "large conflict probe", WorldSettingsSnapshot.defaults())) {
             throw new AssertionError("Cannot initialize isolated conflict target");
         }
         String source = "local:large-conflict-probe";

@@ -11,6 +11,8 @@ import net.fabricmc.loader.api.FabricLoader;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.regex.Pattern;
 
 /** Canonical metadata for a mirror or snapshot saved on disk. */
 public final class WorldMetadata {
@@ -18,15 +20,30 @@ public final class WorldMetadata {
     public static final String FORMAT = MirrorFormat.FORMAT;
     public static final int CURRENT_METADATA_SCHEMA = 2;
     public static final int CURRENT_WORLDGEN_SCHEMA = MirrorFormat.WORLDGEN_SCHEMA;
+    public static final String NORMAL_GENERATION_PRESET = "minecraft:normal";
+    private static final Pattern SETTINGS_DIGEST = Pattern.compile("[0-9a-f]{64}");
 
     public enum Schema { MISSING, CURRENT, FUTURE, UNMANAGED, UNREADABLE }
-    public enum GenerationMode { VOID }
+    public enum GenerationMode { VOID, SEEDED }
 
-    public record Generation(
-            GenerationMode mode, int revision, int assetRevision, int dataVersion, int cleanupRevision) {
+    public record Generation(GenerationMode mode, int revision, int assetRevision, int dataVersion,
+            int cleanupRevision, String preset, String settingsDigest, UUID seedEpoch, boolean blendTerrain) {
+        public Generation(
+                GenerationMode mode, int revision, int assetRevision, int dataVersion, int cleanupRevision) {
+            this(mode, revision, assetRevision, dataVersion, cleanupRevision, null, null, null, false);
+        }
+
         public Generation {
             if (mode == null || revision < 0 || assetRevision < 0 || dataVersion < 0 || cleanupRevision < 0) {
                 throw new IllegalArgumentException("Invalid mirror generation");
+            }
+            if (mode == GenerationMode.SEEDED) {
+                if (!NORMAL_GENERATION_PRESET.equals(preset) || settingsDigest == null
+                        || !SETTINGS_DIGEST.matcher(settingsDigest).matches() || seedEpoch == null) {
+                    throw new IllegalArgumentException("Invalid seeded mirror generation");
+                }
+            } else if (preset != null || settingsDigest != null || seedEpoch != null || blendTerrain) {
+                throw new IllegalArgumentException("Seed configuration is invalid for a void mirror");
             }
         }
     }
@@ -128,11 +145,32 @@ public final class WorldMetadata {
         if (!(json.get("generation") instanceof JsonObject generation)) {
             throw new IllegalArgumentException("Missing mirror generation");
         }
-        metadata.generation = new Generation(GenerationMode.valueOf(string(generation, "mode", true)),
-                integer(generation, "revision", -1), integer(generation, "assetRevision", -1),
-                integer(generation, "dataVersion", -1), integer(generation, "cleanupRevision", -1));
+        GenerationMode mode = GenerationMode.valueOf(string(generation, "mode", true));
+        String epoch = string(generation, "seedEpoch", mode == GenerationMode.SEEDED);
+        metadata.generation = new Generation(mode, integer(generation, "revision", -1),
+                integer(generation, "assetRevision", -1), integer(generation, "dataVersion", -1),
+                integer(generation, "cleanupRevision", -1),
+                string(generation, "preset", mode == GenerationMode.SEEDED),
+                string(generation, "settingsDigest", mode == GenerationMode.SEEDED),
+                epoch == null ? null : parseEpoch(epoch), bool(generation, "blendTerrain"));
         metadata.validate();
         return metadata;
+    }
+
+    private static UUID parseEpoch(String value) {
+        UUID epoch = UUID.fromString(value);
+        if (!epoch.toString().equals(value))
+            throw new IllegalArgumentException("Invalid seed epoch");
+        return epoch;
+    }
+
+    private static boolean bool(JsonObject json, String name) {
+        JsonElement element = json.get(name);
+        if (element == null)
+            return false;
+        if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isBoolean())
+            throw new IllegalArgumentException("Invalid metadata boolean: " + name);
+        return element.getAsBoolean();
     }
 
     private static String string(JsonObject json, String name, boolean required) {
@@ -223,6 +261,14 @@ public final class WorldMetadata {
     public void markWorldgenCurrent(int dataVersion, int assetRevision) {
         generation = new Generation(GenerationMode.VOID, CURRENT_WORLDGEN_SCHEMA, assetRevision, dataVersion,
                 LegacyVoidChunkCleanup.COMPLETED_REVISION);
+        modVersion = currentModVersion();
+    }
+
+    public void markSeededGeneration(
+            int dataVersion, String settingsDigest, UUID seedEpoch, boolean blendTerrain) {
+        generation = new Generation(GenerationMode.SEEDED, CURRENT_WORLDGEN_SCHEMA, 0, dataVersion,
+                LegacyVoidChunkCleanup.COMPLETED_REVISION, NORMAL_GENERATION_PRESET, settingsDigest,
+                seedEpoch, blendTerrain);
         modVersion = currentModVersion();
     }
 

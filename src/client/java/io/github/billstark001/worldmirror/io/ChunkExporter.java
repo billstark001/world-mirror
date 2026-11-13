@@ -1,20 +1,21 @@
 package io.github.billstark001.worldmirror.io;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.*;
-
 import io.github.billstark001.worldmirror.conflict.ConflictContext;
 import io.github.billstark001.worldmirror.conflict.ConflictResolver;
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.core.EntityTracker;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
+import io.github.billstark001.worldmirror.download.SeedTerrain;
+import io.github.billstark001.worldmirror.download.WorldMetadata;
+import io.github.billstark001.worldmirror.format.ChunkIndexStore;
 import io.github.billstark001.worldmirror.format.ChunkUpdatePolicy;
 import io.github.billstark001.worldmirror.format.ChunkUpdatePolicy.Action;
 import io.github.billstark001.worldmirror.format.ChunkUpdatePolicy.Destination;
 import io.github.billstark001.worldmirror.format.ChunkUpdatePolicy.IndexStatus;
 import io.github.billstark001.worldmirror.format.ChunkUpdatePolicy.WritePolicy;
+import io.github.billstark001.worldmirror.format.SeedTerrainDigest;
 import io.github.billstark001.worldmirror.merge.RegionMerge;
+import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
@@ -24,6 +25,16 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.storage.RegionFile;
 import net.minecraft.world.level.chunk.storage.RegionStorageInfo;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Environment(EnvType.CLIENT)
 public class ChunkExporter {
@@ -36,7 +47,8 @@ public class ChunkExporter {
             Map<ResourceKey<Level>, Map<ChunkPos, WriteStamp>> settledWithoutWrite,
             Map<ResourceKey<Level>, Set<ChunkPos>> unreadableChunks,
             Map<ResourceKey<Level>, Map<ChunkPos, Long>> entityRevisions, boolean chunkWritesSuccessful,
-            boolean entityWritesSuccessful, ExportTimings timings) {
+            boolean entityWritesSuccessful, ExportTimings timings, long recoveredCaptureTime,
+            boolean recoveredIndex) {
         public int totalWritten() {
             return written.values().stream().mapToInt(Map::size).sum();
         }
@@ -64,7 +76,7 @@ public class ChunkExporter {
     private record DimensionResult(Map<ChunkPos, WriteStamp> written,
             Map<ChunkPos, WriteStamp> settledWithoutWrite, Set<ChunkPos> unreadableChunks, boolean successful,
             long databaseLookupNs, long materializeNs, long chunkReadNs, long resolveMergeWriteNs,
-            long flushNs, long verificationNs) {}
+            long flushNs, long verificationNs, long recoveredCaptureTime, boolean recoveredIndex) {}
 
     private record StagedChunk(WriteStamp stamp, byte[] digest) {}
 
@@ -80,6 +92,8 @@ public class ChunkExporter {
         long resolveMergeWriteNs;
         long flushNs;
         long verificationNs;
+        long recoveredCaptureTime;
+        boolean recoveredIndex;
     }
 
     private record RegionKey(int x, int z) {}
@@ -128,9 +142,12 @@ public class ChunkExporter {
         Map<ResourceKey<Level>, Map<ChunkPos, WriteStamp>> allSettled = new HashMap<>();
         Map<ResourceKey<Level>, Set<ChunkPos>> allUnreadable = new HashMap<>();
         boolean chunkWritesSuccessful = true;
+        long recoveredCaptureTime = 0L;
+        boolean recoveredIndex = false;
         long databaseLookupNs = 0L, materializeNs = 0L, chunkReadNs = 0L;
         long resolveMergeWriteNs = 0L, flushNs = 0L, verificationNs = 0L, entityNs = 0L;
 
+        var metadata = WorldMetadata.loadIfPresent(worldFolder).orElse(null);
         for (ResourceKey<Level> dimension : snapshot.chunks().keySet()) {
             Map<ChunkPos, ChunkListener.CapturedChunk> dimChunks =
                     snapshot.chunks().getOrDefault(dimension, Map.of());
@@ -138,9 +155,10 @@ public class ChunkExporter {
             DimensionResult dimensionResult;
             try {
                 Path regionDir = WorldSaveLayout.regionDirectory(worldFolder, dimension);
+                FileProof.requirePlainPath(worldFolder, regionDir);
                 Files.createDirectories(regionDir);
                 dimensionResult = exportDimensionChunks(regionDir, dimChunks, containerSnapshot, resolver, db,
-                        dimension, worldFolder, snapshot, slowRegionThresholdMs, progress);
+                        dimension, worldFolder, snapshot, slowRegionThresholdMs, progress, metadata);
             } catch (Exception failure) {
                 chunkWritesSuccessful = false;
                 WMLogger.warn("Cannot prepare terrain dimension=" + dimension.identifier()
@@ -158,10 +176,12 @@ public class ChunkExporter {
             resolveMergeWriteNs += dimensionResult.resolveMergeWriteNs();
             flushNs += dimensionResult.flushNs();
             verificationNs += dimensionResult.verificationNs();
+            recoveredCaptureTime = Math.max(recoveredCaptureTime, dimensionResult.recoveredCaptureTime());
+            recoveredIndex |= dimensionResult.recoveredIndex();
         }
         long entityStartedNs = System.nanoTime();
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> entityRevisions =
-                EntityRegionWriter.write(worldFolder, entitySnapshot, progress);
+                writeEntities(worldFolder, entitySnapshot, progress, db, metadata);
         entityNs = System.nanoTime() - entityStartedNs;
         boolean entityWritesSuccessful = entitySnapshot.entrySet().stream().allMatch(entry -> {
             Map<ChunkPos, Long> written = entityRevisions.get(entry.getKey());
@@ -171,7 +191,65 @@ public class ChunkExporter {
                 entityWritesSuccessful,
                 new ExportTimings(toMillis(databaseLookupNs), toMillis(materializeNs), toMillis(chunkReadNs),
                         toMillis(resolveMergeWriteNs), toMillis(flushNs), toMillis(verificationNs),
-                        toMillis(entityNs)));
+                        toMillis(entityNs)),
+                recoveredCaptureTime, recoveredIndex);
+    }
+
+    private static Map<ResourceKey<Level>, Map<ChunkPos, Long>> writeEntities(Path worldFolder,
+            Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> snapshot,
+            ExportProgress progress, ChunkDatabase db, WorldMetadata metadata) {
+        if (metadata == null || snapshot.isEmpty())
+            return EntityRegionWriter.write(worldFolder, snapshot, progress);
+        Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> eligible = new HashMap<>();
+        Map<ResourceKey<Level>, Map<ChunkPos, Long>> revisions = new HashMap<>();
+        snapshot.forEach((dimension, updates) -> {
+            Path regionDirectory;
+            try {
+                regionDirectory = WorldSaveLayout.regionDirectory(worldFolder, dimension);
+            } catch (RuntimeException failure) {
+                WMLogger.warn("Cannot resolve entity terrain dimension " + dimension.identifier(), failure);
+                return;
+            }
+            Map<RegionKey, List<ChunkPos>> regions = new HashMap<>();
+            for (ChunkPos pos : updates.keySet())
+                regions.computeIfAbsent(new RegionKey(pos.getRegionX(), pos.getRegionZ()),
+                               ignored -> new ArrayList<>())
+                        .add(pos);
+            regions.forEach((region, positions) -> {
+                Path file = regionDirectory.resolve("r." + region.x() + "." + region.z() + ".mca");
+                try {
+                    FileProof.requirePlainPath(worldFolder, file);
+                    Map<ChunkPos, String> sources = new HashMap<>();
+                    for (var row : db.queryRegion(dimension.identifier().toString(), region.x(), region.z()))
+                        sources.put(new ChunkPos(row.x(), row.z()), row.updateSource());
+                    try (var reader = AnvilReader.open(file, region.x(), region.z())) {
+                        for (ChunkPos pos : positions) {
+                            var update = updates.get(pos);
+                            String source = sources.get(pos);
+                            if (source == null || ChunkIndexStore.SEED_GENERATED.equals(source)) {
+                                var terrain = reader.read(pos);
+                                if (terrain != null
+                                        && (source != null || SeedChunkProvenance.hasMarker(terrain))
+                                        && SeedCaptureReceipt.read(terrain, metadata.nodeId) == null) {
+                                    revisions.computeIfAbsent(dimension, ignored -> new HashMap<>())
+                                            .put(pos, update.revision());
+                                    continue;
+                                }
+                            }
+                            eligible.computeIfAbsent(dimension, ignored -> new HashMap<>()).put(pos, update);
+                        }
+                    }
+                } catch (Exception failure) {
+                    WMLogger.warnRateLimited("seed-entity-guard-" + dimension.identifier(), 30_000L,
+                            "Could not verify seed terrain before entity writes to " + file, failure);
+                }
+            });
+        });
+        EntityRegionWriter.write(worldFolder, eligible, progress)
+                .forEach((dimension, written)
+                                 -> revisions.computeIfAbsent(dimension, ignored -> new HashMap<>())
+                                         .putAll(written));
+        return Map.copyOf(revisions);
     }
 
     // ── Per-dimension export ──────────────────────────────────────────────────
@@ -180,7 +258,8 @@ public class ChunkExporter {
             Map<ChunkPos, ChunkListener.CapturedChunk> dimChunks,
             Map<ResourceKey<Level>, Map<BlockPos, net.minecraft.nbt.CompoundTag>> containerSnapshot,
             ConflictResolver resolver, ChunkDatabase db, ResourceKey<Level> dimension, Path worldFolder,
-            ChunkListener.DirtySnapshot snapshot, long slowRegionThresholdMs, ExportProgress progress) {
+            ChunkListener.DirtySnapshot snapshot, long slowRegionThresholdMs, ExportProgress progress,
+            WorldMetadata metadata) {
         Map<RegionKey, List<Map.Entry<ChunkPos, ChunkListener.CapturedChunk>>> chunksByRegion =
                 new HashMap<>();
         for (Map.Entry<ChunkPos, ChunkListener.CapturedChunk> entry : dimChunks.entrySet()) {
@@ -197,6 +276,11 @@ public class ChunkExporter {
         String dimStr = dimension.identifier().toString();
         TerrainTimings timings = new TerrainTimings();
         boolean successful = true;
+        boolean seeded =
+                metadata != null && metadata.generation.mode() == WorldMetadata.GenerationMode.SEEDED;
+        boolean blend = seeded && metadata.generation.blendTerrain() && dimension.equals(Level.OVERWORLD);
+        Set<ChunkPos> incomingPositions = blend ? dimChunks.keySet() : Set.of();
+        Map<RegionKey, Set<ChunkPos>> occupancy = new HashMap<>();
 
         for (Map.Entry<RegionKey, List<Map.Entry<ChunkPos, ChunkListener.CapturedChunk>>> regionEntry :
                 chunksByRegion.entrySet()) {
@@ -212,6 +296,7 @@ public class ChunkExporter {
                 StagedRegion staged = new StagedRegion();
                 Set<ChunkPos> indexedClean = new HashSet<>();
                 try {
+                    FileProof.requirePlainPath(worldFolder, regionFile);
                     RegionFileIntegrity.Inspection before =
                             RegionFileIntegrity.inspect(regionFile, regionX, regionZ);
                     if (!before.usable() || !before.invalidChunks().isEmpty()) {
@@ -225,6 +310,19 @@ public class ChunkExporter {
                         continue;
                     }
                     unreadable.addAll(before.invalidChunks());
+                    Set<ChunkPos> generatedClaims = new HashSet<>();
+                    Set<ChunkPos> unindexedCandidates = new HashSet<>();
+                    if (metadata != null) {
+                        regionEntry.getValue().forEach(entry -> unindexedCandidates.add(entry.getKey()));
+                        for (var row : db.queryRegion(dimStr, regionX, regionZ)) {
+                            var position = new ChunkPos(row.x(), row.z());
+                            unindexedCandidates.remove(position);
+                            if (ChunkIndexStore.SEED_GENERATED.equals(row.updateSource()))
+                                generatedClaims.add(position);
+                        }
+                    }
+                    if (blend)
+                        occupancy.put(new RegionKey(regionX, regionZ), before.presentChunks());
 
                     for (Map.Entry<ChunkPos, ChunkListener.CapturedChunk> entry : regionEntry.getValue()) {
                         ChunkPos pos = entry.getKey();
@@ -256,6 +354,51 @@ public class ChunkExporter {
                                                 throw invalidStoredChunk;
                                             }
                                             timings.chunkReadNs += System.nanoTime() - stageStartedNs;
+                                            boolean generatedClaim = generatedClaims.contains(chunkPos);
+                                            if (localNbt != null && metadata != null
+                                                    && (generatedClaim
+                                                            || unindexedCandidates.contains(chunkPos))) {
+                                                var receipt =
+                                                        SeedCaptureReceipt.read(localNbt, metadata.nodeId);
+                                                if (receipt != null) {
+                                                    if (!db.recordUpdates(dimStr,
+                                                                Map.of(chunkPos, receipt.time()),
+                                                                receipt.source()))
+                                                        throw new IOException(
+                                                                "Could not repair captured seed index receipt");
+                                                    timings.recoveredIndex = true;
+                                                    if ("world_mirror".equals(receipt.source()))
+                                                        timings.recoveredCaptureTime = Math.max(
+                                                                timings.recoveredCaptureTime, receipt.time());
+                                                }
+                                                if (receipt != null
+                                                        && (receipt.time() >= captured.capturedAtMs()
+                                                                || db.shouldSkipUpdate(dimStr, chunkPos,
+                                                                        "world_mirror",
+                                                                        captured.capturedAtMs()))) {
+                                                    settled.put(chunkPos, stamp(captured));
+                                                    continue;
+                                                }
+                                                if (receipt != null)
+                                                    generatedClaim = false;
+                                            }
+                                            var generated = localNbt == null
+                                                    ? null
+                                                    : SeedChunkProvenance.read(localNbt);
+                                            boolean seedCandidate =
+                                                    generatedClaim || unindexedCandidates.contains(chunkPos);
+                                            boolean replaceGenerated = seedCandidate && generated != null
+                                                    && SeedChunkProvenance.isUnmodified(localNbt, generated)
+                                                    && SeedTerrain.hasNoAuxiliaryData(
+                                                            worldFolder, dimension, chunkPos);
+                                            if (localNbt != null && !replaceGenerated
+                                                    && (generatedClaim
+                                                            || (seedCandidate
+                                                                    && SeedChunkProvenance.hasMarker(
+                                                                            localNbt)))) {
+                                                settled.put(chunkPos, stamp(captured));
+                                                continue;
+                                            }
                                             // The SQLite claim is insufficient if the MCA
                                             // entry was deleted or no longer decodes.
                                             Action action = ChunkUpdatePolicy.decide(WritePolicy.LIVE_SYNC,
@@ -290,9 +433,12 @@ public class ChunkExporter {
                                             timings.materializeNs += System.nanoTime() - stageStartedNs;
                                             net.minecraft.nbt.CompoundTag chunkNbt = materialized.nbt();
                                             stageStartedNs = System.nanoTime();
+                                            SeedChunkProvenance.strip(chunkNbt);
+                                            if (seeded)
+                                                SeedTerrain.repairCapturedBiomes(chunkNbt, dimension);
                                             BlockEntityNbtSupport.applyContainerOverlays(
                                                     dimension, chunkNbt, containerSnapshot);
-                                            boolean existsLocally = localNbt != null;
+                                            boolean existsLocally = localNbt != null && !replaceGenerated;
                                             if (!resolver.shouldWriteChunk(new ConflictContext(chunkPos,
                                                         existsLocally, chunkNbt, dimension, worldFolder))) {
                                                 settled.put(chunkPos, stamp(materialized));
@@ -301,12 +447,25 @@ public class ChunkExporter {
                                                 continue;
                                             }
 
-                                            if (localNbt != null && !materialized.authoritativeEmpty()) {
+                                            if (existsLocally && !materialized.authoritativeEmpty()) {
                                                 BlockEntityNbtSupport.mergeChunkBlockEntities(
                                                         chunkNbt, localNbt);
                                             }
                                             BlockEntityNbtSupport.applyContainerOverlays(
                                                     dimension, chunkNbt, containerSnapshot);
+                                            if (blend && !chunkNbt.contains(SeedTerrainDigest.BLENDING_DATA)
+                                                    && chunkNbt.getStringOr("Status", "")
+                                                            .matches("(minecraft:)?full")
+                                                    && ((localNbt != null
+                                                                && SeedTerrain.ownsBlend(localNbt,
+                                                                        metadata.generation.seedEpoch()))
+                                                            || bordersUnwritten(regionDir, chunkPos,
+                                                                    incomingPositions, occupancy)))
+                                                SeedTerrain.markBlend(
+                                                        chunkNbt, metadata.generation.seedEpoch());
+                                            if (replaceGenerated)
+                                                SeedCaptureReceipt.write(
+                                                        chunkNbt, metadata.nodeId, captured.capturedAtMs());
                                             NbtWriteSupport.validateStrings(chunkNbt);
                                             byte[] digest = NbtWriteSupport.writeChunkAndDigest(chunkNbt,
                                                     vanillaRegion.getChunkDataOutputStream(chunkPos));
@@ -369,7 +528,8 @@ public class ChunkExporter {
 
         return new DimensionResult(written, settled, Set.copyOf(unreadable), successful,
                 timings.databaseLookupNs, timings.materializeNs, timings.chunkReadNs,
-                timings.resolveMergeWriteNs, timings.flushNs, timings.verificationNs);
+                timings.resolveMergeWriteNs, timings.flushNs, timings.verificationNs,
+                timings.recoveredCaptureTime, timings.recoveredIndex);
     }
 
     private static RegionMerge.Verification<ChunkPos> verifyWrittenRegion(RegionStorageInfo storageInfo,
@@ -407,6 +567,35 @@ public class ChunkExporter {
             // Treat an inspection/open failure as a failed durability check.
         }
         return new RegionMerge.Verification<>(regionUsable, verified, unreadable);
+    }
+
+    private static boolean bordersUnwritten(
+            Path regionDir, ChunkPos pos, Set<ChunkPos> candidates, Map<RegionKey, Set<ChunkPos>> occupancy) {
+        int x = pos.getRegionX() * 32 + pos.getRegionLocalX();
+        int z = pos.getRegionZ() * 32 + pos.getRegionLocalZ();
+        for (int dz = -1; dz <= 1; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                if (dx == 0 && dz == 0)
+                    continue;
+                var neighbor = new ChunkPos(x + dx, z + dz);
+                var key = new RegionKey(neighbor.getRegionX(), neighbor.getRegionZ());
+                if (candidates.contains(neighbor))
+                    continue;
+                var present = occupancy.get(key);
+                if (present == null) {
+                    var path = regionDir.resolve("r." + key.x() + "." + key.z() + ".mca");
+                    try {
+                        present = McaWriteSupport.listChunkPositions(path, key.x(), key.z());
+                    } catch (IOException unreadable) {
+                        continue; // An unreadable neighboring region is not proof of a hole.
+                    }
+                    occupancy.put(key, present);
+                }
+                if (!present.contains(neighbor))
+                    return true;
+            }
+        }
+        return false;
     }
 
     private static WriteStamp stamp(ChunkListener.CapturedChunk captured) {

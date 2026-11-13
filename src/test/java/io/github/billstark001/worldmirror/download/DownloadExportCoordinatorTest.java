@@ -327,9 +327,9 @@ class DownloadExportCoordinatorTest {
         ChunkPos pos = new ChunkPos(0, 0);
         var wrong = new ChunkExporter.ExportResult(Map.of(), Map.of(), Map.of(),
                 Map.of(Level.OVERWORLD, Map.of(pos, 3L)), true, false,
-                new ChunkExporter.ExportTimings(0, 0, 0, 0, 0, 0, 0));
+                new ChunkExporter.ExportTimings(0, 0, 0, 0, 0, 0, 0), 0L, false);
         var exact = new ChunkExporter.ExportResult(Map.of(), Map.of(), Map.of(),
-                Map.of(Level.OVERWORLD, Map.of(pos, 4L)), true, true, wrong.timings());
+                Map.of(Level.OVERWORLD, Map.of(pos, 4L)), true, true, wrong.timings(), 0L, false);
         var terrainReceipt = Map.of(Level.OVERWORLD, Map.of(pos, 3L));
         assertTrue(work.remaining(wrong, terrainReceipt, 100).hasEntities());
         var complete = work.remaining(exact, terrainReceipt, 100);
@@ -386,10 +386,10 @@ class DownloadExportCoordinatorTest {
     void entityBackoffAllowsNewTerrainButKeepsEntitySnapshotsInOrder() {
         var queue = new ExportScheduler.Pending();
         var first = prepared("server:first");
-        var failedEntities =
-                first.remaining(new ChunkExporter.ExportResult(Map.of(), Map.of(), Map.of(), Map.of(), true,
-                                        false, new ChunkExporter.ExportTimings(0, 0, 0, 0, 0, 0, 0)),
-                        Map.of(Level.OVERWORLD, Map.of(new ChunkPos(0, 0), 3L)), 100L);
+        var failedEntities = first.remaining(
+                new ChunkExporter.ExportResult(Map.of(), Map.of(), Map.of(), Map.of(), true, false,
+                        new ChunkExporter.ExportTimings(0, 0, 0, 0, 0, 0, 0), 0L, false),
+                Map.of(Level.OVERWORLD, Map.of(new ChunkPos(0, 0), 3L)), 100L);
         var newer = prepared("server:first");
         queue.retry(failedEntities, 100L);
         queue.enqueue(newer);
@@ -425,7 +425,7 @@ class DownloadExportCoordinatorTest {
                                                        Map.of(a, new ChunkExporter.WriteStamp(3L, 100L), b,
                                                                new ChunkExporter.WriteStamp(5L, 200L))),
                         Map.of(), Map.of(), Map.of(), true, false,
-                        new ChunkExporter.ExportTimings(0, 0, 0, 0, 0, 0, 0));
+                        new ChunkExporter.ExportTimings(0, 0, 0, 0, 0, 0, 0), 0L, false);
 
         var remaining = frozen.remaining(result, Map.of(Level.OVERWORLD, Map.of(a, 3L)), 100L);
 

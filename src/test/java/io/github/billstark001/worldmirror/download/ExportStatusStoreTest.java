@@ -44,7 +44,7 @@ class ExportStatusStoreTest {
         store.writing(work, ExportProgress.Part.TERRAIN, Level.OVERWORLD, chunks.keySet());
         assertEquals(100, store.health("mirror:mixed").counts().writing());
         var result = new ChunkExporter.ExportResult(Map.of(), Map.of(), Map.of(), Map.of(), false, true,
-                new ChunkExporter.ExportTimings(0, 0, 0, 0, 0, 0, 0));
+                new ChunkExporter.ExportTimings(0, 0, 0, 0, 0, 0, 0), 0L, false);
         var receipts = Map.of(Level.OVERWORLD, written);
         var outcome = new MirrorExportTransaction.ExportOutcome(
                 result, receipts, work.remaining(result, receipts, 100), true, true, 0, null);
@@ -254,7 +254,7 @@ class ExportStatusStoreTest {
                     .forEach((pos, update) -> entityReceipts.put(pos, update.revision()));
         var result = new ChunkExporter.ExportResult(Map.of(), Map.of(), Map.of(),
                 Map.of(Level.OVERWORLD, entityReceipts), terrain, entities,
-                new ChunkExporter.ExportTimings(0, 0, 0, 0, 0, 0, 0));
+                new ChunkExporter.ExportTimings(0, 0, 0, 0, 0, 0, 0), 0L, false);
         var receipts = Map.of(Level.OVERWORLD, terrainReceipts);
         long time = work.terrain()
                             .chunks()

@@ -9,6 +9,7 @@ import io.github.billstark001.worldmirror.core.EntityTracker;
 import io.github.billstark001.worldmirror.io.ChunkExporter;
 import io.github.billstark001.worldmirror.io.ChunkSerializer;
 import io.github.billstark001.worldmirror.io.MirrorWorldgenAssets;
+import io.github.billstark001.worldmirror.io.SeedChunkTracking;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
 import io.github.billstark001.worldmirror.io.WorldSettingsSnapshot;
 import io.github.billstark001.worldmirror.io.WorldWriteLock;
@@ -125,7 +126,7 @@ public final class NearbyExporter {
         for (int cx = playerCX - radiusChunks; cx <= playerCX + radiusChunks; cx++) {
             for (int cz = playerCZ - radiusChunks; cz <= playerCZ + radiusChunks; cz++) {
                 ChunkAccess chunk = world.getChunk(cx, cz, ChunkStatus.FULL, false);
-                if (!(chunk instanceof LevelChunk worldChunk))
+                if (!(chunk instanceof LevelChunk worldChunk) || SeedChunkTracking.hidden(world, worldChunk))
                     continue;
                 try {
                     if (ChunkSerializer.isChunkEmpty(worldChunk))

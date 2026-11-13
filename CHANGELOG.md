@@ -28,6 +28,8 @@ Use Added, Changed, and Fixed categories where applicable. Combine related chang
 - Track upstream worlds and multiple mirrors in a graph built from `saves` and `downloaded_worlds`. Remember a default download target for each source.
 - Give extra copies new world IDs while retaining their upstream edges. Preserve IDs when moving saves and retain edges to unavailable worlds.
 - Open the world relationship graph from the title screen, Mod Menu, or in-game settings. Edit upstream links, default mirrors, endpoint aliases, and Xaero stable ID bindings.
+- Set, change, or remove a mirror's seed offline. Preview terrain differences, void cleanup, and optional removal of unchanged generated chunks.
+- Enable experimental Overworld blending and regenerate eligible generated chunks along captured terrain boundaries.
 
 ### Changed
 
@@ -36,6 +38,7 @@ Use Added, Changed, and Fixed categories where applicable. Combine related chang
 - Resolve logical worlds using the selected endpoint or stable ID policy. Wait for an explicit source choice when the available evidence is ambiguous. Offline replay imports into upgraded mirrors require Toolkit support for schema 2.
 - Create a local world's identity on first linked use. An independent nearby export leaves an untracked original save untracked.
 - Prepare downloads in the background before showing Active. Review a required mirror upgrade from the status screen.
+- Keep unchanged seed terrain off the chunk map and overlay. Captures and Replay imports can replace it after validating its provenance.
 
 ### Fixed
 

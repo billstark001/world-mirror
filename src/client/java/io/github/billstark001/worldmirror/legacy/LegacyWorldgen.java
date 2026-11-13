@@ -26,6 +26,26 @@ public final class LegacyWorldgen {
                         NOISE_V1_BEFORE_26_3.getCompoundOrEmpty(dimension.dimensionType()).get("generator"));
     }
 
+    /** 1.21.11 mirrors wrote the 26.x flag, which vanilla ignored when loading the save. */
+    public static boolean matchesVoidStructureOptions(
+            CompoundTag observed, CompoundTag expected, String nativeKey) {
+        if (!"generate_features".equals(nativeKey))
+            return false;
+        CompoundTag normalized = observed.copy();
+        var old = normalized.remove("generate_structures");
+        if (old != null && !net.minecraft.nbt.ByteTag.ZERO.equals(old))
+            return false;
+        var nativeOption = normalized.get(nativeKey);
+        if (nativeOption == null && old == null)
+            return false;
+        if (nativeOption != null && !(nativeOption instanceof net.minecraft.nbt.ByteTag))
+            return false;
+        // Vanilla may have written true after loading the old ignored flag. The exact owned
+        // void generator has no structures, even if vanilla left this option at its default.
+        normalized.putBoolean(nativeKey, false);
+        return normalized.equals(expected);
+    }
+
     /** Upgrades only the exact old generators rejected by the current Minecraft codec. */
     public static void upgrade(CompoundTag settings, CompoundTag current,
             BiPredicate<CompoundTag, String> canDecode) throws IOException {

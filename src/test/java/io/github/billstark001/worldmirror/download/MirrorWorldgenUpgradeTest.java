@@ -35,8 +35,7 @@ class MirrorWorldgenUpgradeTest {
 
     @Test
     void upgradesRevisionTwoOnEveryTarget(@TempDir Path world) throws Exception {
-        assertTrue(WorldStructureCreator.createLoadableWorld(
-                world, "test", true, true, WorldSettingsSnapshot.defaults()));
+        assertTrue(WorldStructureCreator.createVoidWorld(world, "test", WorldSettingsSnapshot.defaults()));
         WorldMetadata metadata = WorldMetadata.create(
                 "mirror:test", WorldGraph.Kind.MIRROR, "local:test", WorldGraph.Role.SYNC, "local:test");
         metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), 2);
@@ -53,8 +52,7 @@ class MirrorWorldgenUpgradeTest {
 
     @Test
     void approvedUpgradeRejectsAReplacementWithTheSameIndexSource(@TempDir Path world) throws Exception {
-        assertTrue(WorldStructureCreator.createLoadableWorld(
-                world, "test", true, true, WorldSettingsSnapshot.defaults()));
+        assertTrue(WorldStructureCreator.createVoidWorld(world, "test", WorldSettingsSnapshot.defaults()));
         String source = "server:shared";
         var approved = new MirrorTarget(world, "mirror:original", source);
         WorldMetadata replacement = WorldMetadata.create(
@@ -76,8 +74,7 @@ class MirrorWorldgenUpgradeTest {
     @Test
     void upgradesAnExisting263MirrorByRewritingWorldgenSettings(@TempDir Path world) throws Exception {
         assumeTrue(SharedConstants.DATA_PACK_FORMAT_MAJOR >= 121);
-        assertTrue(WorldStructureCreator.createLoadableWorld(
-                world, "test", true, true, WorldSettingsSnapshot.defaults()));
+        assertTrue(WorldStructureCreator.createVoidWorld(world, "test", WorldSettingsSnapshot.defaults()));
 
         WorldMetadata metadata = WorldMetadata.create(
                 "mirror:test", WorldGraph.Kind.MIRROR, "local:test", WorldGraph.Role.SYNC, "local:test");
@@ -107,8 +104,7 @@ class MirrorWorldgenUpgradeTest {
 
     @Test
     void reportsFailureWhenTheFinalMetadataMarkerCannotBeWritten(@TempDir Path world) throws Exception {
-        assertTrue(WorldStructureCreator.createLoadableWorld(
-                world, "test", true, true, WorldSettingsSnapshot.defaults()));
+        assertTrue(WorldStructureCreator.createVoidWorld(world, "test", WorldSettingsSnapshot.defaults()));
         WorldMetadata metadata = WorldMetadata.create(
                 "mirror:test", WorldGraph.Kind.MIRROR, "local:test", WorldGraph.Role.SYNC, "local:test");
         metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), 2);
@@ -137,8 +133,7 @@ class MirrorWorldgenUpgradeTest {
     @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
     void migrationDoesNotOverwriteAValidMetadataEdit(boolean afterBackup, @TempDir Path world)
             throws Exception {
-        assertTrue(WorldStructureCreator.createLoadableWorld(
-                world, "test", true, true, WorldSettingsSnapshot.defaults()));
+        assertTrue(WorldStructureCreator.createVoidWorld(world, "test", WorldSettingsSnapshot.defaults()));
         WorldMetadata metadata = WorldMetadata.create(
                 "mirror:test", WorldGraph.Kind.MIRROR, "local:test", WorldGraph.Role.SYNC, "local:test");
         metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), 2);
@@ -165,8 +160,7 @@ class MirrorWorldgenUpgradeTest {
 
     @Test
     void cannotMigrateAWorldAlreadyOpenedByVanilla(@TempDir Path world) throws Exception {
-        assertTrue(WorldStructureCreator.createLoadableWorld(
-                world, "test", true, true, WorldSettingsSnapshot.defaults()));
+        assertTrue(WorldStructureCreator.createVoidWorld(world, "test", WorldSettingsSnapshot.defaults()));
         WorldMetadata metadata = WorldMetadata.create(
                 "mirror:test", WorldGraph.Kind.MIRROR, "local:test", WorldGraph.Role.SYNC, "local:test");
         metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), 2);
@@ -184,8 +178,7 @@ class MirrorWorldgenUpgradeTest {
     }
     @Test
     void progressObserverFailuresDoNotAbortTheMigration(@TempDir Path world) throws Exception {
-        assertTrue(WorldStructureCreator.createLoadableWorld(
-                world, "test", true, true, WorldSettingsSnapshot.defaults()));
+        assertTrue(WorldStructureCreator.createVoidWorld(world, "test", WorldSettingsSnapshot.defaults()));
         WorldMetadata metadata = WorldMetadata.create(
                 "mirror:test", WorldGraph.Kind.MIRROR, "local:test", WorldGraph.Role.SYNC, "local:test");
         metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), 2);

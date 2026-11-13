@@ -2,8 +2,10 @@ package io.github.billstark001.worldmirror.download;
 
 import io.github.billstark001.worldmirror.io.MirrorWorldgenAssets;
 import io.github.billstark001.worldmirror.io.MirrorWorldgenCheck;
+import io.github.billstark001.worldmirror.io.WorldStructureCreator;
 import io.github.billstark001.worldmirror.legacy.LegacyVoidChunkCleanup;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -15,9 +17,11 @@ import java.nio.file.Path;
  */
 public final class MirrorMigrationPlan {
     public enum State { NEW, CURRENT, OUTDATED, FUTURE, UNREADABLE, UNMANAGED }
+    public enum WorldgenWork { NONE, REFRESH_VOID_ASSETS, UPGRADE_VOID_GENERATOR, REPAIR_VOID_GENERATOR }
+    public enum TerrainWork { NONE, REMOVE_LEGACY_VOID_CHUNKS }
 
-    public record Inspection(Path worldFolder, State state, WorldMetadata metadata, boolean migrateWorldgen,
-            boolean refreshAssets, boolean cleanupLegacyVoidChunks, boolean repairWorldgen, String problem) {
+    public record Inspection(Path worldFolder, State state, WorldMetadata metadata, WorldgenWork worldgenWork,
+            TerrainWork terrainWork, String problem) {
         public boolean requiresApproval() {
             return state == State.OUTDATED;
         }
@@ -69,37 +73,55 @@ public final class MirrorMigrationPlan {
         WorldMetadata metadata = loaded.get();
         if (metadata.hasFutureWorldgenSchema()
                 || metadata.hasFutureWorldgenAssets(dataVersion, MirrorWorldgenAssets.ASSET_REVISION)) {
-            return new Inspection(normalized, State.FUTURE, metadata, false, false, false, false, null);
+            return noWork(normalized, State.FUTURE, metadata, null);
         }
         if (!Files.isRegularFile(normalized.resolve("level.dat"))) {
-            return new Inspection(
-                    normalized, State.UNREADABLE, metadata, false, false, false, false, "level_data_missing");
+            return noWork(normalized, State.UNREADABLE, metadata, "level_data_missing");
+        }
+        if (metadata.generation.mode() == WorldMetadata.GenerationMode.SEEDED) {
+            try {
+                boolean matches = WorldStructureCreator.matchesSeededGeneration(
+                        normalized, metadata.generation.settingsDigest());
+                return noWork(normalized, matches ? State.CURRENT : State.UNREADABLE, metadata,
+                        matches ? null : "seeded_generation_changed");
+            } catch (IOException | RuntimeException failure) {
+                return noWork(normalized, State.UNREADABLE, metadata, "seeded_generation_unreadable");
+            }
         }
         boolean migrateWorldgen = metadata.needsWorldgenMigration();
         boolean refreshAssets =
                 metadata.needsWorldgenAssetRefresh(dataVersion, MirrorWorldgenAssets.ASSET_REVISION);
-        boolean cleanupLegacyVoidChunks =
-                LegacyVoidChunkCleanup.isNeeded(metadata.generation.cleanupRevision());
+        TerrainWork terrainWork = LegacyVoidChunkCleanup.isNeeded(metadata.generation.cleanupRevision())
+                ? TerrainWork.REMOVE_LEGACY_VOID_CHUNKS
+                : TerrainWork.NONE;
         MirrorWorldgenCheck.Result content = fresh ? MirrorWorldgenCheck.inspectFresh(normalized)
                                                    : MirrorWorldgenCheck.inspect(normalized);
         if (content.state() == MirrorWorldgenCheck.State.UNREADABLE
                 || content.state() == MirrorWorldgenCheck.State.UNRECOGNIZED) {
-            return new Inspection(
-                    normalized, State.UNREADABLE, metadata, false, false, false, false, content.problem());
+            return noWork(normalized, State.UNREADABLE, metadata, content.problem());
         }
         if (content.state() == MirrorWorldgenCheck.State.FUTURE) {
-            return new Inspection(
-                    normalized, State.FUTURE, metadata, false, false, false, false, content.problem());
+            return noWork(normalized, State.FUTURE, metadata, content.problem());
         }
-        boolean repairWorldgen =
-                content.state() == MirrorWorldgenCheck.State.LEGACY && !(migrateWorldgen || refreshAssets);
-        migrateWorldgen |= content.state() == MirrorWorldgenCheck.State.LEGACY;
-        return new Inspection(normalized,
-                migrateWorldgen || refreshAssets || cleanupLegacyVoidChunks ? State.OUTDATED : State.CURRENT,
-                metadata, migrateWorldgen, refreshAssets, cleanupLegacyVoidChunks, repairWorldgen, null);
+        WorldgenWork worldgenWork = WorldgenWork.NONE;
+        if (content.state() == MirrorWorldgenCheck.State.LEGACY) {
+            worldgenWork = migrateWorldgen || refreshAssets ? WorldgenWork.UPGRADE_VOID_GENERATOR
+                                                            : WorldgenWork.REPAIR_VOID_GENERATOR;
+        } else if (migrateWorldgen) {
+            worldgenWork = WorldgenWork.UPGRADE_VOID_GENERATOR;
+        } else if (refreshAssets) {
+            worldgenWork = WorldgenWork.REFRESH_VOID_ASSETS;
+        }
+        State state = worldgenWork != WorldgenWork.NONE || terrainWork != TerrainWork.NONE ? State.OUTDATED
+                                                                                           : State.CURRENT;
+        return new Inspection(normalized, state, metadata, worldgenWork, terrainWork, null);
     }
 
     private static Inspection unavailable(Path folder, State state, String problem) {
-        return new Inspection(folder, state, null, false, false, false, false, problem);
+        return noWork(folder, state, null, problem);
+    }
+
+    private static Inspection noWork(Path folder, State state, WorldMetadata metadata, String problem) {
+        return new Inspection(folder, state, metadata, WorldgenWork.NONE, TerrainWork.NONE, problem);
     }
 }

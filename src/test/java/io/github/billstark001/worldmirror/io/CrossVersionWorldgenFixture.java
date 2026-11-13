@@ -22,8 +22,7 @@ public final class CrossVersionWorldgenFixture {
         Path output = Path.of(arguments[0]);
         Files.createDirectories(output);
         Path world = Files.createTempDirectory(output, "world-");
-        if (!WorldStructureCreator.createLoadableWorld(
-                    world, "26.2 fixture", true, true, WorldSettingsSnapshot.defaults()))
+        if (!WorldStructureCreator.createVoidWorld(world, "26.2 fixture", WorldSettingsSnapshot.defaults()))
             throw new IllegalStateException("Fixture creation failed");
         WorldMetadata metadata = WorldMetadata.create("mirror:cross-version", WorldGraph.Kind.MIRROR,
                 "local:cross-version", WorldGraph.Role.SYNC, "local:cross-version");

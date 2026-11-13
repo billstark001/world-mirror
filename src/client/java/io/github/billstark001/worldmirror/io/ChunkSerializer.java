@@ -50,6 +50,7 @@ public class ChunkSerializer {
         // the client thread. Only the resulting NBT leaves this call.
         CompoundTag chunkNbt = createSerializedChunk(world, chunk).write();
         BlockEntityNbtSupport.applyContainerOverlays(world.dimension(), chunkNbt);
+        SeedChunkTracking.stripCaptured(world, chunk, chunkNbt);
         return chunkNbt;
     }
 

@@ -6,6 +6,7 @@ import io.github.billstark001.worldmirror.config.EnumDropdownGui;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
 import io.github.billstark001.worldmirror.download.DownloadManager;
 import io.github.billstark001.worldmirror.download.MirrorWorldContext;
+import io.github.billstark001.worldmirror.io.SeedChunkTracking;
 import io.github.billstark001.worldmirror.ui.map.ChunkMapScreen;
 import io.github.billstark001.worldmirror.ui.map.ChunkWorldOverlay;
 #if MC_VERSION >= 260300
@@ -84,6 +85,7 @@ public class WorldMirrorClient implements ClientModInitializer {
         ModConfig.register();
         EnumDropdownGui.register();
         ChunkDatabase.configureSqliteNativeDirectory();
+        SeedChunkTracking.register();
         installXaeroBridgeOverlay();
 
 #if MC_VERSION >= 260300
