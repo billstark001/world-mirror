@@ -14,6 +14,11 @@ public final class OfflineTasks {
 
     public static <T> void start(String name, Work<T> work, Function<Exception, T> failed,
             Consumer<Runnable> clientExecutor, Consumer<T> completed, Runnable cleanup) {
+        start(name, work, failed, clientExecutor, completed, cleanup, cleanup);
+    }
+
+    public static <T> void start(String name, Work<T> work, Function<Exception, T> failed,
+            Consumer<Runnable> clientExecutor, Consumer<T> completed, Runnable cleanup, Runnable aborted) {
         Thread worker = new Thread(() -> {
             T result;
             boolean ready = false;
@@ -28,7 +33,7 @@ public final class OfflineTasks {
             } finally {
                 // Even a fatal VM error must not leave an ordinary busy/progress flag stuck.
                 if (!ready)
-                    deliver(clientExecutor, cleanup);
+                    deliver(clientExecutor, aborted);
             }
             T outcome = result;
             deliver(clientExecutor, () -> {
@@ -37,7 +42,12 @@ public final class OfflineTasks {
             });
         }, name);
         worker.setDaemon(false);
-        worker.start();
+        try {
+            worker.start();
+        } catch (RuntimeException | Error failure) {
+            runCallback(aborted);
+            throw failure;
+        }
     }
 
     private static void deliver(Consumer<Runnable> executor, Runnable callback) {

@@ -16,6 +16,8 @@ public final class MirrorPrompt {
         /** Updates the native progress bar with completed work out of total work. */
         void progress(int completed, int total);
 
+        boolean isCurrent();
+
         void close();
     }
 

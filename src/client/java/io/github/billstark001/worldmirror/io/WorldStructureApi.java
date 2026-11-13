@@ -220,12 +220,12 @@ final class WorldStructureApi {
             CompoundTag worldGenSettings, WorldSettingsSnapshot settings) throws Exception {
 #if MC_VERSION >= 260102
         PrimaryLevelData data = createLevelData(levelName, 0, 80, 0, settings);
-        writeLevelData(worldFolder.resolve("level.dat"), data, playerId);
         writeSavedData(worldFolder.resolve("data/minecraft/world_gen_settings.dat"), worldGenSettings);
         LevelStorageSource.writeGameRules(data, worldFolder, createGameRules(data.getDataConfiguration()));
         writeSavedData(worldFolder.resolve("data/minecraft/weather.dat"), createWeatherData(settings));
         writeSavedData(worldFolder.resolve("data/minecraft/world_clocks.dat"),
                 createWorldClocksData(settings.dayTime()));
+        writeLevelData(worldFolder.resolve("level.dat"), data, playerId);
 #else
         writeLevelData(worldFolder.resolve("level.dat"),
                 createLevelData(levelName, 0, 80, 0, worldGenSettings, settings));

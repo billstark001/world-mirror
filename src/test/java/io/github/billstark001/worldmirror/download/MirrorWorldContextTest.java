@@ -99,6 +99,23 @@ class MirrorWorldContextTest {
     }
 
     @Test
+    void copiedReservationDoesNotAuthorizeUnrelatedWorldData(@TempDir Path root) throws Exception {
+        Path world = Files.createDirectory(root.resolve("original"));
+        MirrorClaim.create(world, "mirror:test", "remote:test", "remote:test");
+        Files.writeString(world.resolve("level.dat"), "unrelated data");
+        assertEquals(MirrorMigrationPlan.State.UNMANAGED, MirrorMigrationCoordinator.inspect(world).state());
+        Files.move(world.resolve("level.dat"), world.resolve("level.dat_old"));
+        assertEquals(MirrorMigrationPlan.State.UNMANAGED, MirrorMigrationCoordinator.inspect(world).state());
+    }
+
+    @Test
+    void reservationCanResumeMaterializedMirrorBeforeMetadataCommit(@TempDir Path world) throws Exception {
+        MirrorClaim.create(world, "mirror:test", "remote:test", "remote:test");
+        createWorld(world);
+        assertEquals(MirrorMigrationPlan.State.NEW, MirrorMigrationCoordinator.inspect(world).state());
+    }
+
+    @Test
     void schedulesTheOneTimeVoidCleanupWithoutChangingSchemaOne(@TempDir Path world) {
         createWorld(world);
         WorldMetadata metadata = metadata();

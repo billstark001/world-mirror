@@ -5,6 +5,7 @@ import io.github.billstark001.worldmirror.io.MirrorWorldgenCheck;
 import io.github.billstark001.worldmirror.legacy.LegacyVoidChunkCleanup;
 
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 
 /**
@@ -37,9 +38,18 @@ public final class MirrorMigrationPlan {
         var schema = WorldMetadata.inspectSchema(normalized);
         switch (schema) {
             case MISSING -> {
-                boolean unclaimed = Files.isRegularFile(normalized.resolve("level.dat"))
-                        && MirrorClaim.read(normalized) == null;
-                return unavailable(normalized, unclaimed ? State.UNMANAGED : State.NEW, null);
+                if (Files.notExists(normalized.resolve("level.dat"), LinkOption.NOFOLLOW_LINKS)) {
+                    boolean backup =
+                            !Files.notExists(normalized.resolve("level.dat_old"), LinkOption.NOFOLLOW_LINKS);
+                    return unavailable(normalized, backup ? State.UNMANAGED : State.NEW, null);
+                }
+                // A copied claim cannot turn an unrelated playable world into a mirror. Only
+                // resume materialization after both level data and our recognized generator exist.
+                boolean owned = MirrorClaim.read(normalized) != null
+                        && Files.isRegularFile(normalized.resolve("level.dat"), LinkOption.NOFOLLOW_LINKS)
+                        && MirrorWorldgenCheck.inspect(normalized).state()
+                                == MirrorWorldgenCheck.State.CURRENT;
+                return unavailable(normalized, owned ? State.NEW : State.UNMANAGED, null);
             }
             case UNMANAGED -> {
                 return unavailable(normalized, State.UNMANAGED, null);

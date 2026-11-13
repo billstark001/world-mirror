@@ -117,20 +117,28 @@ public final class ClientDialogs {
             @Override
             public void progress(int completed, int total) {
                 screen.progressStagePercentage(
-                        total <= 0 ? 100 : Math.clamp(completed * 100 / total, 0, 100));
+                        total <= 0 ? 100 : Math.clamp((int) ((long) completed * 100 / total), 0, 100));
             }
 #if MC_VERSION >= 260200
             @Override
+            public boolean isCurrent() {
+                return client.gui.screen() == screen;
+            }
+            @Override
             public void close() {
                 screen.stop();
-                if (client.gui.screen() == screen)
+                if (isCurrent())
                     client.gui.setScreen(parent);
             }
 #else
             @Override
+            public boolean isCurrent() {
+                return client.screen == screen;
+            }
+            @Override
             public void close() {
                 screen.stop();
-                if (client.screen == screen)
+                if (isCurrent())
                     client.setScreen(parent);
             }
 #endif
