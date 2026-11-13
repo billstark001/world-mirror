@@ -22,17 +22,23 @@ Use Added, Changed, and Fixed categories where applicable. Combine related chang
 
 - Track upstream worlds and multiple mirrors in a graph built from `saves` and `downloaded_worlds`. Remember a default download target for each source.
 - Give extra copies new world IDs while retaining their upstream edges. Preserve IDs when moving saves and retain edges to unavailable worlds.
+- Open the world relationship graph from the title screen, Mod Menu, or in-game settings. Edit upstream links, default mirrors, endpoint aliases, and Xaero stable ID bindings.
 
 ### Changed
 
 - Migrate older mirror metadata and routing to schema 2. Back up the original metadata, preserve SQLite namespaces and existing chunk history, and archive the old routing file after the graph is saved.
 - Scope downloads, retries, conflict handling, maps, and notifications to the destination mirror. Record lineage for nearby exports when requested.
-- Use explicit endpoint routing when several logical sources share an address. Offline replay imports into upgraded mirrors require Toolkit support for schema 2.
+- Resolve logical worlds using the selected endpoint or stable ID policy. Wait for an explicit source choice when the available evidence is ambiguous. Offline replay imports into upgraded mirrors require Toolkit support for schema 2.
+- Create a local world's identity on first linked use. An independent nearby export leaves an untracked original save untracked.
+- Prepare downloads in the background before showing Active. Review a required mirror upgrade from the status screen.
 
 ### Fixed
 
 - Recover interrupted mirror moves and migration journals before using the affected save. Keep writes away from ambiguous graph branches and reject symbolic links and Windows directory junctions in migration and recovery paths.
 - Keep queued exports and confirmations bound to the original world. Old export completions leave a newer capture session's state alone.
+- Continue from Minecraft's existing loading step after inspecting a current mirror. Preserve Minecraft's data pack safe mode.
+- Repair an empty mirror reservation's upstream without materializing a save, and refuse to write into a playable world that only has a copied reservation.
+- Avoid vanilla key conflicts with new defaults U for download, V for export, and J for clearing the cache. Existing saved bindings are retained.
 
 ---
 

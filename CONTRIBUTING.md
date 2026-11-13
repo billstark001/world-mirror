@@ -6,6 +6,8 @@ Install the pinned development tools with Node.js 22.17 or newer and `npm ci`. R
 
 ClangFormat applies the same Java style to the mod, tests, and `world-mirror-format`, including sources with Manifold directives. Prettier formats JSON, workflow YAML, and Markdown while preserving prose wrapping. Gradle and PowerShell files get whitespace cleanup. Changelogs are excluded to preserve the release scripts' heading and separator conventions. Generated output, bundled binaries, and Gradle Wrapper files are also outside the formatter's scope.
 
+The root `.clang-format`, `.prettierrc.json`, and npm lockfile are the shared rules for editors and CI. Use the repository command before handing off a change; avoid applying an IDE formatter or import sorter across `#if` branches. When changing Java formatting rules, compile all four targets and verify that Manifold projections preserve string literals, text blocks, and token order.
+
 ## Source layout and boundaries
 
 Loom compiles `src/main/java` against common Minecraft classes. Put shared models, filesystem operations, and native save paths there. Keep code that uses Minecraft's client in `src/client/java`. The client source set also includes `src/fabric/java` and Fabric resources for entrypoints, mod metadata, and Mixin configuration. Common assets stay in `src/main/resources`. Both source sets are packaged together and tested against every target in `gradle/targets.gradle`.
@@ -18,9 +20,9 @@ The download package follows the same ownership rule:
 - `CapturePolicy` determines resource mode independently of the user's toggle; `CaptureBudget` supplies executable limits for a tick.
 - `ExportScheduler` owns periodic/adaptive/pressure cadence, deferred work ordering, and retries on the client thread.
 - `DownloadCaptureQueue` owns main-thread serialization, hint coalescing, queue limits, and capture diagnostics.
-- `ExportWork.Intent` describes a live request. `ExportWork.Frozen` carries immutable terrain, entity, container, settings, and destination identity. Completion receipts are applied to the matching capture session.
+- `CaptureSession` owns the connection and source generations, logical source ID, mirror target, and export settings. `ExportWork.Intent` describes live work for that session; `ExportWork.Frozen` carries its immutable terrain, entity, and container revisions. Only the current session receives live cache acknowledgements. Frozen retries preserve ordering independently for terrain and entities per destination mirror.
 - `DownloadExportCoordinator` owns snapshot preparation, worker dispatch, and completion receipts. Normal and shutdown passes share `MirrorExportTransaction`, which verifies the frozen target under the save lock and returns terrain, entity, and metadata results.
-- `WorldGraph` validates identity and parent edges. `WorldGraphInventory` scans saves, recovers unfinished operations, and reconciles metadata with graph configuration. `WorldGraphService` holds the graph lease and publishes the routing used by the client. Disk metadata owns the edge and SQLite namespace. The graph config owns endpoint bindings, saved defaults, and the last confirmed path used to resolve copies.
+- `WorldGraph` validates identity and parent edges. `WorldGraphInventory` scans saves, recovers unfinished operations, and reconciles metadata with graph configuration. `WorldGraphService` holds the graph lease and publishes the routing used by the client. `WorldSourceResolver` resolves one connection observation against the published rules. Disk metadata owns the edge and SQLite namespace. The graph config owns endpoint rules, address groups, stable ID bindings, saved defaults, and the last confirmed path used to resolve copies. See [world routing](docs/world-routing.md) for the protocol and storage boundaries.
 - `EntityTracker` owns game-thread vanilla serialization and observation boundaries; `EntitySnapshotStore` owns versioned partial/complete reconciliation; and `EntityRegionWriter` owns UUID-aware recoverable entity-region merging.
 
 Avoid adding queue locks, region transactions, strategy-specific state, or path-claiming logic back to the manager. Prefer extending an existing owner over adding a one-method utility file, but do not merge unrelated state merely to reduce the file count.
@@ -36,6 +38,8 @@ Legacy saved-data repairs belong in the legacy package. Keep native codecs in th
 ## Map data and rendering ownership
 
 The built-in map and the world and Xaero overlays share projection and cache code in `ui.map`. Screen navigation and dialogs remain in `ui`.
+
+The world relationship tree and the built-in chunk map share the pointer and coordinate transform in `ui.viewport`. Keep terrain projection and world graph layout with their respective views. `WorldMirrorTabbedScreen` owns the native tab bar and footer for the in-game status and routing screens.
 
 - `ChunkBounds` and `ChunkBucketLayout` own coordinate bounds and bucket sizing. Widen boundary arithmetic before adding one and keep clipped edge buckets exact.
 - `ChunkRegionIndex` supports mutable game-thread metadata and immutable indices published after construction. `ChunkStatusSnapshot` and `LiveChunkStatusSnapshot` expose data; `ChunkBucketIndex` owns bounded, color-independent bucket summaries. `Publication` stages writer-owned changes and publishes immutable region pages; readers never wait for a bulk export or traverse a mutable page. Do not copy the full history when one region changes. Packed coordinate keys have collision-heavy boxed hashes; use Minecraft's existing fastutil maps and `copyCoordinates`, preserving defensive copies and read-only entries instead of freezing coordinate maps with `Map.copyOf`.
@@ -90,7 +94,7 @@ Documentation changes are part of a feature or compatibility change, not a later
 
 `README_MODRINTH.md` is written for players who may not know World Mirror's internals. Lead with the required action and observable result. In particular, always keep these points explicit:
 
-- pressing **P** starts/stops capture, while **O** exports already captured data;
+- pressing **U** starts/stops capture, while **V** exports already captured data;
 - the default `downloaded_worlds` directory is not shown in Minecraft's world list;
 - containers must be opened and client-invisible server data cannot be recovered;
 - every download must exactly match its Minecraft target and required Java version.

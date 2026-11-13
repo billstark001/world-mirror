@@ -4,7 +4,7 @@ Run this checklist on Minecraft 1.21.11, 26.1.2, 26.2, and 26.3.
 
 ## Global settings
 
-1. Open Mod Menu, then World Mirror settings.
+1. Open World Mirror in Mod Menu, then choose **Mod Settings** on the **Worlds** tab.
 2. Check Save Location, Download Pipeline, Conflict Strategy, all three New Mirror settings, Chunk Map > Map Background and In-World Overlay Colors, and all three Lifecycle Behaviour fields.
 3. For each field, click once and verify every valid translated choice is visible, the current value is highlighted, the control cannot be typed into, and selecting a value closes the list.
 4. Repeat inside collapsed sections near the top and bottom of the viewport. Verify the list is drawn above neighbouring entries, remains focused, and scrolls with normal Cloth Config input.
@@ -21,3 +21,4 @@ Run this checklist on Minecraft 1.21.11, 26.1.2, 26.2, and 26.3.
 2. Open Save Location and Conflict Strategy. Verify the full translated list appears over the surrounding controls, is compact and aligned to the value side, the current value has a marker, and no cycling or typing is required.
 3. Verify mouse selection, keyboard/controller focus and activation, outside click, focus loss, and Escape all close the list without leaving disabled controls behind.
 4. Verify choosing the current value closes the list as a no-op; changing Save Location still shows the move confirmation when a mirror exists; changing Conflict Strategy persists after reopening.
+5. While a dropdown is open, try clicking another tab and using the tab shortcuts. Check that the popup closes or retains focus without changing its value. After closing it, switch tabs and check that the footer buttons remain available.
