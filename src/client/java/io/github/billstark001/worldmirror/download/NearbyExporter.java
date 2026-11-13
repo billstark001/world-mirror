@@ -29,16 +29,19 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 
+import java.io.IOException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.FileAlreadyExistsException;
-import java.io.IOException;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.Objects;
+import java.util.function.Consumer;
 
 /** Captures nearby chunks and materializes them as a separate playable save. */
 public final class NearbyExporter {
@@ -48,15 +51,15 @@ public final class NearbyExporter {
     public enum Choice { INHERIT_ORIGINAL, CURRENT_MIRROR, INDEPENDENT }
 
     record Lineage(String nodeId, String parentNodeId, String sourceId) {}
-
     private NearbyExporter() {}
 
-    static Lineage resolveLineage(
+    static Lineage independentLineage() {
+        String id = "snapshot:" + UUID.randomUUID();
+        return new Lineage(id, null, id);
+    }
+
+    static Lineage resolveLinkedLineage(
             Choice choice, WorldGraph.Snapshot graph, String currentNode, String indexSource) {
-        if (choice == Choice.INDEPENDENT) {
-            String id = "snapshot:" + UUID.randomUUID();
-            return new Lineage(id, null, id);
-        }
         if (currentNode == null || !graph.isUnambiguous(currentNode)) {
             throw new IllegalArgumentException("Current world identity is unavailable");
         }
@@ -68,6 +71,38 @@ public final class NearbyExporter {
         return new Lineage("mirror:" + UUID.randomUUID(), parent, indexSource == null ? parent : indexSource);
     }
 
+    static List<Choice> lineageChoices(
+            WorldGraph.Snapshot graph, String sourceId, boolean canLinkUntrackedLocal) {
+        if (sourceId == null) {
+            return canLinkUntrackedLocal ? List.of(Choice.INHERIT_ORIGINAL, Choice.INDEPENDENT)
+                                         : List.of(Choice.INDEPENDENT);
+        }
+        if (!graph.isUnambiguous(sourceId))
+            return List.of(Choice.INDEPENDENT);
+        var node = graph.nodes().get(sourceId);
+        if (node == null || node.parentId() == null) {
+            if (node != null && node.kind() == WorldGraph.Kind.SNAPSHOT) {
+                return List.of(Choice.CURRENT_MIRROR, Choice.INDEPENDENT);
+            }
+            return List.of(Choice.INHERIT_ORIGINAL, Choice.INDEPENDENT);
+        }
+        List<Choice> choices = new ArrayList<>(3);
+        if (graph.findRoot(sourceId).isPresent())
+            choices.add(Choice.INHERIT_ORIGINAL);
+        choices.add(Choice.CURRENT_MIRROR);
+        choices.add(Choice.INDEPENDENT);
+        return List.copyOf(choices);
+    }
+
+    /** Returns the choices without registering a source for an untracked save. */
+    public static List<Choice> lineageChoices(Minecraft client) {
+        var service = WorldGraphService.instance();
+        String source = service.available() && service.observationIsCurrent(client)
+                ? service.currentResolution().sourceNodeId()
+                : null;
+        return lineageChoices(service.graph(), source, source == null && service.canUseLinkedSource(client));
+    }
+
     /** Captures on the game thread, then writes the new save in a dedicated worker. */
     public static void export(Minecraft client, String worldName, int radiusChunks, Choice lineageChoice) {
         Objects.requireNonNull(lineageChoice, "lineageChoice");
@@ -75,22 +110,6 @@ public final class NearbyExporter {
         if (world == null || client.player == null) {
             WMPlayerMessages.sendSystemMessage(client.player,
                     Component.translatable("msg.worldmirror.nearbyNoWorld").withStyle(ChatFormatting.RED));
-            return;
-        }
-        var graph = WorldGraphService.instance();
-        var observation = graph.source();
-        Lineage lineage;
-        try {
-            if (lineageChoice != Choice.INDEPENDENT && !graph.observationIsCurrent(client)) {
-                throw new IllegalArgumentException("Current world identity is unavailable");
-            }
-            String source = graph.sourceNode(observation);
-            String indexSource = observation != null && observation.endpoint() != null
-                    ? "server:" + observation.endpoint()
-                    : null;
-            lineage = resolveLineage(lineageChoice, graph.graph(), source, indexSource);
-        } catch (IllegalArgumentException invalid) {
-            notifyFailure(client);
             return;
         }
         radiusChunks = Math.clamp(radiusChunks, MIN_RADIUS_CHUNKS, MAX_RADIUS_CHUNKS);
@@ -135,10 +154,56 @@ public final class NearbyExporter {
                 ContainerTracker.snapshotSavedData();
 
         String safeName = worldName == null || worldName.isBlank() ? "NearbyExport" : worldName;
-        Path base = FabricLoader.getInstance().getGameDir().resolve("saves");
         WorldSettingsSnapshot worldSettings = WorldStructureCreator.resolveNewWorldSettings(
                 WorldStructureCreator.captureWorldSettings(world));
+        int capturedCount = nearbyChunks.size();
+        Consumer<Lineage> startWrite = lineage
+                -> startWrite(client, safeName, dimension, playerBX, playerBY, playerBZ, snapshot,
+                        entitySnapshot, containerSnapshot, lineage, worldSettings, capturedCount);
+        if (lineageChoice == Choice.INDEPENDENT) {
+            startWrite.accept(independentLineage());
+            return;
+        }
+        resolveLinkedExport(client, world, lineageChoice, startWrite);
+    }
 
+    private static void resolveLinkedExport(
+            Minecraft client, ClientLevel world, Choice choice, Consumer<Lineage> startWrite) {
+        var service = WorldGraphService.instance();
+        var connection = client.getConnection();
+        long epoch = service.connectionEpoch();
+        service.requireLinkedSource(client).whenComplete((source, failure) -> {
+            if (failure != null) {
+                notifyUnavailable(client, failure);
+                return;
+            }
+            if (client.level != world || client.getConnection() != connection
+                    || service.connectionEpoch() != epoch || !service.observationIsCurrent(client)
+                    || !Objects.equals(source, service.currentResolution().sourceNodeId())) {
+                notifyUnavailable(client, new IOException("The active source changed during nearby export"));
+                return;
+            }
+            var observation = service.source();
+            String indexSource = observation != null && observation.endpoint() != null
+                    ? "server:" + observation.endpoint()
+                    : null;
+            Lineage lineage;
+            try {
+                lineage = resolveLinkedLineage(choice, service.graph(), source, indexSource);
+            } catch (IllegalArgumentException invalid) {
+                notifyUnavailable(client, invalid);
+                return;
+            }
+            startWrite.accept(lineage);
+        });
+    }
+
+    private static void startWrite(Minecraft client, String safeName, ResourceKey<Level> dimension,
+            int playerBX, int playerBY, int playerBZ, ChunkListener.DirtySnapshot snapshot,
+            Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> entitySnapshot,
+            Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> containerSnapshot, Lineage lineage,
+            WorldSettingsSnapshot worldSettings, int capturedCount) {
+        Path base = FabricLoader.getInstance().getGameDir().resolve("saves");
         Path outFolder;
         try {
             outFolder = claimOutputFolder(base, MirrorFolders.sanitiseFolderName(safeName, "NearbyExport"));
@@ -148,8 +213,8 @@ public final class NearbyExporter {
             return;
         }
 
-        WMLogger.info("Exporting " + nearbyChunks.size() + " nearby chunk(s) to '" + outFolder.getFileName()
-                + "'...");
+        WMLogger.info(
+                "Exporting " + capturedCount + " nearby chunk(s) to '" + outFolder.getFileName() + "'...");
         Thread worker = new Thread(
                 ()
                         -> writeSave(client, safeName, outFolder, dimension, playerBX, playerBY, playerBZ,
@@ -218,6 +283,13 @@ public final class NearbyExporter {
                                -> WMPlayerMessages.sendSystemMessage(client.player,
                                        Component.translatable("msg.worldmirror.nearbyFailed")
                                                .withStyle(ChatFormatting.RED)));
+    }
+
+    private static void notifyUnavailable(Minecraft client, Throwable failure) {
+        WMLogger.warnRateLimited("nearby-source", 30_000L, "Nearby export source unavailable", failure);
+        WMPlayerMessages.sendSystemMessage(client.player,
+                Component.translatable("msg.worldmirror.nearbySourceUnavailable")
+                        .withStyle(ChatFormatting.RED));
     }
 
     private static void commitDurabilityIndex(ChunkDatabase database, ChunkExporter.ExportResult result)

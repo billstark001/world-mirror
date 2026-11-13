@@ -1,6 +1,5 @@
 package io.github.billstark001.worldmirror.ui;
 
-import io.github.billstark001.worldmirror.download.MirrorWorldContext;
 import io.github.billstark001.worldmirror.download.NearbyExporter;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
@@ -15,6 +14,7 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.network.chat.Component;
+import java.util.List;
 
 /**
  * Feature 2.1 — Export Nearby Region.
@@ -35,7 +35,7 @@ public class ExportNearbyScreen extends Screen {
     private int radius = RADIUS_DEFAULT;
     private EditBox nameField;
     private NearbyExporter.Choice lineageChoice = NearbyExporter.Choice.INHERIT_ORIGINAL;
-    private boolean choosingLineage;
+    private List<NearbyExporter.Choice> lineageChoices;
 
     private final Screen parent;
 
@@ -48,29 +48,28 @@ public class ExportNearbyScreen extends Screen {
     protected void init() {
         int cx = this.width / 2;
         int cy = this.height / 2;
-        choosingLineage = MirrorWorldContext.current().isMirror();
-        int nameY = choosingLineage ? cy - 60 : cy - 40;
-        int radiusY = choosingLineage ? cy + 20 : cy;
+        String currentName = nameField == null ? defaultWorldName() : nameField.getValue();
+        lineageChoices = NearbyExporter.lineageChoices(Minecraft.getInstance());
+        if (!lineageChoices.contains(lineageChoice))
+            lineageChoice = lineageChoices.getFirst();
+        int nameY = cy - 60;
+        int radiusY = cy + 20;
 
         // World-name field
         nameField = new EditBox(this.font, cx - 100, nameY, 200, 20,
                 Component.translatable("screen.worldmirror.exportNearby.worldName"));
         nameField.setMaxLength(80);
-        nameField.setValue(defaultWorldName());
+        nameField.setValue(currentName);
         nameField.setHint(Component.translatable("screen.worldmirror.exportNearby.worldName"));
         addRenderableWidget(nameField);
 
-        if (choosingLineage) {
-            addRenderableWidget(
-                    Button.builder(lineageLabel(), btn -> {
-                              lineageChoice = switch (lineageChoice) {
-                                  case INHERIT_ORIGINAL -> NearbyExporter.Choice.CURRENT_MIRROR;
-                                  case CURRENT_MIRROR -> NearbyExporter.Choice.INDEPENDENT;
-                                  case INDEPENDENT -> NearbyExporter.Choice.INHERIT_ORIGINAL;
-                              };
-                              btn.setMessage(lineageLabel());
-                          }).bounds(cx - 100, cy - 25, 200, 20).build());
-        }
+        Button lineage = addRenderableWidget(
+                Button.builder(lineageLabel(), btn -> {
+                          int next = (lineageChoices.indexOf(lineageChoice) + 1) % lineageChoices.size();
+                          lineageChoice = lineageChoices.get(next);
+                          btn.setMessage(lineageLabel());
+                      }).bounds(cx - 100, cy - 25, 200, 20).build());
+        lineage.active = lineageChoices.size() > 1;
 
         // Radius decrement
         addRenderableWidget(
@@ -129,7 +128,7 @@ public class ExportNearbyScreen extends Screen {
 #else
         context.drawCenteredString(this.font, this.title,
 #endif
-                cx, choosingLineage ? cy - 100 : cy - 70, 0xFFFFFFFF);
+                cx, cy - 100, 0xFFFFFFFF);
 
         // World name label
 #if MC_VERSION >= 260102
@@ -137,19 +136,17 @@ public class ExportNearbyScreen extends Screen {
 #else
         context.drawString(this.font,
 #endif
-                Component.translatable("screen.worldmirror.exportNearby.worldName"), cx - 100,
-                choosingLineage ? cy - 75 : cy - 55, 0xFFAAAAAA);
+                Component.translatable("screen.worldmirror.exportNearby.worldName"), cx - 100, cy - 75,
+                0xFFAAAAAA);
 
-        int radiusY = choosingLineage ? cy + 20 : cy;
-        if (choosingLineage) {
+        int radiusY = cy + 20;
 #if MC_VERSION >= 260102
-            context.text(this.font,
+        context.text(this.font,
 #else
-            context.drawString(this.font,
+        context.drawString(this.font,
 #endif
-                    Component.translatable("screen.worldmirror.exportNearby.lineage"), cx - 100, cy - 40,
-                    0xFFAAAAAA);
-        }
+                Component.translatable("screen.worldmirror.exportNearby.lineage"), cx - 100, cy - 40,
+                0xFFAAAAAA);
 
         // Radius display
 #if MC_VERSION >= 260102

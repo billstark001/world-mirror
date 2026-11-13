@@ -346,6 +346,7 @@
 
   "msg.worldmirror.fileOperationFailed": "World Mirror のファイル操作を確認してください",
   "msg.worldmirror.fileOperationDetails": "接続先：%s、段階：%s、パス：%s、原因：%s。元のデータは保持されています。ログを確認し、修復後に再試行してください。",
+  "msg.worldmirror.nearbySourceUnavailable": "このスナップショットの元ワールドを特定できません。",
   "screen.worldmirror.captureRoute.chooseSource": "ダウンロード元を選択",
   "screen.worldmirror.captureRoute.title": "%s のソースを選択",
   "screen.worldmirror.captureRoute.newSource": "新しいソースを作成",

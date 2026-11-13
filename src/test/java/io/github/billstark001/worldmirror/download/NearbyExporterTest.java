@@ -7,6 +7,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 
@@ -37,11 +39,9 @@ class NearbyExporterTest {
     }
 
     @Test
-    void independentLineageDoesNotRequireAnExistingMirror() {
-        var first = NearbyExporter.resolveLineage(NearbyExporter.Choice.INDEPENDENT,
-                WorldGraph.reconcile(java.util.List.of(), java.util.Map.of()), null, null);
-        var second = NearbyExporter.resolveLineage(NearbyExporter.Choice.INDEPENDENT,
-                WorldGraph.reconcile(java.util.List.of(), java.util.Map.of()), null, null);
+    void independentLineageOwnsItsNamespaceAndHasNoParent() {
+        var first = NearbyExporter.independentLineage();
+        var second = NearbyExporter.independentLineage();
 
         assertTrue(first.sourceId().startsWith("snapshot:"));
         assertNotEquals(first.sourceId(), second.sourceId());
@@ -67,12 +67,56 @@ class NearbyExporterTest {
                 new WorldGraph.Location(WorldGraph.Root.SAVES, "current"), WorldGraph.Kind.MIRROR,
                 WorldGraph.Role.SYNC);
         var graph = WorldGraph.reconcile(java.util.List.of(source, mirror), java.util.Map.of());
-        var inherited = NearbyExporter.resolveLineage(
+        var inherited = NearbyExporter.resolveLinkedLineage(
                 NearbyExporter.Choice.INHERIT_ORIGINAL, graph, mirror.id(), null);
-        var derived =
-                NearbyExporter.resolveLineage(NearbyExporter.Choice.CURRENT_MIRROR, graph, mirror.id(), null);
+        var derived = NearbyExporter.resolveLinkedLineage(
+                NearbyExporter.Choice.CURRENT_MIRROR, graph, mirror.id(), null);
         assertEquals(source.id(), inherited.parentNodeId());
         assertEquals(mirror.id(), derived.parentNodeId());
         assertNotEquals(inherited.nodeId(), derived.nodeId());
+    }
+
+    @Test
+    void missingParentLeavesCurrentMirrorAndIndependentSnapshotAvailable() {
+        var source = new WorldGraph.Node("mirror:opened", "local:missing",
+                new WorldGraph.Location(WorldGraph.Root.SAVES, "opened"), WorldGraph.Kind.MIRROR,
+                WorldGraph.Role.SYNC);
+        var graph = WorldGraph.reconcile(List.of(source), Map.of());
+        assertEquals(List.of(NearbyExporter.Choice.CURRENT_MIRROR, NearbyExporter.Choice.INDEPENDENT),
+                NearbyExporter.lineageChoices(graph, source.id(), false));
+        assertEquals(source.id(),
+                NearbyExporter
+                        .resolveLinkedLineage(NearbyExporter.Choice.CURRENT_MIRROR, graph, source.id(), null)
+                        .parentNodeId());
+        assertThrows(IllegalArgumentException.class,
+                ()
+                        -> NearbyExporter.resolveLinkedLineage(
+                                NearbyExporter.Choice.INHERIT_ORIGINAL, graph, source.id(), null));
+        assertEquals(List.of(NearbyExporter.Choice.INDEPENDENT),
+                NearbyExporter.lineageChoices(graph, null, false));
+    }
+
+    @Test
+    void disconnectedSnapshotAndResolvedRemoteSourceOfferSeparateLineageChoices() {
+        var graph = WorldGraph.reconcile(List.of(), Map.of());
+        assertEquals(List.of(NearbyExporter.Choice.INHERIT_ORIGINAL, NearbyExporter.Choice.INDEPENDENT),
+                NearbyExporter.lineageChoices(graph, "remote:resolved", false));
+        var linked = NearbyExporter.resolveLinkedLineage(
+                NearbyExporter.Choice.INHERIT_ORIGINAL, graph, "remote:resolved", "server:alias.test");
+        assertEquals("remote:resolved", linked.parentNodeId());
+        assertEquals("server:alias.test", linked.sourceId());
+    }
+
+    @Test
+    void untrackedLocalSourceOffersLinkedExportBeforeItsIdentityIsRegistered() {
+        var graph = WorldGraph.reconcile(List.of(), Map.of());
+        assertEquals(List.of(NearbyExporter.Choice.INHERIT_ORIGINAL, NearbyExporter.Choice.INDEPENDENT),
+                NearbyExporter.lineageChoices(graph, null, true));
+        var source = new WorldGraph.Node("local:original", null,
+                new WorldGraph.Location(WorldGraph.Root.SAVES, "original"), WorldGraph.Kind.LOCAL, null);
+        var linked = NearbyExporter.resolveLinkedLineage(NearbyExporter.Choice.INHERIT_ORIGINAL,
+                WorldGraph.reconcile(List.of(source), Map.of()), source.id(), null);
+        assertEquals("local:original", linked.parentNodeId());
+        assertEquals("local:original", linked.sourceId());
     }
 }

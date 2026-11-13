@@ -346,6 +346,7 @@
 
   "msg.worldmirror.fileOperationFailed": "World Mirror 檔案操作需要處理",
   "msg.worldmirror.fileOperationDetails": "來源：%s；階段：%s；路徑：%s；原因：%s。原始資料已保留，請查看記錄並修復後重試。",
+  "msg.worldmirror.nearbySourceUnavailable": "無法確定此快照的來源世界。",
   "screen.worldmirror.captureRoute.chooseSource": "選擇下載來源",
   "screen.worldmirror.captureRoute.title": "為 %s 選擇來源世界",
   "screen.worldmirror.captureRoute.newSource": "建立新來源世界",
