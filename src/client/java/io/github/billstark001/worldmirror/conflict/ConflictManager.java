@@ -1,6 +1,6 @@
 package io.github.billstark001.worldmirror.conflict;
 
-import io.github.billstark001.worldmirror.io.ChunkExporter;
+import io.github.billstark001.worldmirror.io.WorldSaveLayout;
 import io.github.billstark001.worldmirror.io.AnvilReader;
 import io.github.billstark001.worldmirror.io.McaWriteSupport;
 import io.github.billstark001.worldmirror.io.WorldWriteLock;
@@ -57,7 +57,7 @@ public final class ConflictManager {
         if (dimension.equals(Level.OVERWORLD)) return root.resolve("region");
         if (dimension.equals(Level.NETHER)) return root.resolve("DIM-1/region");
         if (dimension.equals(Level.END)) return root.resolve("DIM1/region");
-        return ChunkExporter.namespacedDimensionDirectory(root, dimension).resolve("region");
+        return WorldSaveLayout.namespacedDimensionDirectory(root, dimension).resolve("region");
     }
 
     /** Returns true only after the incoming chunk has been reopened and verified. */
@@ -163,7 +163,7 @@ public final class ConflictManager {
                                       Map<ChunkPos, CompoundTag> snapshot) throws IOException {
         if (snapshot.isEmpty()) return;
         Path worldFolder = mirror.folder();
-        Path target = ChunkExporter.regionDirForDimension(worldFolder, region.dimension())
+        Path target = WorldSaveLayout.regionDirectory(worldFolder, region.dimension())
                 .resolve(region.file().getFileName());
         // Never hold the conflict lock while waiting for the world lock: an
         // exporter can hold that world lock while persisting another conflict.

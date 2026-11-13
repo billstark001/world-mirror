@@ -12,8 +12,9 @@ tasks.withType(JavaCompile).configureEach {
 // Loom's older source remapper cannot parse directives. Resolve them with the
 // same preprocessor before publishing sources, retaining line positions for debug.
 def publishedSources = layout.buildDirectory.dir("generated/published-sources")
+def publishedSourceSets = [sourceSets.main.java, sourceSets.client.java]
 def preparePublishedSources = tasks.register("preparePublishedSources") {
-    inputs.files(sourceSets.main.java)
+    inputs.files(publishedSourceSets)
     inputs.files(configurations.annotationProcessor)
     inputs.property("MC_VERSION", target.preprocessorVersion)
     outputs.dir(publishedSources)
@@ -29,8 +30,9 @@ def preparePublishedSources = tasks.register("preparePublishedSources") {
             def definitionsType = loader.loadClass("manifold.preprocessor.definitions.Definitions")
             def fileType = loader.loadClass("manifold.api.fs.IFile")
             def parserType = loader.loadClass("manifold.preprocessor.PreprocessorParser")
-            sourceSets.main.java.files.each { source ->
-                def sourceRoot = sourceSets.main.java.srcDirs.find { source.toPath().startsWith(it.toPath()) }
+            def sourceRoots = publishedSourceSets.collectMany { it.srcDirs }.toSet()
+            publishedSourceSets.collectMany { it.files }.each { source ->
+                def sourceRoot = sourceRoots.find { source.toPath().startsWith(it.toPath()) }
                 def relative = sourceRoot.toPath().relativize(source.toPath()).toString()
                 def original = source.getText("UTF-8")
                 def text = original

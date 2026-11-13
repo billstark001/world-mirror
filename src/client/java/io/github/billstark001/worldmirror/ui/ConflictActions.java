@@ -4,6 +4,7 @@ import io.github.billstark001.worldmirror.conflict.ConflictManager;
 import io.github.billstark001.worldmirror.download.OperationFailures;
 import io.github.billstark001.worldmirror.download.WorldGraphService;
 import io.github.billstark001.worldmirror.io.MirrorTarget;
+import io.github.billstark001.worldmirror.ui.map.ChunkStatusCache;
 import io.github.billstark001.worldmirror.util.OfflineTasks;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceKey;

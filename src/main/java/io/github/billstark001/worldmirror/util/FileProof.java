@@ -10,20 +10,66 @@ import java.security.DigestInputStream;
 import java.util.HexFormat;
 import java.nio.file.attribute.BasicFileAttributes;
 
-/** Streaming content proofs avoid retaining a second copy of large staged files. */
+/** Checks scoped filesystem paths and proves file contents without buffering whole files. */
 public final class FileProof {
     private FileProof() {}
 
     /** Allows an absent directory. On Windows, junctions report both directory and other. */
     public static void requirePlainDirectory(Path path) throws IOException {
-        BasicFileAttributes attributes;
-        try {
-            attributes = Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-        } catch (NoSuchFileException missing) {
-            return;
-        }
-        if (!attributes.isDirectory() || attributes.isOther() || attributes.isSymbolicLink()) {
+        var attributes = attributesIfPresent(path);
+        if (attributes != null && !isPlainDirectory(attributes)) {
             throw new IOException("Not a plain directory: " + path);
+        }
+    }
+
+    /** Allows an absent file. Links, junctions and nonregular files are rejected. */
+    public static void requirePlainFileIfPresent(Path path) throws IOException {
+        var attributes = attributesIfPresent(path);
+        if (attributes != null && !isPlainFile(attributes)) {
+            throw new IOException("Not a plain file: " + path);
+        }
+    }
+
+    /** Checks an existing regular file without following a link at its final component. */
+    public static BasicFileAttributes requirePlainFile(Path path) throws IOException {
+        var attributes = Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+        if (!isPlainFile(attributes)) throw new IOException("Not a plain file: " + path);
+        return attributes;
+    }
+
+    public static boolean isPlainDirectory(BasicFileAttributes attributes) {
+        return attributes.isDirectory() && !isAlias(attributes);
+    }
+
+    public static boolean isPlainFile(BasicFileAttributes attributes) {
+        return attributes.isRegularFile() && !isAlias(attributes);
+    }
+
+    /** Checks existing components from a trusted root and allows creation of absent components. */
+    public static void requirePlainPath(Path root, Path path) throws IOException {
+        root = root.toAbsolutePath().normalize();
+        path = path.toAbsolutePath().normalize();
+        if (!path.startsWith(root)) throw new IOException("Path leaves its root: " + path);
+        requirePlainDirectory(root);
+        Path part = root;
+        for (Path segment : root.relativize(path)) {
+            part = part.resolve(segment);
+            var attributes = attributesIfPresent(part);
+            if (attributes == null) return;
+            if (isAlias(attributes)) throw new IOException("Aliased path: " + part);
+        }
+    }
+
+    private static boolean isAlias(BasicFileAttributes attributes) {
+        // NTFS junctions can report both directory and other.
+        return attributes.isSymbolicLink() || attributes.isOther();
+    }
+
+    private static BasicFileAttributes attributesIfPresent(Path path) throws IOException {
+        try {
+            return Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+        } catch (NoSuchFileException missing) {
+            return null;
         }
     }
 
@@ -31,8 +77,7 @@ public final class FileProof {
     public record Version(long size, java.nio.file.attribute.FileTime modified, Object identity) {}
 
     public static Version version(Path file) throws IOException {
-        BasicFileAttributes attributes = Files.readAttributes(file, BasicFileAttributes.class);
-        if (!attributes.isRegularFile()) throw new IOException("Not a regular file: " + file);
+        BasicFileAttributes attributes = requirePlainFile(file);
         return new Version(attributes.size(), attributes.lastModifiedTime(), attributes.fileKey());
     }
 
@@ -43,7 +88,7 @@ public final class FileProof {
 
     public static String sha256(Path file) throws IOException {
         MessageDigest digest = sha256();
-        try (var input = new DigestInputStream(Files.newInputStream(file), digest)) {
+        try (var input = new DigestInputStream(Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS), digest)) {
             input.transferTo(java.io.OutputStream.nullOutputStream());
         }
         return HexFormat.of().formatHex(digest.digest());
@@ -51,16 +96,13 @@ public final class FileProof {
 
     /** Hashes during copying, then checks the stored copy without reading the source a second time. */
     public static String copyVerified(Path source, Path destination) throws IOException {
-        BasicFileAttributes before = Files.readAttributes(source, BasicFileAttributes.class);
+        Version before = version(source);
         MessageDigest digest = sha256();
-        try (var input = new DigestInputStream(Files.newInputStream(source), digest)) {
+        try (var input = new DigestInputStream(Files.newInputStream(source, LinkOption.NOFOLLOW_LINKS), digest)) {
             Files.copy(input, destination);
         }
-        BasicFileAttributes after = Files.readAttributes(source, BasicFileAttributes.class);
         String expected = HexFormat.of().formatHex(digest.digest());
-        if (before.size() != after.size() || !before.lastModifiedTime().equals(after.lastModifiedTime())
-                || !java.util.Objects.equals(before.fileKey(), after.fileKey())
-                || !expected.equals(sha256(destination))) {
+        if (!before.equals(version(source)) || !expected.equals(sha256(destination))) {
             throw new IOException("Copy verification failed: " + source);
         }
         return expected;

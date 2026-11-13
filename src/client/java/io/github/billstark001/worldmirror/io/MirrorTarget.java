@@ -26,6 +26,11 @@ public record MirrorTarget(Path folder, String nodeId, String sourceId) {
         return metadata != null && nodeId.equals(metadata.nodeId) && sourceId.equals(metadata.sourceId);
     }
 
+    /** Rechecks the on-disk identity around a read that does not take a save lease. */
+    public boolean matchesSavedIdentity() {
+        return WorldMetadata.loadIfPresent(folder).filter(this::matches).isPresent();
+    }
+
     /** Writers recheck this after acquiring the native lease, immediately before mutation. */
     public void requireCurrent() throws IOException {
         var inspection = MirrorMigrationCoordinator.inspect(folder);

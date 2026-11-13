@@ -1,7 +1,7 @@
 package io.github.billstark001.worldmirror.xaero;
 
-import io.github.billstark001.worldmirror.ui.ChunkStatusCache;
-import io.github.billstark001.worldmirror.ui.ChunkStatusCache.StatusTarget;
+import io.github.billstark001.worldmirror.ui.map.ChunkStatusCache;
+import io.github.billstark001.worldmirror.ui.map.ChunkStatusCache.StatusTarget;
 import io.github.billstark001.worldmirror.ui.ClientDialogs;
 import io.github.billstark001.worldmirror.ui.MirrorPrompt;
 import net.minecraft.client.Minecraft;

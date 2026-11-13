@@ -39,7 +39,7 @@ class ExportStatusStoreTest {
         var result = new ChunkExporter.ExportResult(Map.of(),Map.of(),Map.of(),Map.of(),false,true,
                 new ChunkExporter.ExportTimings(0,0,0,0,0,0,0));
         var receipts = Map.of(Level.OVERWORLD,written);
-        var outcome = new DownloadExportCoordinator.ExportOutcome(result,receipts,work.remaining(result,receipts,100),true,true,0);
+        var outcome = new MirrorExportTransaction.ExportOutcome(result,receipts,work.remaining(result,receipts,100),true,true,0,null);
         var counts = store.finish(work,outcome).counts();
         assertEquals(new ExportStatus.Counts(0,0,50,0,50,50,50,0),counts);
         assertEquals(counts,store.inRange("mirror:mixed",Level.OVERWORLD,0,99,0,0).stream()
@@ -181,7 +181,7 @@ class ExportStatusStoreTest {
     void worldOnlyFailuresRemainUntilMetadataIsActuallyCommitted() {
         var store = new ExportStatusStore();
         var empty = work("a", -1, -1);
-        store.finish(empty, DownloadExportCoordinator.ExportOutcome.failed(empty));
+        store.finish(empty, MirrorExportTransaction.ExportOutcome.failed(empty));
         assertTrue(store.health("mirror:a").worldFailure());
         var work = work("a", 1, -1);
         store.queued(work);
@@ -203,7 +203,7 @@ class ExportStatusStoreTest {
                         new EntityTracker.ChunkUpdate(entity, EntityTracker.Observation.PARTIAL, Map.of(), Set.of()))),
                 Map.of(), WorldSettingsSnapshot.defaults(), 0, OptionalLong.empty());
     }
-    static DownloadExportCoordinator.ExportOutcome outcome(ExportWork.Frozen work, boolean terrain, boolean entities, boolean metadata) {
+    static MirrorExportTransaction.ExportOutcome outcome(ExportWork.Frozen work, boolean terrain, boolean entities, boolean metadata) {
         Map<ChunkPos, Long> terrainReceipts = new java.util.HashMap<>();
         Map<ChunkPos, Long> entityReceipts = new java.util.HashMap<>();
         if (terrain) work.terrain().chunks().getOrDefault(Level.OVERWORLD, Map.of()).forEach((pos, capture) -> terrainReceipts.put(pos, capture.revision()));
@@ -213,7 +213,7 @@ class ExportStatusStoreTest {
         var receipts = Map.of(Level.OVERWORLD, terrainReceipts);
         long time = work.terrain().chunks().getOrDefault(Level.OVERWORLD, Map.of()).values().stream()
                 .mapToLong(ChunkListener.CapturedChunk::capturedAtMs).max().orElse(work.durableCaptureTime());
-        return new DownloadExportCoordinator.ExportOutcome(result, receipts, work.remaining(result, receipts, time),
-                true, metadata, 0);
+        return new MirrorExportTransaction.ExportOutcome(result, receipts, work.remaining(result, receipts, time),
+                true, metadata, 0, null);
     }
 }

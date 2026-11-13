@@ -1,5 +1,6 @@
 package io.github.billstark001.worldmirror.download;
 
+import io.github.billstark001.worldmirror.download.MirrorExportTransaction.ExportOutcome;
 import io.github.billstark001.worldmirror.io.ExportProgress;
 import io.github.billstark001.worldmirror.util.ChunkRegionIndex;
 import net.minecraft.resources.ResourceKey;
@@ -89,7 +90,7 @@ public final class ExportStatusStore {
         publish();
     }
 
-    synchronized ExportStatus.Health finish(ExportWork.Frozen work, DownloadExportCoordinator.ExportOutcome outcome) {
+    synchronized ExportStatus.Health finish(ExportWork.Frozen work, ExportOutcome outcome) {
         String id = work.context().source().id();
         Source source = sources.computeIfAbsent(id, Source::new);
         long floor = outcome.remaining().durableCaptureTime();
@@ -132,11 +133,23 @@ public final class ExportStatusStore {
             }
             source.worldFailure = false;
         } else if (!work.hasTerrain() && !work.hasEntities()) source.worldFailure = true;
-        if (!outcome.successful()) source.stage = outcome.failureStage();
+        if (!outcome.successful()) source.stage = failureStage(outcome);
         if (!source.worldFailure && source.counts.unresolved() == 0) source.stage = ExportStatus.FailureStage.NONE;
         changedSources.add(source);
         publish();
         return health(id);
+    }
+
+    private static ExportStatus.FailureStage failureStage(ExportOutcome outcome) {
+        var result = outcome.result();
+        if (!outcome.indexCommitted() && !result.chunkWritesSuccessful() && !result.entityWritesSuccessful()
+                && result.written().isEmpty() && result.entityRevisions().isEmpty()) {
+            return ExportStatus.FailureStage.PREPARATION;
+        }
+        if (!outcome.indexCommitted()) return ExportStatus.FailureStage.INDEX;
+        if (!result.chunkWritesSuccessful()) return ExportStatus.FailureStage.TERRAIN;
+        if (!result.entityWritesSuccessful()) return ExportStatus.FailureStage.ENTITIES;
+        return outcome.metadataCommitted() ? ExportStatus.FailureStage.NONE : ExportStatus.FailureStage.METADATA;
     }
 
     private void finishChunk(Dimension dimension, ExportStatus.Chunk chunk, boolean metadataCommitted, long floor) {

@@ -1,4 +1,14 @@
 def target = rootProject.ext.targets[project.ext.minecraftTarget]
+def probeClasspath = layout.buildDirectory.file("generated/test-probe-classpath.txt")
+def writeProbeClasspath = tasks.register("writeTestProbeClasspath") {
+    inputs.files(sourceSets.test.runtimeClasspath).withPropertyName("runtimeClasspath")
+    outputs.file(probeClasspath)
+    doLast {
+        def destination = probeClasspath.get().asFile
+        destination.parentFile.mkdirs()
+        destination.setText(sourceSets.test.runtimeClasspath.asPath, "UTF-8")
+    }
+}
 
 dependencies {
     testImplementation platform("org.junit:junit-bom:5.11.4")
@@ -8,10 +18,10 @@ dependencies {
 }
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
-    doFirst {
-        // Child-JVM probes use the mapped game and toolchain of the current target.
-        systemProperty "worldmirror.test.classpath", sourceSets.test.runtimeClasspath.asPath
-    }
+    // Keep the split Minecraft classpath out of the Windows test worker command line.
+    dependsOn(writeProbeClasspath)
+    inputs.file(probeClasspath)
+    systemProperty "worldmirror.test.classpathFile", probeClasspath.get().asFile.absolutePath
 }
 if (target.writesWorldgenFixture) {
     tasks.register("writeWorldgenFixture", JavaExec) {

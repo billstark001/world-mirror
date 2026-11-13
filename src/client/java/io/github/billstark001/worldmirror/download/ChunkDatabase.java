@@ -11,7 +11,6 @@ import org.sqlite.SQLiteConfig;
 import java.io.Closeable;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
@@ -77,11 +76,7 @@ public class ChunkDatabase implements Closeable {
         FileProof.requirePlainDirectory(worldFolder);
         FileProof.requirePlainDirectory(database.getParent());
         for (String suffix : List.of("", "-wal", "-shm", "-journal")) {
-            Path file = database.resolveSibling(database.getFileName() + suffix);
-            if (!Files.notExists(file, LinkOption.NOFOLLOW_LINKS)
-                    && !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
-                throw new IOException("Not a regular chunk index file: " + file);
-            }
+            FileProof.requirePlainFileIfPresent(database.resolveSibling(database.getFileName() + suffix));
         }
     }
 

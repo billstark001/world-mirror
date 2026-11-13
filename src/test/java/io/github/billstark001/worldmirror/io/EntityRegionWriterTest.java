@@ -339,7 +339,7 @@ class EntityRegionWriterTest {
     }
 
     private Path entitiesDir() {
-        return ChunkExporter.dimensionDirForDimension(tempDir, Level.OVERWORLD).resolve("entities");
+        return WorldSaveLayout.dimensionDirectory(tempDir, Level.OVERWORLD).resolve("entities");
     }
 
     private static CompoundTag entityChunk(ChunkPos pos, List<CompoundTag> entities) {
@@ -496,7 +496,7 @@ class EntityRegionWriterTest {
             for (String compression : List.of("none", "lz4", "deflate")) {
                 net.minecraft.world.level.chunk.storage.RegionFileVersion.configure(compression);
                 Path world = tempDir.resolve(compression);
-                Path file = ChunkExporter.dimensionDirForDimension(world, Level.OVERWORLD).resolve("entities/r.0.0.mca");
+                Path file = WorldSaveLayout.dimensionDirectory(world, Level.OVERWORLD).resolve("entities/r.0.0.mca");
                 UUID old = UUID.randomUUID(), fresh = UUID.randomUUID();
                 CompoundTag original = entityChunk(new ChunkPos(0, 0), List.of(storedEntity("minecraft:pig", old)));
                 original.putString("mod_marker", "preserve");

@@ -1,11 +1,11 @@
 package io.github.billstark001.worldmirror.io;
 
 import io.github.billstark001.worldmirror.util.FileProof;
+import io.github.billstark001.worldmirror.util.FileTransaction;
+import io.github.billstark001.worldmirror.util.WorldRecovery;
 import net.minecraft.util.DirectoryLock;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.channels.OverlappingFileLockException;
 import java.util.Arrays;
@@ -52,7 +52,7 @@ public final class WorldWriteLock implements AutoCloseable {
         if (current != null) {
             boolean stagedMigration = world.startsWith(current.world)
                     && current.world.relativize(world).getNameCount() == 2
-                    && current.world.relativize(world).getName(0).toString().startsWith(".worldmirror-transaction-")
+                    && current.world.relativize(world).getName(0).toString().startsWith(FileTransaction.PREFIX)
                     && world.getFileName().toString().equals("new");
             if (!current.world.equals(world) && !stagedMigration) {
                 throw new IllegalStateException("Cannot nest different world write locks");
@@ -65,7 +65,7 @@ public final class WorldWriteLock implements AutoCloseable {
         try {
             Ownership acquired = new Ownership(world, guard, acquireDirectory(world));
             OWNED.set(acquired);
-            try { io.github.billstark001.worldmirror.util.WorldRecovery.begin(world); }
+            try { WorldRecovery.begin(world); }
             catch (IOException | RuntimeException | Error failure) {
                 OWNED.remove();
                 try { acquired.directory.close(); } catch (IOException close) { failure.addSuppressed(close); }
@@ -82,10 +82,7 @@ public final class WorldWriteLock implements AutoCloseable {
     public static DirectoryLock acquireDirectory(Path world) throws IOException {
         FileProof.requirePlainDirectory(world);
         Path lock = world.resolve(DirectoryLock.LOCK_FILE);
-        if (!Files.notExists(lock, LinkOption.NOFOLLOW_LINKS)
-                && !Files.isRegularFile(lock, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("Not a regular world lock file: " + lock);
-        }
+        FileProof.requirePlainFileIfPresent(lock);
         try {
             // The probe closes its channel even on a same-JVM overlap. Vanilla's
             // create() only cleans up IOExceptions, so avoid that path when busy.
@@ -108,7 +105,7 @@ public final class WorldWriteLock implements AutoCloseable {
         if (--ownership.depth > 0) return;
         OWNED.remove();
         try {
-            io.github.billstark001.worldmirror.util.WorldRecovery.end();
+            WorldRecovery.end();
         } finally {
             try { ownership.directory.close(); }
             finally { ownership.guard.unlock(); }

@@ -35,7 +35,7 @@ class ChunkExporterPersistenceTest {
     @Test
     void writesTerrainIntoAZeroByteRegion(@TempDir Path world) throws Exception {
         ChunkPos pos = new ChunkPos(0, 0);
-        Path region = ChunkExporter.regionDirForDimension(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        Path region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
         Files.createDirectories(region.getParent());
         Files.createFile(region);
         CompoundTag incoming = new CompoundTag();
@@ -68,7 +68,7 @@ class ChunkExporterPersistenceTest {
     @Test
     void successiveTerrainWritesRemainDurableWhenExistingEntityDataCannotBeIndexed(@TempDir Path world) throws Exception {
         ChunkPos pos = new ChunkPos(0, 0);
-        Path entityFile = ChunkExporter.dimensionDirForDimension(world, Level.OVERWORLD).resolve("entities/r.0.0.mca");
+        Path entityFile = WorldSaveLayout.dimensionDirectory(world, Level.OVERWORLD).resolve("entities/r.0.0.mca");
         Files.createDirectories(entityFile.getParent());
         byte[] corrupt = {1, 2, 3, 4, 5};
         Files.write(entityFile, corrupt);
@@ -92,7 +92,7 @@ class ChunkExporterPersistenceTest {
                 assertTrue(db.recordUpdates("minecraft:overworld", Map.of(pos, revision * 100L), "world_mirror"));
                 assertArrayEquals(corrupt, Files.readAllBytes(entityFile));
             }
-            Path region = ChunkExporter.regionDirForDimension(world, Level.OVERWORLD).resolve("r.0.0.mca");
+            Path region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
             try (RegionFile reader = new RegionFile(new RegionStorageInfo("test", Level.OVERWORLD, "chunk"),
                     region, region.getParent(), false)) {
                 assertEquals(2, McaWriteSupport.readChunk(reader, pos).getIntOr("marker", 0));
@@ -119,7 +119,7 @@ class ChunkExporterPersistenceTest {
 
             assertTrue(result.chunkWritesSuccessful());
             assertEquals(1, result.totalWritten());
-            Path region = ChunkExporter.dimensionDirForDimension(world, Level.OVERWORLD)
+            Path region = WorldSaveLayout.dimensionDirectory(world, Level.OVERWORLD)
                     .resolve("region/r.1.-1.mca");
             assertTrue(Files.isRegularFile(region));
         } finally {
@@ -147,7 +147,7 @@ class ChunkExporterPersistenceTest {
             assertEquals(1, repaired.totalWritten());
             assertTrue(db.recordUpdates("minecraft:overworld", Map.of(pos, 100L), "world_mirror"));
             assertFalse(db.shouldSkipUpdate("minecraft:overworld", pos, "world_mirror", 150L));
-            assertTrue(Files.isRegularFile(ChunkExporter.regionDirForDimension(world, Level.OVERWORLD)
+            assertTrue(Files.isRegularFile(WorldSaveLayout.regionDirectory(world, Level.OVERWORLD)
                     .resolve("r.0.0.mca")));
         }
     }
@@ -155,7 +155,7 @@ class ChunkExporterPersistenceTest {
     @Test
     void manualConflictsContainTheFrozenInventoryOverlay(@TempDir Path world) throws Exception {
         ChunkPos pos = new ChunkPos(0, 0);
-        Path region = ChunkExporter.regionDirForDimension(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        Path region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
         CompoundTag original = new CompoundTag();
         original.putString("marker", "local");
         McaWriteSupport.writeChunks(region, Level.OVERWORLD, Map.of(pos, original));
@@ -195,7 +195,7 @@ class ChunkExporterPersistenceTest {
     @Test
     void failedManualConflictPersistenceCannotSettleOrOverwriteTheCapture(@TempDir Path world) throws Exception {
         ChunkPos pos = new ChunkPos(0, 0);
-        Path region = ChunkExporter.regionDirForDimension(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        Path region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
         McaWriteSupport.writeChunks(region, Level.OVERWORLD, Map.of(pos, new CompoundTag()));
         byte[] original = Files.readAllBytes(region);
         Files.writeString(world.resolve("conflict_chunks"), "blocked conflict root");
@@ -213,7 +213,7 @@ class ChunkExporterPersistenceTest {
     @Test
     void confirmedEmptyTerrainDoesNotRestoreBlockEntitiesFromDisk(@TempDir Path world) throws Exception {
         ChunkPos pos = new ChunkPos(0, 0);
-        Path region = ChunkExporter.regionDirForDimension(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        Path region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
         CompoundTag old = new CompoundTag();
         CompoundTag chest = new CompoundTag();
         chest.putString("id", "minecraft:chest");
@@ -240,7 +240,7 @@ class ChunkExporterPersistenceTest {
     @Test
     void oversizedStringsCannotBeSilentlyDroppedAndAcknowledged(@TempDir Path world) throws Exception {
         ChunkPos pos = new ChunkPos(0, 0);
-        Path region = ChunkExporter.regionDirForDimension(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        Path region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
         CompoundTag original = new CompoundTag();
         original.putString("marker", "original");
         McaWriteSupport.writeChunks(region, Level.OVERWORLD, Map.of(pos, original));

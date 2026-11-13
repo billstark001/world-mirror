@@ -198,7 +198,7 @@ public final class WorldRelocation {
     }
 
     private static RecoveryPlan readPlan(Path file) throws IOException {
-        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Unreadable relocation journal: " + file);
+        FileProof.requirePlainFile(file);
         var document = JsonSupport.readDocument(file, JsonObject.class);
         if (document.state() != JsonSupport.ReadState.VALID) {
             throw new IOException("Unreadable relocation journal: " + file, document.failure());
@@ -250,15 +250,16 @@ public final class WorldRelocation {
             }
             Path metadataFile = root.resolve(WorldMetadata.FILE_NAME);
             if (!Files.notExists(metadataFile, LinkOption.NOFOLLOW_LINKS)) {
-                if (!Files.isRegularFile(metadataFile, LinkOption.NOFOLLOW_LINKS) || !plan.matchesMetadata(root)) {
+                FileProof.requirePlainFile(metadataFile);
+                if (!plan.matchesMetadata(root)) {
                     throw new IOException("Foreign mirror at relocation root: " + root);
                 }
                 identities++;
             }
             Path claimFile = root.resolve(MirrorClaim.FILE_NAME);
-            if (!Files.notExists(claimFile, LinkOption.NOFOLLOW_LINKS)
-                    && (!Files.isRegularFile(claimFile, LinkOption.NOFOLLOW_LINKS) || !plan.matchesClaim(root))) {
-                throw new IOException("Foreign relocation reservation: " + root);
+            if (!Files.notExists(claimFile, LinkOption.NOFOLLOW_LINKS)) {
+                FileProof.requirePlainFile(claimFile);
+                if (!plan.matchesClaim(root)) throw new IOException("Foreign relocation reservation: " + root);
             }
             try (var files = Files.list(root)) {
                 for (Path file : (Iterable<Path>) files::iterator) {
@@ -275,7 +276,7 @@ public final class WorldRelocation {
             boolean inTarget = !Files.notExists(second, LinkOption.NOFOLLOW_LINKS);
             if (inSource == inTarget) throw new IOException("Missing or ambiguous relocation data; copies retained: " + name);
             var attributes = Files.readAttributes(inSource ? first : second, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-            if (attributes.isOther() || attributes.isSymbolicLink() || (!attributes.isRegularFile() && !attributes.isDirectory())) {
+            if (!FileProof.isPlainFile(attributes) && !FileProof.isPlainDirectory(attributes)) {
                 throw new IOException("Unsupported relocation entry: " + name);
             }
         }

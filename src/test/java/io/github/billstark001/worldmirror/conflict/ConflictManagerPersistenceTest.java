@@ -2,7 +2,7 @@ package io.github.billstark001.worldmirror.conflict;
 
 import io.github.billstark001.worldmirror.download.WorldGraph;
 import io.github.billstark001.worldmirror.download.WorldMetadata;
-import io.github.billstark001.worldmirror.io.ChunkExporter;
+import io.github.billstark001.worldmirror.io.WorldSaveLayout;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
@@ -108,7 +108,7 @@ class ConflictManagerPersistenceTest {
         chunk.putString("Status", "minecraft:full");
         assertTrue(savePending(world, pos, chunk, Level.OVERWORLD));
 
-        Path blockedRegionFile = ChunkExporter.regionDirForDimension(world, Level.OVERWORLD)
+        Path blockedRegionFile = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD)
                 .resolve("r.0.0.mca");
         Files.createDirectories(blockedRegionFile);
 
@@ -163,7 +163,7 @@ class ConflictManagerPersistenceTest {
         assertEquals(0, ConflictManager.countAllConflicts(world));
         assertFalse(Files.exists(world.resolve(ConflictManager.CONFLICT_ROOT)));
         for (var dimension : dimensions) {
-            Path directory = ChunkExporter.regionDirForDimension(world, dimension);
+            Path directory = WorldSaveLayout.regionDirectory(world, dimension);
             if (overwrite) assertEquals(nbt, readWorldChunk(world, pos, dimension));
             else if (Files.exists(directory)) {
                 try (var files = Files.list(directory)) { assertEquals(0, files.count()); }
@@ -177,7 +177,7 @@ class ConflictManagerPersistenceTest {
             boolean bulk, @TempDir Path root) throws Exception {
         Path world = distinctLockWorld(root);
         ChunkPos pos = new ChunkPos(0, 0);
-        Path worldRegion = ChunkExporter.regionDirForDimension(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        Path worldRegion = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
         assertTrue(savePending(world, pos, chunk(pos, 1), Level.OVERWORLD));
         AtomicReference<Thread> resolvingThread = new AtomicReference<>();
         CountDownLatch started = new CountDownLatch(1);
@@ -214,7 +214,7 @@ class ConflictManagerPersistenceTest {
     void concurrentResolutionsCannotApplyAnOlderSnapshotAfterANewerOne(@TempDir Path root) throws Exception {
         Path world = distinctLockWorld(root);
         ChunkPos pos = new ChunkPos(0, 0);
-        Path worldRegion = ChunkExporter.regionDirForDimension(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        Path worldRegion = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
         assertTrue(savePending(world, pos, chunk(pos, 1), Level.OVERWORLD));
         AtomicReference<Thread> firstThread = new AtomicReference<>();
         AtomicReference<Thread> secondThread = new AtomicReference<>();
@@ -254,7 +254,7 @@ class ConflictManagerPersistenceTest {
     private static Path distinctLockWorld(Path root) {
         for (int index = 0; index < 256; index++) {
             Path world = root.resolve("world-" + index);
-            Path region = ChunkExporter.regionDirForDimension(world, Level.OVERWORLD).resolve("r.0.0.mca");
+            Path region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
             Path conflicts = ConflictManager.getConflictDir(world, Level.OVERWORLD).resolve("r.0.0.mca");
             if (McaWriteSupport.lockFor(region) != McaWriteSupport.lockFor(conflicts)) return world;
         }
@@ -277,7 +277,7 @@ class ConflictManagerPersistenceTest {
 
     private static CompoundTag readWorldChunk(Path world, ChunkPos pos, ResourceKey<Level> dimension)
             throws Exception {
-        Path directory = ChunkExporter.regionDirForDimension(world, dimension);
+        Path directory = WorldSaveLayout.regionDirectory(world, dimension);
         Path file = directory.resolve("r." + pos.getRegionX() + "." + pos.getRegionZ() + ".mca");
         try (RegionFile region = new RegionFile(new RegionStorageInfo("test", dimension, "chunk"),
                 file, directory, false); var input = region.getChunkDataInputStream(pos)) {

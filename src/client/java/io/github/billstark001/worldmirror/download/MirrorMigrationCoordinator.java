@@ -236,7 +236,8 @@ public final class MirrorMigrationCoordinator {
             addExistingFile(files, root, root.resolve(name));
         }
         Path pack = root.resolve("datapacks").resolve(MirrorWorldgenAssets.PACK_DIRECTORY);
-        requirePlainAncestors(root, pack);
+        FileProof.requirePlainPath(root, pack);
+        FileProof.requirePlainDirectory(pack);
         if (!Files.notExists(pack, LinkOption.NOFOLLOW_LINKS)) {
             try (var paths = Files.walk(pack)) {
                 for (Path path : paths.toList()) {
@@ -263,11 +264,9 @@ public final class MirrorMigrationCoordinator {
     }
 
     private static void addExistingFile(java.util.Set<Path> files, Path root, Path file) throws IOException {
-        requirePlainAncestors(root, file.getParent());
+        FileProof.requirePlainPath(root, file);
         if (Files.notExists(file, LinkOption.NOFOLLOW_LINKS)) return;
-        var attributes = Files.readAttributes(file, java.nio.file.attribute.BasicFileAttributes.class,
-                LinkOption.NOFOLLOW_LINKS);
-        if (!attributes.isRegularFile()) throw new IOException("Migration input is not a regular file: " + file);
+        FileProof.requirePlainFile(file);
         files.add(file);
     }
 
@@ -287,18 +286,12 @@ public final class MirrorMigrationCoordinator {
                                         java.util.Map<Path, String> snapshot) throws IOException {
         for (Path relative : replacements) {
             Path file = root.resolve(relative);
-            requirePlainAncestors(root, file.getParent());
+            FileProof.requirePlainPath(root, file);
             String expected = snapshot.get(relative);
             boolean matches = expected == null ? Files.notExists(file, LinkOption.NOFOLLOW_LINKS)
                     : Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)
                     && expected.equals(FileProof.sha256(file));
             if (!matches) throw new IOException("Migration input changed after backup: " + file);
-        }
-    }
-
-    private static void requirePlainAncestors(Path root, Path directory) throws IOException {
-        for (Path part = directory; !part.equals(root); part = part.getParent()) {
-            FileProof.requirePlainDirectory(part);
         }
     }
 

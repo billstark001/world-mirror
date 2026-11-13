@@ -31,7 +31,7 @@ class DimensionPathTest {
         ResourceKey<Level> dimension = ResourceKey.create(Registries.DIMENSION,
                 Identifier.fromNamespaceAndPath("example", path));
 
-        assertThrows(IllegalArgumentException.class, () -> ChunkExporter.dimensionDirForDimension(world, dimension));
+        assertThrows(IllegalArgumentException.class, () -> WorldSaveLayout.dimensionDirectory(world, dimension));
         assertThrows(IllegalArgumentException.class, () -> ConflictManager.getConflictDir(world, dimension));
     }
 
@@ -41,7 +41,7 @@ class DimensionPathTest {
                 Identifier.fromNamespaceAndPath("example", "nested/caves"));
 
         assertEquals(world.resolve("dimensions/example/nested/caves"),
-                ChunkExporter.dimensionDirForDimension(world, dimension));
+                WorldSaveLayout.dimensionDirectory(world, dimension));
         assertEquals(world.resolve("conflict_chunks/dimensions/example/nested/caves/region"),
                 ConflictManager.getConflictDir(world, dimension));
     }

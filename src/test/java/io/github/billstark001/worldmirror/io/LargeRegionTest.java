@@ -11,8 +11,9 @@ import static org.junit.jupiter.api.Assertions.*;
 class LargeRegionTest {
     @Test
     void regionLargerThanTheHeapIsProcessedWithoutWholeRegionRetention(@TempDir Path root) throws Exception {
-        String classpath = System.getProperty("worldmirror.test.classpath");
-        assertNotNull(classpath);
+        String classpathFile = System.getProperty("worldmirror.test.classpathFile");
+        assertNotNull(classpathFile, "Run the probe through the target's Gradle test task");
+        String classpath = Files.readString(Path.of(classpathFile));
         Path arguments = root.resolve("java.args");
         List<String> options = List.of("-Xmx160m", "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8",
                 "-cp", classpath, LargeRegionProbe.class.getName(), root.resolve("world").toString());

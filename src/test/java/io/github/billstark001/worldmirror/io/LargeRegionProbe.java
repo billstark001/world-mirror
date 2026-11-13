@@ -26,7 +26,7 @@ public final class LargeRegionProbe {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         Path world = Path.of(args[0]);
-        Path directory = Files.createDirectories(ChunkExporter.dimensionDirForDimension(world, Level.OVERWORLD).resolve("entities"));
+        Path directory = Files.createDirectories(WorldSaveLayout.dimensionDirectory(world, Level.OVERWORLD).resolve("entities"));
         Path file = directory.resolve("r.0.0.mca");
         int chunks = 144;
         byte[] opaque = new byte[2 * 1024 * 1024];
@@ -80,7 +80,7 @@ public final class LargeRegionProbe {
         }
         if (!ConflictManager.clearAllConflicts(new MirrorTarget(world, metadata.nodeId, source), true)
                 || ConflictManager.countAllConflicts(world) != 0) throw new AssertionError("Large conflict batches remain pending");
-        Path target = ChunkExporter.regionDirForDimension(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        Path target = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
         int[] visited = {0};
         AnvilReader.visitRegion(target, 0, 0, (pos, chunk) -> {
             if (chunk.getByteArray("opaque").orElseThrow().length != opaque.length) throw new AssertionError("Lost conflict payload");

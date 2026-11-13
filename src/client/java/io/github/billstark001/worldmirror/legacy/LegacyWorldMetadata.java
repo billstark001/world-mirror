@@ -8,7 +8,6 @@ import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.JsonSupport;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -64,12 +63,7 @@ public record LegacyWorldMetadata(int schemaVersion, String modVersion, String s
     }
 
     private static JsonSupport.Document<JsonObject> readDocument(Path worldFolder) {
-        Path metadata = worldFolder.resolve(WorldMetadata.FILE_NAME);
-        if (Files.isSymbolicLink(metadata)) {
-            return new JsonSupport.Document<>(JsonSupport.ReadState.UNAVAILABLE, null,
-                    new IOException("Mirror metadata is a symbolic link: " + metadata));
-        }
-        return JsonSupport.readDocument(metadata, JsonObject.class);
+        return JsonSupport.readDocument(worldFolder.resolve(WorldMetadata.FILE_NAME), JsonObject.class);
     }
 
     private static Integer legacySchema(JsonObject json) {

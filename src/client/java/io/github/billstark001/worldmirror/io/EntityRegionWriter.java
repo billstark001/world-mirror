@@ -57,7 +57,7 @@ final class EntityRegionWriter {
             snapshot.forEach((dimension, updates) -> {
                 progress.start(ExportProgress.Part.ENTITIES, dimension, updates.keySet());
                 try {
-                    Path entitiesDir = ChunkExporter.dimensionDirForDimension(worldFolder, dimension).resolve("entities");
+                    Path entitiesDir = WorldSaveLayout.dimensionDirectory(worldFolder, dimension).resolve("entities");
                     Files.createDirectories(entitiesDir);
                     if (writeDimension(entitiesDir, dimension, updates)) {
                         Map<ChunkPos, Long> revisions = new HashMap<>();

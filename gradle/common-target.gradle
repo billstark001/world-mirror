@@ -4,10 +4,16 @@ group = rootProject.mod_group
 version = "${rootProject.mod_version}+${target.minecraft}-fabric"
 base { archivesName = rootProject.archives_base_name }
 
+loom.splitEnvironmentSourceSets()
+
 sourceSets {
     main {
-        java.srcDirs = ["main", "client", "fabric"].collect { rootProject.file("src/${it}/java") }
-        resources.srcDirs = [rootProject.file("src/main/resources"), rootProject.file("src/fabric/resources")]
+        java.srcDirs = [rootProject.file("src/main/java")]
+        resources.srcDirs = [rootProject.file("src/main/resources")]
+    }
+    client {
+        java.srcDirs = ["client", "fabric"].collect { rootProject.file("src/${it}/java") }
+        resources.srcDirs = [rootProject.file("src/fabric/resources")]
     }
     test { java.srcDirs = [rootProject.file("src/test/java")] }
 }
@@ -20,7 +26,7 @@ def resourceProperties = [
     mixinJava: target.mixinJava,
     clothConfigVersion: target.clothConfig
 ]
-processResources {
+tasks.withType(ProcessResources).configureEach {
     inputs.properties(resourceProperties)
     filesMatching("fabric.mod.json") { expand(resourceProperties) }
     filesMatching("worldmirror*.mixins.json") { expand(resourceProperties) }

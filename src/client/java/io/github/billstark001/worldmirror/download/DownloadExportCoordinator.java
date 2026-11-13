@@ -9,12 +9,11 @@ import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.core.ContainerTracker;
 import io.github.billstark001.worldmirror.core.EntityTracker;
 import io.github.billstark001.worldmirror.download.ExportWork.*;
+import io.github.billstark001.worldmirror.download.MirrorExportTransaction.ExportOutcome;
+import io.github.billstark001.worldmirror.download.MirrorExportTransaction.OutputTarget;
 import io.github.billstark001.worldmirror.io.ChunkExporter;
 import io.github.billstark001.worldmirror.io.ExportProgress;
-import io.github.billstark001.worldmirror.io.MirrorWorldgenAssets;
-import io.github.billstark001.worldmirror.io.WorldStructureCreator;
-import io.github.billstark001.worldmirror.io.WorldWriteLock;
-import io.github.billstark001.worldmirror.ui.ChunkStatusCache;
+import io.github.billstark001.worldmirror.ui.map.ChunkStatusCache;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.util.WMPlayerMessages;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -26,8 +25,6 @@ import net.minecraft.world.level.Level;
 
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
-import java.nio.file.Path;
-import java.sql.SQLException;
 import java.util.HashSet;
 import java.util.HashMap;
 import java.util.Map;
@@ -42,7 +39,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Function;
 import io.github.billstark001.worldmirror.download.ExportScheduler.Dispatch;
 
-/** Owns the export worker and durable transactions; scheduling state belongs to the client thread. */
+/** Coordinates export work between the client thread and the native save writer. */
 final class DownloadExportCoordinator {
     record DiagnosticSnapshot(long lastExportMillis, int written, int settled, int unreadable, long failures,
                               ChunkExporter.ExportTimings timings,
@@ -63,7 +60,7 @@ final class DownloadExportCoordinator {
     private volatile long lastExportMillis;
     private volatile int lastWritten, lastSettled, lastUnreadable;
     private long lastDurabilityIndexMillis;
-    private ChunkExporter.ExportTimings lastTimings = emptyTimings();
+    private ChunkExporter.ExportTimings lastTimings = MirrorExportTransaction.EMPTY_TIMINGS;
     private record Completion(ExportJob job, ExportOutcome outcome, long elapsedMs, long cpuMs) { }
 
     DownloadExportCoordinator(DownloadCaptureQueue captureQueue, ExportScheduler scheduler, ThreadPoolExecutor executor, Function<Frozen, ExportJob> jobs) {
@@ -98,7 +95,7 @@ final class DownloadExportCoordinator {
     void resetDiagnostics() {
         failures = automaticSuppressed = deferredCoalesced = workerWallMillis = lastExportMillis = lastDurabilityIndexMillis = 0;
         lastWritten = lastSettled = lastUnreadable = 0;
-        lastTimings = emptyTimings();
+        lastTimings = MirrorExportTransaction.EMPTY_TIMINGS;
     }
 
     CapturePolicy.Sample sampleResources() {
@@ -235,8 +232,14 @@ final class DownloadExportCoordinator {
     private static Completion perform(ExportJob job) {
         long started = System.nanoTime(), cpuStart = currentThreadCpuTimeNs();
         ExportOutcome outcome;
-        try { outcome = write(job); }
-        catch (Exception failure) {
+        try {
+            outcome = MirrorExportTransaction.write(job.work(), job.target(), job.resolver(), job.slowRegionThresholdMs(),
+                    job.progress());
+            if (outcome.changedSavedData() != null) {
+                var target = job.work().context().source().target();
+                ChunkStatusCache.invalidateSaved(outcome.changedSavedData(), target.nodeId(), target.sourceId());
+            }
+        } catch (Exception failure) {
             WMLogger.warn("Export worker failed source=" + job.work().context().source().id(), failure);
             outcome = ExportOutcome.failed(job.work());
         }
@@ -305,9 +308,6 @@ final class DownloadExportCoordinator {
         executor.shutdown();
     }
 
-    @FunctionalInterface
-    interface OutputTarget { Path claim() throws java.io.IOException; }
-
     record ExportJob(Frozen work, OutputTarget target, ModConfig.DownloadPipelineMode mode,
                      boolean diagnostic, boolean invalidate, ConflictResolver resolver, long slowRegionThresholdMs,
                      ExportProgress progress) {
@@ -319,149 +319,6 @@ final class DownloadExportCoordinator {
             Objects.requireNonNull(progress);
         }
     }
-    record ExportOutcome(ChunkExporter.ExportResult result,
-                         Map<ResourceKey<Level>, Map<ChunkPos, Long>> durableWritten,
-                         Frozen remaining, boolean indexCommitted, boolean metadataCommitted, long indexMillis) {
-        ExportOutcome {
-            Objects.requireNonNull(result);
-            Objects.requireNonNull(remaining);
-            Map<ResourceKey<Level>, Map<ChunkPos, Long>> copy = new HashMap<>();
-            durableWritten.forEach((dimension, receipts) -> copy.put(dimension, Map.copyOf(receipts)));
-            durableWritten = Map.copyOf(copy);
-        }
-        boolean successful() { return result.chunkWritesSuccessful() && result.entityWritesSuccessful() && indexCommitted && metadataCommitted; }
-        ExportStatus.FailureStage failureStage() {
-            if (!indexCommitted && !result.chunkWritesSuccessful() && !result.entityWritesSuccessful()
-                    && result.written().isEmpty() && result.entityRevisions().isEmpty()) return ExportStatus.FailureStage.PREPARATION;
-            if (!indexCommitted) return ExportStatus.FailureStage.INDEX;
-            if (!result.chunkWritesSuccessful()) return ExportStatus.FailureStage.TERRAIN;
-            if (!result.entityWritesSuccessful()) return ExportStatus.FailureStage.ENTITIES;
-            return metadataCommitted ? ExportStatus.FailureStage.NONE : ExportStatus.FailureStage.METADATA;
-        }
-        static ExportOutcome failed(Frozen work) {
-            return new ExportOutcome(new ChunkExporter.ExportResult(Map.of(), Map.of(), Map.of(), Map.of(), false, false, emptyTimings()),
-                    Map.of(), work, false, false, 0L);
-        }
-    }
-
-    /** The native transaction never mutates live capture state or waits for a game-thread task. */
-    static ExportOutcome write(ExportJob job) {
-        Frozen work = job.work();
-        Path worldFolder;
-        try { worldFolder = job.target().claim(); }
-        catch (Exception preparationFailure) {
-            OperationFailures.report(work.context().source().id(), "output_claim", null, preparationFailure);
-            return ExportOutcome.failed(work);
-        }
-        var target = work.context().source().target();
-        String sourceId = target.sourceId();
-        var snapshot = work.terrain();
-        var entitySnapshot = work.entities();
-        var containerSnapshot = work.containers();
-        var worldSettings = work.settings();
-        ChunkDatabase db = null;
-        var result = ExportOutcome.failed(work).result();
-        Map<ResourceKey<Level>, Map<ChunkPos, Long>> durableWritten = new HashMap<>();
-        Frozen remaining = work;
-        long latestDurableCaptureTime = work.durableCaptureTime(), indexMillis = 0L;
-        boolean indexCommitted = false, metadataCommitted = false;
-        boolean repairedIndex = false;
-        try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
-            MirrorMigrationPlan.Inspection readiness = MirrorMigrationCoordinator.inspect(worldFolder);
-            if (!readiness.mayCreateOrWriteWithoutMigration()) {
-                WMLogger.warn("Mirror requires an explicit upgrade or is not writable ("
-                        + readiness.state() + "); export aborted without modifying it.");
-                return ExportOutcome.failed(work);
-            }
-
-            boolean createFreshWorld = readiness.state() == MirrorMigrationPlan.State.NEW;
-            var reservation = createFreshWorld ? MirrorClaim.read(worldFolder) : null;
-            WorldMetadata metadata = readiness.metadata();
-            boolean matches = createFreshWorld
-                    ? reservation != null && target.nodeId().equals(reservation.nodeId())
-                            && target.parentNodeId().equals(reservation.parentNodeId()) && sourceId.equals(reservation.sourceId())
-                    : metadata != null && target.nodeId().equals(metadata.nodeId)
-                            && target.parentNodeId().equals(metadata.parentNodeId) && sourceId.equals(metadata.sourceId);
-            if (!matches) {
-                WMLogger.warn("Export target identity changed before the native lease was acquired: " + target.nodeId());
-                return ExportOutcome.failed(work);
-            }
-            if (createFreshWorld) metadata = WorldMetadata.create(target.nodeId(), WorldGraph.Kind.MIRROR,
-                    target.parentNodeId(), WorldGraph.Role.SYNC, sourceId);
-            boolean worldgenReady = WorldStructureCreator.createLoadableWorld(
-                    worldFolder, sourceId, createFreshWorld, createFreshWorld, worldSettings);
-            if (!worldgenReady) {
-                WMLogger.warn("World generation setup failed; export aborted before writing chunks.");
-                return ExportOutcome.failed(work);
-            }
-            if (createFreshWorld) {
-                metadata.markWorldgenCurrent(
-                        net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version(),
-                        MirrorWorldgenAssets.ASSET_REVISION);
-                if (!metadata.save(worldFolder)) {
-                    return ExportOutcome.failed(work);
-                }
-                MirrorClaim.finish(worldFolder, target.nodeId());
-            }
-
-            try {
-                db = ChunkDatabase.open(worldFolder, sourceId);
-            } catch (SQLException e) {
-                WMLogger.warn("Chunk database open failed; export aborted world=" + worldFolder, e);
-                return ExportOutcome.failed(work);
-            }
-            result = ChunkExporter.exportChunks(
-                    worldFolder, snapshot, entitySnapshot, containerSnapshot,
-                    job.resolver(), db, job.slowRegionThresholdMs(), job.progress());
-
-            indexCommitted = true;
-            long durabilityStartedNs = System.nanoTime();
-            for (Map.Entry<ResourceKey<Level>, Set<ChunkPos>> dimension
-                    : result.unreadableChunks().entrySet()) {
-                if (dimension.getValue().isEmpty()) continue;
-                String dimensionId = dimension.getKey().identifier().toString();
-                if (db.removeUnreadableUpdates(dimensionId, dimension.getValue())) {
-                    repairedIndex = true;
-                    WMLogger.warn("Removed stale durability claims for unreadable region chunks dimension="
-                            + dimensionId + " chunks=" + dimension.getValue().size());
-                } else {
-                    indexCommitted = false;
-                }
-            }
-            for (Map.Entry<ResourceKey<Level>, Map<ChunkPos, ChunkExporter.WriteStamp>> dimension
-                    : result.written().entrySet()) {
-                String dimensionId = dimension.getKey().identifier().toString();
-                Map<ChunkPos, Long> timestamps = new HashMap<>();
-                Map<ChunkPos, Long> revisions = new HashMap<>();
-                dimension.getValue().forEach((pos, stamp) -> {
-                    timestamps.put(pos, stamp.capturedAtMs());
-                    revisions.put(pos, stamp.revision());
-                });
-                if (db.recordUpdates(dimensionId, timestamps, "world_mirror")) {
-                    durableWritten.put(dimension.getKey(), revisions);
-                    for (long capturedAtMs : timestamps.values()) {
-                        latestDurableCaptureTime = Math.max(latestDurableCaptureTime, capturedAtMs);
-                    }
-                } else {
-                    indexCommitted = false;
-                    WMLogger.warn("Durability-index commit failed for [" + dimensionId
-                            + "]; retaining " + revisions.size() + " revision(s) for retry.");
-                }
-            }
-            indexMillis = (System.nanoTime() - durabilityStartedNs) / 1_000_000L;
-            remaining = work.remaining(result, durableWritten, latestDurableCaptureTime);
-            metadataCommitted = metadata.markSyncComplete(worldFolder, latestDurableCaptureTime);
-        } catch (Exception failure) {
-            WMLogger.warn("Export pass failed trigger=" + work.context().trigger() + " world=" + worldFolder, failure);
-        } finally {
-            if (db != null) db.close();
-        }
-        if (repairedIndex || !durableWritten.isEmpty()) {
-            ChunkStatusCache.invalidateSaved(worldFolder, target.nodeId(), sourceId);
-        }
-        return new ExportOutcome(result, durableWritten, remaining, indexCommitted, metadataCommitted, indexMillis);
-    }
-
     /** Applies exact durable receipts only on the client thread. */
     void applyReceipts(Frozen work, ExportOutcome outcome, boolean invalidate) {
         var written = outcome.durableWritten();
@@ -515,9 +372,5 @@ final class DownloadExportCoordinator {
         ThreadMXBean bean = ManagementFactory.getThreadMXBean();
         return bean.isCurrentThreadCpuTimeSupported() && bean.isThreadCpuTimeEnabled()
                 ? bean.getCurrentThreadCpuTime() : -1L;
-    }
-
-    private static ChunkExporter.ExportTimings emptyTimings() {
-        return new ChunkExporter.ExportTimings(0, 0, 0, 0, 0, 0, 0);
     }
 }

@@ -14,6 +14,8 @@ import io.github.billstark001.worldmirror.download.WorldMetadata;
 import io.github.billstark001.worldmirror.io.MirrorTarget;
 import io.github.billstark001.worldmirror.io.WorldSettingsSnapshot;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
+import io.github.billstark001.worldmirror.ui.map.ChunkMapScreen;
+import io.github.billstark001.worldmirror.ui.map.ChunkStatusCache;
 import io.github.billstark001.worldmirror.util.OfflineTasks;
 import me.shedaniel.autoconfig.AutoConfigClient;
 import net.fabricmc.api.EnvType;
@@ -524,9 +526,9 @@ public final class StatusScreen extends StatusScreenApi {
         MirrorTarget target = statusContext.target();
         conflictCount = 0;
         try {
-            if (target != null && ChunkStatusCache.hasIdentity(target)) {
+            if (target != null && target.matchesSavedIdentity()) {
                 conflictCount = ConflictManager.countAllConflicts(target.folder());
-                if (!ChunkStatusCache.hasIdentity(target)) conflictCount = 0;
+                if (!target.matchesSavedIdentity()) conflictCount = 0;
                 OperationFailures.recovered(target.nodeId(), "conflict_read");
             }
         } catch (java.io.IOException failure) {

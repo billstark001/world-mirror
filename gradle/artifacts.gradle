@@ -9,7 +9,8 @@ def distributableJars = {
         def producer = module.tasks.named(target.remapped ? "remapJar" : "jar").get()
         def sources = module.tasks.named(target.remapped ? "remapSourcesJar" : "sourcesJar").get()
         [minecraft: minecraft, target: target, file: producer.archiveFile.get().asFile,
-         sources: sources.archiveFile.get().asFile]
+         sources: sources.archiveFile.get().asFile,
+         preparedSources: module.layout.buildDirectory.dir("generated/published-sources").get().asFile]
     }
 }
 
@@ -93,7 +94,15 @@ tasks.register("verifyArtifacts") {
                 }
             }
             new ZipFile(artifact.sources).withCloseable { archive ->
-                archive.entries().findAll { it.name.endsWith('.java') }.each { entry ->
+                def javaEntries = archive.entries().findAll { it.name.endsWith('.java') }
+                def expected = fileTree(artifact.preparedSources).matching { include("**/*.java") }.files.collect {
+                    artifact.preparedSources.toPath().relativize(it.toPath()).toString().replace('\\', '/')
+                }.toSet()
+                def actual = javaEntries.collect { it.name }
+                if (actual.size() != expected.size() || actual.toSet() != expected) {
+                    throw new GradleException("${artifact.sources.name}: published Java sources differ from the prepared sources")
+                }
+                javaEntries.each { entry ->
                     archive.getInputStream(entry).withCloseable { stream ->
                         def source = stream.getText("UTF-8")
                         require(!(source =~ /(?m)^\s*#(if|elif|else|endif|define|undef|error)\b/).find(),

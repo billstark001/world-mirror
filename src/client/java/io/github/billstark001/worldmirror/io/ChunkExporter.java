@@ -20,7 +20,6 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.storage.RegionFile;
@@ -155,7 +154,7 @@ public class ChunkExporter {
 
             DimensionResult dimensionResult;
             try {
-                Path regionDir = regionDirForDimension(worldFolder, dimension);
+                Path regionDir = WorldSaveLayout.regionDirectory(worldFolder, dimension);
                 Files.createDirectories(regionDir);
                 dimensionResult = exportDimensionChunks(
                         regionDir, dimChunks, containerSnapshot, resolver, db,
@@ -421,30 +420,6 @@ public class ChunkExporter {
 
     private static WriteStamp stamp(ChunkListener.CapturedChunk captured) {
         return new WriteStamp(captured.revision(), captured.capturedAtMs());
-    }
-
-    // ── Dimension → directory mapping ────────────────────────────────────────
-
-    public static Path dimensionDirForDimension(Path worldFolder, ResourceKey<Level> dimension) {
-        return WorldSaveLayout.dimensionDirectory(worldFolder, dimension);
-    }
-
-    /** Shared custom-dimension layout; rejects path aliases before touching the filesystem. */
-    public static Path namespacedDimensionDirectory(Path worldFolder, ResourceKey<Level> dimension) {
-        Identifier id = dimension.identifier();
-        requireDimensionSegment(id.getNamespace());
-        for (String segment : id.getPath().split("/", -1)) requireDimensionSegment(segment);
-        return worldFolder.resolve("dimensions").resolve(id.getNamespace()).resolve(id.getPath());
-    }
-
-    private static void requireDimensionSegment(String segment) {
-        if (segment.isEmpty() || segment.equals(".") || segment.equals("..")) {
-            throw new IllegalArgumentException("Dimension identifier contains an invalid path segment");
-        }
-    }
-
-    public static Path regionDirForDimension(Path worldFolder, ResourceKey<Level> dimension) {
-        return dimensionDirForDimension(worldFolder, dimension).resolve("region");
     }
 
     private static long toMillis(long nanos) {

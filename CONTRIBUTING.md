@@ -2,7 +2,7 @@
 
 ## Source layout and boundaries
 
-Use `src/main/java` for shared models/utilities without client dependencies, `src/client/java` for client behavior and game API adapters, and `src/fabric` for Fabric entrypoints and metadata. Keep common assets in `src/main/resources`. `gradle/targets.gradle` drives generated version projects and all build/collection matrices; do not add build scripts or copied classes under `versions/`.
+Loom compiles `src/main/java` against common Minecraft classes. Put shared models, filesystem operations, and native save paths there. Keep code that uses Minecraft's client in `src/client/java`. The client source set also includes `src/fabric/java` and Fabric resources for entrypoints, mod metadata, and Mixin configuration. Common assets stay in `src/main/resources`. Both source sets are packaged together and tested against every target in `gradle/targets.gradle`.
 
 Use Manifold `#if MC_VERSION` branches for differing Minecraft types, method names, data encodings, and save layouts. Keep those branches small and local to the API boundary; lifecycle, persistence, and UI policy stay shared. The numeric macro is `major * 10000 + minor * 100 + patch`. Compile through Gradle, including tests. Published source JARs resolve those branches before Loom remapping so older targets never publish partly remapped sources. The compiler processor is not a runtime mod.
 
@@ -13,8 +13,8 @@ The download package follows the same ownership rule:
 - `ExportScheduler` owns periodic/adaptive/pressure cadence, deferred work ordering, and retries on the client thread.
 - `DownloadCaptureQueue` owns main-thread serialization, hint coalescing, queue limits, and capture diagnostics.
 - `ExportWork.Intent` describes a live request. `ExportWork.Frozen` carries immutable terrain, entity, container, settings, and destination identity. Completion receipts are applied to the matching capture session.
-- `DownloadExportCoordinator` owns snapshot preparation, durability commits, worker dispatch, and completion receipts. Normal and shutdown passes execute the same `ExportJob`; its `ExportOutcome` separates verified receipts from remaining work.
-- `WorldGraph` validates identity and parent edges. `WorldGraphService` reconciles save folders, reserves download targets, and persists routing. Disk metadata owns the edge and SQLite namespace. The graph config owns endpoint bindings, saved defaults, and the last confirmed path used to resolve copies.
+- `DownloadExportCoordinator` owns snapshot preparation, worker dispatch, and completion receipts. Normal and shutdown passes share `MirrorExportTransaction`, which verifies the frozen target under the save lock and returns terrain, entity, and metadata results.
+- `WorldGraph` validates identity and parent edges. `WorldGraphInventory` scans saves, recovers unfinished operations, and reconciles metadata with graph configuration. `WorldGraphService` holds the graph lease and publishes the routing used by the client. Disk metadata owns the edge and SQLite namespace. The graph config owns endpoint bindings, saved defaults, and the last confirmed path used to resolve copies.
 - `EntityTracker` owns game-thread vanilla serialization and observation boundaries; `EntitySnapshotStore` owns versioned partial/complete reconciliation; and `EntityRegionWriter` owns UUID-aware recoverable entity-region merging.
 
 Avoid adding queue locks, region transactions, strategy-specific state, or path-claiming logic back to the manager. Prefer extending an existing owner over adding a one-method utility file, but do not merge unrelated state merely to reduce the file count.
@@ -29,6 +29,8 @@ Legacy saved-data repairs belong in the legacy package. Keep native codecs in th
 
 ## Map data and rendering ownership
 
+The built-in map and the world and Xaero overlays share projection and cache code in `ui.map`. Screen navigation and dialogs remain in `ui`.
+
 - `ChunkBounds` and `ChunkBucketLayout` own coordinate bounds and bucket sizing. Widen boundary arithmetic before adding one and keep clipped edge buckets exact.
 - `ChunkRegionIndex` supports mutable game-thread metadata and immutable indices published after construction. `ChunkStatusSnapshot` and `LiveChunkStatusSnapshot` expose data; `ChunkBucketIndex` owns bounded, color-independent bucket summaries. `Publication` stages writer-owned changes and publishes immutable region pages; readers never wait for a bulk export or traverse a mutable page. Do not copy the full history when one region changes. Packed coordinate keys have collision-heavy boxed hashes; use Minecraft's existing fastutil maps and `copyCoordinates`, preserving defensive copies and read-only entries instead of freezing coordinate maps with `Map.copyOf`.
 - A summary retains independent newest-record, session-coverage, conflict, export-state counts, and live priority facts. MAP's newest-record rule and SESSION's coverage priority must not discard each other's inputs. Equal timestamps use deterministic coordinate ties.
@@ -39,6 +41,8 @@ Legacy saved-data repairs belong in the legacy package. Keep native codecs in th
 Unit tests check display semantics, clipped and sparse views, cache bounds, and candidate work counts. These tests do not establish in-game GPU frame rates; use `docs/world-overlay-manual-test.md` for interactive rendering checks.
 
 ## Graph and metadata migration
+
+Use `WorldSaveLayout` to resolve vanilla dimension and region paths, including the namespaced paths used by the conflict store. Use `FileProof` for scoped filesystem checks and file identity before opening transaction inputs. Where an operation mutates a save, hold its native lease through verification and publication.
 
 Graph reconciliation and relocation take the graph lock before any save lock. Hold the graph lock through publication so another client cannot recover an in-progress move or race a target reservation. Missing parents retain their edges. Cycles and unresolved duplicate IDs make the affected branches unavailable for writes.
 

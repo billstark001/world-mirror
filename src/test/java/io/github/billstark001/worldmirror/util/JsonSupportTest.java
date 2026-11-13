@@ -17,6 +17,29 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JsonSupportTest {
     @Test
+    void onlyAnAbsentPathIsMissing(@TempDir Path directory) throws Exception {
+        Path file = directory.resolve("config.json");
+        assertEquals(JsonSupport.ReadState.MISSING, JsonSupport.readDocument(file, Map.class).state());
+
+        Files.createDirectory(file);
+        assertEquals(JsonSupport.ReadState.UNAVAILABLE, JsonSupport.readDocument(file, Map.class).state());
+    }
+
+    @Test
+    void linkedDocumentIsUnavailableEvenWhenItsTargetIsAbsent(@TempDir Path directory) throws Exception {
+        Path file = directory.resolve("config.json");
+        Path target = directory.resolve("target.json");
+        try {
+            Files.createSymbolicLink(file, target);
+        } catch (IOException | UnsupportedOperationException unavailable) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false, "Symbolic links unavailable: " + unavailable);
+        }
+        assertEquals(JsonSupport.ReadState.UNAVAILABLE, JsonSupport.readDocument(file, Map.class).state());
+        Files.writeString(target, "{\"current\":true}");
+        assertEquals(JsonSupport.ReadState.UNAVAILABLE, JsonSupport.readDocument(file, Map.class).state());
+    }
+
+    @Test
     void malformedUtf8IsInvalidAndItsOriginalBytesRemainIntact(@TempDir Path directory) throws Exception {
         Path file = directory.resolve("invalid.json");
         byte[] bytes = {'{', '"', 'x', '"', ':', '"', (byte) 0xc3, '"', '}'};

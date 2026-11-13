@@ -78,7 +78,7 @@ class DownloadExportCoordinatorTest {
             assertTrue(executor.awaitTermination(15, TimeUnit.SECONDS));
             assertEquals(2, attempts.get("mirror:server:broken"), "one accepted write and one final attempt");
             assertEquals(1, attempts.get("mirror:server:healthy"));
-            assertTrue(Files.exists(io.github.billstark001.worldmirror.io.ChunkExporter.regionDirForDimension(
+            assertTrue(Files.exists(io.github.billstark001.worldmirror.io.WorldSaveLayout.regionDirectory(
                     worlds.resolve("healthy"), Level.OVERWORLD).resolve("r.0.0.mca")));
             assertEquals(1, scheduler.pending.frozenCount());
             assertEquals(1, ChunkListener.getDirtyCount(), "shutdown must not acknowledge live state");
@@ -138,10 +138,9 @@ class DownloadExportCoordinatorTest {
         var work = new ExportWork.Frozen(new ExportWork.Context(ExportWork.Trigger.RESOURCE_PRESSURE,
                 false, ExportTestTargets.source("server:light-test")), first, Map.of(), Map.of(),
                 WorldSettingsSnapshot.defaults(), 0, OptionalLong.empty());
-        var outcome = DownloadExportCoordinator.write(new DownloadExportCoordinator.ExportJob(work, () -> ExportTestTargets.reserve(world, work),
-                io.github.billstark001.worldmirror.config.ModConfig.DownloadPipelineMode.STABLE_PERIODIC, false, true,
+        var outcome = MirrorExportTransaction.write(work, () -> ExportTestTargets.reserve(world, work),
                 new io.github.billstark001.worldmirror.conflict.OverwriteResolver(), -1,
-                io.github.billstark001.worldmirror.io.ExportProgress.NONE));
+                io.github.billstark001.worldmirror.io.ExportProgress.NONE);
         assertTrue(outcome.successful());
         assertEquals(Set.of(ready), outcome.durableWritten().get(Level.OVERWORLD).keySet());
         coordinator.applyReceipts(work, outcome, true);

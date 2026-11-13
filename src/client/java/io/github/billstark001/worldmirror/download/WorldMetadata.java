@@ -9,7 +9,6 @@ import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
 
@@ -99,12 +98,7 @@ public final class WorldMetadata {
     }
 
     private static JsonSupport.Document<JsonObject> readDocument(Path worldFolder) {
-        Path file = worldFolder.resolve(FILE_NAME);
-        if (Files.isSymbolicLink(file)) {
-            return new JsonSupport.Document<>(JsonSupport.ReadState.UNAVAILABLE, null,
-                    new IOException("Mirror metadata is a symbolic link: " + file));
-        }
-        return JsonSupport.readDocument(file, JsonObject.class);
+        return JsonSupport.readDocument(worldFolder.resolve(FILE_NAME), JsonObject.class);
     }
 
     private static Schema schema(JsonObject json) {

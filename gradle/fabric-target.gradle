@@ -44,13 +44,14 @@ def verifyXaeroBridge = tasks.register("verifyXaeroBridge") {
     }
 }
 
-tasks.named("compileJava") { dependsOn(verifyXaeroBridge) }
+tasks.named("compileClientJava") { dependsOn(verifyXaeroBridge) }
 tasks.named("check") { dependsOn(verifyXaeroBridge) }
 
 loom {
     mods {
         "worldmirror" {
             sourceSet sourceSets.main
+            sourceSet sourceSets.client
         }
     }
     runs {
@@ -69,8 +70,8 @@ tasks.named("ideaSyncTask").configure {
     dependsOn(rootProject.tasks.named("cleanIdeaRunConfigurations"))
     dependsOn(rootProject.tasks.named("verifyBridgeMatrix"))
     doLast {
-        def generatedModuleMarker = "<module name=\"${rootProject.name}.versions.fabric-${target.minecraft}.main\""
-        def moduleMarker = "<module name=\"${rootProject.name}.versions.fabric-${target.minecraft.replace('.', '_')}.main\""
+        def generatedModuleMarker = "<module name=\"${rootProject.name}.versions.fabric-${target.minecraft}.client\""
+        def moduleMarker = "<module name=\"${rootProject.name}.versions.fabric-${target.minecraft.replace('.', '_')}.client\""
         def runConfigurationsDirectory = rootProject.file(".idea/runConfigurations")
         if (!runConfigurationsDirectory.isDirectory()) return
 
@@ -131,8 +132,8 @@ dependencies {
 
 tasks.register("printRuntimeClasspath") {
     group = "help"
-    description = "Print resolved runtime JAR paths for tooling that inspects this Minecraft target."
+    description = "Print resolved client runtime JAR paths for tooling that inspects this Minecraft target."
     doLast {
-        configurations.runtimeClasspath.files.each { println it.absolutePath }
+        configurations.clientRuntimeClasspath.files.each { println it.absolutePath }
     }
 }

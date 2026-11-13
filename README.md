@@ -364,10 +364,11 @@ This builds the Fabric targets for Minecraft 1.21.11, 26.1.2, 26.2, and 26.3. Ea
 
 `gradle/targets.gradle` is the single matrix for Minecraft versions, dependencies, Java levels, preprocessor values, and upgrade-test fixtures. Settings generates the `versions/fabric-<minecraft>` projects; they need no checked-in build scripts or source copies. Root source is split into:
 
-- `src/main/java`: shared models and utilities without client dependencies.
-- `src/client/java`: client behavior, rendering, game IO, and version API adapters.
-- `src/fabric/java` and `src/fabric/resources`: Fabric entrypoints and metadata.
-- `src/main/resources`: common assets and Mixin configuration.
+- `src/main/java` and `src/main/resources` hold shared models, storage, native save paths, and assets.
+- `src/client/java` holds client behavior and Minecraft client API adapters. The map and its overlays live in `ui.map`.
+- `src/fabric/java` and `src/fabric/resources` supply client entrypoints, mod metadata, and Mixin configuration.
+
+Loom compiles `main` against common Minecraft classes and compiles the client and Fabric directories together against the client classpath. It packages both outputs in the same mod JAR.
 - `src/test/java`: game-dependent regressions compiled and run on each target.
 
 Manifold resolves `#if MC_VERSION` branches inside javac. The value is `major * 10000 + minor * 100 + patch`: 12111, 260102, 260200, and 260300 for the current targets. The processor is a build dependency and is not bundled or required at runtime. Use the Manifold IDE plugin for directive-aware editing and delegate compilation to Gradle. Published source JARs contain the selected target's resolved branches, preserving debug line positions; the 1.21.11 sources are then remapped by Loom, just as before.

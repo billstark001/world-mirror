@@ -1,6 +1,6 @@
 package io.github.billstark001.worldmirror.mixin;
 
-import io.github.billstark001.worldmirror.ui.ChunkWorldOverlayRenderApi;
+import io.github.billstark001.worldmirror.ui.map.ChunkWorldOverlayRenderApi;
 import net.minecraft.client.renderer.LevelRenderer;
 #if MC_VERSION >= 260102
 import net.minecraft.client.renderer.state.level.LevelRenderState;

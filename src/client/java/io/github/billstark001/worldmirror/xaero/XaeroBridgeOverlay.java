@@ -1,10 +1,10 @@
 package io.github.billstark001.worldmirror.xaero;
 
-import io.github.billstark001.worldmirror.ui.ChunkBounds;
+import io.github.billstark001.worldmirror.ui.map.ChunkBounds;
 import io.github.billstark001.worldmirror.config.ModConfig;
-import io.github.billstark001.worldmirror.ui.ChunkStatusCache;
-import io.github.billstark001.worldmirror.ui.ChunkStatusSnapshot;
-import io.github.billstark001.worldmirror.ui.ChunkMapView;
+import io.github.billstark001.worldmirror.ui.map.ChunkStatusCache;
+import io.github.billstark001.worldmirror.ui.map.ChunkStatusSnapshot;
+import io.github.billstark001.worldmirror.ui.map.ChunkMapView;
 import io.github.billstark001.xaerobridge.api.MapOverlayContext;
 import io.github.billstark001.xaerobridge.api.OverlayRegistration;
 import io.github.billstark001.xaerobridge.api.XaeroWorldMapBridge;
@@ -21,8 +21,8 @@ import net.minecraft.world.level.Level;
  */
 public final class XaeroBridgeOverlay {
     private static OverlayRegistration registration;
-    private static final io.github.billstark001.worldmirror.ui.ChunkViewportCache viewportCache = new io.github.billstark001.worldmirror.ui.ChunkViewportCache();
-    private static final io.github.billstark001.worldmirror.ui.ChunkMapProjection projection = new io.github.billstark001.worldmirror.ui.ChunkMapProjection();
+    private static final io.github.billstark001.worldmirror.ui.map.ChunkViewportCache viewportCache = new io.github.billstark001.worldmirror.ui.map.ChunkViewportCache();
+    private static final io.github.billstark001.worldmirror.ui.map.ChunkMapProjection projection = new io.github.billstark001.worldmirror.ui.map.ChunkMapProjection();
 
     private XaeroBridgeOverlay() {}
 

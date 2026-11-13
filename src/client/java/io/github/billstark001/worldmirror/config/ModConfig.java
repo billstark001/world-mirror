@@ -1,6 +1,6 @@
 package io.github.billstark001.worldmirror.config;
 
-import io.github.billstark001.worldmirror.ui.ChunkBucketLayout;
+import io.github.billstark001.worldmirror.ui.map.ChunkBucketLayout;
 import me.shedaniel.autoconfig.AutoConfig;
 import me.shedaniel.autoconfig.ConfigData;
 import me.shedaniel.autoconfig.annotation.Config;
