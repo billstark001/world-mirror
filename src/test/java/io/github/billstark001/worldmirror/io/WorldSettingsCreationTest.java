@@ -38,22 +38,21 @@ class WorldSettingsCreationTest {
 
     @Test
     void voidGeneratorsDecodeWithTheCurrentMinecraftCodec() {
-        CompoundTag dimensions = WorldStructureCreator.createMirrorWorldGenSettings()
-                .getCompoundOrEmpty("dimensions");
+        CompoundTag dimensions =
+                WorldStructureCreator.createMirrorWorldGenSettings().getCompoundOrEmpty("dimensions");
         for (MirrorWorldgenDefinition.Dimension definition : MirrorWorldgenDefinition.DIMENSIONS) {
             CompoundTag settings = dimensions.getCompoundOrEmpty(definition.dimensionType())
-                    .getCompoundOrEmpty("generator").getCompoundOrEmpty("settings");
+                                           .getCompoundOrEmpty("generator")
+                                           .getCompoundOrEmpty("settings");
             NoiseGeneratorSettings.DIRECT_CODEC.parse(NbtOps.INSTANCE, settings).getOrThrow();
         }
     }
 
     @Test
     void creationUsesTheCapturedSourceSettings(@TempDir Path world) throws Exception {
-        WorldSettingsSnapshot settings = new WorldSettingsSnapshot(
-                12_345L, 6_789L, true, true, 3);
+        WorldSettingsSnapshot settings = new WorldSettingsSnapshot(12_345L, 6_789L, true, true, 3);
 
-        assertTrue(WorldStructureCreator.createLoadableWorld(
-                world, "test", true, true, settings));
+        assertTrue(WorldStructureCreator.createLoadableWorld(world, "test", true, true, settings));
 
         CompoundTag data = readLevelData(world);
         assertEquals(12_345L, data.getLongOr("Time", -1L));
@@ -63,8 +62,7 @@ class WorldSettingsCreationTest {
             assertTrue(data.getBooleanOr("raining", false));
             assertTrue(data.getBooleanOr("thundering", false));
         } else {
-            CompoundTag weather = readSavedData(
-                    world.resolve("data/minecraft/weather.dat"));
+            CompoundTag weather = readSavedData(world.resolve("data/minecraft/weather.dat"));
             assertTrue(weather.getBooleanOr("raining", false));
             assertTrue(weather.getBooleanOr("thundering", false));
         }
@@ -76,33 +74,34 @@ class WorldSettingsCreationTest {
                 world, "test", true, true, WorldSettingsSnapshot.defaults()));
         var metadata = WorldMetadata.create("mirror:settings", WorldGraph.Kind.MIRROR, "local:settings",
                 WorldGraph.Role.SYNC, "local:settings");
-        metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), MirrorWorldgenAssets.ASSET_REVISION);
+        metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(),
+                MirrorWorldgenAssets.ASSET_REVISION);
         assertTrue(metadata.save(world));
-        WorldSettingsSnapshot changed = new WorldSettingsSnapshot(
-                22_222L, 9_999L, true, false, 2);
+        WorldSettingsSnapshot changed = new WorldSettingsSnapshot(22_222L, 9_999L, true, false, 2);
 
         assertTrue(WorldStructureCreator.syncWorldSetting(
-                new MirrorTarget(world, "mirror:settings", "local:settings"), changed, WorldStructureCreator.Setting.DIFFICULTY));
+                new MirrorTarget(world, "mirror:settings", "local:settings"), changed,
+                WorldStructureCreator.Setting.DIFFICULTY));
         CompoundTag afterDifficulty = readLevelData(world);
         assertEquals(2, difficultyId(afterDifficulty));
-        assertEquals(WorldSettingsSnapshot.DEFAULT_TIME,
-                afterDifficulty.getLongOr("Time", -1L));
+        assertEquals(WorldSettingsSnapshot.DEFAULT_TIME, afterDifficulty.getLongOr("Time", -1L));
 
         assertTrue(WorldStructureCreator.syncWorldSetting(
-                new MirrorTarget(world, "mirror:settings", "local:settings"), changed, WorldStructureCreator.Setting.TIME));
+                new MirrorTarget(world, "mirror:settings", "local:settings"), changed,
+                WorldStructureCreator.Setting.TIME));
         CompoundTag afterTime = readLevelData(world);
         assertEquals(22_222L, afterTime.getLongOr("Time", -1L));
         assertEquals(2, difficultyId(afterTime));
 
         assertTrue(WorldStructureCreator.syncWorldSetting(
-                new MirrorTarget(world, "mirror:settings", "local:settings"), changed, WorldStructureCreator.Setting.WEATHER));
+                new MirrorTarget(world, "mirror:settings", "local:settings"), changed,
+                WorldStructureCreator.Setting.WEATHER));
         if (afterTime.contains("DayTime")) {
             CompoundTag weather = readLevelData(world);
             assertTrue(weather.getBooleanOr("raining", false));
             assertFalse(weather.getBooleanOr("thundering", true));
         } else {
-            CompoundTag weather = readSavedData(
-                    world.resolve("data/minecraft/weather.dat"));
+            CompoundTag weather = readSavedData(world.resolve("data/minecraft/weather.dat"));
             assertTrue(weather.getBooleanOr("raining", false));
             assertFalse(weather.getBooleanOr("thundering", true));
         }
@@ -110,16 +109,17 @@ class WorldSettingsCreationTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"minecraft:overworld", "minecraft:the_nether", "minecraft:the_end"})
-    void nearbyWorldSpawnAndPlayerStayInTheCapturedDimension(String id, @TempDir Path world) throws Exception {
+    void nearbyWorldSpawnAndPlayerStayInTheCapturedDimension(String id, @TempDir Path world)
+            throws Exception {
         ResourceKey<Level> dimension = ResourceKey.create(Registries.DIMENSION, Identifier.parse(id));
-        assertTrue(WorldStructureCreator.createLoadableWorldWithSpawn(world, "test", dimension,
-                123, 72, -456, WorldSettingsSnapshot.defaults()));
+        assertTrue(WorldStructureCreator.createLoadableWorldWithSpawn(
+                world, "test", dimension, 123, 72, -456, WorldSettingsSnapshot.defaults()));
 
         CompoundTag data = readLevelData(world);
         assertEquals(id, data.getCompoundOrEmpty("spawn").getStringOr("dimension", ""));
         UUID playerId = UUID.nameUUIDFromBytes("worldmirror:test".getBytes(StandardCharsets.UTF_8));
-        CompoundTag player = NbtIo.readCompressed(WorldStructureApi.playerDataPath(world, playerId),
-                NbtAccounter.unlimitedHeap());
+        CompoundTag player = NbtIo.readCompressed(
+                WorldStructureApi.playerDataPath(world, playerId), NbtAccounter.unlimitedHeap());
         assertEquals(id, player.getStringOr("Dimension", ""));
         assertEquals(123.5D, player.getListOrEmpty("Pos").getDoubleOr(0, Double.NaN));
         if (data.contains("Player")) {
@@ -128,21 +128,18 @@ class WorldSettingsCreationTest {
     }
 
     private static CompoundTag readLevelData(Path world) throws Exception {
-        return NbtIo.readCompressed(
-                world.resolve("level.dat"), NbtAccounter.unlimitedHeap())
+        return NbtIo.readCompressed(world.resolve("level.dat"), NbtAccounter.unlimitedHeap())
                 .getCompoundOrEmpty("Data");
     }
 
     private static CompoundTag readSavedData(Path file) throws Exception {
         assertTrue(Files.isRegularFile(file));
-        return NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap())
-                .getCompoundOrEmpty("data");
+        return NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap()).getCompoundOrEmpty("data");
     }
 
     private static int difficultyId(CompoundTag data) {
         if (data.contains("difficulty_settings")) {
-            String name = data.getCompoundOrEmpty("difficulty_settings")
-                    .getStringOr("difficulty", "");
+            String name = data.getCompoundOrEmpty("difficulty_settings").getStringOr("difficulty", "");
             return switch (name.toLowerCase(Locale.ROOT)) {
                 case "peaceful" -> 0;
                 case "easy" -> 1;

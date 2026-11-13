@@ -29,10 +29,11 @@ public final class WorldStructureCreator {
     public enum Setting { TIME, WEATHER, DIFFICULTY }
     public enum GeneratorEncoding { BEFORE_26_3, FROM_26_3 }
 
-    private WorldStructureCreator() { }
+    private WorldStructureCreator() {}
 
     public static WorldSettingsSnapshot captureWorldSettings(ClientLevel world) {
-        if (world == null) return WorldSettingsSnapshot.defaults();
+        if (world == null)
+            return WorldSettingsSnapshot.defaults();
         try {
             return WorldStructureApi.captureWorldSettings(world);
         } catch (Exception e) {
@@ -42,26 +43,28 @@ public final class WorldStructureCreator {
         }
     }
 
-    public static WorldSettingsSnapshot resolveNewWorldSettings(
-            WorldSettingsSnapshot current) {
+    public static WorldSettingsSnapshot resolveNewWorldSettings(WorldSettingsSnapshot current) {
         WorldSettingsSnapshot defaults = WorldSettingsSnapshot.defaults();
         ModConfig config = ModConfig.get();
         return new WorldSettingsSnapshot(
-                config.newWorldTime == ModConfig.NewWorldSettingBehavior.FOLLOW_CURRENT
-                        ? current.gameTime() : defaults.gameTime(),
-                config.newWorldTime == ModConfig.NewWorldSettingBehavior.FOLLOW_CURRENT
-                        ? current.dayTime() : defaults.dayTime(),
+                config.newWorldTime == ModConfig.NewWorldSettingBehavior.FOLLOW_CURRENT ? current.gameTime()
+                                                                                        : defaults.gameTime(),
+                config.newWorldTime == ModConfig.NewWorldSettingBehavior.FOLLOW_CURRENT ? current.dayTime()
+                                                                                        : defaults.dayTime(),
                 config.newWorldWeather == ModConfig.NewWorldSettingBehavior.FOLLOW_CURRENT
                         && current.raining(),
                 config.newWorldWeather == ModConfig.NewWorldSettingBehavior.FOLLOW_CURRENT
                         && current.thundering(),
                 config.newWorldDifficulty == ModConfig.NewWorldSettingBehavior.FOLLOW_CURRENT
-                        ? current.difficultyId() : defaults.difficultyId());
+                        ? current.difficultyId()
+                        : defaults.difficultyId());
     }
 
     public static CompoundTag createMirrorWorldGenSettings() {
-        GeneratorEncoding encoding = WorldStructureApi.dataPackFormat() >= MirrorWorldgenAssets.ENVIRONMENT_ATTRIBUTE_BIOME_FORMAT
-                ? GeneratorEncoding.FROM_26_3 : GeneratorEncoding.BEFORE_26_3;
+        GeneratorEncoding encoding =
+                WorldStructureApi.dataPackFormat() >= MirrorWorldgenAssets.ENVIRONMENT_ATTRIBUTE_BIOME_FORMAT
+                ? GeneratorEncoding.FROM_26_3
+                : GeneratorEncoding.BEFORE_26_3;
         return createMirrorWorldGenSettings(encoding);
     }
 
@@ -71,9 +74,10 @@ public final class WorldStructureCreator {
         CompoundTag dimensions = new CompoundTag();
         for (MirrorWorldgenDefinition.Dimension definition : MirrorWorldgenDefinition.DIMENSIONS) {
             CompoundTag dimension = new CompoundTag();
-            dimension.put("generator", createVoidNoiseGenerator(definition.biome(),
-                    definition.minY(), definition.height(), definition.seaLevel(),
-                    definition.horizontalSize(), definition.verticalSize(), encoding == GeneratorEncoding.FROM_26_3));
+            dimension.put("generator",
+                    createVoidNoiseGenerator(definition.biome(), definition.minY(), definition.height(),
+                            definition.seaLevel(), definition.horizontalSize(), definition.verticalSize(),
+                            encoding == GeneratorEncoding.FROM_26_3));
             dimension.putString("type", definition.dimensionType());
             dimensions.put(definition.dimensionType(), dimension);
         }
@@ -84,24 +88,22 @@ public final class WorldStructureCreator {
         return worldGenSettings;
     }
 
-    public static boolean createLoadableWorldWithSpawn(Path worldFolder, String levelName,
-                                                        int spawnX, int spawnY, int spawnZ,
-                                                        WorldSettingsSnapshot settings) {
-        return createLoadableWorldWithSpawn(worldFolder, levelName, Level.OVERWORLD,
-                spawnX, spawnY, spawnZ, settings);
+    public static boolean createLoadableWorldWithSpawn(Path worldFolder, String levelName, int spawnX,
+            int spawnY, int spawnZ, WorldSettingsSnapshot settings) {
+        return createLoadableWorldWithSpawn(
+                worldFolder, levelName, Level.OVERWORLD, spawnX, spawnY, spawnZ, settings);
     }
 
     /** Creates a nearby save whose initial player and world spawn use the captured dimension. */
     public static boolean createLoadableWorldWithSpawn(Path worldFolder, String levelName,
-                                                        ResourceKey<Level> spawnDimension,
-                                                        int spawnX, int spawnY, int spawnZ,
-                                                        WorldSettingsSnapshot settings) {
+            ResourceKey<Level> spawnDimension, int spawnX, int spawnY, int spawnZ,
+            WorldSettingsSnapshot settings) {
         try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
-            if (!createLoadableWorld(worldFolder, levelName, true, true, settings)) return false;
+            if (!createLoadableWorld(worldFolder, levelName, true, true, settings))
+                return false;
             UUID playerId = singleplayerUuid(levelName);
-            WorldStructureApi.writeSpawnedLevelData(
-                    worldFolder, levelName, playerId, spawnDimension, spawnX, spawnY, spawnZ,
-                    createMirrorWorldGenSettings(), settings);
+            WorldStructureApi.writeSpawnedLevelData(worldFolder, levelName, playerId, spawnDimension, spawnX,
+                    spawnY, spawnZ, createMirrorWorldGenSettings(), settings);
             writeVerifiedWorldData(WorldStructureApi.playerDataPath(worldFolder, playerId),
                     createPlayerData(spawnDimension, spawnX, spawnY, spawnZ));
             WMLogger.debug("Nearby-export world created at: " + worldFolder.toAbsolutePath());
@@ -112,13 +114,13 @@ public final class WorldStructureCreator {
         }
     }
 
-    public static boolean createLoadableWorld(Path worldFolder, String levelName,
-                                              boolean migrateWorldgen, boolean refreshAssets,
-                                              WorldSettingsSnapshot settings) {
+    public static boolean createLoadableWorld(Path worldFolder, String levelName, boolean migrateWorldgen,
+            boolean refreshAssets, WorldSettingsSnapshot settings) {
         File folder = worldFolder.toFile();
         try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
             boolean firstTime = Files.notExists(worldFolder.resolve("level.dat"));
-            if (!folder.exists()) folder.mkdirs();
+            if (!folder.exists())
+                folder.mkdirs();
             for (String directory : WorldStructureApi.worldSubdirectories()) {
                 new File(folder, directory).mkdirs();
             }
@@ -126,16 +128,17 @@ public final class WorldStructureCreator {
             if (firstTime) {
                 MirrorWorldgenAssets.install(worldFolder, WorldStructureApi.dataPackFormat());
                 UUID playerId = singleplayerUuid(levelName);
-                WorldStructureApi.createInitialWorld(worldFolder, levelName, playerId,
-                        createMirrorWorldGenSettings(), settings);
-                writeVerifiedWorldData(WorldStructureApi.playerDataPath(worldFolder, playerId),
-                        createPlayerData(0, 80, 0));
+                WorldStructureApi.createInitialWorld(
+                        worldFolder, levelName, playerId, createMirrorWorldGenSettings(), settings);
+                writeVerifiedWorldData(
+                        WorldStructureApi.playerDataPath(worldFolder, playerId), createPlayerData(0, 80, 0));
                 WMLogger.debug("World structure created at: " + folder.getAbsolutePath()
                         + " (name: " + resolvedLevelName(levelName) + ")");
             } else {
                 try {
                     WorldStructureApi.repairOwnedSavedData(worldFolder);
-                    io.github.billstark001.worldmirror.download.OperationFailures.recovered(levelName, "optional_saved_data");
+                    io.github.billstark001.worldmirror.download.OperationFailures.recovered(
+                            levelName, "optional_saved_data");
                 } catch (Exception repairFailure) {
                     // Optional maintenance is not proof that terrain cannot be persisted.
                     // Leave the damaged file untouched; world loadability remains unverified.
@@ -144,13 +147,13 @@ public final class WorldStructureCreator {
                 }
                 if (migrateWorldgen || refreshAssets) {
                     if (!Files.isRegularFile(worldFolder.resolve("level.dat"))) {
-                        throw new IOException("Required world data is unavailable: " + worldFolder.resolve("level.dat"));
+                        throw new IOException(
+                                "Required world data is unavailable: " + worldFolder.resolve("level.dat"));
                     }
                     MirrorWorldgenAssets.install(worldFolder, WorldStructureApi.dataPackFormat());
                     WorldStructureApi.updateOwnedLevelData(worldFolder);
                 }
-                WMLogger.debug("World structure updated (incremental sync): "
-                        + folder.getAbsolutePath());
+                WMLogger.debug("World structure updated (incremental sync): " + folder.getAbsolutePath());
             }
             return true;
         } catch (Exception e) {
@@ -159,18 +162,17 @@ public final class WorldStructureCreator {
         }
     }
 
-    public static boolean syncWorldSetting(MirrorTarget target,
-                                           WorldSettingsSnapshot settings,
-                                           Setting setting) {
+    public static boolean syncWorldSetting(
+            MirrorTarget target, WorldSettingsSnapshot settings, Setting setting) {
         Path worldFolder = target.folder();
-        if (!Files.isRegularFile(worldFolder.resolve("level.dat"))) return false;
+        if (!Files.isRegularFile(worldFolder.resolve("level.dat")))
+            return false;
         try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
             target.requireCurrent();
             WorldStructureApi.syncWorldSetting(worldFolder, settings, setting);
             return true;
         } catch (Exception e) {
-            WMLogger.warn("Could not sync mirror world setting=" + setting
-                    + " path=" + worldFolder, e);
+            WMLogger.warn("Could not sync mirror world setting=" + setting + " path=" + worldFolder, e);
             return false;
         }
     }
@@ -182,11 +184,13 @@ public final class WorldStructureCreator {
     /** Replaces a world-data file only after its compressed NBT round-trips without loss. */
     public static void writeVerifiedWorldData(Path file, CompoundTag tag) throws IOException {
         file = file.toAbsolutePath().normalize();
-        try (var transaction = new io.github.billstark001.worldmirror.util.FileTransaction(file.getParent())) {
+        try (var transaction =
+                        new io.github.billstark001.worldmirror.util.FileTransaction(file.getParent())) {
             Path staged = transaction.stagingDirectory().resolve(file.getFileName());
             try (var raw = Files.newOutputStream(staged);
-                 var compressed = net.minecraft.world.level.chunk.storage.RegionFileVersion.VERSION_GZIP.wrap(raw);
-                 var output = new java.io.DataOutputStream(new java.io.BufferedOutputStream(compressed))) {
+                    var compressed =
+                            net.minecraft.world.level.chunk.storage.RegionFileVersion.VERSION_GZIP.wrap(raw);
+                    var output = new java.io.DataOutputStream(new java.io.BufferedOutputStream(compressed))) {
                 NbtIo.writeUnnamedTag(tag, output);
             }
             if (!tag.equals(NbtReadSupport.readWorldData(staged))) {
@@ -234,13 +238,11 @@ public final class WorldStructureCreator {
     }
 
     private static UUID singleplayerUuid(String levelName) {
-        return UUID.nameUUIDFromBytes(
-                ("worldmirror:" + levelName).getBytes(StandardCharsets.UTF_8));
+        return UUID.nameUUIDFromBytes(("worldmirror:" + levelName).getBytes(StandardCharsets.UTF_8));
     }
 
-    private static CompoundTag createVoidNoiseGenerator(String biome, int minY, int height,
-                                                        int seaLevel, int horizontalSize,
-                                                        int verticalSize, boolean modern) {
+    private static CompoundTag createVoidNoiseGenerator(String biome, int minY, int height, int seaLevel,
+            int horizontalSize, int verticalSize, boolean modern) {
         CompoundTag generator = new CompoundTag();
         CompoundTag settings = new CompoundTag();
         CompoundTag noise = new CompoundTag();
@@ -262,9 +264,8 @@ public final class WorldStructureCreator {
         settings.putBoolean("legacy_random_source", false);
         settings.put("spawn_target", new ListTag());
         CompoundTag router = new CompoundTag();
-        for (String field : modern
-                ? MirrorWorldgenDefinition.MODERN_ZERO_NOISE_ROUTER_FIELDS
-                : MirrorWorldgenDefinition.ZERO_NOISE_ROUTER_FIELDS) {
+        for (String field : modern ? MirrorWorldgenDefinition.MODERN_ZERO_NOISE_ROUTER_FIELDS
+                                   : MirrorWorldgenDefinition.ZERO_NOISE_ROUTER_FIELDS) {
             router.putDouble(field, 0.0D);
         }
         router.putDouble("final_density", MirrorWorldgenDefinition.VOID_FINAL_DENSITY);
@@ -283,7 +284,8 @@ public final class WorldStructureCreator {
     }
 
     private static Tag blockState(String block, boolean modern) {
-        if (modern) return StringTag.valueOf(block);
+        if (modern)
+            return StringTag.valueOf(block);
         CompoundTag state = new CompoundTag();
         state.putString("Name", block);
         return state;

@@ -5,7 +5,6 @@ package io.github.billstark001.worldmirror.conflict;
  * New chunks (not yet downloaded) are written normally.
  */
 public class IgnoreResolver implements ConflictResolver {
-
     @Override
     public boolean shouldWriteChunk(ConflictContext context) {
         // Write only if no local version exists yet

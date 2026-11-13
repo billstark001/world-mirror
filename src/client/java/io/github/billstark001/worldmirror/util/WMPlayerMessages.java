@@ -7,8 +7,7 @@ import net.minecraft.world.entity.player.Player;
 
 /** Version-specific delivery of translated player-facing messages. */
 public final class WMPlayerMessages {
-    private static final SystemToast.SystemToastId EXPORT_TOAST =
-            new SystemToast.SystemToastId(10_000L);
+    private static final SystemToast.SystemToastId EXPORT_TOAST = new SystemToast.SystemToastId(10_000L);
 
     public static void showExportToast(Minecraft client, Component title, Component body) {
 #if MC_VERSION >= 260200
@@ -18,21 +17,25 @@ public final class WMPlayerMessages {
 #endif
     }
 
-    private WMPlayerMessages() { }
+    private WMPlayerMessages() {}
 
     public static void sendSystemMessage(Player player, Component message) {
 #if MC_VERSION >= 260102
-        if (player != null) player.sendSystemMessage(message);
+        if (player != null)
+            player.sendSystemMessage(message);
 #else
-        if (player != null) player.displayClientMessage(message, false);
+        if (player != null)
+            player.displayClientMessage(message, false);
 #endif
     }
 
     public static void sendOverlayMessage(Player player, Component message) {
 #if MC_VERSION >= 260102
-        if (player != null) player.sendOverlayMessage(message);
+        if (player != null)
+            player.sendOverlayMessage(message);
 #else
-        if (player != null) player.displayClientMessage(message, true);
+        if (player != null)
+            player.displayClientMessage(message, true);
 #endif
     }
 }

@@ -12,16 +12,9 @@ import java.util.List;
  * the cache mutates its state. Both layers are validated up front so a malformed
  * sky layer cannot leave an already-applied block layer in the cache.
  */
-public record LightingUpdate(
-        int minLightSection,
-        int lightSectionCount,
-        BitSet blockUpdateMask,
-        BitSet blockEmptyMask,
-        List<byte[]> blockUpdates,
-        BitSet skyUpdateMask,
-        BitSet skyEmptyMask,
+public record LightingUpdate(int minLightSection, int lightSectionCount, BitSet blockUpdateMask,
+        BitSet blockEmptyMask, List<byte[]> blockUpdates, BitSet skyUpdateMask, BitSet skyEmptyMask,
         List<byte[]> skyUpdates) {
-
     private static final int LIGHT_ARRAY_BYTES = 2048;
 
     public LightingUpdate {
@@ -97,7 +90,8 @@ public record LightingUpdate(
         }
         for (byte[] layer : layers) {
             if (layer.length != LIGHT_ARRAY_BYTES) {
-                throw new IllegalArgumentException("Light array must contain " + LIGHT_ARRAY_BYTES + " bytes");
+                throw new IllegalArgumentException(
+                        "Light array must contain " + LIGHT_ARRAY_BYTES + " bytes");
             }
         }
     }

@@ -34,33 +34,42 @@ public record LegacyRouting(Map<String, Entry> entries) {
 
     public Location relocationWitness(String sourceId, Supplier<ModConfig.SaveLocation> defaultLocation) {
         Entry entry = entryFor(sourceId);
-        ModConfig.SaveLocation save = entry.saveLocation() == null ? defaultLocation.get() : entry.saveLocation();
+        ModConfig.SaveLocation save =
+                entry.saveLocation() == null ? defaultLocation.get() : entry.saveLocation();
         Location location = entry.location(() -> save);
-        if (location != null) return location;
-        return new Location(Root.valueOf(save.name()), MirrorFolders.generate(sourceId.replaceFirst("^(server|local):", "")));
+        if (location != null)
+            return location;
+        return new Location(Root.valueOf(save.name()),
+                MirrorFolders.generate(sourceId.replaceFirst("^(server|local):", "")));
     }
 
     private static FileProof.Version stamp(Path file) throws IOException {
-        try { return FileProof.version(file); }
-        catch (NoSuchFileException missing) { return null; }
+        try {
+            return FileProof.version(file);
+        } catch (NoSuchFileException missing) {
+            return null;
+        }
     }
 
     public record Entry(String sourceId, String preferredFolderName,
-                              Map<ModConfig.SaveLocation, String> resolvedFolderNames,
-                              ModConfig.SaveLocation saveLocation, ModConfig.ConflictStrategy conflictStrategy) {
+            Map<ModConfig.SaveLocation, String> resolvedFolderNames, ModConfig.SaveLocation saveLocation,
+            ModConfig.ConflictStrategy conflictStrategy) {
         public Location location(Supplier<ModConfig.SaveLocation> defaultLocation) {
             ModConfig.SaveLocation save = saveLocation == null ? defaultLocation.get() : saveLocation;
             String name = resolvedFolderNames.getOrDefault(save, preferredFolderName);
-            return MirrorFolders.isUsableFolderName(name) ? new Location(Root.valueOf(save.name()), name) : null;
+            return MirrorFolders.isUsableFolderName(name) ? new Location(Root.valueOf(save.name()), name)
+                                                          : null;
         }
 
         public Entry {
-            if (sourceId == null || sourceId.isBlank() || sourceId.chars().anyMatch(Character::isISOControl)) {
+            if (sourceId == null || sourceId.isBlank()
+                    || sourceId.chars().anyMatch(Character::isISOControl)) {
                 throw new IllegalArgumentException("Invalid legacy source");
             }
             Map<ModConfig.SaveLocation, String> resolved = new EnumMap<>(ModConfig.SaveLocation.class);
             resolvedFolderNames.forEach((root, name) -> {
-                if (!MirrorFolders.isUsableFolderName(name)) throw new IllegalArgumentException("Invalid legacy folder name");
+                if (!MirrorFolders.isUsableFolderName(name))
+                    throw new IllegalArgumentException("Invalid legacy folder name");
                 resolved.put(root, name);
             });
             if (preferredFolderName != null && !MirrorFolders.isUsableFolderName(preferredFolderName)) {
@@ -75,7 +84,8 @@ public record LegacyRouting(Map<String, Entry> entries) {
         Path path = file.toAbsolutePath().normalize();
         FileProof.Version observed = stamp(path);
         JsonSupport.Document<LegacyDocument> document = JsonSupport.readDocument(path, LegacyDocument.class);
-        if (!Objects.equals(observed, stamp(path))) throw new IOException("Legacy mirror routing changed while loading: " + path);
+        if (!Objects.equals(observed, stamp(path)))
+            throw new IOException("Legacy mirror routing changed while loading: " + path);
         return switch (document.state()) {
             case MISSING -> new LegacyRouting(Map.of());
             case VALID -> {
@@ -85,12 +95,13 @@ public record LegacyRouting(Map<String, Entry> entries) {
                     throw new IOException("Cannot import legacy mirror routing: " + path, invalid);
                 }
             }
-            case INVALID, UNAVAILABLE -> throw new IOException("Cannot import legacy mirror routing: " + path, document.failure());
+            case INVALID, UNAVAILABLE ->
+                throw new IOException("Cannot import legacy mirror routing: " + path, document.failure());
         };
     }
 
     private record LegacyDocument(Map<String, String> entries, Map<String, String> resolvedFolderNames,
-                                  Map<String, String> perWorldSaveLocation, Map<String, String> perWorldConflictStrategy) {
+            Map<String, String> perWorldSaveLocation, Map<String, String> perWorldConflictStrategy) {
         private LegacyDocument {
             entries = orEmpty(entries);
             resolvedFolderNames = orEmpty(resolvedFolderNames);
@@ -112,17 +123,19 @@ public record LegacyRouting(Map<String, Entry> entries) {
                 ModConfig.SaveLocation root = ModConfig.SaveLocation.valueOf(key.substring(delimiter + 1));
                 sources.add(source);
                 if (MirrorFolders.isUsableFolderName(name)) {
-                    locations.computeIfAbsent(source, ignored -> new EnumMap<>(ModConfig.SaveLocation.class)).put(root, name);
+                    locations.computeIfAbsent(source, ignored -> new EnumMap<>(ModConfig.SaveLocation.class))
+                            .put(root, name);
                 }
             });
             Map<String, Entry> result = new TreeMap<>();
             for (String source : sources) {
                 String preferred = entries.get(source);
-                result.put(source, new Entry(source,
-                        MirrorFolders.isUsableFolderName(preferred) ? preferred : null,
-                        locations.getOrDefault(source, Map.of()),
-                        parseOverride(ModConfig.SaveLocation.class, perWorldSaveLocation.get(source)),
-                        parseOverride(ModConfig.ConflictStrategy.class, perWorldConflictStrategy.get(source))));
+                result.put(source,
+                        new Entry(source, MirrorFolders.isUsableFolderName(preferred) ? preferred : null,
+                                locations.getOrDefault(source, Map.of()),
+                                parseOverride(ModConfig.SaveLocation.class, perWorldSaveLocation.get(source)),
+                                parseOverride(ModConfig.ConflictStrategy.class,
+                                        perWorldConflictStrategy.get(source))));
             }
             return new LegacyRouting(result);
         }

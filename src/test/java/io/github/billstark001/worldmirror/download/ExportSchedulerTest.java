@@ -10,15 +10,17 @@ class ExportSchedulerTest {
     void captureReadinessAndNotificationAreIndependentRequestProperties() {
         var pending = new ExportScheduler.Pending();
         var source = ExportTestTargets.source("server:request");
-        var quietScan = new ExportWork.Intent(new ExportWork.Context(ExportWork.Trigger.MANUAL, false, source),
-                ExportWork.CapturePhase.READY, ExportWork.EntityScope.LIVE, true,
-                java.util.Optional.empty(), io.github.billstark001.worldmirror.io.WorldSettingsSnapshot.defaults());
+        var quietScan = new ExportWork.Intent(
+                new ExportWork.Context(ExportWork.Trigger.MANUAL, false, source),
+                ExportWork.CapturePhase.READY, ExportWork.EntityScope.LIVE, true, java.util.Optional.empty(),
+                io.github.billstark001.worldmirror.io.WorldSettingsSnapshot.defaults());
         pending.request(quietScan);
         assertEquals(null, pending.poll(true, 0));
         assertEquals(quietScan, pending.poll(false, 0));
-        var notifiedExport = new ExportWork.Intent(new ExportWork.Context(ExportWork.Trigger.MANUAL, true, source),
-                ExportWork.CapturePhase.READY, ExportWork.EntityScope.LIVE, false,
-                java.util.Optional.empty(), quietScan.settings());
+        var notifiedExport =
+                new ExportWork.Intent(new ExportWork.Context(ExportWork.Trigger.MANUAL, true, source),
+                        ExportWork.CapturePhase.READY, ExportWork.EntityScope.LIVE, false,
+                        java.util.Optional.empty(), quietScan.settings());
         pending.request(notifiedExport);
         assertEquals(notifiedExport, pending.poll(true, 0));
     }
@@ -29,7 +31,8 @@ class ExportSchedulerTest {
         scheduler.reset(config(), 0);
         assertEquals(ExportWork.Trigger.RESOURCE_PRESSURE, scheduler.automatic(0, 1, true, true));
         assertEquals(ExportWork.Trigger.RESOURCE_PRESSURE, scheduler.automatic(500, 1, true, true));
-        scheduler.attempted(ExportWork.Trigger.RESOURCE_PRESSURE, ExportScheduler.Dispatch.WAITING_SOURCE, 500);
+        scheduler.attempted(
+                ExportWork.Trigger.RESOURCE_PRESSURE, ExportScheduler.Dispatch.WAITING_SOURCE, 500);
         assertEquals(null, scheduler.automatic(1_000, 1, true, true));
         assertEquals(null, scheduler.automatic(1_500, 1, true, true));
         assertEquals(ExportWork.Trigger.RESOURCE_PRESSURE, scheduler.automatic(5_500, 1, true, true));
@@ -54,12 +57,9 @@ class ExportSchedulerTest {
         ExportScheduler pipeline = new ExportScheduler();
         pipeline.reset(config, 1_000L);
 
-        assertEquals(null,
-                pipeline.automatic(30_999L, 900, true, false));
-        assertEquals(ExportWork.Trigger.PERIODIC,
-                pipeline.automatic(31_000L, 1, true, false));
-        assertEquals(null,
-                pipeline.automatic(60_000L, 0, false, false));
+        assertEquals(null, pipeline.automatic(30_999L, 900, true, false));
+        assertEquals(ExportWork.Trigger.PERIODIC, pipeline.automatic(31_000L, 1, true, false));
+        assertEquals(null, pipeline.automatic(60_000L, 0, false, false));
     }
 
     @Test
@@ -69,15 +69,13 @@ class ExportSchedulerTest {
         ExportScheduler pipeline = new ExportScheduler();
         pipeline.reset(config, 1_000L);
 
-        assertEquals(ExportWork.Trigger.ADAPTIVE_HIGH_WATERMARK,
-                pipeline.automatic(11_000L, 512, true, false));
+        assertEquals(
+                ExportWork.Trigger.ADAPTIVE_HIGH_WATERMARK, pipeline.automatic(11_000L, 512, true, false));
         pipeline.accepted(11_000L, 512);
-        assertEquals(null,
-                pipeline.automatic(21_000L, 512, true, false));
-        assertEquals(null,
-                pipeline.automatic(21_000L, 256, true, false));
-        assertEquals(ExportWork.Trigger.ADAPTIVE_HIGH_WATERMARK,
-                pipeline.automatic(21_000L, 512, true, false));
+        assertEquals(null, pipeline.automatic(21_000L, 512, true, false));
+        assertEquals(null, pipeline.automatic(21_000L, 256, true, false));
+        assertEquals(
+                ExportWork.Trigger.ADAPTIVE_HIGH_WATERMARK, pipeline.automatic(21_000L, 512, true, false));
     }
 
     @Test
@@ -87,10 +85,8 @@ class ExportSchedulerTest {
         ExportScheduler pipeline = new ExportScheduler();
         pipeline.reset(config, 5_000L);
 
-        assertEquals(null,
-                pipeline.automatic(34_999L, 1, true, false));
-        assertEquals(ExportWork.Trigger.ADAPTIVE_MAX_LATENCY,
-                pipeline.automatic(35_000L, 1, true, false));
+        assertEquals(null, pipeline.automatic(34_999L, 1, true, false));
+        assertEquals(ExportWork.Trigger.ADAPTIVE_MAX_LATENCY, pipeline.automatic(35_000L, 1, true, false));
     }
 
     private static ModConfig config() {

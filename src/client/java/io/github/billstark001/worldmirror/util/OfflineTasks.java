@@ -6,25 +6,29 @@ import java.util.function.Function;
 /** Coordinates UI completion even when background file work fails. */
 public final class OfflineTasks {
     @FunctionalInterface
-    public interface Work<T> { T run() throws Exception; }
+    public interface Work<T> {
+        T run() throws Exception;
+    }
 
     private OfflineTasks() {}
 
     public static <T> void start(String name, Work<T> work, Function<Exception, T> failed,
-                                 Consumer<Runnable> clientExecutor, Consumer<T> completed, Runnable cleanup) {
+            Consumer<Runnable> clientExecutor, Consumer<T> completed, Runnable cleanup) {
         Thread worker = new Thread(() -> {
             T result;
             boolean ready = false;
             try {
-                try { result = work.run(); }
-                catch (Exception failure) {
+                try {
+                    result = work.run();
+                } catch (Exception failure) {
                     WMLogger.warn("Offline operation failed: " + name, failure);
                     result = failed.apply(failure);
                 }
                 ready = true;
             } finally {
                 // Even a fatal VM error must not leave an ordinary busy/progress flag stuck.
-                if (!ready) deliver(clientExecutor, cleanup);
+                if (!ready)
+                    deliver(clientExecutor, cleanup);
             }
             T outcome = result;
             deliver(clientExecutor, () -> {
@@ -45,7 +49,10 @@ public final class OfflineTasks {
     }
 
     private static void runCallback(Runnable callback) {
-        try { callback.run(); }
-        catch (RuntimeException failure) { WMLogger.warn("Offline operation UI callback failed", failure); }
+        try {
+            callback.run();
+        } catch (RuntimeException failure) {
+            WMLogger.warn("Offline operation UI callback failed", failure);
+        }
     }
 }

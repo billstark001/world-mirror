@@ -26,14 +26,16 @@ public final class ChunkWorldOverlayRenderApi {
     private static StagedVertexBuffer buffer;
     private static StagedVertexBuffer.Draw fill;
     private static StagedVertexBuffer.Draw edges;
-    private static final ChunkWorldOverlayGeometry.UploadState uploadState = new ChunkWorldOverlayGeometry.UploadState();
+    private static final ChunkWorldOverlayGeometry.UploadState uploadState =
+            new ChunkWorldOverlayGeometry.UploadState();
 #elif MC_VERSION >= 260200
 /** Staged drawing adapter; executes immediately after world transparency composition. */
 public final class ChunkWorldOverlayRenderApi {
     private static StagedVertexBuffer buffer;
     private static StagedVertexBuffer.Draw fill;
     private static StagedVertexBuffer.Draw edges;
-    private static final ChunkWorldOverlayGeometry.UploadState uploadState = new ChunkWorldOverlayGeometry.UploadState();
+    private static final ChunkWorldOverlayGeometry.UploadState uploadState =
+            new ChunkWorldOverlayGeometry.UploadState();
 #else
 /** Immediate drawing adapter for the pre-staged-buffer renderer. */
 public final class ChunkWorldOverlayRenderApi {
@@ -46,23 +48,26 @@ public final class ChunkWorldOverlayRenderApi {
     public static void renderLate(Vec3 camera) {
 #if MC_VERSION >= 260300
         var client = Minecraft.getInstance();
-        if (client.gameRenderer.useImprovedTransparency()) return;
+        if (client.gameRenderer.useImprovedTransparency())
+            return;
         var overlay = ChunkWorldOverlay.snapshot();
         if (overlay.isEmpty()) {
             discardMesh();
             return;
         }
-        if (buffer == null) buffer = new StagedVertexBuffer(() -> "World Mirror overlay", 64 * 1024);
+        if (buffer == null)
+            buffer = new StagedVertexBuffer(() -> "World Mirror overlay", 64 * 1024);
         var layer = RenderTypes.debugFilledBox();
         if (uploadState.needsUpload(overlay, camera)) {
             discardMesh();
             var pose = new PoseStack().last();
             try {
                 fill = buffer.appendDraw(layer.format(), layer.primitiveTopology(),
-                    RenderSystem.getProjectionType().vertexSorting());
+                        RenderSystem.getProjectionType().vertexSorting());
                 ChunkWorldOverlayGeometry.renderFilled(pose, buffer.getVertexBuilder(fill), overlay, camera);
                 edges = buffer.appendDraw(layer.format(), layer.primitiveTopology());
-                ChunkWorldOverlayGeometry.renderTopEdges(pose, buffer.getVertexBuilder(edges), overlay, camera);
+                ChunkWorldOverlayGeometry.renderTopEdges(
+                        pose, buffer.getVertexBuilder(edges), overlay, camera);
                 buffer.upload();
                 uploadState.uploaded(overlay, camera);
             } catch (RuntimeException | Error failure) {
@@ -76,16 +81,21 @@ public final class ChunkWorldOverlayRenderApi {
         RenderSystem.resizeAllAutoStorageIndexBuffers();
         var target = client.gameRenderer.mainRenderTarget();
         try (var pass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(
-                () -> "World Mirror overlay", target.getColorTextureView(), Optional.empty(),
-                target.getDepthTextureView(), OptionalDouble.empty())) {
+                     ()
+                             -> "World Mirror overlay",
+                     target.getColorTextureView(), Optional.empty(), target.getDepthTextureView(),
+                     OptionalDouble.empty())) {
             RenderSystem.bindDefaultUniforms(pass);
-            if (fillInfo != null) prepared.drawFromBuffer(fillInfo, pass);
-            if (edgeInfo != null) prepared.drawFromBuffer(edgeInfo, pass);
+            if (fillInfo != null)
+                prepared.drawFromBuffer(fillInfo, pass);
+            if (edgeInfo != null)
+                prepared.drawFromBuffer(edgeInfo, pass);
         }
     }
 
     private static void discardMesh() {
-        if (buffer != null && (fill != null || edges != null)) buffer.endFrame();
+        if (buffer != null && (fill != null || edges != null))
+            buffer.endFrame();
         fill = null;
         edges = null;
         uploadState.clear();
@@ -95,17 +105,19 @@ public final class ChunkWorldOverlayRenderApi {
             discardMesh();
             return;
         }
-        if (buffer == null) buffer = new StagedVertexBuffer(() -> "World Mirror overlay", 64 * 1024);
+        if (buffer == null)
+            buffer = new StagedVertexBuffer(() -> "World Mirror overlay", 64 * 1024);
         var layer = RenderTypes.debugFilledBox();
         if (uploadState.needsUpload(overlay, camera)) {
             discardMesh();
             var pose = new PoseStack().last();
             try {
                 fill = buffer.appendDraw(layer.format(), layer.primitiveTopology(),
-                    RenderSystem.getProjectionType().vertexSorting());
+                        RenderSystem.getProjectionType().vertexSorting());
                 ChunkWorldOverlayGeometry.renderFilled(pose, buffer.getVertexBuilder(fill), overlay, camera);
                 edges = buffer.appendDraw(layer.format(), layer.primitiveTopology());
-                ChunkWorldOverlayGeometry.renderTopEdges(pose, buffer.getVertexBuilder(edges), overlay, camera);
+                ChunkWorldOverlayGeometry.renderTopEdges(
+                        pose, buffer.getVertexBuilder(edges), overlay, camera);
                 buffer.upload();
                 uploadState.uploaded(overlay, camera);
             } catch (RuntimeException | Error failure) {
@@ -115,19 +127,23 @@ public final class ChunkWorldOverlayRenderApi {
         }
         var prepared = layer.prepare();
         var fillInfo = buffer.getExecuteInfo(fill);
-        if (fillInfo != null) prepared.drawFromBuffer(fillInfo);
+        if (fillInfo != null)
+            prepared.drawFromBuffer(fillInfo);
         var edgeInfo = buffer.getExecuteInfo(edges);
-        if (edgeInfo != null) prepared.drawFromBuffer(edgeInfo);
+        if (edgeInfo != null)
+            prepared.drawFromBuffer(edgeInfo);
     }
 
     private static void discardMesh() {
-        if (buffer != null && (fill != null || edges != null)) buffer.endFrame();
+        if (buffer != null && (fill != null || edges != null))
+            buffer.endFrame();
         fill = null;
         edges = null;
         uploadState.clear();
 #else
         var overlay = ChunkWorldOverlay.snapshot();
-        if (overlay.isEmpty()) return;
+        if (overlay.isEmpty())
+            return;
         if (buffers == null) {
             allocator = new ByteBufferBuilder(64 * 1024);
             buffers = MultiBufferSource.immediate(allocator);

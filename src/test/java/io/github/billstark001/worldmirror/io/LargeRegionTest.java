@@ -15,12 +15,20 @@ class LargeRegionTest {
         assertNotNull(classpathFile, "Run the probe through the target's Gradle test task");
         String classpath = Files.readString(Path.of(classpathFile));
         Path arguments = root.resolve("java.args");
-        List<String> options = List.of("-Xmx160m", "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8",
-                "-cp", classpath, LargeRegionProbe.class.getName(), root.resolve("world").toString());
-        Files.write(arguments, options.stream().map(value -> "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"").toList());
+        List<String> options = List.of("-Xmx160m", "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8",
+                "-Dstderr.encoding=UTF-8", "-cp", classpath, LargeRegionProbe.class.getName(),
+                root.resolve("world").toString());
+        Files.write(arguments,
+                options.stream()
+                        .map(value -> "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"")
+                        .toList());
         Path log = root.resolve("probe.log");
-        Path javaExecutable = Path.of(System.getProperty("java.home"), "bin", System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java");
-        Process process = new ProcessBuilder(javaExecutable.toString(), "@" + arguments).redirectErrorStream(true).redirectOutput(log.toFile()).start();
+        Path javaExecutable = Path.of(System.getProperty("java.home"), "bin",
+                System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java");
+        Process process = new ProcessBuilder(javaExecutable.toString(), "@" + arguments)
+                                  .redirectErrorStream(true)
+                                  .redirectOutput(log.toFile())
+                                  .start();
         try {
             assertTrue(process.waitFor(150, TimeUnit.SECONDS), "Small-heap probe timed out");
             String output = new String(Files.readAllBytes(log), java.nio.charset.StandardCharsets.UTF_8);
@@ -28,7 +36,10 @@ class LargeRegionTest {
             assertTrue(output.contains("PASS: 288 MiB"), output);
             assertTrue(output.contains("PASS: 288 MiB conflicts applied"), output);
         } finally {
-            if (process.isAlive()) { process.destroyForcibly(); process.waitFor(10, TimeUnit.SECONDS); }
+            if (process.isAlive()) {
+                process.destroyForcibly();
+                process.waitFor(10, TimeUnit.SECONDS);
+            }
         }
     }
 }

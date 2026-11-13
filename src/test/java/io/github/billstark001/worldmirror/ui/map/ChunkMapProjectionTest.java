@@ -31,7 +31,8 @@ class ChunkMapProjectionTest {
     void largeMapPansReuseInteriorBucketsAndRefreshAgeWithoutRescanningHistory() {
         var records = new ArrayList<ChunkDatabase.ChunkRecord>();
         for (int x = 0; x < 320; x++) {
-            for (int z = 0; z < 320; z++) records.add(new ChunkDatabase.ChunkRecord(x, z, 1L, "world_mirror"));
+            for (int z = 0; z < 320; z++)
+                records.add(new ChunkDatabase.ChunkRecord(x, z, 1L, "world_mirror"));
         }
         var snapshot = new ChunkStatusSnapshot(records, Set.of());
         var range = new ChunkBounds(0, 319, 0, 319);
@@ -41,7 +42,8 @@ class ChunkMapProjectionTest {
         projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, 2_001L, layout, false);
         assertEquals(first, snapshot.index().visits(), "age refresh reuses complete bucket summaries");
         var clipped = new ChunkBounds(1, 318, 1, 318);
-        projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, clipped, 2_002L, ChunkBucketLayout.withinBudget(clipped, 4096), false);
+        projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, clipped, 2_002L,
+                ChunkBucketLayout.withinBudget(clipped, 4096), false);
         assertTrue(snapshot.index().visits() - first < 10_000,
                 "panning inspects clipped edges, not the 102400-record interior again");
         long beforeNewBuckets = snapshot.index().visits();
@@ -55,9 +57,10 @@ class ChunkMapProjectionTest {
     }
     @Test
     void panningInsideTheSameBucketsRefreshesVisibleRecordsAndConflicts() {
-        var snapshot = new ChunkStatusSnapshot(List.of(
-                new ChunkDatabase.ChunkRecord(0, 0, 1L, "world_mirror"),
-                new ChunkDatabase.ChunkRecord(9, 0, 2L, "external")), List.of(new ChunkPos(9, 0)));
+        var snapshot =
+                new ChunkStatusSnapshot(List.of(new ChunkDatabase.ChunkRecord(0, 0, 1L, "world_mirror"),
+                                                new ChunkDatabase.ChunkRecord(9, 0, 2L, "external")),
+                        List.of(new ChunkPos(9, 0)));
 
         var initial = new ChunkBounds(0, 8, 0, 8);
         var shifted = new ChunkBounds(1, 9, 0, 8);
@@ -75,28 +78,36 @@ class ChunkMapProjectionTest {
 
     @Test
     void reusesAnUnchangedViewportOnlyUntilTheAgeRefresh() {
-        var snapshot = new ChunkStatusSnapshot(List.of(
-                new ChunkDatabase.ChunkRecord(0, 0, 1L, "world_mirror")), List.of());
+        var snapshot = new ChunkStatusSnapshot(
+                List.of(new ChunkDatabase.ChunkRecord(0, 0, 1L, "world_mirror")), List.of());
         var range = new ChunkBounds(0, 1, 0, 1);
         var layout = new ChunkBucketLayout(range, 1);
         var first = projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, 1_000L, layout, false);
 
-        assertSame(first, projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, 600_000L, layout, false));
+        assertSame(first,
+                projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, 600_000L, layout, false));
         long visits = snapshot.index().visits();
-        assertSame(first, projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, 600_001L, layout, false));
-        var refreshed = projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, 601_001L, layout, false);
+        assertSame(first,
+                projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, 600_001L, layout, false));
+        var refreshed =
+                projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, 601_001L, layout, false);
         assertNotSame(first, refreshed);
-        assertSame(refreshed, projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, 602_000L, layout, false));
+        assertSame(refreshed,
+                projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, 602_000L, layout, false));
         assertEquals(visits, snapshot.index().visits());
-        assertNotSame(refreshed, projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, 500L, layout, false));
+        assertNotSame(refreshed,
+                projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, 500L, layout, false));
     }
 
     @Test
     void refreshesFillColorsWithoutRebuildingUnchangedBoundariesOrStatusMarks() {
-        var saved = new ChunkStatusSnapshot(List.of(new ChunkDatabase.ChunkRecord(0, 0, 0, "world_mirror")),
-                List.of(new ChunkPos(1, 0)));
-        var live = new LiveChunkStatusSnapshot(Map.of(0L,
-                new LiveChunkStatusSnapshot.Record(0, 0, 0, LiveChunkStatusSnapshot.State.PENDING_CAPTURE, true)), Map.of());
+        var saved = new ChunkStatusSnapshot(
+                List.of(new ChunkDatabase.ChunkRecord(0, 0, 0, "world_mirror")), List.of(new ChunkPos(1, 0)));
+        var live = new LiveChunkStatusSnapshot(
+                Map.of(0L,
+                        new LiveChunkStatusSnapshot.Record(
+                                0, 0, 0, LiveChunkStatusSnapshot.State.PENDING_CAPTURE, true)),
+                Map.of());
         var range = new ChunkBounds(0, 1, 0, 1);
         var layout = new ChunkBucketLayout(range.expand(1), 1);
         var first = projection.get(saved, live, range, 600_000L, layout, true);
@@ -114,14 +125,16 @@ class ChunkMapProjectionTest {
     @Test
     void dataReuseDoesNotFreezeBoundaryAgeColors() {
         long now = System.currentTimeMillis();
-        var snapshot = new ChunkStatusSnapshot(List.of(
-                new ChunkDatabase.ChunkRecord(0, 0, now, "world_mirror")), Set.of());
+        var snapshot = new ChunkStatusSnapshot(
+                List.of(new ChunkDatabase.ChunkRecord(0, 0, now, "world_mirror")), Set.of());
         var range = new ChunkBounds(0, 0, 0, 0);
         var layout = new ChunkBucketLayout(range.expand(1), 1);
         var fresh = projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, now, layout, true);
-        var old = projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, now + 31L * 24 * 60 * 60 * 1_000, layout, true);
+        var old = projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range,
+                now + 31L * 24 * 60 * 60 * 1_000, layout, true);
         assertFalse(fresh.boundaries().equals(old.boundaries()));
-        assertTrue(snapshot.matchesData(List.of(new ChunkDatabase.ChunkRecord(0, 0, now, "world_mirror")), Set.of()));
+        assertTrue(snapshot.matchesData(
+                List.of(new ChunkDatabase.ChunkRecord(0, 0, now, "world_mirror")), Set.of()));
     }
 
     @Test
@@ -132,8 +145,7 @@ class ChunkMapProjectionTest {
             assertTrue(bucketCount(0, 2_000_000_000, thin) <= 1);
 
             int extreme = ChunkBucketLayout.sizeFor(
-                    Integer.MIN_VALUE, Integer.MAX_VALUE,
-                    Integer.MIN_VALUE, Integer.MAX_VALUE, 4);
+                    Integer.MIN_VALUE, Integer.MAX_VALUE, Integer.MIN_VALUE, Integer.MAX_VALUE, 4);
             assertTrue(extreme > 0);
         });
     }
@@ -166,23 +178,31 @@ class ChunkMapProjectionTest {
         ChunkMapView.Canvas canvas = (left, top, right, bottom, color) -> {};
 
         int previousSize = Integer.MAX_VALUE;
-        for (int zoom : new int[]{1, 2, 3, 4, 5, 6, 8, 12, 16}) {
+        for (int zoom : new int[] {1, 2, 3, 4, 5, 6, 8, 12, 16}) {
             int previousPanSize = -1;
-            for (double centerX : new double[]{-121.5, -120.25, -119, 0, 122.75}) {
+            for (double centerX : new double[] {-121.5, -120.25, -119, 0, 122.75}) {
                 var viewport = new ChunkMapView.BuiltInViewport(width, height, centerX, -21.375, zoom, true);
                 ChunkMapView.renderBuiltIn(canvas, builtIn, saved, live, viewport, 100L, 1);
-                ChunkMapView.renderOverlay(canvas, xaero, coordinate -> 0, coordinate -> 0,
+                ChunkMapView.renderOverlay(canvas, xaero,
+                        coordinate
+                        -> 0,
+                        coordinate
+                        -> 0,
                         saved, live, width, height, centerX * 16, -21.375 * 16, zoom / 16.0D, 100L, budget);
 
                 var frame = builtIn.currentFrame();
                 assertEquals(frame.bucketSize(), xaero.currentFrame().bucketSize());
-                if (!frame.dense()) assertEquals(frame.projectedBuckets(), xaero.currentFrame().projectedBuckets());
+                if (!frame.dense())
+                    assertEquals(frame.projectedBuckets(), xaero.currentFrame().projectedBuckets());
                 assertTrue(frame.projectedBuckets() <= budget);
                 assertTrue(xaero.currentFrame().projectedBuckets() <= budget);
-                if (previousPanSize != -1) assertEquals(previousPanSize, frame.bucketSize());
+                if (previousPanSize != -1)
+                    assertEquals(previousPanSize, frame.bucketSize());
                 previousPanSize = frame.bucketSize();
-                if (zoom == 2) assertTrue(frame.bucketSize() > 1 && !frame.dense());
-                if (zoom == 16) assertTrue(frame.dense());
+                if (zoom == 2)
+                    assertTrue(frame.bucketSize() > 1 && !frame.dense());
+                if (zoom == 16)
+                    assertTrue(frame.dense());
             }
             assertTrue(previousPanSize <= previousSize);
             previousSize = previousPanSize;
@@ -194,13 +214,15 @@ class ChunkMapProjectionTest {
         var saved = new ChunkStatusSnapshot(List.of(), Set.of());
         ChunkMapView.Canvas canvas = (left, top, right, bottom, color) -> {};
         var viewport = new ChunkMapView.BuiltInViewport(180, 180, 0, 0, 3, true);
-        ChunkMapView.renderBuiltIn(canvas, projection, saved, LiveChunkStatusSnapshot.EMPTY, viewport, 100L, 1);
+        ChunkMapView.renderBuiltIn(
+                canvas, projection, saved, LiveChunkStatusSnapshot.EMPTY, viewport, 100L, 1);
         assertEquals(1, projection.currentFrame().bucketSize());
         assertTrue(projection.currentFrame().dense());
 
         // Visible spans fit in 6000 cells, but adding the dense halo at this scale would exceed it.
         viewport = new ChunkMapView.BuiltInViewport(216, 222, 0, 0, 3, true);
-        ChunkMapView.renderBuiltIn(canvas, projection, saved, LiveChunkStatusSnapshot.EMPTY, viewport, 100L, 1);
+        ChunkMapView.renderBuiltIn(
+                canvas, projection, saved, LiveChunkStatusSnapshot.EMPTY, viewport, 100L, 1);
         assertEquals(1, projection.currentFrame().bucketSize());
         assertFalse(projection.currentFrame().dense());
         assertTrue(projection.currentFrame().projectedBuckets() <= ChunkBucketLayout.DEFAULT_MAP_BUDGET);
@@ -221,16 +243,20 @@ class ChunkMapProjectionTest {
         double edge = 1_875_000D;
         var viewport = new ChunkMapView.BuiltInViewport(width, height, edge, -edge, 2, true);
         var builtInRange = ChunkMapView.renderBuiltIn(canvas, projection, saved, live, viewport, 100L, 1);
-        ChunkMapView.renderOverlay(canvas, xaero, coordinate -> 0, coordinate -> 0,
-                saved, live, width, height, edge * 16, -edge * 16, 2 / 16.0D, 100L, budget);
+        ChunkMapView.renderOverlay(canvas, xaero,
+                coordinate
+                -> 0,
+                coordinate -> 0, saved, live, width, height, edge * 16, -edge * 16, 2 / 16.0D, 100L, budget);
         assertEquals(1_875_000, builtInRange.maxX());
         assertEquals(-1_875_000, builtInRange.minZ());
         assertEquals(interiorSize, projection.currentFrame().bucketSize());
         assertEquals(interiorSize, xaero.currentFrame().bucketSize());
         assertEquals(projection.currentFrame().projectedBuckets(), xaero.currentFrame().projectedBuckets());
 
-        assertTrue(ChunkMapView.visibleRange(new ChunkMapView.BuiltInViewport(
-                width, height, Integer.MAX_VALUE, Integer.MIN_VALUE, 2, true)).isEmpty());
+        assertTrue(ChunkMapView
+                        .visibleRange(new ChunkMapView.BuiltInViewport(
+                                width, height, Integer.MAX_VALUE, Integer.MIN_VALUE, 2, true))
+                        .isEmpty());
     }
 
     private static long bucketCount(int min, int max, int size) {

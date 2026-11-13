@@ -14,10 +14,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 abstract class WorldOpenFlowsMixin {
     @Inject(method = "openWorldLoadLevelStem", at = @At("HEAD"), cancellable = true)
     private void worldmirror$upgradeOutdatedMirrorAfterVanillaUpgrade(
-            LevelStorageSource.LevelStorageAccess worldAccess, Dynamic<?> levelData,
-            boolean safeMode, Runnable reloadCallback, CallbackInfo ci) {
-        if (WorldOpenMigrationController.intercept((WorldOpenFlows) (Object) this,
-                worldAccess.getLevelId(), reloadCallback, worldAccess::safeClose)) {
+            LevelStorageSource.LevelStorageAccess worldAccess, Dynamic<?> levelData, boolean safeMode,
+            Runnable reloadCallback, CallbackInfo ci) {
+        if (WorldOpenMigrationController.intercept((WorldOpenFlows) (Object) this, worldAccess.getLevelId(),
+                    reloadCallback, worldAccess::safeClose)) {
             ci.cancel();
         }
     }

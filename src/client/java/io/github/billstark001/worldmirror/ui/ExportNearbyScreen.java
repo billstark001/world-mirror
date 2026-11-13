@@ -28,7 +28,6 @@ import net.minecraft.network.chat.Component;
  */
 @Environment(EnvType.CLIENT)
 public class ExportNearbyScreen extends Screen {
-
     private static final int RADIUS_MIN = 1;
     private static final int RADIUS_MAX = 50;
     private static final int RADIUS_DEFAULT = 16;
@@ -54,64 +53,62 @@ public class ExportNearbyScreen extends Screen {
         int radiusY = choosingLineage ? cy + 20 : cy;
 
         // World-name field
-        nameField = new EditBox(
-                this.font,
-                cx - 100, nameY, 200, 20,
+        nameField = new EditBox(this.font, cx - 100, nameY, 200, 20,
                 Component.translatable("screen.worldmirror.exportNearby.worldName"));
         nameField.setMaxLength(80);
         nameField.setValue(defaultWorldName());
-        nameField.setHint(
-                Component.translatable("screen.worldmirror.exportNearby.worldName"));
+        nameField.setHint(Component.translatable("screen.worldmirror.exportNearby.worldName"));
         addRenderableWidget(nameField);
 
         if (choosingLineage) {
-            addRenderableWidget(Button.builder(lineageLabel(), btn -> {
-                lineageChoice = switch (lineageChoice) {
-                    case INHERIT_ORIGINAL -> NearbyExporter.Choice.CURRENT_MIRROR;
-                    case CURRENT_MIRROR -> NearbyExporter.Choice.INDEPENDENT;
-                    case INDEPENDENT -> NearbyExporter.Choice.INHERIT_ORIGINAL;
-                };
-                btn.setMessage(lineageLabel());
-            }).bounds(cx - 100, cy - 25, 200, 20).build());
+            addRenderableWidget(
+                    Button.builder(lineageLabel(), btn -> {
+                              lineageChoice = switch (lineageChoice) {
+                                  case INHERIT_ORIGINAL -> NearbyExporter.Choice.CURRENT_MIRROR;
+                                  case CURRENT_MIRROR -> NearbyExporter.Choice.INDEPENDENT;
+                                  case INDEPENDENT -> NearbyExporter.Choice.INHERIT_ORIGINAL;
+                              };
+                              btn.setMessage(lineageLabel());
+                          }).bounds(cx - 100, cy - 25, 200, 20).build());
         }
 
         // Radius decrement
-        addRenderableWidget(Button.builder(
-                Component.literal("<"),
-                btn -> { radius = Math.max(RADIUS_MIN, radius - 1); }
-        ).bounds(cx - 60, radiusY, 20, 20).build());
+        addRenderableWidget(
+                Button.builder(Component.literal("<"), btn -> {
+                          radius = Math.max(RADIUS_MIN, radius - 1);
+                      }).bounds(cx - 60, radiusY, 20, 20).build());
 
         // Radius increment
-        addRenderableWidget(Button.builder(
-                Component.literal(">"),
-                btn -> { radius = Math.min(RADIUS_MAX, radius + 1); }
-        ).bounds(cx + 40, radiusY, 20, 20).build());
+        addRenderableWidget(
+                Button.builder(Component.literal(">"), btn -> {
+                          radius = Math.min(RADIUS_MAX, radius + 1);
+                      }).bounds(cx + 40, radiusY, 20, 20).build());
 
         // Confirm
-        addRenderableWidget(Button.builder(
-                Component.translatable("screen.worldmirror.exportNearby.export"),
-                btn -> {
-                    String name = nameField.getValue().isBlank()
-                            ? defaultWorldName() : nameField.getValue();
-                    Minecraft mc = Minecraft.getInstance();
+        addRenderableWidget(
+                Button.builder(Component.translatable("screen.worldmirror.exportNearby.export"), btn -> {
+                          String name =
+                                  nameField.getValue().isBlank() ? defaultWorldName() : nameField.getValue();
+                          Minecraft mc = Minecraft.getInstance();
 #if MC_VERSION >= 260200
-                    ClientScreens.set(null);
+                          ClientScreens.set(null);
 #else
                     mc.setScreen(null);
 #endif
-                    NearbyExporter.export(mc, name, radius, lineageChoice);
-                }
-        ).bounds(cx - 100, radiusY + 30, 94, 20).build());
+                          NearbyExporter.export(mc, name, radius, lineageChoice);
+                      }).bounds(cx - 100, radiusY + 30, 94, 20).build());
 
         // Cancel
-        addRenderableWidget(Button.builder(
-                Component.translatable("gui.cancel"),
+        addRenderableWidget(
+                Button.builder(Component.translatable("gui.cancel"),
 #if MC_VERSION >= 260200
-                btn -> ClientScreens.set(parent)
+                              btn -> ClientScreens.set(parent)
 #else
-                btn -> Minecraft.getInstance().setScreen(parent)
+                              btn -> Minecraft.getInstance().setScreen(parent)
 #endif
-        ).bounds(cx + 6, radiusY + 30, 94, 20).build());
+                                       )
+                        .bounds(cx + 6, radiusY + 30, 94, 20)
+                        .build());
     }
 
     @Override
@@ -140,8 +137,8 @@ public class ExportNearbyScreen extends Screen {
 #else
         context.drawString(this.font,
 #endif
-                Component.translatable("screen.worldmirror.exportNearby.worldName"),
-                cx - 100, choosingLineage ? cy - 75 : cy - 55, 0xFFAAAAAA);
+                Component.translatable("screen.worldmirror.exportNearby.worldName"), cx - 100,
+                choosingLineage ? cy - 75 : cy - 55, 0xFFAAAAAA);
 
         int radiusY = choosingLineage ? cy + 20 : cy;
         if (choosingLineage) {
@@ -150,8 +147,8 @@ public class ExportNearbyScreen extends Screen {
 #else
             context.drawString(this.font,
 #endif
-                    Component.translatable("screen.worldmirror.exportNearby.lineage"),
-                    cx - 100, cy - 40, 0xFFAAAAAA);
+                    Component.translatable("screen.worldmirror.exportNearby.lineage"), cx - 100, cy - 40,
+                    0xFFAAAAAA);
         }
 
         // Radius display
@@ -160,9 +157,8 @@ public class ExportNearbyScreen extends Screen {
 #else
         context.drawCenteredString(this.font,
 #endif
-                Component.translatable("screen.worldmirror.exportNearby.radius")
-                        .append(": " + radius),
-                cx, radiusY + 5, 0xFFFFFFFF);
+                Component.translatable("screen.worldmirror.exportNearby.radius").append(": " + radius), cx,
+                radiusY + 5, 0xFFFFFFFF);
 
         // Chunk count hint
         long chunkCount = (long) (2 * radius + 1) * (2 * radius + 1);
@@ -171,15 +167,15 @@ public class ExportNearbyScreen extends Screen {
 #else
         context.drawCenteredString(this.font,
 #endif
-                Component.translatable("screen.worldmirror.exportNearby.chunkCount", chunkCount),
-                cx, radiusY + 18, 0xFFAAAAAA);
+                Component.translatable("screen.worldmirror.exportNearby.chunkCount", chunkCount), cx,
+                radiusY + 18, 0xFFAAAAAA);
     }
 
     private Component lineageLabel() {
         return Component.translatable("screen.worldmirror.exportNearby.lineage")
                 .append(": ")
-                .append(Component.translatable("screen.worldmirror.exportNearby.lineage."
-                        + lineageChoice.name().toLowerCase()));
+                .append(Component.translatable(
+                        "screen.worldmirror.exportNearby.lineage." + lineageChoice.name().toLowerCase()));
     }
 
     private static String defaultWorldName() {

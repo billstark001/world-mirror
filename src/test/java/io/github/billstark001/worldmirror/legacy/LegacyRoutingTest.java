@@ -26,10 +26,12 @@ class LegacyRoutingTest {
         JsonSupport.writeDocument(claim, Map.of("sourceId", source, "token", token));
         assertEquals(source, LegacyMirrorClaim.readSource(folder));
 
-        JsonSupport.writeDocument(claim, Map.of("sourceId", source, "token", token, "nodeId", "mirror:current"));
+        JsonSupport.writeDocument(
+                claim, Map.of("sourceId", source, "token", token, "nodeId", "mirror:current"));
         assertNull(LegacyMirrorClaim.readSource(folder));
 
-        JsonSupport.writeDocument(claim, new MirrorClaim.Claim(UUID.randomUUID(), "mirror:current", "remote:source", source));
+        JsonSupport.writeDocument(
+                claim, new MirrorClaim.Claim(UUID.randomUUID(), "mirror:current", "remote:source", source));
         assertNull(LegacyMirrorClaim.readSource(folder));
     }
 
@@ -48,10 +50,12 @@ class LegacyRoutingTest {
         Files.writeString(file, text);
         var imported = LegacyRouting.read(file).entries();
         assertEquals(3, imported.size());
-        assertEquals(new LegacyRouting.Entry("server:EXAMPLE.test:25565", "Original",
-                Map.of(ModConfig.SaveLocation.SAVES, "Stored"), ModConfig.SaveLocation.SAVES, null),
+        assertEquals(
+                new LegacyRouting.Entry("server:EXAMPLE.test:25565", "Original",
+                        Map.of(ModConfig.SaveLocation.SAVES, "Stored"), ModConfig.SaveLocation.SAVES, null),
                 imported.get("server:EXAMPLE.test:25565"));
-        assertEquals(ModConfig.ConflictStrategy.MANUAL, imported.get("local:Settings only").conflictStrategy());
+        assertEquals(
+                ModConfig.ConflictStrategy.MANUAL, imported.get("local:Settings only").conflictStrategy());
         assertEquals(text, Files.readString(file));
         assertFalse(Files.exists(root.resolve(WorldGraphConfig.FILE_NAME)));
     }

@@ -26,8 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EntityRegionWriterTest {
-    @TempDir
-    Path tempDir;
+    @TempDir Path tempDir;
 
     @Test
     void aCrossRegionSwapKeepsOneCopyOfEachEntity() throws Exception {
@@ -36,16 +35,25 @@ class EntityRegionWriterTest {
         writeInitialRegion(west, List.of(storedEntity("minecraft:pig", first)));
         McaWriteSupport.writeChunks(entitiesDir().resolve("r.1.0.mca"), Level.OVERWORLD,
                 Map.of(east, entityChunk(east, List.of(storedEntity("minecraft:cow", second)))));
-        var updates = Map.of(west, new EntityTracker.ChunkUpdate(8, EntityTracker.Observation.COMPLETE,
+        var updates = Map.of(west,
+                new EntityTracker.ChunkUpdate(8, EntityTracker.Observation.COMPLETE,
                         Map.of(second, record("minecraft:cow", second, Set.of(second))), Set.of()),
-                east, new EntityTracker.ChunkUpdate(9, EntityTracker.Observation.COMPLETE,
+                east,
+                new EntityTracker.ChunkUpdate(9, EntityTracker.Observation.COMPLETE,
                         Map.of(first, record("minecraft:pig", first, Set.of(first))), Set.of()));
-        var written = EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, updates), ExportProgress.NONE);
+        var written =
+                EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, updates), ExportProgress.NONE);
         assertEquals(2, written.get(Level.OVERWORLD).size());
-        assertEquals(Set.of(second), LegacyEntityRecords.collectUuids(
-                AnvilReader.readChunk(entitiesDir().resolve("r.0.0.mca"), west).getListOrEmpty("Entities").getCompoundOrEmpty(0)));
-        assertEquals(Set.of(first), LegacyEntityRecords.collectUuids(
-                AnvilReader.readChunk(entitiesDir().resolve("r.1.0.mca"), east).getListOrEmpty("Entities").getCompoundOrEmpty(0)));
+        assertEquals(Set.of(second),
+                LegacyEntityRecords.collectUuids(
+                        AnvilReader.readChunk(entitiesDir().resolve("r.0.0.mca"), west)
+                                .getListOrEmpty("Entities")
+                                .getCompoundOrEmpty(0)));
+        assertEquals(Set.of(first),
+                LegacyEntityRecords.collectUuids(
+                        AnvilReader.readChunk(entitiesDir().resolve("r.1.0.mca"), east)
+                                .getListOrEmpty("Entities")
+                                .getCompoundOrEmpty(0)));
     }
 
     @Test
@@ -55,19 +63,31 @@ class EntityRegionWriterTest {
         writeInitialRegion(west, List.of(storedEntity("minecraft:pig", first)));
         McaWriteSupport.writeChunks(entitiesDir().resolve("r.2.0.mca"), Level.OVERWORLD,
                 Map.of(east, entityChunk(east, List.of(storedEntity("minecraft:cow", second)))));
-        byte[] noise = new byte[1_200_000]; new java.util.Random(61).nextBytes(noise);
-        CompoundTag large = storedEntity("minecraft:pig", first); large.putByteArray("opaque", noise);
+        byte[] noise = new byte[1_200_000];
+        new java.util.Random(61).nextBytes(noise);
+        CompoundTag large = storedEntity("minecraft:pig", first);
+        large.putByteArray("opaque", noise);
         Path blocked = Files.createDirectory(entitiesDir().resolve("c.32.0.mcc"));
         Files.writeString(blocked.resolve("keep"), "unrelated contents");
-        var updates = Map.of(west, new EntityTracker.ChunkUpdate(8, EntityTracker.Observation.COMPLETE,
+        var updates = Map.of(west,
+                new EntityTracker.ChunkUpdate(8, EntityTracker.Observation.COMPLETE,
                         Map.of(second, record("minecraft:cow", second, Set.of(second))), Set.of()),
-                destination, new EntityTracker.ChunkUpdate(9, EntityTracker.Observation.COMPLETE,
-                        Map.of(first, new EntityTracker.EntityRecord(first, Set.of(first), large)), Set.of()));
-        assertTrue(EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, updates), ExportProgress.NONE).isEmpty());
-        assertTrue(AnvilReader.readChunk(entitiesDir().resolve("r.0.0.mca"), west).getListOrEmpty("Entities").stream()
-                .map(tag -> LegacyEntityRecords.collectUuids((CompoundTag) tag)).anyMatch(ids -> ids.contains(first)));
-        assertTrue(AnvilReader.readChunk(entitiesDir().resolve("r.2.0.mca"), east).getListOrEmpty("Entities").stream()
-                .map(tag -> LegacyEntityRecords.collectUuids((CompoundTag) tag)).anyMatch(ids -> ids.contains(second)));
+                destination,
+                new EntityTracker.ChunkUpdate(9, EntityTracker.Observation.COMPLETE,
+                        Map.of(first, new EntityTracker.EntityRecord(first, Set.of(first), large)),
+                        Set.of()));
+        assertTrue(EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, updates), ExportProgress.NONE)
+                        .isEmpty());
+        assertTrue(AnvilReader.readChunk(entitiesDir().resolve("r.0.0.mca"), west)
+                        .getListOrEmpty("Entities")
+                        .stream()
+                        .map(tag -> LegacyEntityRecords.collectUuids((CompoundTag) tag))
+                        .anyMatch(ids -> ids.contains(first)));
+        assertTrue(AnvilReader.readChunk(entitiesDir().resolve("r.2.0.mca"), east)
+                        .getListOrEmpty("Entities")
+                        .stream()
+                        .map(tag -> LegacyEntityRecords.collectUuids((CompoundTag) tag))
+                        .anyMatch(ids -> ids.contains(second)));
         assertEquals("unrelated contents", Files.readString(blocked.resolve("keep")));
     }
 
@@ -81,8 +101,8 @@ class EntityRegionWriterTest {
     void completeEmptyWritesARealEmptyEntityChunk() throws Exception {
         ChunkPos pos = new ChunkPos(0, 0);
         Path region = Files.createFile(Files.createDirectories(entitiesDir()).resolve("r.0.0.mca"));
-        EntityTracker.ChunkUpdate update = new EntityTracker.ChunkUpdate(
-                7L, EntityTracker.Observation.COMPLETE, Map.of(), Set.of());
+        EntityTracker.ChunkUpdate update =
+                new EntityTracker.ChunkUpdate(7L, EntityTracker.Observation.COMPLETE, Map.of(), Set.of());
 
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> result = EntityRegionWriter.write(
                 tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)), ExportProgress.NONE);
@@ -96,7 +116,8 @@ class EntityRegionWriterTest {
     void chunkCoordinatesAreNotTruncatedThroughBlockCoordinates() throws Exception {
         ChunkPos pos = new ChunkPos(Integer.MAX_VALUE, Integer.MIN_VALUE);
         var update = new EntityTracker.ChunkUpdate(4, EntityTracker.Observation.COMPLETE, Map.of(), Set.of());
-        var result = EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)), ExportProgress.NONE);
+        var result = EntityRegionWriter.write(
+                tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)), ExportProgress.NONE);
         assertEquals(4L, result.get(Level.OVERWORLD).get(pos));
         Path file = entitiesDir().resolve("r." + pos.getRegionX() + "." + pos.getRegionZ() + ".mca");
         assertArrayEquals(new int[] {Integer.MAX_VALUE, Integer.MIN_VALUE},
@@ -111,16 +132,20 @@ class EntityRegionWriterTest {
         Files.createFile(legacyPlaceholder);
         UUID uuid = UUID.randomUUID();
         ChunkPos pos = new ChunkPos(0, 0);
-        EntityTracker.ChunkUpdate update = new EntityTracker.ChunkUpdate(
-                9L, EntityTracker.Observation.PARTIAL,
-                Map.of(uuid, record("minecraft:pig", uuid, Set.of(uuid))), Set.of());
+        EntityTracker.ChunkUpdate update =
+                new EntityTracker.ChunkUpdate(9L, EntityTracker.Observation.PARTIAL,
+                        Map.of(uuid, record("minecraft:pig", uuid, Set.of(uuid))), Set.of());
 
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> result = EntityRegionWriter.write(
                 tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)), ExportProgress.NONE);
 
         assertEquals(9L, result.get(Level.OVERWORLD).get(pos));
         assertEquals(0L, Files.size(legacyPlaceholder));
-        assertEquals(1, readRegion(entities.resolve("r.0.0.mca")).get(new ChunkPos(0, 0)).getListOrEmpty("Entities").size());
+        assertEquals(1,
+                readRegion(entities.resolve("r.0.0.mca"))
+                        .get(new ChunkPos(0, 0))
+                        .getListOrEmpty("Entities")
+                        .size());
     }
 
     @Test
@@ -131,9 +156,9 @@ class EntityRegionWriterTest {
         Files.createFile(destination);
         UUID uuid = UUID.randomUUID();
         ChunkPos pos = new ChunkPos(0, 0);
-        EntityTracker.ChunkUpdate update = new EntityTracker.ChunkUpdate(
-                10L, EntityTracker.Observation.PARTIAL,
-                Map.of(uuid, record("minecraft:cow", uuid, Set.of(uuid))), Set.of());
+        EntityTracker.ChunkUpdate update =
+                new EntityTracker.ChunkUpdate(10L, EntityTracker.Observation.PARTIAL,
+                        Map.of(uuid, record("minecraft:cow", uuid, Set.of(uuid))), Set.of());
 
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> result = EntityRegionWriter.write(
                 tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)), ExportProgress.NONE);
@@ -163,7 +188,8 @@ class EntityRegionWriterTest {
         var update = new EntityTracker.ChunkUpdate(71L, EntityTracker.Observation.PARTIAL,
                 Map.of(fresh, record("minecraft:cow", fresh, Set.of(fresh))), Set.of());
 
-        var written = EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(destination, update)), ExportProgress.NONE);
+        var written = EntityRegionWriter.write(
+                tempDir, Map.of(Level.OVERWORLD, Map.of(destination, update)), ExportProgress.NONE);
 
         assertEquals(71L, written.get(Level.OVERWORLD).get(destination));
         assertArrayEquals(original, Files.readAllBytes(entitiesDir().resolve("r.0.0.mca")));
@@ -180,11 +206,21 @@ class EntityRegionWriterTest {
         var update = new EntityTracker.ChunkUpdate(73L, EntityTracker.Observation.PARTIAL,
                 Map.of(uuid, record("minecraft:pig", uuid, Set.of(uuid))), Set.of());
 
-        var written = EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(destination, update)), ExportProgress.NONE);
+        var written = EntityRegionWriter.write(
+                tempDir, Map.of(Level.OVERWORLD, Map.of(destination, update)), ExportProgress.NONE);
 
         assertEquals(73L, written.get(Level.OVERWORLD).get(destination));
-        assertTrue(readRegion(entitiesDir().resolve("r.0.0.mca")).get(new ChunkPos(0, 0)).getListOrEmpty("Entities").isEmpty());
-        assertEquals("minecraft:pig", readRegion(entitiesDir().resolve("r.1.0.mca")).get(new ChunkPos(32, 0)).getListOrEmpty("Entities").getCompoundOrEmpty(0).getString("id").orElseThrow());
+        assertTrue(readRegion(entitiesDir().resolve("r.0.0.mca"))
+                        .get(new ChunkPos(0, 0))
+                        .getListOrEmpty("Entities")
+                        .isEmpty());
+        assertEquals("minecraft:pig",
+                readRegion(entitiesDir().resolve("r.1.0.mca"))
+                        .get(new ChunkPos(32, 0))
+                        .getListOrEmpty("Entities")
+                        .getCompoundOrEmpty(0)
+                        .getString("id")
+                        .orElseThrow());
     }
 
     @Test
@@ -194,8 +230,8 @@ class EntityRegionWriterTest {
         ChunkPos b = new ChunkPos(32, 0);
         writeInitialRegion(a, List.of(storedEntity("minecraft:pig", uuid)));
 
-        EntityTracker.ChunkUpdate from = new EntityTracker.ChunkUpdate(
-                2L, EntityTracker.Observation.PARTIAL, Map.of(), Set.of(uuid));
+        EntityTracker.ChunkUpdate from =
+                new EntityTracker.ChunkUpdate(2L, EntityTracker.Observation.PARTIAL, Map.of(), Set.of(uuid));
         EntityTracker.EntityRecord record = record("minecraft:pig", uuid, Set.of(uuid));
         EntityTracker.ChunkUpdate to = new EntityTracker.ChunkUpdate(
                 3L, EntityTracker.Observation.PARTIAL, Map.of(uuid, record), Set.of());
@@ -230,16 +266,15 @@ class EntityRegionWriterTest {
         UUID incomingUuid = UUID.randomUUID();
         ChunkPos pos = new ChunkPos(0, 0);
         writeInitialRegion(pos, List.of(storedEntity("minecraft:cow", existingUuid)));
-        EntityTracker.EntityRecord incoming = record(
-                "minecraft:pig", incomingUuid, Set.of(incomingUuid));
+        EntityTracker.EntityRecord incoming = record("minecraft:pig", incomingUuid, Set.of(incomingUuid));
         EntityTracker.ChunkUpdate update = new EntityTracker.ChunkUpdate(
-                4L, EntityTracker.Observation.PARTIAL,
-                Map.of(incomingUuid, incoming), Set.of());
+                4L, EntityTracker.Observation.PARTIAL, Map.of(incomingUuid, incoming), Set.of());
 
         EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)), ExportProgress.NONE);
 
-        ListTag written = readRegion(
-                entitiesDir().resolve("r.0.0.mca")).get(new ChunkPos(0, 0)).getListOrEmpty("Entities");
+        ListTag written = readRegion(entitiesDir().resolve("r.0.0.mca"))
+                                  .get(new ChunkPos(0, 0))
+                                  .getListOrEmpty("Entities");
         assertEquals(2, written.size());
         Set<UUID> uuids = new java.util.HashSet<>();
         written.forEach(root -> uuids.addAll(LegacyEntityRecords.collectUuids((CompoundTag) root)));
@@ -252,8 +287,7 @@ class EntityRegionWriterTest {
         ChunkPos pos = new ChunkPos(0, 0);
         net.minecraft.nbt.CompoundTag invalidNbt = new net.minecraft.nbt.CompoundTag();
         invalidNbt.putIntArray("UUID", uuidToIntArray(uuid));
-        EntityTracker.EntityRecord invalid = new EntityTracker.EntityRecord(
-                uuid, Set.of(uuid), invalidNbt);
+        EntityTracker.EntityRecord invalid = new EntityTracker.EntityRecord(uuid, Set.of(uuid), invalidNbt);
         EntityTracker.ChunkUpdate update = new EntityTracker.ChunkUpdate(
                 5L, EntityTracker.Observation.PARTIAL, Map.of(uuid, invalid), Set.of());
 
@@ -269,13 +303,11 @@ class EntityRegionWriterTest {
         UUID indexedUuid = UUID.randomUUID();
         UUID serializedUuid = UUID.randomUUID();
         ChunkPos pos = new ChunkPos(0, 0);
-        EntityTracker.EntityRecord invalid = record(
-                "minecraft:pig", serializedUuid, Set.of(indexedUuid));
-        EntityTracker.EntityRecord rekeyed = new EntityTracker.EntityRecord(
-                indexedUuid, invalid.containedUuids(), invalid.nbt());
+        EntityTracker.EntityRecord invalid = record("minecraft:pig", serializedUuid, Set.of(indexedUuid));
+        EntityTracker.EntityRecord rekeyed =
+                new EntityTracker.EntityRecord(indexedUuid, invalid.containedUuids(), invalid.nbt());
         EntityTracker.ChunkUpdate update = new EntityTracker.ChunkUpdate(
-                6L, EntityTracker.Observation.PARTIAL,
-                Map.of(indexedUuid, rekeyed), Set.of());
+                6L, EntityTracker.Observation.PARTIAL, Map.of(indexedUuid, rekeyed), Set.of());
 
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> result = EntityRegionWriter.write(
                 tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)), ExportProgress.NONE);
@@ -293,9 +325,9 @@ class EntityRegionWriterTest {
         Files.write(corrupt, original);
         UUID uuid = UUID.randomUUID();
         ChunkPos pos = new ChunkPos(0, 0);
-        EntityTracker.ChunkUpdate update = new EntityTracker.ChunkUpdate(
-                1L, EntityTracker.Observation.PARTIAL,
-                Map.of(uuid, record("minecraft:item", uuid, Set.of(uuid))), Set.of());
+        EntityTracker.ChunkUpdate update =
+                new EntityTracker.ChunkUpdate(1L, EntityTracker.Observation.PARTIAL,
+                        Map.of(uuid, record("minecraft:item", uuid, Set.of(uuid))), Set.of());
 
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> result = EntityRegionWriter.write(
                 tempDir, Map.of(Level.OVERWORLD, Map.of(pos, update)), ExportProgress.NONE);
@@ -307,14 +339,13 @@ class EntityRegionWriterTest {
     @Test
     void outOfPlaceEntityChunkBlocksUnsafeCleanup() throws Exception {
         UUID uuid = UUID.randomUUID();
-        writeInitialRegion(new ChunkPos(64, 0),
-                List.of(storedEntity("minecraft:pig", uuid)));
+        writeInitialRegion(new ChunkPos(64, 0), List.of(storedEntity("minecraft:pig", uuid)));
         Path malformed = entitiesDir().resolve("r.0.0.mca");
         byte[] original = Files.readAllBytes(malformed);
         ChunkPos destination = new ChunkPos(1, 0);
-        EntityTracker.ChunkUpdate update = new EntityTracker.ChunkUpdate(
-                8L, EntityTracker.Observation.PARTIAL,
-                Map.of(uuid, record("minecraft:pig", uuid, Set.of(uuid))), Set.of());
+        EntityTracker.ChunkUpdate update =
+                new EntityTracker.ChunkUpdate(8L, EntityTracker.Observation.PARTIAL,
+                        Map.of(uuid, record("minecraft:pig", uuid, Set.of(uuid))), Set.of());
 
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> result = EntityRegionWriter.write(
                 tempDir, Map.of(Level.OVERWORLD, Map.of(destination, update)), ExportProgress.NONE);
@@ -328,7 +359,8 @@ class EntityRegionWriterTest {
         Files.createDirectories(dir);
         // Deliberately use slot 0 of r.0.0; one fixture stores a mismatched Position here.
         McaWriteSupport.writeChunks(dir.resolve("r.0.0.mca"), Level.OVERWORLD,
-                Map.of(new ChunkPos(pos.getRegionLocalX(), pos.getRegionLocalZ()), entityChunk(pos, entities)));
+                Map.of(new ChunkPos(pos.getRegionLocalX(), pos.getRegionLocalZ()),
+                        entityChunk(pos, entities)));
     }
 
     private static Map<ChunkPos, CompoundTag> readRegion(Path file) throws Exception {
@@ -345,8 +377,7 @@ class EntityRegionWriterTest {
     private static CompoundTag entityChunk(ChunkPos pos, List<CompoundTag> entities) {
         CompoundTag chunk = new CompoundTag();
         chunk.putInt("DataVersion", 4671);
-        chunk.putIntArray("Position", new int[] {
-                pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4});
+        chunk.putIntArray("Position", new int[] {pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4});
         ListTag list = new ListTag();
         list.addAll(entities);
         chunk.put("Entities", list);
@@ -361,11 +392,11 @@ class EntityRegionWriterTest {
         passengers.add(root.copy());
         root.put("Passengers", passengers);
         var invalid = new EntityTracker.EntityRecord(uuid, Set.of(uuid), root);
-        var update = new EntityTracker.ChunkUpdate(19L, EntityTracker.Observation.PARTIAL,
-                Map.of(uuid, invalid), Set.of());
+        var update = new EntityTracker.ChunkUpdate(
+                19L, EntityTracker.Observation.PARTIAL, Map.of(uuid, invalid), Set.of());
 
-        var written = EntityRegionWriter.write(tempDir,
-                Map.of(Level.OVERWORLD, Map.of(new ChunkPos(0, 0), update)), ExportProgress.NONE);
+        var written = EntityRegionWriter.write(
+                tempDir, Map.of(Level.OVERWORLD, Map.of(new ChunkPos(0, 0), update)), ExportProgress.NONE);
 
         assertTrue(written.isEmpty());
         assertFalse(Files.exists(entitiesDir().resolve("r.0.0.mca")));
@@ -404,10 +435,10 @@ class EntityRegionWriterTest {
     }
 
     private void assertRejected(EntityTracker.EntityRecord record) {
-        var update = new EntityTracker.ChunkUpdate(19L, EntityTracker.Observation.PARTIAL,
-                Map.of(record.rootUuid(), record), Set.of());
-        var written = EntityRegionWriter.write(tempDir,
-                Map.of(Level.OVERWORLD, Map.of(new ChunkPos(0, 0), update)), ExportProgress.NONE);
+        var update = new EntityTracker.ChunkUpdate(
+                19L, EntityTracker.Observation.PARTIAL, Map.of(record.rootUuid(), record), Set.of());
+        var written = EntityRegionWriter.write(
+                tempDir, Map.of(Level.OVERWORLD, Map.of(new ChunkPos(0, 0), update)), ExportProgress.NONE);
         assertTrue(written.isEmpty());
         assertFalse(Files.exists(entitiesDir().resolve("r.0.0.mca")));
     }
@@ -433,14 +464,22 @@ class EntityRegionWriterTest {
         ChunkPos destination = new ChunkPos(32, 0);
         var arrival = new EntityTracker.ChunkUpdate(1L, EntityTracker.Observation.PARTIAL,
                 Map.of(uuid, record("minecraft:pig", uuid, Set.of(uuid))), Set.of());
-        assertEquals(1L, EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(destination, arrival)), ExportProgress.NONE)
-                .get(Level.OVERWORLD).get(destination));
-        var cleanup = new EntityTracker.ChunkUpdate(2L, EntityTracker.Observation.PARTIAL, Map.of(), Set.of(uuid));
+        assertEquals(1L,
+                EntityRegionWriter
+                        .write(tempDir, Map.of(Level.OVERWORLD, Map.of(destination, arrival)),
+                                ExportProgress.NONE)
+                        .get(Level.OVERWORLD)
+                        .get(destination));
+        var cleanup =
+                new EntityTracker.ChunkUpdate(2L, EntityTracker.Observation.PARTIAL, Map.of(), Set.of(uuid));
 
-        var written = EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(source, cleanup)), ExportProgress.NONE);
+        var written = EntityRegionWriter.write(
+                tempDir, Map.of(Level.OVERWORLD, Map.of(source, cleanup)), ExportProgress.NONE);
 
         assertEquals(2L, written.get(Level.OVERWORLD).get(source));
-        var roots = readRegion(entitiesDir().resolve("r.1.0.mca")).get(new ChunkPos(32, 0)).getListOrEmpty("Entities");
+        var roots = readRegion(entitiesDir().resolve("r.1.0.mca"))
+                            .get(new ChunkPos(32, 0))
+                            .getListOrEmpty("Entities");
         assertEquals(1, roots.size());
         assertEquals(Set.of(uuid), LegacyEntityRecords.collectUuids(roots.getCompoundOrEmpty(0)));
     }
@@ -458,16 +497,21 @@ class EntityRegionWriterTest {
         var arrival = new EntityTracker.ChunkUpdate(2L, EntityTracker.Observation.PARTIAL,
                 Map.of(passenger, record("minecraft:pig", passenger, Set.of(passenger))), Set.of());
 
-        assertEquals(2L, EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, Map.of(destination, arrival)), ExportProgress.NONE)
-                .get(Level.OVERWORLD).get(destination));
+        assertEquals(2L,
+                EntityRegionWriter
+                        .write(tempDir, Map.of(Level.OVERWORLD, Map.of(destination, arrival)),
+                                ExportProgress.NONE)
+                        .get(Level.OVERWORLD)
+                        .get(destination));
 
-        var remaining = readRegion(entitiesDir().resolve("r.0.0.mca")).get(new ChunkPos(0, 0)).getListOrEmpty("Entities");
+        var remaining = readRegion(entitiesDir().resolve("r.0.0.mca"))
+                                .get(new ChunkPos(0, 0))
+                                .getListOrEmpty("Entities");
         assertEquals(1, remaining.size(), "moving a rider must not erase the parked vehicle");
         assertEquals(Set.of(vehicle), LegacyEntityRecords.collectUuids(remaining.getCompoundOrEmpty(0)));
     }
 
-    private static EntityTracker.EntityRecord record(
-            String id, UUID uuid, Set<UUID> contained) {
+    private static EntityTracker.EntityRecord record(String id, UUID uuid, Set<UUID> contained) {
         net.minecraft.nbt.CompoundTag nbt = new net.minecraft.nbt.CompoundTag();
         nbt.putString("id", id);
         nbt.putIntArray("UUID", uuidToIntArray(uuid));
@@ -482,12 +526,8 @@ class EntityRegionWriterTest {
     }
 
     private static int[] uuidToIntArray(UUID uuid) {
-        return new int[] {
-                (int) (uuid.getMostSignificantBits() >> 32),
-                (int) uuid.getMostSignificantBits(),
-                (int) (uuid.getLeastSignificantBits() >> 32),
-                (int) uuid.getLeastSignificantBits()
-        };
+        return new int[] {(int) (uuid.getMostSignificantBits() >> 32), (int) uuid.getMostSignificantBits(),
+                (int) (uuid.getLeastSignificantBits() >> 32), (int) uuid.getLeastSignificantBits()};
     }
     @Test
     void nativeNoneLz4AndExternalEntityRegionsRemainWritable() throws Exception {
@@ -496,12 +536,15 @@ class EntityRegionWriterTest {
             for (String compression : List.of("none", "lz4", "deflate")) {
                 net.minecraft.world.level.chunk.storage.RegionFileVersion.configure(compression);
                 Path world = tempDir.resolve(compression);
-                Path file = WorldSaveLayout.dimensionDirectory(world, Level.OVERWORLD).resolve("entities/r.0.0.mca");
+                Path file = WorldSaveLayout.dimensionDirectory(world, Level.OVERWORLD)
+                                    .resolve("entities/r.0.0.mca");
                 UUID old = UUID.randomUUID(), fresh = UUID.randomUUID();
-                CompoundTag original = entityChunk(new ChunkPos(0, 0), List.of(storedEntity("minecraft:pig", old)));
+                CompoundTag original =
+                        entityChunk(new ChunkPos(0, 0), List.of(storedEntity("minecraft:pig", old)));
                 original.putString("mod_marker", "preserve");
                 if (compression.equals("deflate")) {
-                    byte[] noise = new byte[1_200_000]; new java.util.Random(31).nextBytes(noise);
+                    byte[] noise = new byte[1_200_000];
+                    new java.util.Random(31).nextBytes(noise);
                     original.putByteArray("mod_payload", noise);
                 }
                 McaWriteSupport.writeChunks(file, Level.OVERWORLD, Map.of(new ChunkPos(0, 0), original));
@@ -519,9 +562,10 @@ class EntityRegionWriterTest {
             }
         } finally {
             net.minecraft.world.level.chunk.storage.RegionFileVersion.configure(switch (selected.getId()) {
-                case 3 -> "none"; case 4 -> "lz4"; default -> "deflate";
+                case 3 -> "none";
+                case 4 -> "lz4";
+                default -> "deflate";
             });
         }
     }
-
 }

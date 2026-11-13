@@ -12,21 +12,25 @@ public final class LegacyChunkTimes {
     private LegacyChunkTimes() {}
 
     /** Imports v0 JSON timestamps without replacing rows already present in SQLite. */
-    public static int importInto(Connection connection, String sourceId, Map<String, Long> legacyTimes) throws SQLException {
-        if (legacyTimes == null || legacyTimes.isEmpty()) return 0;
+    public static int importInto(Connection connection, String sourceId, Map<String, Long> legacyTimes)
+            throws SQLException {
+        if (legacyTimes == null || legacyTimes.isEmpty())
+            return 0;
         int[] count = {0};
         JdbcTransaction.run(connection, () -> {
-            try (PreparedStatement statement = connection.prepareStatement(
-                    "INSERT OR IGNORE INTO chunks "
-                            + "(source, dimension, x, y, update_time, update_source) "
-                            + "VALUES (?, ?, ?, ?, ?, 'world_mirror')")) {
+            try (PreparedStatement statement = connection.prepareStatement("INSERT OR IGNORE INTO chunks "
+                         + "(source, dimension, x, y, update_time, update_source) "
+                         + "VALUES (?, ?, ?, ?, ?, 'world_mirror')")) {
                 for (Map.Entry<String, Long> entry : legacyTimes.entrySet()) {
                     String key = entry.getKey();
-                    if (key == null || entry.getValue() == null) continue;
+                    if (key == null || entry.getValue() == null)
+                        continue;
                     int separator = key.lastIndexOf('|');
-                    if (separator < 0) continue;
+                    if (separator < 0)
+                        continue;
                     String[] coords = key.substring(separator + 1).split(",", 2);
-                    if (coords.length != 2) continue;
+                    if (coords.length != 2)
+                        continue;
                     try {
                         int x = Integer.parseInt(coords[0].trim());
                         int z = Integer.parseInt(coords[1].trim());

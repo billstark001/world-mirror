@@ -45,8 +45,8 @@ public final class ChunkIndexStore {
     private final Connection connection;
     private final String sourceId;
 
-    public record ChunkCoordinate(int x, int z) { }
-    public record ChunkRecord(int x, int z, long updateTime, String updateSource) { }
+    public record ChunkCoordinate(int x, int z) {}
+    public record ChunkRecord(int x, int z, long updateTime, String updateSource) {}
 
     public ChunkIndexStore(Connection connection, String sourceId) {
         this.connection = Objects.requireNonNull(connection, "connection");
@@ -76,35 +76,37 @@ public final class ChunkIndexStore {
     }
 
     private static void seedSource(Connection connection, String source, int priority) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "INSERT OR IGNORE INTO update_sources "
-                        + "(update_source, priority, apply_to_source, apply_to_dimension) "
-                        + "VALUES (?, ?, NULL, NULL)")) {
+        try (PreparedStatement statement = connection.prepareStatement("INSERT OR IGNORE INTO update_sources "
+                     + "(update_source, priority, apply_to_source, apply_to_dimension) "
+                     + "VALUES (?, ?, NULL, NULL)")) {
             statement.setString(1, source);
             statement.setInt(2, priority);
             statement.executeUpdate();
         }
     }
 
-    public boolean shouldSkipUpdate(String dimension, int x, int z,
-                                    String incomingSource, long incomingTime) throws SQLException {
+    public boolean shouldSkipUpdate(String dimension, int x, int z, String incomingSource, long incomingTime)
+            throws SQLException {
         var incoming = new ChunkUpdate(dimension, new ChunkCoordinate(x, z), incomingTime, incomingSource);
         ChunkRecord existing;
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT update_time, update_source FROM chunks "
-                        + "WHERE source=? AND dimension=? AND x=? AND y=?")) {
+        try (PreparedStatement statement =
+                        connection.prepareStatement("SELECT update_time, update_source FROM chunks "
+                                + "WHERE source=? AND dimension=? AND x=? AND y=?")) {
             statement.setString(1, sourceId);
             statement.setString(2, dimension);
             statement.setInt(3, x);
             statement.setInt(4, z);
             try (ResultSet result = statement.executeQuery()) {
-                if (!result.next()) return false;
-                existing = new ChunkRecord(x, z, result.getLong("update_time"), result.getString("update_source"));
+                if (!result.next())
+                    return false;
+                existing = new ChunkRecord(
+                        x, z, result.getLong("update_time"), result.getString("update_source"));
             }
         }
-        if (incomingTime <= existing.updateTime()) return true;
-        try (PreparedStatement statement = connection.prepareStatement(
-                SELECT_PRIORITIES + " WHERE update_source IN (?, ?)")) {
+        if (incomingTime <= existing.updateTime())
+            return true;
+        try (PreparedStatement statement =
+                        connection.prepareStatement(SELECT_PRIORITIES + " WHERE update_source IN (?, ?)")) {
             statement.setString(3, existing.updateSource());
             statement.setString(4, incomingSource);
             return ChunkUpdatePolicy.assess(incoming, existing, readPriorities(statement, dimension))
@@ -119,7 +121,8 @@ public final class ChunkIndexStore {
         }
     }
 
-    private Map<String, Integer> readPriorities(PreparedStatement statement, String dimension) throws SQLException {
+    private Map<String, Integer> readPriorities(PreparedStatement statement, String dimension)
+            throws SQLException {
         statement.setString(1, sourceId);
         statement.setString(2, dimension);
         Map<String, Integer> priorities = new HashMap<>();
@@ -128,7 +131,8 @@ public final class ChunkIndexStore {
         try (ResultSet result = statement.executeQuery()) {
             while (result.next()) {
                 String source = result.getString(1);
-                if (source == null) continue;
+                if (source == null)
+                    continue;
                 int priority = result.getInt(2);
                 if (result.wasNull()) {
                     priorities.remove(source);
@@ -141,18 +145,19 @@ public final class ChunkIndexStore {
     }
 
     /** Record the capture time represented by each already verified MCA entry. */
-    public void recordUpdates(String dimension, Map<ChunkCoordinate, Long> times,
-                              String updateSource) throws SQLException {
+    public void recordUpdates(String dimension, Map<ChunkCoordinate, Long> times, String updateSource)
+            throws SQLException {
         recordUpdates(dimension, times, updateSource, Set.of());
     }
 
     /** Replace outdated claims for verified writes over missing or physically empty entries. */
-    public void recordUpdates(String dimension, Map<ChunkCoordinate, Long> times,
-                              String updateSource, Set<ChunkCoordinate> replaced) throws SQLException {
+    public void recordUpdates(String dimension, Map<ChunkCoordinate, Long> times, String updateSource,
+            Set<ChunkCoordinate> replaced) throws SQLException {
         if (!times.keySet().containsAll(replaced)) {
             throw new IllegalArgumentException("Cannot replace an index claim without a verified write");
         }
-        if (times.isEmpty()) return;
+        if (times.isEmpty())
+            return;
         JdbcTransaction.run(connection, () -> {
             try (PreparedStatement statement = connection.prepareStatement(UPSERT)) {
                 for (Map.Entry<ChunkCoordinate, Long> entry : times.entrySet()) {
@@ -168,12 +173,12 @@ public final class ChunkIndexStore {
     }
 
     /** Invalidate this writer's durability claims without erasing other sources' overwrite authority. */
-    public void removeUnreadableUpdates(String dimension, Set<ChunkCoordinate> chunks)
-            throws SQLException {
-        if (chunks.isEmpty()) return;
+    public void removeUnreadableUpdates(String dimension, Set<ChunkCoordinate> chunks) throws SQLException {
+        if (chunks.isEmpty())
+            return;
         JdbcTransaction.run(connection, () -> {
             try (PreparedStatement statement = connection.prepareStatement(
-                    "DELETE FROM chunks WHERE source=? AND dimension=? AND x=? AND y=? AND update_source='world_mirror'")) {
+                         "DELETE FROM chunks WHERE source=? AND dimension=? AND x=? AND y=? AND update_source='world_mirror'")) {
                 for (ChunkCoordinate chunk : chunks) {
                     bindKey(statement, dimension, chunk);
                     statement.addBatch();
@@ -224,8 +229,8 @@ public final class ChunkIndexStore {
 
     /** Count durable chunks across every dimension for this source. */
     public int countAll() throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT COUNT(*) FROM chunks WHERE source=?")) {
+        try (PreparedStatement statement =
+                        connection.prepareStatement("SELECT COUNT(*) FROM chunks WHERE source=?")) {
             statement.setString(1, sourceId);
             try (ResultSet result = statement.executeQuery()) {
                 return result.next() ? result.getInt(1) : 0;

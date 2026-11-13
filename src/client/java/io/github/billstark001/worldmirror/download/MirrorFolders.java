@@ -30,7 +30,8 @@ public final class MirrorFolders {
         requireFolderName(name);
         Path candidate = base.resolve(name);
         for (int suffix = 2; !Files.notExists(candidate, LinkOption.NOFOLLOW_LINKS); suffix++) {
-            if (suffix == Integer.MAX_VALUE) throw new IllegalStateException("No free mirror folder in " + base);
+            if (suffix == Integer.MAX_VALUE)
+                throw new IllegalStateException("No free mirror folder in " + base);
             candidate = base.resolve(name + "_" + suffix);
         }
         return candidate;
@@ -40,8 +41,10 @@ public final class MirrorFolders {
         requireFolderName(name);
         for (int suffix = 1; suffix < Integer.MAX_VALUE; suffix++) {
             Path candidate = base.resolve(suffix == 1 ? name : name + "_" + suffix);
-            try { return Files.createDirectory(candidate); }
-            catch (FileAlreadyExistsException occupied) { /* Another save owns this path. */ }
+            try {
+                return Files.createDirectory(candidate);
+            } catch (FileAlreadyExistsException occupied) { /* Another save owns this path. */
+            }
         }
         throw new IOException("No free mirror folder in " + base);
     }
@@ -50,22 +53,23 @@ public final class MirrorFolders {
     static String sanitiseFolderName(String name, String fallback) {
         name = INVALID_FOLDER_CHARACTERS.matcher(name).replaceAll("_").strip();
         int end = Math.min(name.length(), MAX_GENERATED_FOLDER_LENGTH);
-        if (end < name.length() && end > 0 && Character.isHighSurrogate(name.charAt(end - 1))) end--;
+        if (end < name.length() && end > 0 && Character.isHighSurrogate(name.charAt(end - 1)))
+            end--;
         name = TRAILING_DOTS.matcher(name.substring(0, end)).replaceAll("");
-        if (name.isBlank()) name = fallback;
+        if (name.isBlank())
+            name = fallback;
         return RESERVED_FOLDER_NAME.matcher(name).matches() ? '_' + name : name;
     }
 
     public static boolean isUsableFolderName(String name) {
-        return name != null && !name.isBlank() && name.length() <= 255
-                && !name.equals(".") && !name.equals("..")
-                && !name.endsWith(".") && !name.endsWith(" ")
+        return name != null && !name.isBlank() && name.length() <= 255 && !name.equals(".")
+                && !name.equals("..") && !name.endsWith(".") && !name.endsWith(" ")
                 && !INVALID_FOLDER_CHARACTERS.matcher(name).find()
                 && !RESERVED_FOLDER_NAME.matcher(name).matches();
     }
 
     static void requireFolderName(String name) {
-        if (!isUsableFolderName(name)) throw new IllegalArgumentException("Invalid mirror folder name");
+        if (!isUsableFolderName(name))
+            throw new IllegalArgumentException("Invalid mirror folder name");
     }
-
 }

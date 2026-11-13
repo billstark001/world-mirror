@@ -25,8 +25,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class WorldClocksDataTest {
     private static Class<?> packedClockStates;
 
-    @TempDir
-    Path tempDir;
+    @TempDir Path tempDir;
 
     @BeforeAll
     static void bootstrapMinecraftRegistries() {
@@ -64,8 +63,8 @@ class WorldClocksDataTest {
 
         repairOwnedSavedData(tempDir);
 
-        CompoundTag repaired = NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap())
-                .getCompoundOrEmpty("data");
+        CompoundTag repaired =
+                NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap()).getCompoundOrEmpty("data");
         assertEquals(expected, repaired);
         assertEquals(repaired, roundTrip(repaired));
 
@@ -74,22 +73,20 @@ class WorldClocksDataTest {
         nonExact.putBoolean("third_party_marker", true);
         writeSavedData(file, nonExact);
         repairOwnedSavedData(tempDir);
-        CompoundTag preserved = NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap())
-                .getCompoundOrEmpty("data");
+        CompoundTag preserved =
+                NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap()).getCompoundOrEmpty("data");
         assertTrue(preserved.contains("clocks"));
         assertTrue(preserved.getBooleanOr("third_party_marker", false));
     }
 
     private static CompoundTag generatedWorldClocksData() throws Exception {
-        Method method = WorldStructureApi.class.getDeclaredMethod(
-                "createWorldClocksData", long.class);
+        Method method = WorldStructureApi.class.getDeclaredMethod("createWorldClocksData", long.class);
         method.setAccessible(true);
         return (CompoundTag) method.invoke(null, 6_000L);
     }
 
     private static void repairOwnedSavedData(Path worldFolder) throws Exception {
-        Method method = WorldStructureApi.class.getDeclaredMethod(
-                "repairOwnedSavedData", Path.class);
+        Method method = WorldStructureApi.class.getDeclaredMethod("repairOwnedSavedData", Path.class);
         method.setAccessible(true);
         method.invoke(null, worldFolder);
     }
@@ -102,8 +99,8 @@ class WorldClocksDataTest {
     }
 
     private static CompoundTag roundTrip(CompoundTag data) throws Exception {
-        Method method = WorldStructureApi.class.getDeclaredMethod(
-                "roundTripWorldClocksData", CompoundTag.class);
+        Method method =
+                WorldStructureApi.class.getDeclaredMethod("roundTripWorldClocksData", CompoundTag.class);
         method.setAccessible(true);
         return (CompoundTag) method.invoke(null, data);
     }

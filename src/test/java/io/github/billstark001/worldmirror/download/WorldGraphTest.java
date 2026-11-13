@@ -26,7 +26,8 @@ class WorldGraphTest {
         var child = mirror("mirror:child", saved.id(), SAVES, "Child");
         var grandchild = mirror("mirror:grandchild", child.id(), SAVES, "Grandchild");
         var withoutHint = WorldGraph.reconcile(List.of(downloaded, saved, child, grandchild), Map.of());
-        var withHint = WorldGraph.reconcile(List.of(child, saved, downloaded, grandchild), Map.of(saved.id(), downloaded.location()));
+        var withHint = WorldGraph.reconcile(
+                List.of(child, saved, downloaded, grandchild), Map.of(saved.id(), downloaded.location()));
 
         assertEquals(saved, withoutHint.nodes().get(saved.id()));
         assertEquals(downloaded, withHint.nodes().get(saved.id()));
@@ -64,7 +65,8 @@ class WorldGraphTest {
         var descendant = mirror("mirror:descendant", dependent.id(), SAVES, "Descendant");
         var self = mirror("mirror:self", "mirror:self", SAVES, "Self");
         var valid = mirror("mirror:valid", REMOTE_ID, SAVES, "Valid");
-        var graph = WorldGraph.reconcile(List.of(descendant, dependent, first, valid, second, self, remote()), Map.of());
+        var graph = WorldGraph.reconcile(
+                List.of(descendant, dependent, first, valid, second, self, remote()), Map.of());
 
         assertEquals(Set.of(first.id(), second.id(), self.id()), graph.cyclicIds());
         assertEquals(first.id(), graph.nodes().get(second.id()).parentId());
@@ -80,8 +82,8 @@ class WorldGraphTest {
         var first = mirror("mirror:a", REMOTE_ID, SAVES, "Z");
         var second = mirror("mirror:b", REMOTE_ID, SAVES, "A");
         var grandchild = mirror("mirror:1", first.id(), SAVES, "Grandchild");
-        var snapshot = new WorldGraph.Node("mirror:0", REMOTE_ID,
-                new WorldGraph.Location(SAVES, "Snapshot"), MIRROR, SNAPSHOT);
+        var snapshot = new WorldGraph.Node(
+                "mirror:0", REMOTE_ID, new WorldGraph.Location(SAVES, "Snapshot"), MIRROR, SNAPSHOT);
         var graph = WorldGraph.reconcile(List.of(second, grandchild, first, snapshot, remote()), Map.of());
 
         assertEquals(first, graph.defaultMirror(REMOTE_ID, null).orElseThrow());

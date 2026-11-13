@@ -26,8 +26,10 @@ final class SafeConfigSerializer extends GsonConfigSerializer<ModConfig> {
         try {
             io.github.billstark001.worldmirror.util.FileTransaction.recover(file.getParent());
             var document = JsonSupport.readDocument(file, ModConfig.class);
-            if (document.state() == JsonSupport.ReadState.MISSING) return new ModConfig();
-            if (document.failure() != null) throw document.failure();
+            if (document.state() == JsonSupport.ReadState.MISSING)
+                return new ModConfig();
+            if (document.failure() != null)
+                throw document.failure();
             config = document.value();
             String before = JsonSupport.toCompactJsonWithNulls(config);
             config.validatePostLoad();
@@ -36,18 +38,24 @@ final class SafeConfigSerializer extends GsonConfigSerializer<ModConfig> {
             config = new ModConfig();
             config.defaultConflictStrategy = ModConfig.ConflictStrategy.IGNORE;
             invalid = true;
-            if (Files.notExists(file)) writable = false;
-            WMLogger.warn("Config load failed; automatic start stays disabled and overwrite policy is IGNORE", failure);
+            if (Files.notExists(file))
+                writable = false;
+            WMLogger.warn("Config load failed; automatic start stays disabled and overwrite policy is IGNORE",
+                    failure);
         }
         if (invalid && !Files.notExists(file)) {
             try {
-                Path backup = Files.createTempFile(file.getParent(), file.getFileName() + ".invalid-", ".json");
+                Path backup =
+                        Files.createTempFile(file.getParent(), file.getFileName() + ".invalid-", ".json");
                 Files.copy(file, backup, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                if (Files.mismatch(file, backup) != -1) throw new java.io.IOException("Config backup mismatch");
-                WMLogger.warn("Invalid config preserved at " + backup + "; review normalized settings before enabling download");
+                if (Files.mismatch(file, backup) != -1)
+                    throw new java.io.IOException("Config backup mismatch");
+                WMLogger.warn("Invalid config preserved at " + backup
+                        + "; review normalized settings before enabling download");
             } catch (Exception backupFailure) {
                 writable = false;
-                WMLogger.warn("Cannot preserve invalid config; saving this config is disabled", backupFailure);
+                WMLogger.warn(
+                        "Cannot preserve invalid config; saving this config is disabled", backupFailure);
             }
         }
         return config;
@@ -55,9 +63,14 @@ final class SafeConfigSerializer extends GsonConfigSerializer<ModConfig> {
 
     @Override
     public void serialize(ModConfig config) throws SerializationException {
-        if (!writable) throw new SerializationException(new java.io.IOException("Invalid original config could not be backed up"));
+        if (!writable)
+            throw new SerializationException(
+                    new java.io.IOException("Invalid original config could not be backed up"));
         config.validatePostLoad();
-        try { JsonSupport.writeDocument(file, config); }
-        catch (Exception failure) { throw new SerializationException(failure); }
+        try {
+            JsonSupport.writeDocument(file, config);
+        } catch (Exception failure) {
+            throw new SerializationException(failure);
+        }
     }
 }

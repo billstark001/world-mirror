@@ -44,14 +44,13 @@ class ModConfigDefaultsTest {
         Gson gson = new Gson();
         ModConfig defaults = gson.fromJson("{}", ModConfig.class);
         assertEquals(96, defaults.chunkMap.worldChunkOverlayHeight);
-        assertEquals(ModConfig.WorldChunkOverlayColorMode.SESSION,
-                defaults.chunkMap.worldChunkOverlayColorMode);
+        assertEquals(
+                ModConfig.WorldChunkOverlayColorMode.SESSION, defaults.chunkMap.worldChunkOverlayColorMode);
 
-        ModConfig existing = gson.fromJson(
-                "{\"chunkMap\":{\"worldChunkOverlayHeight\":0}}", ModConfig.class);
+        ModConfig existing = gson.fromJson("{\"chunkMap\":{\"worldChunkOverlayHeight\":0}}", ModConfig.class);
         assertEquals(0, existing.chunkMap.worldChunkOverlayHeight);
-        assertEquals(ModConfig.WorldChunkOverlayColorMode.SESSION,
-                existing.chunkMap.worldChunkOverlayColorMode);
+        assertEquals(
+                ModConfig.WorldChunkOverlayColorMode.SESSION, existing.chunkMap.worldChunkOverlayColorMode);
     }
 
     @Test
@@ -70,14 +69,16 @@ class ModConfigDefaultsTest {
     void normalizesNullableSectionsAndUsesSafeUnknownConflictPolicy() throws Exception {
         ModConfig config = new com.google.gson.Gson().fromJson(
                 "{\"performance\":null,\"chunkMap\":null,\"lifecycle\":null,"
-                        + "\"cache\":null,\"defaultConflictStrategy\":\"unknown\",\"syncIntervalSeconds\":-1}", ModConfig.class);
+                        + "\"cache\":null,\"defaultConflictStrategy\":\"unknown\",\"syncIntervalSeconds\":-1}",
+                ModConfig.class);
         config.validatePostLoad();
         org.junit.jupiter.api.Assertions.assertNotNull(config.performance);
         org.junit.jupiter.api.Assertions.assertNotNull(config.chunkMap);
         org.junit.jupiter.api.Assertions.assertNotNull(config.cache);
-        org.junit.jupiter.api.Assertions.assertEquals(ModConfig.TransitionBehavior.STOP, config.lifecycle.onJoinWorld);
-        org.junit.jupiter.api.Assertions.assertEquals(ModConfig.ConflictStrategy.IGNORE, config.defaultConflictStrategy);
+        org.junit.jupiter.api.Assertions.assertEquals(
+                ModConfig.TransitionBehavior.STOP, config.lifecycle.onJoinWorld);
+        org.junit.jupiter.api.Assertions.assertEquals(
+                ModConfig.ConflictStrategy.IGNORE, config.defaultConflictStrategy);
         org.junit.jupiter.api.Assertions.assertEquals(5, config.syncIntervalSeconds);
     }
-
 }

@@ -15,7 +15,8 @@ class NbtReadSupportTest {
     @Test
     void deletingADamagedFileDoesNotPermanentlyBlockItsDirectory(
             @org.junit.jupiter.api.io.TempDir java.nio.file.Path root) throws Exception {
-        java.nio.file.Path file = java.nio.file.Files.write(root.resolve("damaged.dat"), new byte[] {1, 2, 3});
+        java.nio.file.Path file =
+                java.nio.file.Files.write(root.resolve("damaged.dat"), new byte[] {1, 2, 3});
         assertThrows(IOException.class, () -> NbtReadSupport.readWorldData(file));
         java.nio.file.Files.delete(file);
         assertDoesNotThrow(() -> FileReadFailures.check(file));
@@ -26,11 +27,16 @@ class NbtReadSupportTest {
         for (int type : new int[] {7, 11, 12}) {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             try (DataOutputStream output = new DataOutputStream(bytes)) {
-                output.writeByte(10); output.writeUTF("");
-                output.writeByte(type); output.writeUTF("huge"); output.writeInt(Integer.MAX_VALUE);
+                output.writeByte(10);
+                output.writeUTF("");
+                output.writeByte(type);
+                output.writeUTF("huge");
+                output.writeInt(Integer.MAX_VALUE);
             }
-            assertThrows(IOException.class, () -> NbtReadSupport.readChunk(
-                    new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))));
+            assertThrows(IOException.class,
+                    ()
+                            -> NbtReadSupport.readChunk(
+                                    new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))));
         }
     }
 
@@ -42,7 +48,8 @@ class NbtReadSupportTest {
         byte[] expected = NbtWriteSupport.writeChunkAndDigest(chunk, new DataOutputStream(bytes));
         byte[] serialized = bytes.toByteArray();
         assertArrayEquals(FileProof.sha256().digest(serialized), expected);
-        assertTrue(NbtReadSupport.verifyChunk(new DataInputStream(new ByteArrayInputStream(serialized)), expected));
+        assertTrue(NbtReadSupport.verifyChunk(
+                new DataInputStream(new ByteArrayInputStream(serialized)), expected));
 
         byte[] trailing = Arrays.copyOf(serialized, serialized.length + 1);
         assertFalse(NbtReadSupport.verifyChunk(new DataInputStream(new ByteArrayInputStream(trailing)),

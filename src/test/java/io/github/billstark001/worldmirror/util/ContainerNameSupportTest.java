@@ -23,13 +23,15 @@ class ContainerNameSupportTest {
     @Test
     void omitsOnlyUnmodifiedGuiTranslations() {
         assertTrue(ContainerNameSupport.encodeCustomName(null).isEmpty());
-        assertTrue(ContainerNameSupport.encodeCustomName(Component.translatable("container.chest")).isEmpty());
-        assertTrue(ContainerNameSupport.encodeCustomName(Component.translatable("container.furnace")).isEmpty());
+        assertTrue(
+                ContainerNameSupport.encodeCustomName(Component.translatable("container.chest")).isEmpty());
+        assertTrue(
+                ContainerNameSupport.encodeCustomName(Component.translatable("container.furnace")).isEmpty());
     }
 
     @Test
     void preservesLiteralNamesEvenWhenTheyLookLikeTheDefaultEnglishTitle() {
-        for (String text : new String[]{"Chest", "Large Chest", "", "箱子"}) {
+        for (String text : new String[] {"Chest", "Large Chest", "", "箱子"}) {
             Component name = Component.literal(text);
             var encoded = ContainerNameSupport.encodeCustomName(name).orElseThrow();
             Component decoded = ComponentSerialization.CODEC.parse(NbtOps.INSTANCE, encoded).getOrThrow();
@@ -40,10 +42,10 @@ class ContainerNameSupportTest {
 
     @Test
     void preservesStyleSiblingsAndTranslationArguments() {
-        for (Component name : new Component[]{
-                Component.translatable("container.chest").withStyle(ChatFormatting.RED),
-                Component.translatable("container.chest").append(" — personal storage"),
-                Component.translatable("container.chest", "custom argument")}) {
+        for (Component name :
+                new Component[] {Component.translatable("container.chest").withStyle(ChatFormatting.RED),
+                        Component.translatable("container.chest").append(" — personal storage"),
+                        Component.translatable("container.chest", "custom argument")}) {
             var encoded = ContainerNameSupport.encodeCustomName(name).orElseThrow();
             assertFalse(ContainerNameSupport.isDefaultChestName(encoded));
             assertEquals(name, ComponentSerialization.CODEC.parse(NbtOps.INSTANCE, encoded).getOrThrow());

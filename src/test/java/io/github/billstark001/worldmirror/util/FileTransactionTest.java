@@ -42,7 +42,9 @@ class FileTransactionTest {
         }
         assertEquals("new", Files.readString(root.resolve("a")));
         assertEquals("added", Files.readString(root.resolve("b")));
-        try (var files = Files.list(root)) { assertEquals(2, files.count()); }
+        try (var files = Files.list(root)) {
+            assertEquals(2, files.count());
+        }
     }
 
     @Test
@@ -58,7 +60,9 @@ class FileTransactionTest {
         properties.setProperty("existed.0", "true");
         properties.setProperty("sha256.0", FileProof.sha256(journal.resolve("old/0")));
         properties.setProperty("new.0", FileProof.sha256(root.resolve("a")));
-        try (var output = Files.newOutputStream(journal.resolve("prepared"))) { properties.store(output, "fixture"); }
+        try (var output = Files.newOutputStream(journal.resolve("prepared"))) {
+            properties.store(output, "fixture");
+        }
         Files.writeString(journal.resolve("manifest.sha256"), FileProof.sha256(journal.resolve("prepared")));
         FileTransaction.recover(root);
         assertEquals("original", Files.readString(root.resolve("a")));
@@ -80,16 +84,18 @@ class FileTransactionTest {
         Path world = Files.createDirectory(root.resolve("world"));
         Path outside = Files.createDirectory(root.resolve("outside"));
         Path sentinel = Files.writeString(outside.resolve("data"), "outside");
-        for (String name : new String[]{"aliased-target", FileTransaction.PREFIX + "alias",
-                FileTransaction.CLEANUP_PREFIX + "alias"}) {
+        for (String name : new String[] {"aliased-target", FileTransaction.PREFIX + "alias",
+                     FileTransaction.CLEANUP_PREFIX + "alias"}) {
             Path junction = world.resolve(name);
             ProcessBuilder command = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive",
-                    "-Command", "$ErrorActionPreference = 'Stop'; New-Item -ItemType Junction "
-                    + "-Path $env:WM_JUNCTION_PATH -Target $env:WM_JUNCTION_TARGET | Out-Null");
+                    "-Command",
+                    "$ErrorActionPreference = 'Stop'; New-Item -ItemType Junction "
+                            + "-Path $env:WM_JUNCTION_PATH -Target $env:WM_JUNCTION_TARGET | Out-Null");
             command.environment().put("WM_JUNCTION_PATH", junction.toString());
             command.environment().put("WM_JUNCTION_TARGET", outside.toString());
             Process process = command.redirectErrorStream(true).start();
-            String output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            String output = new String(
+                    process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
             assertEquals(0, process.waitFor(), output);
             try {
                 if (name.startsWith(FileTransaction.PREFIX)) {
@@ -99,8 +105,10 @@ class FileTransactionTest {
                     assertTrue(Files.isDirectory(junction));
                 } else {
                     try (FileTransaction transaction = new FileTransaction(world)) {
-                        Path staged = Files.writeString(transaction.stagingDirectory().resolve("data"), "replacement");
-                        assertThrows(IOException.class, () -> transaction.commit(Map.of(Path.of(name, "data"), staged)));
+                        Path staged = Files.writeString(
+                                transaction.stagingDirectory().resolve("data"), "replacement");
+                        assertThrows(IOException.class,
+                                () -> transaction.commit(Map.of(Path.of(name, "data"), staged)));
                     }
                 }
                 assertEquals("outside", Files.readString(sentinel));
@@ -118,13 +126,16 @@ class FileTransactionTest {
         Files.writeString(journal.resolve("old/0"), "original");
         Properties manifest = new Properties();
         manifest.setProperty("schema", "2");
-        manifest.setProperty("count", "1"); manifest.setProperty("path.0", "data");
+        manifest.setProperty("count", "1");
+        manifest.setProperty("path.0", "data");
         manifest.setProperty("existed.0", "true");
         manifest.setProperty("sha256.0", FileProof.sha256(journal.resolve("old/0")));
         Files.writeString(journal.resolve("old/0"), "damaged backup");
         Files.writeString(root.resolve("data"), "current");
         manifest.setProperty("new.0", FileProof.sha256(root.resolve("data")));
-        try (var output = Files.newOutputStream(journal.resolve("prepared"))) { manifest.store(output, "fixture"); }
+        try (var output = Files.newOutputStream(journal.resolve("prepared"))) {
+            manifest.store(output, "fixture");
+        }
         Files.writeString(journal.resolve("manifest.sha256"), FileProof.sha256(journal.resolve("prepared")));
         assertThrows(IOException.class, () -> FileTransaction.recover(root));
         assertEquals("current", Files.readString(root.resolve("data")));
@@ -140,11 +151,14 @@ class FileTransactionTest {
         Files.writeString(region.resolve("payload"), "interrupted");
         Properties manifest = new Properties();
         manifest.setProperty("schema", "2");
-        manifest.setProperty("count", "1"); manifest.setProperty("path.0", "payload");
+        manifest.setProperty("count", "1");
+        manifest.setProperty("path.0", "payload");
         manifest.setProperty("existed.0", "true");
         manifest.setProperty("sha256.0", FileProof.sha256(journal.resolve("old/0")));
         manifest.setProperty("new.0", FileProof.sha256(region.resolve("payload")));
-        try (var output = Files.newOutputStream(journal.resolve("prepared"))) { manifest.store(output, "fixture"); }
+        try (var output = Files.newOutputStream(journal.resolve("prepared"))) {
+            manifest.store(output, "fixture");
+        }
         Files.writeString(journal.resolve("manifest.sha256"), FileProof.sha256(journal.resolve("prepared")));
         Files.writeString(world.resolve(".worldmirror-recovery-required"), "fixture");
         try (var lease = io.github.billstark001.worldmirror.io.WorldWriteLock.acquire(world)) {
@@ -156,7 +170,8 @@ class FileTransactionTest {
 
     @Test
     void unknownNewerContentPreventsEveryRollback(@TempDir Path root) throws Exception {
-        Path journal = prepared(root, Map.of("a", new Images("old-a", "new-a"), "b", new Images("old-b", "new-b")));
+        Path journal =
+                prepared(root, Map.of("a", new Images("old-a", "new-a"), "b", new Images("old-b", "new-b")));
         Files.writeString(root.resolve("b"), "external edit");
         assertThrows(IOException.class, () -> FileTransaction.recover(root));
         assertEquals("new-a", Files.readString(root.resolve("a")));
@@ -190,7 +205,8 @@ class FileTransactionTest {
 
     @Test
     void partialRollbackResumesAndRemovesOnlyProvenNewFiles(@TempDir Path root) throws Exception {
-        Path journal = prepared(root, Map.of("a", new Images("old-a", "new-a"), "b", new Images(null, "added")));
+        Path journal =
+                prepared(root, Map.of("a", new Images("old-a", "new-a"), "b", new Images(null, "added")));
         Files.writeString(root.resolve("a"), "old-a");
         FileTransaction.recover(root);
         assertEquals("old-a", Files.readString(root.resolve("a")));
@@ -212,7 +228,8 @@ class FileTransactionTest {
 
     @Test
     void invalidLaterTargetsCannotAuthorizeEarlierRestoration(@TempDir Path root) throws Exception {
-        Path journal = prepared(root, Map.of("a", new Images("old-a", "new-a"), "b", new Images(null, "added")));
+        Path journal =
+                prepared(root, Map.of("a", new Images("old-a", "new-a"), "b", new Images(null, "added")));
         Properties manifest = readManifest(journal);
         for (String invalid : new String[] {"../escape", "a/child", "session.lock"}) {
             manifest.setProperty("path.1", invalid);
@@ -239,7 +256,8 @@ class FileTransactionTest {
     void ownerLockProtectsLiveUnpreparedStaging(@TempDir Path root) throws Exception {
         Path journal = Files.createDirectory(root.resolve(".worldmirror-transaction-active"));
         try (var channel = java.nio.channels.FileChannel.open(journal.resolve("owner.lock"),
-                java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.WRITE); var lease = channel.lock()) {
+                     java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.WRITE);
+                var lease = channel.lock()) {
             assertThrows(IOException.class, () -> FileTransaction.recover(root));
             assertTrue(Files.isDirectory(journal));
         }
@@ -297,12 +315,16 @@ class FileTransactionTest {
 
     private static Properties readManifest(Path journal) throws IOException {
         Properties manifest = new Properties();
-        try (var input = Files.newInputStream(journal.resolve("prepared"))) { manifest.load(input); }
+        try (var input = Files.newInputStream(journal.resolve("prepared"))) {
+            manifest.load(input);
+        }
         return manifest;
     }
 
     private static void writeManifest(Path journal, Properties manifest) throws IOException {
-        try (var output = Files.newOutputStream(journal.resolve("prepared"))) { manifest.store(output, "fixture"); }
+        try (var output = Files.newOutputStream(journal.resolve("prepared"))) {
+            manifest.store(output, "fixture");
+        }
         Files.writeString(journal.resolve("manifest.sha256"), FileProof.sha256(journal.resolve("prepared")));
     }
 }

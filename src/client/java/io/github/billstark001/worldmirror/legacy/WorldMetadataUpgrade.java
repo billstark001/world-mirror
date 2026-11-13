@@ -19,22 +19,26 @@ import java.util.Objects;
 public final class WorldMetadataUpgrade {
     private WorldMetadataUpgrade() {}
 
-    public static WorldMetadata upgrade(Path worldFolder, String nodeId, String parentNodeId) throws IOException {
+    public static WorldMetadata upgrade(Path worldFolder, String nodeId, String parentNodeId)
+            throws IOException {
         return upgrade(worldFolder, nodeId, parentNodeId, null);
     }
 
     /** Uses the optional inspected legacy document as the precondition for publishing a planned identity. */
     public static WorldMetadata upgrade(Path worldFolder, String nodeId, String parentNodeId,
-                                        LegacyWorldMetadata expected) throws IOException {
+            LegacyWorldMetadata expected) throws IOException {
         if (!Files.isDirectory(worldFolder, LinkOption.NOFOLLOW_LINKS)) {
             throw new IOException("Mirror folder is missing or not a plain directory: " + worldFolder);
         }
         try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
             LegacyWorldMetadata legacy = LegacyWorldMetadata.read(worldFolder);
             if (legacy == null) {
-                WorldMetadata current = WorldMetadata.loadIfPresent(worldFolder)
-                        .orElseThrow(() -> new IOException("Mirror metadata is missing: " + worldFolder));
-                if (!Objects.equals(nodeId, current.nodeId) || !Objects.equals(parentNodeId, current.parentNodeId)
+                WorldMetadata current =
+                        WorldMetadata.loadIfPresent(worldFolder)
+                                .orElseThrow(
+                                        () -> new IOException("Mirror metadata is missing: " + worldFolder));
+                if (!Objects.equals(nodeId, current.nodeId)
+                        || !Objects.equals(parentNodeId, current.parentNodeId)
                         || (expected != null && !expected.sourceId().equals(current.sourceId))) {
                     throw new IOException("Mirror identity changed before metadata upgrade: " + worldFolder);
                 }
@@ -57,7 +61,8 @@ public final class WorldMetadataUpgrade {
                     throw new IOException("Cannot migrate legacy chunk timestamps: " + worldFolder, failure);
                 }
             }
-            JsonSupport.compareAndWriteDocument(worldFolder.resolve(WorldMetadata.FILE_NAME), metadata, legacy.version());
+            JsonSupport.compareAndWriteDocument(
+                    worldFolder.resolve(WorldMetadata.FILE_NAME), metadata, legacy.version());
             return metadata;
         }
     }
@@ -66,7 +71,8 @@ public final class WorldMetadataUpgrade {
         Path metadata = world.resolve(WorldMetadata.FILE_NAME);
         Path backups = world.resolve("backups");
         FileProof.requirePlainDirectory(backups);
-        if (Files.notExists(backups, LinkOption.NOFOLLOW_LINKS)) Files.createDirectory(backups);
+        if (Files.notExists(backups, LinkOption.NOFOLLOW_LINKS))
+            Files.createDirectory(backups);
         try (var transaction = new FileTransaction(backups)) {
             Path staged = transaction.stagingDirectory().resolve(WorldMetadata.FILE_NAME);
             String digest = FileProof.copyVerified(metadata, staged);

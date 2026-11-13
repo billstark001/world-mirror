@@ -8,4 +8,4 @@ import java.lang.annotation.Target;
 /** Opts a boolean or a short bounded integer setting into the custom select. */
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.FIELD)
-public @interface SelectDropdown { }
+public @interface SelectDropdown {}

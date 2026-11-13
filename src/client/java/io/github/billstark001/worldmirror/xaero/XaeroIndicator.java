@@ -16,11 +16,12 @@ public final class XaeroIndicator {
         void textCentered(Component value, int centerX, int boxY, int boxHeight, int color);
     }
 
-    private XaeroIndicator() { }
+    private XaeroIndicator() {}
 
     public static boolean isXaeroMap(Object screen) {
         for (Class<?> type = screen.getClass(); type != null; type = type.getSuperclass()) {
-            if ("xaero.map.gui.GuiMap".equals(type.getName())) return true;
+            if ("xaero.map.gui.GuiMap".equals(type.getName()))
+                return true;
         }
         return false;
     }
@@ -39,14 +40,15 @@ public final class XaeroIndicator {
         canvas.fill(x, y + 16, x + 46, y + 18, 0xFFFFC000);
         canvas.fill(x, y, x + 2, y + 18, 0xFFFFC000);
         canvas.fill(x + 44, y, x + 46, y + 18, 0xFFFFC000);
-        canvas.textCentered(Component.translatable("overlay.worldmirror.mirrorIndicator"),
-                x + 23, y, 18, 0xFFFFE066);
+        canvas.textCentered(
+                Component.translatable("overlay.worldmirror.mirrorIndicator"), x + 23, y, 18, 0xFFFFE066);
 
         if (!toastShown) {
             toastShown = true;
-            client.execute(() -> ClientDialogs.toast(client,
-                    new MirrorPrompt.Text("toast.worldmirror.mirrorIndicator.title"),
-                    new MirrorPrompt.Text("toast.worldmirror.mirrorIndicator.body")));
+            client.execute(()
+                                   -> ClientDialogs.toast(client,
+                                           new MirrorPrompt.Text("toast.worldmirror.mirrorIndicator.title"),
+                                           new MirrorPrompt.Text("toast.worldmirror.mirrorIndicator.body")));
         }
     }
 }

@@ -20,9 +20,10 @@ public final class WorldGraph {
     public enum Kind { LOCAL, MIRROR, SNAPSHOT, REMOTE, UNRESOLVED }
     public enum Role { SYNC, SNAPSHOT }
 
-    private static final Comparator<Location> LOCATION_ORDER = Comparator.comparing(Location::root)
-            .thenComparing(Location::folder, String.CASE_INSENSITIVE_ORDER)
-            .thenComparing(Location::folder);
+    private static final Comparator<Location> LOCATION_ORDER =
+            Comparator.comparing(Location::root)
+                    .thenComparing(Location::folder, String.CASE_INSENSITIVE_ORDER)
+                    .thenComparing(Location::folder);
     private static final Comparator<Node> NODE_ORDER = Comparator.comparing(Node::id);
 
     private WorldGraph() {}
@@ -31,8 +32,8 @@ public final class WorldGraph {
         public Location {
             Objects.requireNonNull(root);
             Objects.requireNonNull(folder);
-            if (folder.isBlank() || folder.equals(".") || folder.equals("..")
-                    || folder.indexOf('/') >= 0 || folder.indexOf('\\') >= 0 || folder.indexOf(':') >= 0
+            if (folder.isBlank() || folder.equals(".") || folder.equals("..") || folder.indexOf('/') >= 0
+                    || folder.indexOf('\\') >= 0 || folder.indexOf(':') >= 0
                     || folder.chars().anyMatch(Character::isISOControl)) {
                 throw new IllegalArgumentException("Expected a single world folder segment: " + folder);
             }
@@ -67,24 +68,33 @@ public final class WorldGraph {
         private final Map<String, List<Node>> children;
 
         private Snapshot(Map<String, Node> nodes, Set<String> cyclicIds, Set<String> missingParents,
-                         List<Duplicate> duplicates) {
+                List<Duplicate> duplicates) {
             this.nodes = Map.copyOf(nodes);
             this.cyclicIds = Set.copyOf(cyclicIds);
             this.missingParents = Set.copyOf(missingParents);
             this.duplicates = List.copyOf(duplicates);
             Map<String, List<Node>> byParent = new HashMap<>();
             for (Node node : nodes.values()) {
-                if (node.parentId() != null) byParent.computeIfAbsent(node.parentId(), ignored -> new ArrayList<>()).add(node);
+                if (node.parentId() != null)
+                    byParent.computeIfAbsent(node.parentId(), ignored -> new ArrayList<>()).add(node);
             }
             byParent.replaceAll((parent, values) -> values.stream().sorted(NODE_ORDER).toList());
             this.children = Map.copyOf(byParent);
             this.ambiguousIds = ambiguousAncestry(children, cyclicIds, duplicates);
         }
 
-        public Map<String, Node> nodes() { return nodes; }
-        public Set<String> cyclicIds() { return cyclicIds; }
-        public Set<String> missingParents() { return missingParents; }
-        public List<Duplicate> duplicates() { return duplicates; }
+        public Map<String, Node> nodes() {
+            return nodes;
+        }
+        public Set<String> cyclicIds() {
+            return cyclicIds;
+        }
+        public Set<String> missingParents() {
+            return missingParents;
+        }
+        public List<Duplicate> duplicates() {
+            return duplicates;
+        }
 
         /** Includes standalone snapshots that have a lineage edge. */
         public List<Node> childrenOf(String parentId) {
@@ -94,10 +104,14 @@ public final class WorldGraph {
 
         /** A configured choice is retained while unavailable. The caller can offer a session override. */
         public Optional<Node> defaultMirror(String parentId, String configuredId) {
-            if (!isUnambiguous(parentId)) return Optional.empty();
-            return childrenOf(parentId).stream().filter(node -> node.role() == Role.SYNC)
+            if (!isUnambiguous(parentId))
+                return Optional.empty();
+            return childrenOf(parentId)
+                    .stream()
+                    .filter(node -> node.role() == Role.SYNC)
                     .filter(node -> isUnambiguous(node.id()))
-                    .filter(node -> configuredId == null || configuredId.equals(node.id())).findFirst();
+                    .filter(node -> configuredId == null || configuredId.equals(node.id()))
+                    .findFirst();
         }
 
         public boolean isUnambiguous(String id) {
@@ -105,7 +119,8 @@ public final class WorldGraph {
         }
 
         public Optional<Node> findRoot(String id) {
-            if (!isUnambiguous(id)) return Optional.empty();
+            if (!isUnambiguous(id))
+                return Optional.empty();
             Node node = nodes.get(id);
             while (node != null) {
                 if (node.parentId() == null) {
@@ -122,7 +137,8 @@ public final class WorldGraph {
             Set<String> seen = new HashSet<>();
             String cursor = parentId;
             while (cursor != null && seen.add(cursor)) {
-                if (childId.equals(cursor)) return true;
+                if (childId.equals(cursor))
+                    return true;
                 Node parent = nodes.get(cursor);
                 cursor = parent == null ? null : parent.parentId();
             }
@@ -130,15 +146,18 @@ public final class WorldGraph {
         }
     }
 
-    private static Set<String> ambiguousAncestry(Map<String, List<Node>> children, Set<String> cycles, List<Duplicate> duplicates) {
+    private static Set<String> ambiguousAncestry(
+            Map<String, List<Node>> children, Set<String> cycles, List<Duplicate> duplicates) {
         Set<String> ambiguous = new HashSet<>(cycles);
         for (Duplicate duplicate : duplicates) ambiguous.add(duplicate.original().id());
-        if (ambiguous.isEmpty()) return Set.of();
+        if (ambiguous.isEmpty())
+            return Set.of();
 
         List<String> queue = new ArrayList<>(ambiguous);
         for (int i = 0; i < queue.size(); i++) {
             for (Node child : children.getOrDefault(queue.get(i), List.of())) {
-                if (ambiguous.add(child.id())) queue.add(child.id());
+                if (ambiguous.add(child.id()))
+                    queue.add(child.id());
             }
         }
         return Set.copyOf(ambiguous);
@@ -153,11 +172,20 @@ public final class WorldGraph {
         Map<String, Node> nodes = new LinkedHashMap<>();
         List<Duplicate> duplicates = new ArrayList<>();
         observations.forEach((id, copies) -> {
-            List<Node> ordered = copies.stream().sorted(Comparator
-                    .comparing((Node node) -> !Objects.equals(node.location(), lastKnown.get(id)))
-                    .thenComparing(Node::location, Comparator.nullsLast(LOCATION_ORDER))
-                    .thenComparing(Node::kind).thenComparing(Node::role, Comparator.nullsFirst(Comparator.naturalOrder()))
-                    .thenComparing(Node::parentId, Comparator.nullsFirst(Comparator.naturalOrder()))).toList();
+            List<Node> ordered =
+                    copies.stream()
+                            .sorted(Comparator
+                                            .comparing((Node node)
+                                                               -> !Objects.equals(
+                                                                       node.location(), lastKnown.get(id)))
+                                            .thenComparing(
+                                                    Node::location, Comparator.nullsLast(LOCATION_ORDER))
+                                            .thenComparing(Node::kind)
+                                            .thenComparing(Node::role,
+                                                    Comparator.nullsFirst(Comparator.naturalOrder()))
+                                            .thenComparing(Node::parentId,
+                                                    Comparator.nullsFirst(Comparator.naturalOrder())))
+                            .toList();
             Node original = ordered.getFirst();
             nodes.put(id, original);
             ordered.stream().skip(1).forEach(copy -> duplicates.add(new Duplicate(original, copy)));
@@ -165,9 +193,11 @@ public final class WorldGraph {
 
         Set<String> missingParents = new HashSet<>();
         for (Node node : nodes.values()) {
-            if (node.parentId() == null) continue;
+            if (node.parentId() == null)
+                continue;
             Node parent = nodes.get(node.parentId());
-            if (parent == null || parent.kind() == Kind.UNRESOLVED) missingParents.add(node.parentId());
+            if (parent == null || parent.kind() == Kind.UNRESOLVED)
+                missingParents.add(node.parentId());
         }
         return new Snapshot(nodes, findCycles(nodes), missingParents, duplicates);
     }
@@ -177,13 +207,15 @@ public final class WorldGraph {
         Set<String> checked = new HashSet<>();
         Set<String> cycles = new HashSet<>();
         for (String start : nodes.keySet()) {
-            if (checked.contains(start)) continue;
+            if (checked.contains(start))
+                continue;
             Map<String, Integer> walk = new HashMap<>();
             List<String> path = new ArrayList<>();
             String cursor = start;
             while (cursor != null && !checked.contains(cursor)) {
                 Node node = nodes.get(cursor);
-                if (node == null) break;
+                if (node == null)
+                    break;
                 Integer cycleStart = walk.putIfAbsent(cursor, path.size());
                 if (cycleStart != null) {
                     cycles.addAll(path.subList(cycleStart, path.size()));
@@ -204,9 +236,11 @@ public final class WorldGraph {
     }
 
     static boolean isNodeId(String id) {
-        if (id == null || id.chars().anyMatch(Character::isISOControl)) return false;
+        if (id == null || id.chars().anyMatch(Character::isISOControl))
+            return false;
         int delimiter = id.indexOf(':');
-        if (delimiter < 0 || id.substring(delimiter + 1).isBlank()) return false;
+        if (delimiter < 0 || id.substring(delimiter + 1).isBlank())
+            return false;
         return switch (id.substring(0, delimiter)) {
             case "local", "mirror", "snapshot", "remote", "unresolved" -> true;
             default -> false;

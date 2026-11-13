@@ -20,12 +20,14 @@ import static org.junit.jupiter.api.Assertions.*;
 class ChunkBucketIndexTest {
     @Test
     void summaryPreservesDifferentMapAndSessionWinners() {
-        var saved = new ChunkStatusSnapshot(List.of(new ChunkRecord(0, 0, 200, "world_mirror"),
-                new ChunkRecord(1, 0, 300, "external")), Set.of());
+        var saved = new ChunkStatusSnapshot(
+                List.of(new ChunkRecord(0, 0, 200, "world_mirror"), new ChunkRecord(1, 0, 300, "external")),
+                Set.of());
         var live = live(new LiveChunkStatusSnapshot.Record(0, 0, 100, PENDING_WRITE, false),
                 new LiveChunkStatusSnapshot.Record(1, 0, 400, CACHED, false));
         var layout = new ChunkBucketLayout(new ChunkBounds(0, 3, 0, 3), 4);
-        var summary = ChunkBucketIndex.combine(saved.index(), live.index(), layout).get(ChunkBounds.key(0, 0));
+        var summary =
+                ChunkBucketIndex.combine(saved.index(), live.index(), layout).get(ChunkBounds.key(0, 0));
         assertEquals("external", summary.newest().updateSource());
         assertEquals(200, summary.newestMirrorTime());
         assertEquals(PENDING_WRITE, summary.live().state());
@@ -48,7 +50,8 @@ class ChunkBucketIndexTest {
 
     @Test
     void equalTimestampsAndLivePrioritiesHaveDeterministicCoordinateTies() {
-        var records = new ArrayList<>(List.of(new ChunkRecord(-2, -1, 10, "world_mirror"), new ChunkRecord(-1, -1, 10, "external")));
+        var records = new ArrayList<>(List.of(
+                new ChunkRecord(-2, -1, 10, "world_mirror"), new ChunkRecord(-1, -1, 10, "external")));
         var layout = new ChunkBucketLayout(new ChunkBounds(-4, -1, -4, -1), 4);
         var a = new ChunkStatusSnapshot(records, Set.of()).index().query(layout);
         Collections.reverse(records);
@@ -61,30 +64,36 @@ class ChunkBucketIndexTest {
     void randomClippedAndNegativeBucketsAgreeWithDirectRecordSelection() {
         Random random = new Random(0xB0C4E7L);
         var records = new ArrayList<ChunkRecord>();
-        for (int x = -30; x <= 30; x++) for (int z = -30; z <= 30; z++) {
-            if (random.nextBoolean()) records.add(new ChunkRecord(x, z, records.size() + 1L,
-                    random.nextBoolean() ? "world_mirror" : "external"));
-        }
+        for (int x = -30; x <= 30; x++)
+            for (int z = -30; z <= 30; z++) {
+                if (random.nextBoolean())
+                    records.add(new ChunkRecord(
+                            x, z, records.size() + 1L, random.nextBoolean() ? "world_mirror" : "external"));
+            }
         var snapshot = new ChunkStatusSnapshot(records, List.of(new ChunkPos(-3, 2)));
         for (int trial = 0; trial < 100; trial++) {
             int x = random.nextInt(-35, 30), z = random.nextInt(-35, 30), size = random.nextInt(1, 12);
             var bounds = new ChunkBounds(x, x + random.nextInt(1, 30), z, z + random.nextInt(1, 30));
             var actual = snapshot.index().query(new ChunkBucketLayout(bounds, size));
             Map<Long, ChunkRecord> expected = new HashMap<>();
-            for (var record : records) if (bounds.contains(record.x(), record.z())) {
-                long key = ChunkBounds.key(Math.floorDiv(record.x(), size), Math.floorDiv(record.z(), size));
-                expected.merge(key, record, (a, b) -> a.updateTime() > b.updateTime() ? a : b);
-            }
+            for (var record : records)
+                if (bounds.contains(record.x(), record.z())) {
+                    long key =
+                            ChunkBounds.key(Math.floorDiv(record.x(), size), Math.floorDiv(record.z(), size));
+                    expected.merge(key, record, (a, b) -> a.updateTime() > b.updateTime() ? a : b);
+                }
             actual.forEach((key, summary) -> assertEquals(expected.get(key), summary.newest()));
             expected.forEach((key, record) -> assertEquals(record, actual.get(key).newest()));
-            assertEquals(bounds.contains(-3, 2), actual.values().stream().anyMatch(ChunkBucketIndex.Summary::conflict));
+            assertEquals(bounds.contains(-3, 2),
+                    actual.values().stream().anyMatch(ChunkBucketIndex.Summary::conflict));
         }
     }
 
     @Test
     void diagonalPanSkipsWarmInteriorRegionsAndDifferentViewsShareBuckets() {
         var records = new ArrayList<ChunkRecord>();
-        for (int x = 0; x < 330; x++) for (int z = 0; z < 330; z++) records.add(new ChunkRecord(x, z, 1, "world_mirror"));
+        for (int x = 0; x < 330; x++)
+            for (int z = 0; z < 330; z++) records.add(new ChunkRecord(x, z, 1, "world_mirror"));
         var snapshot = new ChunkStatusSnapshot(records, Set.of());
         var firstView = new ChunkMapProjection();
         var secondView = new ChunkMapProjection();
@@ -93,32 +102,40 @@ class ChunkBucketIndexTest {
         var first = firstView.get(snapshot, LiveChunkStatusSnapshot.EMPTY, initial, 0, initialLayout, false);
         long before = snapshot.index().visits();
         var shifted = new ChunkBounds(5, 324, 5, 324);
-        secondView.get(snapshot, LiveChunkStatusSnapshot.EMPTY, shifted, 0, ChunkBucketLayout.withinBudget(shifted, 4096), false);
+        secondView.get(snapshot, LiveChunkStatusSnapshot.EMPTY, shifted, 0,
+                ChunkBucketLayout.withinBudget(shifted, 4096), false);
         assertTrue(snapshot.index().visits() - before < 25_000, "only the new edge regions may be scanned");
-        assertSame(first, firstView.get(snapshot, LiveChunkStatusSnapshot.EMPTY, initial, 1, initialLayout, false));
+        assertSame(first,
+                firstView.get(snapshot, LiveChunkStatusSnapshot.EMPTY, initial, 1, initialLayout, false));
         long beforeSession = snapshot.index().visits();
         ChunkWorldOverlay.build(snapshot, LiveChunkStatusSnapshot.EMPTY, new ChunkBounds(0, 319, 0, 319),
                 new ChunkWorldOverlay.Settings(96, 1, true, 60, SESSION), 1);
-        assertEquals(beforeSession, snapshot.index().visits(), "SESSION shares the same color-independent bucket facts");
+        assertEquals(beforeSession, snapshot.index().visits(),
+                "SESSION shares the same color-independent bucket facts");
     }
 
     @Test
     void completeBucketMemoizationIsBoundedAndExtremeCoordinatesRemainDistinct() {
-        var index = new ChunkBucketIndex(List.of(new ChunkBucketIndex.Fact(1_000_000, 0,
-                new ChunkRecord(1_000_000, 0, 1, "world_mirror"), false, null, null)));
-        for (int x = 0; x < 17_000; x++) index.query(new ChunkBucketLayout(new ChunkBounds(x * 2, x * 2 + 1, 0, 1), 2));
+        var index = new ChunkBucketIndex(List.of(new ChunkBucketIndex.Fact(
+                1_000_000, 0, new ChunkRecord(1_000_000, 0, 1, "world_mirror"), false, null, null)));
+        for (int x = 0; x < 17_000; x++)
+            index.query(new ChunkBucketLayout(new ChunkBounds(x * 2, x * 2 + 1, 0, 1), 2));
         assertEquals(16_384, index.cachedBuckets());
-        var saved = new ChunkStatusSnapshot(List.of(new ChunkRecord(Integer.MIN_VALUE, Integer.MAX_VALUE, 1, "world_mirror"),
-                new ChunkRecord(Integer.MAX_VALUE, Integer.MIN_VALUE, 2, "external")), Set.of());
+        var saved = new ChunkStatusSnapshot(
+                List.of(new ChunkRecord(Integer.MIN_VALUE, Integer.MAX_VALUE, 1, "world_mirror"),
+                        new ChunkRecord(Integer.MAX_VALUE, Integer.MIN_VALUE, 2, "external")),
+                Set.of());
         var result = saved.index().query(ChunkBucketLayout.withinBudget(
-                new ChunkBounds(Integer.MIN_VALUE, Integer.MAX_VALUE, Integer.MIN_VALUE, Integer.MAX_VALUE), 4));
+                new ChunkBounds(Integer.MIN_VALUE, Integer.MAX_VALUE, Integer.MIN_VALUE, Integer.MAX_VALUE),
+                4));
         assertEquals(2, result.size());
     }
 
     @Test
     void sparseDenseViewsVisitStoredFactsInsteadOfEnumeratingEmptyCoordinates() {
         var snapshot = new ChunkStatusSnapshot(List.of(new ChunkRecord(-9_000, 0, 1, "world_mirror"),
-                new ChunkRecord(9_000, 0, 2, "world_mirror")), Set.of());
+                                                       new ChunkRecord(9_000, 0, 2, "world_mirror")),
+                Set.of());
         var layout = new ChunkBucketLayout(new ChunkBounds(-10_000, 10_000, -10_000, 10_000), 1);
         assertTimeoutPreemptively(java.time.Duration.ofSeconds(2), () -> {
             assertEquals(2, snapshot.index().query(layout).size());

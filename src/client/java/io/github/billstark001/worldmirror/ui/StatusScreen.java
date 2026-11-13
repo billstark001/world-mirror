@@ -61,8 +61,8 @@ public final class StatusScreen extends StatusScreenApi {
     private Button dropdownOpener;
     private final List<Button> dropdownChoices = new ArrayList<>();
 
-    private record StatusContext(WorldGraphService.Source observation, String sourceNodeId,
-                                 Path output, MirrorTarget target, boolean currentWorldIsMirror) {
+    private record StatusContext(WorldGraphService.Source observation, String sourceNodeId, Path output,
+            MirrorTarget target, boolean currentWorldIsMirror) {
         String mirrorNodeId() {
             return target == null ? null : target.nodeId();
         }
@@ -79,15 +79,18 @@ public final class StatusScreen extends StatusScreenApi {
         loadPersistentStatus();
         int left = left();
         int tabWidth = (PANEL_WIDTH - 8) / 3;
-        addRenderableWidget(Button.builder(tabLabel("screen.worldmirror.tab.status", 0),
-                        button -> switchTab(0))
-                .bounds(left, 32, tabWidth, BUTTON_HEIGHT).build());
-        addRenderableWidget(Button.builder(tabLabel("screen.worldmirror.tab.settings", 1),
-                        button -> switchTab(1))
-                .bounds(left + tabWidth + 4, 32, tabWidth, BUTTON_HEIGHT).build());
-        addRenderableWidget(Button.builder(tabLabel("screen.worldmirror.tab.conflicts", 2),
-                        button -> switchTab(2))
-                .bounds(left + (tabWidth + 4) * 2, 32, tabWidth, BUTTON_HEIGHT).build());
+        addRenderableWidget(
+                Button.builder(tabLabel("screen.worldmirror.tab.status", 0), button -> switchTab(0))
+                        .bounds(left, 32, tabWidth, BUTTON_HEIGHT)
+                        .build());
+        addRenderableWidget(
+                Button.builder(tabLabel("screen.worldmirror.tab.settings", 1), button -> switchTab(1))
+                        .bounds(left + tabWidth + 4, 32, tabWidth, BUTTON_HEIGHT)
+                        .build());
+        addRenderableWidget(
+                Button.builder(tabLabel("screen.worldmirror.tab.conflicts", 2), button -> switchTab(2))
+                        .bounds(left + (tabWidth + 4) * 2, 32, tabWidth, BUTTON_HEIGHT)
+                        .build());
 
         switch (activeTab) {
             case 0 -> addStatusButtons(left);
@@ -95,9 +98,9 @@ public final class StatusScreen extends StatusScreenApi {
             case 2 -> addConflictButtons(left);
             default -> activeTab = 0;
         }
-        addRenderableWidget(Button.builder(Component.translatable("gui.done"),
-                        button -> onClose())
-                .bounds(width / 2 - 50, height - 28, 100, BUTTON_HEIGHT).build());
+        addRenderableWidget(Button.builder(Component.translatable("gui.done"), button -> onClose())
+                        .bounds(width / 2 - 50, height - 28, 100, BUTTON_HEIGHT)
+                        .build());
     }
 
     @Override
@@ -110,7 +113,8 @@ public final class StatusScreen extends StatusScreenApi {
         super.tick();
         boolean export = DownloadManager.isExportInProgress();
         boolean downloading = DownloadManager.isCaptureEnabled();
-        if (exportButton != null && !dropdownOpen) exportButton.active = !DownloadManager.isManualExportChecking();
+        if (exportButton != null && !dropdownOpen)
+            exportButton.active = !DownloadManager.isManualExportChecking();
         if (!dropdownOpen && !resolveStatusContext(Minecraft.getInstance()).equals(statusContext)) {
             refresh();
             return;
@@ -120,9 +124,9 @@ public final class StatusScreen extends StatusScreenApi {
             lastExportState = export;
             lastDownloadState = downloading;
             if (toggleButton != null) {
-                toggleButton.setMessage(Component.translatable(downloading
-                        ? "screen.worldmirror.status.stopDownload"
-                        : "screen.worldmirror.status.startDownload"));
+                toggleButton.setMessage(
+                        Component.translatable(downloading ? "screen.worldmirror.status.stopDownload"
+                                                           : "screen.worldmirror.status.startDownload"));
             }
         }
         if (exportFinished) {
@@ -148,8 +152,7 @@ public final class StatusScreen extends StatusScreenApi {
     @Override
     public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
         if (dropdownOpen && !dropdownOpener.isMouseOver(click.x(), click.y())
-                && dropdownChoices.stream().noneMatch(
-                        choice -> choice.isMouseOver(click.x(), click.y()))) {
+                && dropdownChoices.stream().noneMatch(choice -> choice.isMouseOver(click.x(), click.y()))) {
             refresh();
             return true;
         }
@@ -168,156 +171,163 @@ public final class StatusScreen extends StatusScreenApi {
             case 0 -> renderStatus(graphics);
             case 1 -> renderSettings(graphics);
             case 2 -> renderConflicts(graphics);
-            default -> { }
+            default -> {
+            }
         }
     }
 
     private void addStatusButtons(int left) {
-        toggleButton = addRenderableWidget(Button.builder(Component.translatable(
-                        DownloadManager.isCaptureEnabled()
-                                ? "screen.worldmirror.status.stopDownload"
-                                : "screen.worldmirror.status.startDownload"),
-                button -> DownloadManager.toggle(Minecraft.getInstance()))
-                .bounds(left, 140, 178, BUTTON_HEIGHT).build());
-        exportButton = addRenderableWidget(Button.builder(Component.translatable(
-                        "screen.worldmirror.status.exportNow"),
-                button -> {
-                    DownloadManager.exportNow(Minecraft.getInstance());
-                    button.active = !DownloadManager.isManualExportChecking();
-                })
-                .bounds(left + 182, 140, 178, BUTTON_HEIGHT).build());
+        toggleButton = addRenderableWidget(
+                Button.builder(Component.translatable(DownloadManager.isCaptureEnabled()
+                                               ? "screen.worldmirror.status.stopDownload"
+                                               : "screen.worldmirror.status.startDownload"),
+                              button -> DownloadManager.toggle(Minecraft.getInstance()))
+                        .bounds(left, 140, 178, BUTTON_HEIGHT)
+                        .build());
+        exportButton = addRenderableWidget(
+                Button.builder(Component.translatable("screen.worldmirror.status.exportNow"), button -> {
+                          DownloadManager.exportNow(Minecraft.getInstance());
+                          button.active = !DownloadManager.isManualExportChecking();
+                      }).bounds(left + 182, 140, 178, BUTTON_HEIGHT).build());
         exportButton.active = !DownloadManager.isManualExportChecking();
-        addRenderableWidget(Button.builder(Component.translatable(
-                        "screen.worldmirror.status.clearData"),
-                button -> { DownloadManager.clearAll(Minecraft.getInstance()); refresh(); })
-                .bounds(left, 164, 178, BUTTON_HEIGHT).build());
-        addRenderableWidget(Button.builder(Component.translatable(
-                        "screen.worldmirror.status.exportNearby"),
-                button -> ExportNearbyScreen.open(this))
-                .bounds(left + 182, 164, 178, BUTTON_HEIGHT).build());
+        addRenderableWidget(
+                Button.builder(Component.translatable("screen.worldmirror.status.clearData"), button -> {
+                          DownloadManager.clearAll(Minecraft.getInstance());
+                          refresh();
+                      }).bounds(left, 164, 178, BUTTON_HEIGHT).build());
+        addRenderableWidget(
+                Button.builder(Component.translatable("screen.worldmirror.status.exportNearby"),
+                              button -> ExportNearbyScreen.open(this))
+                        .bounds(left + 182, 164, 178, BUTTON_HEIGHT)
+                        .build());
     }
 
     private void addSettingsButtons(int left) {
         WorldGraphService service = WorldGraphService.instance();
         ModConfig.SaveLocation saveLocation = resolveSaveLocation();
-        ModConfig.ConflictStrategy strategy = service.conflictStrategy(
-                statusContext.mirrorNodeId(), statusContext.sourceNodeId());
-        Button location = addEnumDropdown(left, 116, "screen.worldmirror.status.saveLoc",
-                saveLocation, ModConfig.SaveLocation.values(),
-                value -> enumLabel("config.worldmirror.saveLoc", value),
-                this::selectSaveLocation);
-        location.active = service.available() && statusContext.sourceNodeId() != null && !statusContext.currentWorldIsMirror();
-        Button conflict = addEnumDropdown(left, 140, "screen.worldmirror.status.conflictStrategy",
-                strategy, ModConfig.ConflictStrategy.values(),
-                value -> enumLabel("config.worldmirror.conflictStrategy", value),
+        ModConfig.ConflictStrategy strategy =
+                service.conflictStrategy(statusContext.mirrorNodeId(), statusContext.sourceNodeId());
+        Button location = addEnumDropdown(left, 116, "screen.worldmirror.status.saveLoc", saveLocation,
+                ModConfig.SaveLocation.values(),
+                value -> enumLabel("config.worldmirror.saveLoc", value), this::selectSaveLocation);
+        location.active = service.available() && statusContext.sourceNodeId() != null
+                && !statusContext.currentWorldIsMirror();
+        Button conflict = addEnumDropdown(left, 140, "screen.worldmirror.status.conflictStrategy", strategy,
+                ModConfig.ConflictStrategy.values(),
+                value
+                -> enumLabel("config.worldmirror.conflictStrategy", value),
                 this::selectConflictStrategy);
-        conflict.active = service.available() && (statusContext.sourceNodeId() != null || statusContext.target() != null);
+        conflict.active = service.available()
+                && (statusContext.sourceNodeId() != null || statusContext.target() != null);
         int settingWidth = (PANEL_WIDTH - 8) / 3;
         boolean canSync = canSyncWorldSettings();
-        Button syncTime = addRenderableWidget(Button.builder(Component.translatable(
-                        "screen.worldmirror.status.syncTime"),
-                button -> syncWorldSetting(WorldStructureCreator.Setting.TIME))
-                .bounds(left, 164, settingWidth, BUTTON_HEIGHT).build());
-        Button syncWeather = addRenderableWidget(Button.builder(Component.translatable(
-                        "screen.worldmirror.status.syncWeather"),
-                button -> syncWorldSetting(WorldStructureCreator.Setting.WEATHER))
-                .bounds(left + settingWidth + 4, 164, settingWidth, BUTTON_HEIGHT).build());
-        Button syncDifficulty = addRenderableWidget(Button.builder(Component.translatable(
-                        "screen.worldmirror.status.syncDifficulty"),
-                button -> syncWorldSetting(WorldStructureCreator.Setting.DIFFICULTY))
-                .bounds(left + (settingWidth + 4) * 2, 164, settingWidth, BUTTON_HEIGHT).build());
+        Button syncTime = addRenderableWidget(
+                Button.builder(Component.translatable("screen.worldmirror.status.syncTime"),
+                              button -> syncWorldSetting(WorldStructureCreator.Setting.TIME))
+                        .bounds(left, 164, settingWidth, BUTTON_HEIGHT)
+                        .build());
+        Button syncWeather = addRenderableWidget(
+                Button.builder(Component.translatable("screen.worldmirror.status.syncWeather"),
+                              button -> syncWorldSetting(WorldStructureCreator.Setting.WEATHER))
+                        .bounds(left + settingWidth + 4, 164, settingWidth, BUTTON_HEIGHT)
+                        .build());
+        Button syncDifficulty = addRenderableWidget(
+                Button.builder(Component.translatable("screen.worldmirror.status.syncDifficulty"),
+                              button -> syncWorldSetting(WorldStructureCreator.Setting.DIFFICULTY))
+                        .bounds(left + (settingWidth + 4) * 2, 164, settingWidth, BUTTON_HEIGHT)
+                        .build());
         syncTime.active = canSync;
         syncWeather.active = canSync;
         syncDifficulty.active = canSync;
-        addRenderableWidget(Button.builder(Component.translatable(
-                        "screen.worldmirror.status.openSettings"),
-                button -> {
-                    EnumDropdownGui.register();
-                    showScreen(AutoConfigClient.getConfigScreen(ModConfig.class, this).get());
-                })
-                .bounds(left, 188, PANEL_WIDTH, BUTTON_HEIGHT).build());
+        addRenderableWidget(
+                Button.builder(Component.translatable("screen.worldmirror.status.openSettings"), button -> {
+                          EnumDropdownGui.register();
+                          showScreen(AutoConfigClient.getConfigScreen(ModConfig.class, this).get());
+                      }).bounds(left, 188, PANEL_WIDTH, BUTTON_HEIGHT).build());
     }
 
-    private <T extends Enum<T>> Button addEnumDropdown(
-            int x, int y, String labelKey, T current, T[] values,
+    private <T extends Enum<T>> Button addEnumDropdown(int x, int y, String labelKey, T current, T[] values,
             Function<T, Component> valueLabel, Consumer<T> onSelect) {
-        return addRenderableWidget(Button.builder(
-                        dropdownLabel(labelKey, valueLabel.apply(current), false),
-                        button -> {
-                            if (dropdownOpen) {
-                                refresh();
-                            } else {
-                                openDropdown(button, labelKey, current, values,
-                                        valueLabel, onSelect);
-                            }
-                        })
-                .bounds(x, y, PANEL_WIDTH, BUTTON_HEIGHT).build());
+        return addRenderableWidget(
+                Button.builder(dropdownLabel(labelKey, valueLabel.apply(current), false), button -> {
+                          if (dropdownOpen) {
+                              refresh();
+                          } else {
+                              openDropdown(button, labelKey, current, values, valueLabel, onSelect);
+                          }
+                      }).bounds(x, y, PANEL_WIDTH, BUTTON_HEIGHT).build());
     }
 
-    private <T extends Enum<T>> void openDropdown(
-            Button opener, String labelKey, T current, T[] values,
+    private <T extends Enum<T>> void openDropdown(Button opener, String labelKey, T current, T[] values,
             Function<T, Component> valueLabel, Consumer<T> onSelect) {
         dropdownOpen = true;
         dropdownOpener = opener;
         dropdownChoices.clear();
         opener.setMessage(dropdownLabel(labelKey, valueLabel.apply(current), true));
         for (GuiEventListener child : children()) {
-            if (child instanceof Button button && button != opener) button.active = false;
+            if (child instanceof Button button && button != opener)
+                button.active = false;
         }
 
         int rowStep = DROPDOWN_ROW_HEIGHT + DROPDOWN_ROW_GAP;
         int listHeight = values.length * rowStep - DROPDOWN_ROW_GAP;
         int listY = opener.getY() + BUTTON_HEIGHT;
-        if (listY + listHeight > height - 32) listY = opener.getY() - listHeight;
+        if (listY + listHeight > height - 32)
+            listY = opener.getY() - listHeight;
         int listX = opener.getX() + opener.getWidth() - DROPDOWN_WIDTH;
         Button selected = null;
         for (int index = 0; index < values.length; index++) {
             T value = values[index];
-            Component message = value == current
-                    ? Component.literal("§e✓ ").append(valueLabel.apply(value))
-                    : Component.literal("  ").append(valueLabel.apply(value));
-            Button choice = addRenderableWidget(Button.builder(message,
-                            button -> onSelect.accept(value))
-                    .bounds(listX, listY + index * rowStep,
-                            DROPDOWN_WIDTH, DROPDOWN_ROW_HEIGHT)
-                    .build());
+            Component message = value == current ? Component.literal("§e✓ ").append(valueLabel.apply(value))
+                                                 : Component.literal("  ").append(valueLabel.apply(value));
+            Button choice = addRenderableWidget(Button.builder(message, button -> onSelect.accept(value))
+                            .bounds(listX, listY + index * rowStep, DROPDOWN_WIDTH, DROPDOWN_ROW_HEIGHT)
+                            .build());
             dropdownChoices.add(choice);
-            if (value == current) selected = choice;
+            if (value == current)
+                selected = choice;
         }
-        if (selected != null) setFocused(selected);
+        if (selected != null)
+            setFocused(selected);
     }
 
     private void selectSaveLocation(ModConfig.SaveLocation target) {
-        if (!canChangeRouting()) return;
+        if (!canChangeRouting())
+            return;
         if (target == resolveSaveLocation()) {
             refresh();
         } else if (statusContext.target() != null) {
             showScreen(new SaveLocationMoveScreen(this, statusContext.target(), target));
         } else {
             var observation = statusContext.observation();
-            saveRouting("save_location", () -> WorldGraphService.instance().setSaveLocation(observation, target));
+            saveRouting(
+                    "save_location", () -> WorldGraphService.instance().setSaveLocation(observation, target));
         }
     }
 
     private void selectConflictStrategy(ModConfig.ConflictStrategy strategy) {
-        if (!canChangeRouting()) return;
+        if (!canChangeRouting())
+            return;
         var context = statusContext;
-        saveRouting("conflict_strategy", () -> WorldGraphService.instance().setConflictStrategy(
-                context.mirrorNodeId(), context.sourceNodeId(), strategy));
+        saveRouting("conflict_strategy",
+                ()
+                        -> WorldGraphService.instance().setConflictStrategy(
+                                context.mirrorNodeId(), context.sourceNodeId(), strategy));
     }
 
     private boolean canChangeRouting() {
         if (DownloadManager.isCaptureEnabled()) {
-            refreshWithSettingsResult(Component.translatable(
-                    "screen.worldmirror.move.failure.download_active"), false);
+            refreshWithSettingsResult(
+                    Component.translatable("screen.worldmirror.move.failure.download_active"), false);
             return false;
         }
         if (DownloadManager.isExportInProgress()) {
-            refreshWithSettingsResult(Component.translatable(
-                    "screen.worldmirror.move.failure.export_in_progress"), false);
+            refreshWithSettingsResult(
+                    Component.translatable("screen.worldmirror.move.failure.export_in_progress"), false);
             return false;
         }
-        if (savingRouting) return false;
+        if (savingRouting)
+            return false;
         if (!statusContext.equals(resolveStatusContext(Minecraft.getInstance()))) {
             refresh();
             return false;
@@ -334,47 +344,61 @@ public final class StatusScreen extends StatusScreenApi {
         var context = statusContext;
         var client = Minecraft.getInstance();
         savingRouting = true;
-        OfflineTasks.start("WM-ChangeRouting", () -> {
-            change.run();
-            return true;
-        }, failure -> {
-            String scope = context.mirrorNodeId() != null ? context.mirrorNodeId() : context.sourceNodeId();
-            OperationFailures.report(scope, operation, context.output(), failure);
-            return false;
-        }, client::execute, success -> {
-            savingRouting = false;
-            if (ClientDialogs.currentScreen(client) != this) return;
-            if (success) refresh();
-            else refreshWithSettingsResult(Component.translatable("screen.worldmirror.move.failure.io_error"), false);
-        }, () -> {});
+        OfflineTasks.start("WM-ChangeRouting",
+                ()
+                        -> {
+                    change.run();
+                    return true;
+                },
+                failure
+                -> {
+                    String scope =
+                            context.mirrorNodeId() != null ? context.mirrorNodeId() : context.sourceNodeId();
+                    OperationFailures.report(scope, operation, context.output(), failure);
+                    return false;
+                },
+                client::execute,
+                success
+                -> {
+                    savingRouting = false;
+                    if (ClientDialogs.currentScreen(client) != this)
+                        return;
+                    if (success)
+                        refresh();
+                    else
+                        refreshWithSettingsResult(
+                                Component.translatable("screen.worldmirror.move.failure.io_error"), false);
+                },
+                () -> {});
     }
 
     private static Component dropdownLabel(String labelKey, Component value, boolean open) {
-        return Component.translatable(labelKey).append(": ").append(value)
-                .append(open ? "  ▲" : "  ▼");
+        return Component.translatable(labelKey).append(": ").append(value).append(open ? "  ▲" : "  ▼");
     }
 
     private static Component enumLabel(String prefix, Enum<?> value) {
-        return Component.translatable(prefix + "."
-                + value.name().toLowerCase(Locale.ROOT));
+        return Component.translatable(prefix + "." + value.name().toLowerCase(Locale.ROOT));
     }
 
     private void addConflictButtons(int left) {
         MirrorTarget target = statusContext.target();
         if (conflictCount > 0 && ConflictActions.canResolve(target)) {
-            addRenderableWidget(Button.builder(Component.translatable(
-                            "screen.worldmirror.status.overwriteAll"),
-                    button -> resolveAllConflicts(target, true))
-                    .bounds(left, 108, 178, BUTTON_HEIGHT).build());
-            addRenderableWidget(Button.builder(Component.translatable(
-                            "screen.worldmirror.status.discardAll"),
-                    button -> resolveAllConflicts(target, false))
-                    .bounds(left + 182, 108, 178, BUTTON_HEIGHT).build());
+            addRenderableWidget(
+                    Button.builder(Component.translatable("screen.worldmirror.status.overwriteAll"),
+                                  button -> resolveAllConflicts(target, true))
+                            .bounds(left, 108, 178, BUTTON_HEIGHT)
+                            .build());
+            addRenderableWidget(
+                    Button.builder(Component.translatable("screen.worldmirror.status.discardAll"),
+                                  button -> resolveAllConflicts(target, false))
+                            .bounds(left + 182, 108, 178, BUTTON_HEIGHT)
+                            .build());
         }
-        addRenderableWidget(Button.builder(Component.translatable(
-                        "screen.worldmirror.status.openChunkMap"),
-                button -> ChunkMapScreen.open())
-                .bounds(left, 142, PANEL_WIDTH, BUTTON_HEIGHT).build());
+        addRenderableWidget(
+                Button.builder(Component.translatable("screen.worldmirror.status.openChunkMap"),
+                              button -> ChunkMapScreen.open())
+                        .bounds(left, 142, PANEL_WIDTH, BUTTON_HEIGHT)
+                        .build());
     }
 
     private void renderStatus(Canvas graphics) {
@@ -387,77 +411,85 @@ public final class StatusScreen extends StatusScreenApi {
                 "screen.worldmirror.status.mirrorPath", folder, x, 62);
         int savedCount = ChunkStatusCache.getOrScheduleSavedCount(statusContext.target(), 1_000L);
         pairLine(graphics, "screen.worldmirror.status.savedChunks",
-                savedCount < 0 ? "…" : String.valueOf(savedCount),
-                "screen.worldmirror.status.chunks",
+                savedCount < 0 ? "…" : String.valueOf(savedCount), "screen.worldmirror.status.chunks",
                 String.valueOf(ChunkListener.getTotalCount()), x, 76);
         pairLine(graphics, "screen.worldmirror.status.pendingWrite",
-                String.valueOf(ChunkListener.getDirtyCount()),
-                "screen.worldmirror.status.lastSync", lastSync().getString(), x, 90);
+                String.valueOf(ChunkListener.getDirtyCount()), "screen.worldmirror.status.lastSync",
+                lastSync().getString(), x, 90);
         graphics.text(Component.translatable(DownloadManager.captureStatusKey()), x, 104, 0xFFE0E0E0);
-        graphics.text(Component.translatable(DownloadManager.isExportInProgress() || DownloadManager.hasManualExport()
-                ? "screen.worldmirror.status.exportRunning"
-                : "screen.worldmirror.status.exportIdle"), x + 182, 104, 0xFFE0E0E0);
+        graphics.text(Component.translatable(
+                              DownloadManager.isExportInProgress() || DownloadManager.hasManualExport()
+                                      ? "screen.worldmirror.status.exportRunning"
+                                      : "screen.worldmirror.status.exportIdle"),
+                x + 182, 104, 0xFFE0E0E0);
         if (statusContext.target() != null) {
             var health = ExportStatusStore.global().health(statusContext.mirrorNodeId());
-            graphics.text(ExportStatusText.health(health), x, 128, health.degraded() ? 0xFFFF6060 : 0xFFE0E0E0);
-            if (health.degraded()) graphics.text(ExportStatusText.stage(health), x, 190, 0xFFFF6060);
+            graphics.text(
+                    ExportStatusText.health(health), x, 128, health.degraded() ? 0xFFFF6060 : 0xFFE0E0E0);
+            if (health.degraded())
+                graphics.text(ExportStatusText.stage(health), x, 190, 0xFFFF6060);
         }
         MirrorWorldContext.Snapshot mirror = MirrorWorldContext.current();
         if (mirror.isMirror()) {
             graphics.centered(Component.translatable("screen.worldmirror.status.currentMirror."
-                    + mirror.state().name().toLowerCase()), width / 2, 118, 0xFFFFFF55);
+                                      + mirror.state().name().toLowerCase()),
+                    width / 2, 118, 0xFFFFFF55);
         }
     }
 
     private void renderSettings(Canvas graphics) {
-        graphics.centered(Component.translatable("screen.worldmirror.tab.settingsHeader"),
-                width / 2, 66, 0xFFE0E0E0);
+        graphics.centered(
+                Component.translatable("screen.worldmirror.tab.settingsHeader"), width / 2, 66, 0xFFE0E0E0);
         line(graphics, "screen.worldmirror.status.outputPath",
                 statusContext.output() == null ? "—" : statusContext.output().toString(), left(), 80);
-        line(graphics, "screen.worldmirror.status.xaeroOverlay",
-                bridgeStatus().getString(), left(), 94);
+        line(graphics, "screen.worldmirror.status.xaeroOverlay", bridgeStatus().getString(), left(), 94);
         if (settingsFailure != null) {
-            graphics.centered(settingsFailure, width / 2, 104,
-                    settingsSucceeded ? 0xFF55FF55 : 0xFFFF5555);
+            graphics.centered(settingsFailure, width / 2, 104, settingsSucceeded ? 0xFF55FF55 : 0xFFFF5555);
         }
     }
 
     private boolean canSyncWorldSettings() {
         return WorldGraphService.instance().available() && Minecraft.getInstance().level != null
                 && !statusContext.currentWorldIsMirror() && statusContext.target() != null
-                && !DownloadManager.isCaptureEnabled()
-                && !DownloadManager.isExportInProgress();
+                && !DownloadManager.isCaptureEnabled() && !DownloadManager.isExportInProgress();
     }
 
     private void syncWorldSetting(WorldStructureCreator.Setting setting) {
         Minecraft client = Minecraft.getInstance();
         if (!canSyncWorldSettings() || !statusContext.equals(resolveStatusContext(client))) {
             settingsSucceeded = false;
-            settingsFailure = Component.translatable(
-                    "screen.worldmirror.status.syncSettingUnavailable");
+            settingsFailure = Component.translatable("screen.worldmirror.status.syncSettingUnavailable");
             return;
         }
         WorldSettingsSnapshot snapshot = WorldStructureCreator.captureWorldSettings(client.level);
         MirrorTarget target = statusContext.target();
         OfflineTasks.start("WM-SyncWorldSetting",
-                () -> WorldStructureCreator.syncWorldSetting(target, snapshot, setting), failure -> {
+                ()
+                        -> WorldStructureCreator.syncWorldSetting(target, snapshot, setting),
+                failure
+                -> {
                     OperationFailures.report(target.nodeId(), "setting_sync", target.folder(), failure);
                     return false;
-                }, client::execute, succeeded -> {
-                    if (!target.equals(resolveStatusContext(client).target())) return;
+                },
+                client::execute,
+                succeeded
+                -> {
+                    if (!target.equals(resolveStatusContext(client).target()))
+                        return;
                     settingsSucceeded = succeeded;
-                    settingsFailure = Component.translatable(succeeded
-                            ? "screen.worldmirror.status.syncSettingDone"
-                            : "screen.worldmirror.status.syncSettingFailed");
-                }, () -> {});
+                    settingsFailure =
+                            Component.translatable(succeeded ? "screen.worldmirror.status.syncSettingDone"
+                                                             : "screen.worldmirror.status.syncSettingFailed");
+                },
+                () -> {});
     }
 
     private void renderConflicts(Canvas graphics) {
-        graphics.centered(Component.translatable("screen.worldmirror.tab.conflictsHeader"),
-                width / 2, 66, 0xFFE0E0E0);
+        graphics.centered(
+                Component.translatable("screen.worldmirror.tab.conflictsHeader"), width / 2, 66, 0xFFE0E0E0);
         if (conflictCount == 0) {
-            graphics.centered(Component.translatable("screen.worldmirror.status.noConflicts"),
-                    width / 2, 88, 0xFFE0E0E0);
+            graphics.centered(Component.translatable("screen.worldmirror.status.noConflicts"), width / 2, 88,
+                    0xFFE0E0E0);
         } else {
             line(graphics, "screen.worldmirror.status.conflicts",
                     conflictCount < 0 ? "?" : String.valueOf(conflictCount), left(), 88);
@@ -468,8 +500,8 @@ public final class StatusScreen extends StatusScreenApi {
         graphics.text(valueLine(key, value, PANEL_WIDTH), x, y, 0xFFE0E0E0);
     }
 
-    private void pairLine(Canvas graphics, String leftKey, String leftValue,
-                          String rightKey, String rightValue, int x, int y) {
+    private void pairLine(Canvas graphics, String leftKey, String leftValue, String rightKey,
+            String rightValue, int x, int y) {
         graphics.text(valueLine(leftKey, leftValue, 178), x, y, 0xFFE0E0E0);
         graphics.text(valueLine(rightKey, rightValue, 178), x + 182, y, 0xFFE0E0E0);
     }
@@ -478,16 +510,14 @@ public final class StatusScreen extends StatusScreenApi {
         Component prefix = Component.translatable(key).append(": ");
         int valueWidth = maximumWidth - font.width(prefix);
         if (font.width(value) > valueWidth) {
-            value = font.plainSubstrByWidth(value,
-                    Math.max(0, valueWidth - font.width("…"))) + "…";
+            value = font.plainSubstrByWidth(value, Math.max(0, valueWidth - font.width("…"))) + "…";
         }
         return prefix.copy().append(value);
     }
 
     private Component tabLabel(String key, int tab) {
-        return activeTab == tab
-                ? Component.literal("§l").append(Component.translatable(key))
-                : Component.translatable(key);
+        return activeTab == tab ? Component.literal("§l").append(Component.translatable(key))
+                                : Component.translatable(key);
     }
 
     private void switchTab(int tab) {
@@ -512,11 +542,13 @@ public final class StatusScreen extends StatusScreenApi {
 
     private void resolveAllConflicts(MirrorTarget target, boolean overwrite) {
         var client = Minecraft.getInstance();
-        if (conflictOperationInProgress || !target.equals(resolveStatusContext(client).target())) return;
+        if (conflictOperationInProgress || !target.equals(resolveStatusContext(client).target()))
+            return;
         conflictOperationInProgress = true;
         ConflictActions.resolveAll(target, overwrite, () -> {
             conflictOperationInProgress = false;
-            if (ClientDialogs.currentScreen(client) == this) refresh();
+            if (ClientDialogs.currentScreen(client) == this)
+                refresh();
         });
     }
 
@@ -528,7 +560,8 @@ public final class StatusScreen extends StatusScreenApi {
         try {
             if (target != null && target.matchesSavedIdentity()) {
                 conflictCount = ConflictManager.countAllConflicts(target.folder());
-                if (!target.matchesSavedIdentity()) conflictCount = 0;
+                if (!target.matchesSavedIdentity())
+                    conflictCount = 0;
                 OperationFailures.recovered(target.nodeId(), "conflict_read");
             }
         } catch (java.io.IOException failure) {
@@ -545,9 +578,13 @@ public final class StatusScreen extends StatusScreenApi {
             return;
         }
         lastSyncTime = WorldMetadata.loadIfPresent(target.folder())
-                .filter(target::matches)
-                .map(metadata -> metadata.lastSyncTime)
-                .orElseGet(() -> Files.isRegularFile(target.folder().resolve(WorldMetadata.FILE_NAME)) ? -1L : 0L);
+                               .filter(target::matches)
+                               .map(metadata -> metadata.lastSyncTime)
+                               .orElseGet(()
+                                                  -> Files.isRegularFile(
+                                                             target.folder().resolve(WorldMetadata.FILE_NAME))
+                                               ? -1L
+                                               : 0L);
     }
 
     private static StatusContext resolveStatusContext(Minecraft client) {
@@ -557,15 +594,18 @@ public final class StatusScreen extends StatusScreenApi {
         if (statusTarget != null) {
             var target = statusTarget.mirror();
             String parent = statusTarget.currentWorldIsMirror()
-                    ? MirrorWorldContext.current().metadata().parentNodeId : service.sourceNode(observation);
-            return new StatusContext(observation, parent, target.folder(), target, statusTarget.currentWorldIsMirror());
+                    ? MirrorWorldContext.current().metadata().parentNodeId
+                    : service.sourceNode(observation);
+            return new StatusContext(
+                    observation, parent, target.folder(), target, statusTarget.currentWorldIsMirror());
         }
-        return new StatusContext(observation, service.sourceNode(observation), service.preview(observation), null,
-                MirrorWorldContext.current().isMirror());
+        return new StatusContext(observation, service.sourceNode(observation), service.preview(observation),
+                null, MirrorWorldContext.current().isMirror());
     }
 
     private Component lastSync() {
-        if (lastSyncTime < 0L) return Component.literal("?");
+        if (lastSyncTime < 0L)
+            return Component.literal("?");
         if (lastSyncTime == 0L) {
             return Component.translatable("screen.worldmirror.status.lastSyncNever");
         }
@@ -573,7 +613,8 @@ public final class StatusScreen extends StatusScreenApi {
     }
 
     private static Component formatAge(long seconds) {
-        if (seconds < 0) seconds = 0;
+        if (seconds < 0)
+            seconds = 0;
         if (seconds < 60) {
             return Component.translatable("screen.worldmirror.status.age.seconds", seconds);
         }

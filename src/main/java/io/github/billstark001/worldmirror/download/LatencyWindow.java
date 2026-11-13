@@ -16,14 +16,16 @@ final class LatencyWindow {
     private long observations;
 
     LatencyWindow(int capacity) {
-        if (capacity <= 0) throw new IllegalArgumentException("capacity must be positive");
+        if (capacity <= 0)
+            throw new IllegalArgumentException("capacity must be positive");
         values = new long[capacity];
     }
 
     synchronized void record(long value) {
         values[next] = Math.max(0L, value);
         next = (next + 1) % values.length;
-        if (size < values.length) size++;
+        if (size < values.length)
+            size++;
         observations++;
     }
 
@@ -36,13 +38,8 @@ final class LatencyWindow {
         Arrays.sort(sample);
         long sum = 0L;
         for (long value : sample) sum += value;
-        Summary summary = new Summary(
-                observations,
-                sample.length,
-                sum / sample.length,
-                percentile(sample, 0.95),
-                percentile(sample, 0.99),
-                sample[sample.length - 1]);
+        Summary summary = new Summary(observations, sample.length, sum / sample.length,
+                percentile(sample, 0.95), percentile(sample, 0.99), sample[sample.length - 1]);
         size = 0;
         next = 0;
         observations = 0L;

@@ -12,7 +12,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 
-
 /**
  * World Mirror's optional integration with Xaero World Map Bridge.
  * The bridge, rather than this mod, owns every Xaero mixin and the exact/tail
@@ -21,8 +20,10 @@ import net.minecraft.world.level.Level;
  */
 public final class XaeroBridgeOverlay {
     private static OverlayRegistration registration;
-    private static final io.github.billstark001.worldmirror.ui.map.ChunkViewportCache viewportCache = new io.github.billstark001.worldmirror.ui.map.ChunkViewportCache();
-    private static final io.github.billstark001.worldmirror.ui.map.ChunkMapProjection projection = new io.github.billstark001.worldmirror.ui.map.ChunkMapProjection();
+    private static final io.github.billstark001.worldmirror.ui.map.ChunkViewportCache viewportCache =
+            new io.github.billstark001.worldmirror.ui.map.ChunkViewportCache();
+    private static final io.github.billstark001.worldmirror.ui.map.ChunkMapProjection projection =
+            new io.github.billstark001.worldmirror.ui.map.ChunkMapProjection();
 
     private XaeroBridgeOverlay() {}
 
@@ -37,31 +38,22 @@ public final class XaeroBridgeOverlay {
     private static void render(MapOverlayContext context) {
         ModConfig.ChunkMapConfig config = ModConfig.get().chunkMap;
         Minecraft client = Minecraft.getInstance();
-        if (!config.showXaeroWorldMapOverlay || client.level == null) return;
+        if (!config.showXaeroWorldMapOverlay || client.level == null)
+            return;
 
         ResourceKey<Level> dimension = client.level.dimension();
         var target = ChunkStatusCache.targetFor(client);
         long refreshMs = Math.max(1, config.xaeroWorldMapOverlayRefreshSeconds) * 1_000L;
         ChunkStatusSnapshot snapshot = ChunkStatusCache.getOrScheduleRefresh(target, dimension, refreshMs);
         long now = System.currentTimeMillis();
-        ChunkBounds visible = ChunkMapView.overlayVisibleRange(
-                context.width(), context.height(), context.cameraX(), context.cameraZ(),
-                context.pixelsPerBlock());
-        if (visible == null) return;
+        ChunkBounds visible = ChunkMapView.overlayVisibleRange(context.width(), context.height(),
+                context.cameraX(), context.cameraZ(), context.pixelsPerBlock());
+        if (visible == null)
+            return;
         var liveSnapshot = viewportCache.get(client, target, dimension, visible, snapshot, now);
-        ChunkMapView.renderOverlay(
-                context.canvas()::fill, projection,
-                context::worldToScreenX,
-                context::worldToScreenY,
-                snapshot,
-                liveSnapshot,
-                context.width(),
-                context.height(),
-                context.cameraX(),
-                context.cameraZ(),
-                context.pixelsPerBlock(),
-                now,
+        ChunkMapView.renderOverlay(context.canvas()::fill, projection, context::worldToScreenX,
+                context::worldToScreenY, snapshot, liveSnapshot, context.width(), context.height(),
+                context.cameraX(), context.cameraZ(), context.pixelsPerBlock(), now,
                 config.xaeroWorldMapOverlayMaxCells);
     }
-
 }

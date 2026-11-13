@@ -5,7 +5,6 @@ package io.github.billstark001.worldmirror.conflict;
  * incoming server version.
  */
 public class OverwriteResolver implements ConflictResolver {
-
     @Override
     public boolean shouldWriteChunk(ConflictContext context) {
         return true;

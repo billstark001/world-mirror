@@ -13,15 +13,18 @@ import net.minecraft.network.chat.Component;
 public final class XaeroIndicatorText {
     private static boolean installed;
 
-    private XaeroIndicatorText() { }
+    private XaeroIndicatorText() {}
 
     public static synchronized void install() {
-        if (installed) return;
+        if (installed)
+            return;
         installed = true;
         ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
-            if (!XaeroIndicator.isXaeroMap(screen)) return;
+            if (!XaeroIndicator.isXaeroMap(screen))
+                return;
 #if MC_VERSION >= 260102
-            ScreenEvents.afterExtract(screen).register((map, graphics, mouseX, mouseY, delta) ->
+            ScreenEvents.afterExtract(screen).register((map, graphics, mouseX, mouseY, delta)
+                                                               ->
 #else
             ScreenEvents.afterRender(screen).register((map, graphics, mouseX, mouseY, delta) ->
 #endif
@@ -32,8 +35,8 @@ public final class XaeroIndicatorText {
                         }
 
                         @Override
-                        public void textCentered(Component value, int centerX,
-                                                 int boxY, int boxHeight, int color) {
+                        public void textCentered(
+                                Component value, int centerX, int boxY, int boxHeight, int color) {
                             int x = centerX - client.font.width(value) / 2;
                             int y = boxY + (boxHeight - client.font.lineHeight) / 2;
 #if MC_VERSION >= 260102

@@ -18,7 +18,8 @@ public final class LegacyContainerName {
         try {
             String text = tag instanceof StringTag ? tag.asString().orElse("").stripLeading() : "";
             if (text.startsWith("{") || text.startsWith("[")) {
-                return ComponentSerialization.CODEC.parse(JsonOps.INSTANCE, JsonParser.parseString(text)).result();
+                return ComponentSerialization.CODEC.parse(JsonOps.INSTANCE, JsonParser.parseString(text))
+                        .result();
             }
             return ComponentSerialization.CODEC.parse(NbtOps.INSTANCE, tag).result();
         } catch (RuntimeException malformed) {

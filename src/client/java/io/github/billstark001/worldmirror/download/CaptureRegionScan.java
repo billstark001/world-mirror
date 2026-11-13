@@ -16,7 +16,8 @@ final class CaptureRegionScan {
     private long nextZ;
 
     CaptureRegionScan(ResourceKey<Level> dimension, int centerX, int centerZ, int radius) {
-        if (radius < 0) throw new IllegalArgumentException("Negative capture radius");
+        if (radius < 0)
+            throw new IllegalArgumentException("Negative capture radius");
         this.dimension = dimension;
         nextX = Math.max(Integer.MIN_VALUE, (long) centerX - radius);
         nextZ = Math.max(Integer.MIN_VALUE, (long) centerZ - radius);
@@ -34,13 +35,15 @@ final class CaptureRegionScan {
      * coordinate when the destination queue or tick budget is exhausted.
      * The predicate returns whether a loaded candidate was newly queued.
      */
-    int fill(int maxChecks, BooleanSupplier hasRoomAndTime,
-             Predicate<DownloadCaptureQueue.Key> enqueue) {
+    int fill(int maxChecks, BooleanSupplier hasRoomAndTime, Predicate<DownloadCaptureQueue.Key> enqueue) {
         int queued = 0;
-        for (int checked = 0; checked < maxChecks && !isComplete() && hasRoomAndTime.getAsBoolean(); checked++) {
+        for (int checked = 0; checked < maxChecks && !isComplete() && hasRoomAndTime.getAsBoolean();
+                checked++) {
             DownloadCaptureQueue.Key key = new DownloadCaptureQueue.Key(dimension, (int) nextX, (int) nextZ);
-            if (enqueue.test(key)) queued++;
-            if (nextZ < maxZ) nextZ++;
+            if (enqueue.test(key))
+                queued++;
+            if (nextZ < maxZ)
+                nextZ++;
             else {
                 nextZ = minZ;
                 nextX++;

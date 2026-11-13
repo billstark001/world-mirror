@@ -15,15 +15,20 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class ChunkRegionIndex<V> {
     private final Map<Long, Long2ObjectMap<V>> regions;
 
-    public ChunkRegionIndex() { this(new Long2ObjectOpenHashMap<>()); }
-    private ChunkRegionIndex(Map<Long, Long2ObjectMap<V>> regions) { this.regions = regions; }
+    public ChunkRegionIndex() {
+        this(new Long2ObjectOpenHashMap<>());
+    }
+    private ChunkRegionIndex(Map<Long, Long2ObjectMap<V>> regions) {
+        this.regions = regions;
+    }
 
     /** Packed coordinates have collision-heavy Long.hashCode values (x XOR z).
      * Minecraft's fastutil map mixes all 64 bits; Map.copyOf's linear probes can
      * otherwise turn a large dense/diagonal viewport copy into quadratic work.
      */
     public static <V> Map<Long, V> copyCoordinates(Map<Long, V> coordinates) {
-        return coordinates.isEmpty() ? Map.of() : Collections.unmodifiableMap(new Long2ObjectOpenHashMap<>(coordinates));
+        return coordinates.isEmpty() ? Map.of()
+                                     : Collections.unmodifiableMap(new Long2ObjectOpenHashMap<>(coordinates));
     }
 
     /** Single-writer staging with immutable region pages for nonblocking viewport reads.
@@ -44,9 +49,9 @@ public final class ChunkRegionIndex<V> {
         public void put(int x, int z, V value) {
             Objects.requireNonNull(value);
             staged.computeIfAbsent(key(x >> 5, z >> 5), region -> {
-                Long2ObjectMap<V> old = visible.regions.get(region);
-                return old == null ? new Long2ObjectOpenHashMap<>() : new Long2ObjectOpenHashMap<>(old);
-            }).put(key(x, z), value);
+                      Long2ObjectMap<V> old = visible.regions.get(region);
+                      return old == null ? new Long2ObjectOpenHashMap<>() : new Long2ObjectOpenHashMap<>(old);
+                  }).put(key(x, z), value);
         }
         public void publish() {
             staged.forEach((region, page) -> {
@@ -59,21 +64,25 @@ public final class ChunkRegionIndex<V> {
         public int forEachInRange(int minX, int maxX, int minZ, int maxZ, Consumer<? super V> consumer) {
             return visible.forEachInRange(minX, maxX, minZ, maxZ, consumer);
         }
-        long copiedRecords() { return copiedRecords; }
+        long copiedRecords() {
+            return copiedRecords;
+        }
     }
 
     public boolean put(int x, int z, V value) {
         Objects.requireNonNull(value);
         V previous = regions.computeIfAbsent(key(x >> 5, z >> 5), ignored -> new Long2ObjectOpenHashMap<>())
-                .put(key(x, z), value);
+                             .put(key(x, z), value);
         return !Objects.equals(previous, value);
     }
 
     public boolean remove(int x, int z) {
         long regionKey = key(x >> 5, z >> 5);
         Long2ObjectMap<V> region = regions.get(regionKey);
-        if (region == null || region.remove(key(x, z)) == null) return false;
-        if (region.isEmpty()) regions.remove(regionKey);
+        if (region == null || region.remove(key(x, z)) == null)
+            return false;
+        if (region.isEmpty())
+            regions.remove(regionKey);
         return true;
     }
 
@@ -84,8 +93,9 @@ public final class ChunkRegionIndex<V> {
 
     /** Filters whole regions before visiting records, useful for a sparse set of cold buckets. */
     public int forEachInRange(int minX, int maxX, int minZ, int maxZ,
-                              BiPredicate<Integer, Integer> regionFilter, Consumer<? super V> consumer) {
-        if (minX > maxX || minZ > maxZ || regions.isEmpty()) return 0;
+            BiPredicate<Integer, Integer> regionFilter, Consumer<? super V> consumer) {
+        if (minX > maxX || minZ > maxZ || regions.isEmpty())
+            return 0;
         int minRX = minX >> 5, maxRX = maxX >> 5;
         int minRZ = minZ >> 5, maxRZ = maxZ >> 5;
         long area = ((long) maxRX - minRX + 1L) * ((long) maxRZ - minRZ + 1L);
@@ -101,7 +111,8 @@ public final class ChunkRegionIndex<V> {
             for (int x = minRX; x <= maxRX; x++) {
                 for (int z = minRZ; z <= maxRZ; z++) {
                     Long2ObjectMap<V> region = regions.get(key(x, z));
-                    if (region != null && regionFilter.test(x, z)) visited += visit(region, x, z, minX, maxX, minZ, maxZ, consumer);
+                    if (region != null && regionFilter.test(x, z))
+                        visited += visit(region, x, z, minX, maxX, minZ, maxZ, consumer);
                 }
             }
         }
@@ -113,7 +124,7 @@ public final class ChunkRegionIndex<V> {
         return region == null ? null : region.get(key(x, z));
     }
     private int visit(Long2ObjectMap<V> region, int rx, int rz, int minX, int maxX, int minZ, int maxZ,
-                      Consumer<? super V> consumer) {
+            Consumer<? super V> consumer) {
         int firstX = rx << 5, firstZ = rz << 5;
         if (firstX >= minX && (firstX | 31) <= maxX && firstZ >= minZ && (firstZ | 31) <= maxZ) {
             region.values().forEach(consumer);
@@ -121,7 +132,8 @@ public final class ChunkRegionIndex<V> {
             for (var entry : Long2ObjectMaps.fastIterable(region)) {
                 long coordinate = entry.getLongKey();
                 int x = (int) (coordinate >> 32), z = (int) coordinate;
-                if (x >= minX && x <= maxX && z >= minZ && z <= maxZ) consumer.accept(entry.getValue());
+                if (x >= minX && x <= maxX && z >= minZ && z <= maxZ)
+                    consumer.accept(entry.getValue());
             }
         }
         return region.size();

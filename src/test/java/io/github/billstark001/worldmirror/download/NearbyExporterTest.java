@@ -22,7 +22,7 @@ class NearbyExporterTest {
         Path occupied = Files.createDirectory(root.resolve("snapshot"));
         Files.writeString(occupied.resolve("keep.txt"), "existing save");
         var requests = new ArrayList<Callable<Path>>();
-        for (int export = 0; export < 8; export++) {
+        for (int export = 0; export < 8; export ++) {
             requests.add(() -> NearbyExporter.claimOutputFolder(root, "snapshot"));
         }
         var claimed = new HashSet<Path>();
@@ -64,10 +64,13 @@ class NearbyExporterTest {
     void linkedExportsCanUseCurrentOrOriginalWorld() {
         var source = new WorldGraph.Node("remote:origin", null, null, WorldGraph.Kind.REMOTE, null);
         var mirror = new WorldGraph.Node("mirror:current", source.id(),
-                new WorldGraph.Location(WorldGraph.Root.SAVES, "current"), WorldGraph.Kind.MIRROR, WorldGraph.Role.SYNC);
+                new WorldGraph.Location(WorldGraph.Root.SAVES, "current"), WorldGraph.Kind.MIRROR,
+                WorldGraph.Role.SYNC);
         var graph = WorldGraph.reconcile(java.util.List.of(source, mirror), java.util.Map.of());
-        var inherited = NearbyExporter.resolveLineage(NearbyExporter.Choice.INHERIT_ORIGINAL, graph, mirror.id(), null);
-        var derived = NearbyExporter.resolveLineage(NearbyExporter.Choice.CURRENT_MIRROR, graph, mirror.id(), null);
+        var inherited = NearbyExporter.resolveLineage(
+                NearbyExporter.Choice.INHERIT_ORIGINAL, graph, mirror.id(), null);
+        var derived =
+                NearbyExporter.resolveLineage(NearbyExporter.Choice.CURRENT_MIRROR, graph, mirror.id(), null);
         assertEquals(source.id(), inherited.parentNodeId());
         assertEquals(mirror.id(), derived.parentNodeId());
         assertNotEquals(inherited.nodeId(), derived.nodeId());

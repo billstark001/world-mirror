@@ -8,4 +8,4 @@ import java.lang.annotation.Target;
 /** Uses a bounded integer text field instead of a linear slider. */
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.FIELD)
-public @interface DirectIntegerInput { }
+public @interface DirectIntegerInput {}

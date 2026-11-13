@@ -18,7 +18,8 @@ final class MirrorMigrationProgress implements MirrorMigrationCoordinator.Progre
     @Override
     public synchronized void update(MirrorMigrationCoordinator.Phase phase, int completed, int total) {
         int percent = total <= 0 ? 100 : Math.clamp(completed * 100 / total, 0, 100);
-        if (phase == lastPhase && percent == lastPercent) return;
+        if (phase == lastPhase && percent == lastPercent)
+            return;
         lastPhase = phase;
         lastPercent = percent;
         MirrorPrompt.Text text = new MirrorPrompt.Text(switch (phase) {

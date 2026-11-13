@@ -94,19 +94,24 @@ class WorldWriteLockTest {
 
     @Test
     void worldSettingsCannotBePatchedWhileVanillaHasTheSaveOpen(@TempDir Path world) throws Exception {
-        assertTrue(WorldStructureCreator.createLoadableWorld(world, "test", true, true,
-                WorldSettingsSnapshot.defaults()));
+        assertTrue(WorldStructureCreator.createLoadableWorld(
+                world, "test", true, true, WorldSettingsSnapshot.defaults()));
         var metadata = WorldMetadata.create("mirror:settings", WorldGraph.Kind.MIRROR, "local:settings",
                 WorldGraph.Role.SYNC, "local:settings");
-        metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), MirrorWorldgenAssets.ASSET_REVISION);
+        metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(),
+                MirrorWorldgenAssets.ASSET_REVISION);
         assertTrue(metadata.save(world));
         byte[] original = Files.readAllBytes(world.resolve("level.dat"));
         WorldSettingsSnapshot changed = new WorldSettingsSnapshot(12_345, 12_345, false, false, 2);
         try (DirectoryLock vanilla = DirectoryLock.create(world)) {
-            assertFalse(WorldStructureCreator.syncWorldSetting(new MirrorTarget(world, "mirror:settings", "local:settings"), changed, WorldStructureCreator.Setting.TIME));
+            assertFalse(WorldStructureCreator.syncWorldSetting(
+                    new MirrorTarget(world, "mirror:settings", "local:settings"), changed,
+                    WorldStructureCreator.Setting.TIME));
             assertArrayEquals(original, Files.readAllBytes(world.resolve("level.dat")));
         }
-        assertTrue(WorldStructureCreator.syncWorldSetting(new MirrorTarget(world, "mirror:settings", "local:settings"), changed, WorldStructureCreator.Setting.TIME));
+        assertTrue(WorldStructureCreator.syncWorldSetting(
+                new MirrorTarget(world, "mirror:settings", "local:settings"), changed,
+                WorldStructureCreator.Setting.TIME));
     }
 
     private static void assertVanillaCannotOpen(Path world) {

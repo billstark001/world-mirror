@@ -16,7 +16,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LegacyVoidChunkCleanupTest {
-
     @Test
     void recognizesOnlyAnEmptyTheVoidChunk() {
         CompoundTag chunk = blankVoidChunk();
@@ -65,13 +64,10 @@ class LegacyVoidChunkCleanupTest {
 
     @Test
     void skipsZeroByteRegionFilesInEveryDimension(@TempDir Path world) throws Exception {
-        for (Path dimension : List.of(
-                Path.of("region"),
-                Path.of("DIM-1", "region"),
-                Path.of("DIM1", "region"),
-                Path.of("dimensions", "minecraft", "overworld", "region"),
-                Path.of("dimensions", "minecraft", "the_nether", "region"),
-                Path.of("dimensions", "minecraft", "the_end", "region"))) {
+        for (Path dimension : List.of(Path.of("region"), Path.of("DIM-1", "region"),
+                     Path.of("DIM1", "region"), Path.of("dimensions", "minecraft", "overworld", "region"),
+                     Path.of("dimensions", "minecraft", "the_nether", "region"),
+                     Path.of("dimensions", "minecraft", "the_end", "region"))) {
             Path region = world.resolve(dimension).resolve("r.0.0.mca");
             Files.createDirectories(region.getParent());
             Files.createFile(region);

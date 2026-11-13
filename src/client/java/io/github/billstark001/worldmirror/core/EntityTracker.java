@@ -33,10 +33,7 @@ public final class EntityTracker {
     private static final int COMPLETE_OBSERVATION_RADIUS_CHUNKS = 2;
     private static final long LOAD_GRACE_MS = 750L;
 
-    public enum Observation {
-        PARTIAL,
-        COMPLETE
-    }
+    public enum Observation { PARTIAL, COMPLETE }
 
     /** A top-level entity and every UUID owned by its recursively saved passenger tree. */
     public record EntityRecord(UUID rootUuid, Set<UUID> containedUuids, CompoundTag nbt) {
@@ -61,33 +58,33 @@ public final class EntityTracker {
      * this chunk's copies; upserts replace matching UUIDs across the dimension.
      */
     public record ChunkUpdate(
-            long revision,
-            Observation observation,
-            Map<UUID, EntityRecord> upserts,
-            Set<UUID> tombstones) {
+            long revision, Observation observation, Map<UUID, EntityRecord> upserts, Set<UUID> tombstones) {
         public ChunkUpdate {
             upserts = Map.copyOf(upserts);
             tombstones = Set.copyOf(tombstones);
         }
-
     }
 
     private static final Map<ResourceKey<Level>, EntitySnapshotStore> dimensions = new HashMap<>();
-    private static final Map<ResourceKey<Level>, Map<ChunkPos, Long>> loadedSinceByDimension = new HashMap<>();
+    private static final Map<ResourceKey<Level>, Map<ChunkPos, Long>> loadedSinceByDimension =
+            new HashMap<>();
 
-    private EntityTracker() { }
+    private EntityTracker() {}
 
     public static synchronized void onChunkLoaded(ClientLevel world, ChunkPos pos) {
-        if (world == null || pos == null) return;
+        if (world == null || pos == null)
+            return;
         loadedSinceByDimension.computeIfAbsent(world.dimension(), ignored -> new HashMap<>())
                 .put(pos, System.currentTimeMillis());
     }
 
     /** Ends the observation epoch without deleting saved or pending entity data. */
     public static synchronized void onChunkUnloaded(ClientLevel world, ChunkPos pos) {
-        if (world == null || pos == null) return;
+        if (world == null || pos == null)
+            return;
         Map<ChunkPos, Long> loaded = loadedSinceByDimension.get(world.dimension());
-        if (loaded != null) loaded.remove(pos);
+        if (loaded != null)
+            loaded.remove(pos);
     }
 
     /** Captures the complete client entity store on the game thread. */
@@ -98,7 +95,8 @@ public final class EntityTracker {
         }
 
         ResourceKey<Level> dimension = world.dimension();
-        EntitySnapshotStore store = dimensions.computeIfAbsent(dimension, ignored -> new EntitySnapshotStore());
+        EntitySnapshotStore store =
+                dimensions.computeIfAbsent(dimension, ignored -> new EntitySnapshotStore());
         Map<ChunkPos, Map<UUID, EntityRecord>> observed = observeEntities(world, ignored -> true);
         int total = observed.values().stream().mapToInt(Map::size).sum();
 
@@ -114,8 +112,10 @@ public final class EntityTracker {
      * the game thread. This snapshot does not change or acknowledge live session
      * state, and includes entities even when their session copy is already durable.
      */
-    public static Map<ChunkPos, ChunkUpdate> snapshotVisibleEntities(ClientLevel world, Set<ChunkPos> chunks) {
-        if (world == null || chunks.isEmpty()) return Map.of();
+    public static Map<ChunkPos, ChunkUpdate> snapshotVisibleEntities(
+            ClientLevel world, Set<ChunkPos> chunks) {
+        if (world == null || chunks.isEmpty())
+            return Map.of();
         EntitySnapshotStore snapshot = new EntitySnapshotStore();
         snapshot.capture(observeEntities(world, chunks::contains), Set.of());
         return snapshot.snapshot();
@@ -125,12 +125,15 @@ public final class EntityTracker {
             ClientLevel world, Predicate<ChunkPos> selected) {
         Map<ChunkPos, Map<UUID, EntityRecord>> observed = new HashMap<>();
         for (Entity entity : world.entitiesForRendering()) {
-            if (entity == null || entity instanceof Player || entity.isPassenger()) continue;
+            if (entity == null || entity instanceof Player || entity.isPassenger())
+                continue;
             ChunkPos chunk = entity.chunkPosition();
-            if (!selected.test(chunk)) continue;
+            if (!selected.test(chunk))
+                continue;
             EntityRecord record = serializeEntity(world, entity);
-            if (record != null) observed.computeIfAbsent(chunk, ignored -> new LinkedHashMap<>())
-                    .put(record.rootUuid(), record);
+            if (record != null)
+                observed.computeIfAbsent(chunk, ignored -> new LinkedHashMap<>())
+                        .put(record.rootUuid(), record);
         }
         return observed;
     }
@@ -139,7 +142,8 @@ public final class EntityTracker {
         Map<ResourceKey<Level>, Map<ChunkPos, ChunkUpdate>> result = new HashMap<>();
         dimensions.forEach((dimension, store) -> {
             Map<ChunkPos, ChunkUpdate> updates = store.snapshot();
-            if (!updates.isEmpty()) result.put(dimension, updates);
+            if (!updates.isEmpty())
+                result.put(dimension, updates);
         });
         return Map.copyOf(result);
     }
@@ -148,7 +152,8 @@ public final class EntityTracker {
             Map<ResourceKey<Level>, Map<ChunkPos, Long>> writtenRevisions) {
         writtenRevisions.forEach((dimension, revisions) -> {
             EntitySnapshotStore store = dimensions.get(dimension);
-            if (store != null) store.acknowledge(revisions);
+            if (store != null)
+                store.acknowledge(revisions);
         });
     }
 
@@ -181,7 +186,8 @@ public final class EntityTracker {
         try {
             ProblemReporter.Collector problems = new ProblemReporter.Collector();
             TagValueOutput output = TagValueOutput.createWithContext(problems, world.registryAccess());
-            if (!entity.save(output)) return null;
+            if (!entity.save(output))
+                return null;
 
             CompoundTag nbt = output.buildResult();
             if (!nbt.contains("id") || !nbt.contains("UUID")) {
@@ -199,8 +205,8 @@ public final class EntityTracker {
             // as players. Index the serialized tree rather than live riders.
             return new EntityRecord(entity.getUUID(), serializedUuids(nbt), nbt);
         } catch (Exception e) {
-            WMLogger.warnRateLimited("entity-serialize", 30_000L,
-                    "Entity serialization failed type=" + entity.getType(), e);
+            WMLogger.warnRateLimited(
+                    "entity-serialize", 30_000L, "Entity serialization failed type=" + entity.getType(), e);
             return null;
         }
     }
@@ -215,18 +221,23 @@ public final class EntityTracker {
             if (entity.getStringOr("id", "").isBlank()) {
                 throw new IllegalArgumentException("Missing id in serialized entity tree");
             }
-            UUID uuid = entity.getIntArray("UUID").filter(raw -> raw.length == 4)
-                    .map(UUIDUtil::uuidFromIntArray)
-                    .orElseThrow(() -> new IllegalArgumentException("Invalid UUID in serialized entity tree"));
-            if (!result.add(uuid)) throw new IllegalArgumentException("Duplicate UUID in serialized entity tree");
+            UUID uuid = entity.getIntArray("UUID")
+                                .filter(raw -> raw.length == 4)
+                                .map(UUIDUtil::uuidFromIntArray)
+                                .orElseThrow(()
+                                                     -> new IllegalArgumentException(
+                                                             "Invalid UUID in serialized entity tree"));
+            if (!result.add(uuid))
+                throw new IllegalArgumentException("Duplicate UUID in serialized entity tree");
             Tag passengerTag = entity.get("Passengers");
-            if (passengerTag == null) continue;
+            if (passengerTag == null)
+                continue;
             if (!(passengerTag instanceof ListTag passengers)) {
                 throw new IllegalArgumentException("Invalid passenger list in serialized entity tree");
             }
             for (int index = 0; index < passengers.size(); index++) {
-                pending.push(passengers.getCompound(index).orElseThrow(() ->
-                        new IllegalArgumentException("Invalid passenger in serialized entity tree")));
+                pending.push(passengers.getCompound(index).orElseThrow(
+                        () -> new IllegalArgumentException("Invalid passenger in serialized entity tree")));
             }
         }
         return Set.copyOf(result);
@@ -234,12 +245,13 @@ public final class EntityTracker {
 
     private static Set<ChunkPos> collectCompletelyObservedChunks(ClientLevel world, long now) {
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player == null || minecraft.player.level() != world) return Set.of();
+        if (minecraft.player == null || minecraft.player.level() != world)
+            return Set.of();
 
         int centerX = minecraft.player.getBlockX() >> 4;
         int centerZ = minecraft.player.getBlockZ() >> 4;
-        Map<ChunkPos, Long> loaded = loadedSinceByDimension.computeIfAbsent(
-                world.dimension(), ignored -> new HashMap<>());
+        Map<ChunkPos, Long> loaded =
+                loadedSinceByDimension.computeIfAbsent(world.dimension(), ignored -> new HashMap<>());
         Set<ChunkPos> complete = new HashSet<>();
 
         for (int x = centerX - COMPLETE_OBSERVATION_RADIUS_CHUNKS;
@@ -252,10 +264,10 @@ public final class EntityTracker {
                     continue;
                 }
                 long since = loaded.computeIfAbsent(pos, ignored -> now);
-                if (now - since >= LOAD_GRACE_MS) complete.add(pos);
+                if (now - since >= LOAD_GRACE_MS)
+                    complete.add(pos);
             }
         }
         return complete;
     }
-
 }

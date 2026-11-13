@@ -25,18 +25,24 @@ class WorldGraphConfigTest {
         Path file = root.resolve(WorldGraphConfig.FILE_NAME);
         WorldGraphConfig config = WorldGraphConfig.open(file);
         WorldGraph.Location location = new WorldGraph.Location(WorldGraph.Root.SAVES, "镜像");
-        WorldGraph.Node node = new WorldGraph.Node("mirror", "remote:missing-source", location,
-                WorldGraph.Kind.MIRROR, WorldGraph.Role.SYNC);
+        WorldGraph.Node node = new WorldGraph.Node(
+                "mirror", "remote:missing-source", location, WorldGraph.Kind.MIRROR, WorldGraph.Role.SYNC);
         var sources = new HashSet<>(Set.of("remote:missing-source", "remote:other-source"));
         var nodes = new HashMap<>(Map.of(node.id(), node));
-        var bindings = new ArrayList<>(List.of(new WorldGraphConfig.StableBinding("provider", "group", "id", "remote:missing-source")));
-        var next = new WorldGraphConfig.Snapshot(WorldGraphConfig.SCHEMA, nodes, Map.of(node.id(), node.location()),
-                Map.of("remote:missing-source", new WorldGraphConfig.SourceSettings(node.id(), ModConfig.SaveLocation.SAVES,
-                        "镜像", ModConfig.ConflictStrategy.IGNORE)),
+        var bindings = new ArrayList<>(List.of(
+                new WorldGraphConfig.StableBinding("provider", "group", "id", "remote:missing-source")));
+        var next = new WorldGraphConfig.Snapshot(WorldGraphConfig.SCHEMA, nodes,
+                Map.of(node.id(), node.location()),
+                Map.of("remote:missing-source",
+                        new WorldGraphConfig.SourceSettings(node.id(), ModConfig.SaveLocation.SAVES, "镜像",
+                                ModConfig.ConflictStrategy.IGNORE)),
                 Map.of(node.id(), new WorldGraphConfig.MirrorSettings(ModConfig.ConflictStrategy.MANUAL)),
-                Map.of("example.test", new WorldGraphConfig.EndpointRule("group", sources, "remote:missing-source",
-                        WorldGraphConfig.IdPolicy.AUTO)),
-                bindings, Map.of("pending", new WorldGraphConfig.PendingImport(null, location, "local_source_ambiguous")));
+                Map.of("example.test",
+                        new WorldGraphConfig.EndpointRule(
+                                "group", sources, "remote:missing-source", WorldGraphConfig.IdPolicy.AUTO)),
+                bindings,
+                Map.of("pending",
+                        new WorldGraphConfig.PendingImport(null, location, "local_source_ambiguous")));
         nodes.clear();
         sources.clear();
         bindings.clear();
@@ -47,17 +53,20 @@ class WorldGraphConfigTest {
         var loaded = WorldGraphConfig.open(file).snapshot();
         assertEquals(next, loaded);
         assertEquals(Map.of("mirror", location), loaded.locations());
-        assertEquals(Set.of("remote:missing-source", "remote:other-source"), loaded.endpointRules().get("example.test").sourceIds());
+        assertEquals(Set.of("remote:missing-source", "remote:other-source"),
+                loaded.endpointRules().get("example.test").sourceIds());
         assertEquals("remote:missing-source", loaded.stableBindings().getFirst().sourceId());
         assertThrows(UnsupportedOperationException.class, () -> loaded.nodes().clear());
     }
 
     @Test
     void endpointRulesCannotClaimLocalFileIdentities() {
-        assertThrows(IllegalArgumentException.class, () -> new WorldGraphConfig.EndpointRule("group",
-                Set.of("mirror:physical-save"), null, WorldGraphConfig.IdPolicy.AUTO));
-        assertThrows(IllegalArgumentException.class, () ->
-                new WorldGraphConfig.StableBinding("provider", "group", "advertised", "local:world"));
+        assertThrows(IllegalArgumentException.class,
+                ()
+                        -> new WorldGraphConfig.EndpointRule("group", Set.of("mirror:physical-save"), null,
+                                WorldGraphConfig.IdPolicy.AUTO));
+        assertThrows(IllegalArgumentException.class,
+                () -> new WorldGraphConfig.StableBinding("provider", "group", "advertised", "local:world"));
     }
 
     @Test
@@ -97,8 +106,9 @@ class WorldGraphConfigTest {
         assertEquals("[2001:db8::1]:25566", WorldGraphConfig.normalizeEndpoint("[2001:DB8::1]:25566"));
         assertEquals("example.test.", WorldGraphConfig.normalizeEndpoint("Example.Test."));
         for (String invalid : List.of("", ".", "example.test:", "example.test:-1", "example.test:0",
-                "example.test:65536", "https://example.test", "[example.test]", "[2001:db8::1]tail")) {
-            assertThrows(IllegalArgumentException.class, () -> WorldGraphConfig.normalizeEndpoint(invalid), invalid);
+                     "example.test:65536", "https://example.test", "[example.test]", "[2001:db8::1]tail")) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> WorldGraphConfig.normalizeEndpoint(invalid), invalid);
         }
     }
 }

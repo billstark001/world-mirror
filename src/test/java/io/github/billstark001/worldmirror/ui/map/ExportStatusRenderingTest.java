@@ -32,21 +32,26 @@ class ExportStatusRenderingTest {
     @EnumSource(value = ExportStatus.State.class, names = {"QUEUED", "WRITING", "SUCCEEDED"})
     void normalExportsDoNotAddAnyBuiltInMapDrawing(ExportStatus.State state) {
         var saved = saved(false);
-        for (var records : List.of(Map.<Long, LiveChunkStatusSnapshot.Record>of(), Map.of(0L,
-                new LiveChunkStatusSnapshot.Record(0, 0, 200, LiveChunkStatusSnapshot.State.PENDING_WRITE, true)))) {
+        for (var records : List.of(Map.<Long, LiveChunkStatusSnapshot.Record>of(),
+                     Map.of(0L,
+                             new LiveChunkStatusSnapshot.Record(
+                                     0, 0, 200, LiveChunkStatusSnapshot.State.PENDING_WRITE, true)))) {
             var before = new LiveChunkStatusSnapshot(records, Map.of());
             var after = new LiveChunkStatusSnapshot(records, Map.of(0L, status(0, 0, state)));
-            for (int size : new int[]{1, 5, 8}) {
-                for (int threshold : new int[]{1, 16}) {
-                    for (boolean transparent : new boolean[]{false, true}) {
+            for (int size : new int[] {1, 5, 8}) {
+                for (int threshold : new int[] {1, 16}) {
+                    for (boolean transparent : new boolean[] {false, true}) {
                         assertEquals(builtIn(saved, before, size, threshold, transparent),
                                 builtIn(saved, after, size, threshold, transparent));
                     }
                 }
             }
             var visible = new ChunkBounds(0, 0, 0, 0);
-            assertTrue(new ChunkMapProjection().get(saved, after, visible, 200,
-                    new ChunkBucketLayout(visible.expand(1), 1), true).marks().isEmpty());
+            assertTrue(new ChunkMapProjection()
+                            .get(saved, after, visible, 200, new ChunkBucketLayout(visible.expand(1), 1),
+                                    true)
+                            .marks()
+                            .isEmpty());
             assertEquals(state, after.exportAt(0, 0).state(), "normal states remain available to tooltips");
         }
     }
@@ -55,12 +60,14 @@ class ExportStatusRenderingTest {
     @EnumSource(value = ExportStatus.State.class, names = {"FAILED", "PARTIAL"})
     void failuresRemainVisibleOnDenseSparseAndSmallMapsWithoutTerrain(ExportStatus.State state) {
         var live = new LiveChunkStatusSnapshot(Map.of(), Map.of(0L, status(0, 0, state)));
-        for (int size : new int[]{1, 5, 8}) {
-            for (int threshold : new int[]{1, 16}) {
+        for (int size : new int[] {1, 5, 8}) {
+            for (int threshold : new int[] {1, 16}) {
                 var colors = builtIn(ChunkStatusSnapshot.EMPTY, live, size, threshold, false)
-                        .stream().map(Rect::color).toList();
-                int marker = state == ExportStatus.State.PARTIAL && size < 8
-                        ? ExportStatusMarkers.PARTIAL : ExportStatusMarkers.FAILED;
+                                     .stream()
+                                     .map(Rect::color)
+                                     .toList();
+                int marker = state == ExportStatus.State.PARTIAL && size < 8 ? ExportStatusMarkers.PARTIAL
+                                                                             : ExportStatusMarkers.FAILED;
                 assertTrue(colors.contains(marker));
             }
         }
@@ -70,14 +77,15 @@ class ExportStatusRenderingTest {
     @EnumSource(ExportStatus.State.class)
     void builtInConflictsRemainVisibleAlongsideExportWarnings(ExportStatus.State state) {
         var live = new LiveChunkStatusSnapshot(Map.of(), Map.of(0L, status(0, 0, state)));
-        for (int size : new int[]{5, 8}) {
-            for (int threshold : new int[]{1, 16}) {
-                var colors = builtIn(saved(true), live, size, threshold, false)
-                        .stream().map(Rect::color).toList();
+        for (int size : new int[] {5, 8}) {
+            for (int threshold : new int[] {1, 16}) {
+                var colors =
+                        builtIn(saved(true), live, size, threshold, false).stream().map(Rect::color).toList();
                 assertTrue(colors.contains(0xFF00C800));
                 assertTrue(colors.contains(ExportStatusMarkers.CONFLICT));
                 assertEquals(state == ExportStatus.State.FAILED || state == ExportStatus.State.PARTIAL,
-                        colors.contains(ExportStatusMarkers.FAILED) || colors.contains(ExportStatusMarkers.PARTIAL));
+                        colors.contains(ExportStatusMarkers.FAILED)
+                                || colors.contains(ExportStatusMarkers.PARTIAL));
             }
         }
     }
@@ -86,16 +94,17 @@ class ExportStatusRenderingTest {
     @EnumSource(ExportStatus.State.class)
     void xaeroAndBothWorldOverlayModesIgnoreExportMarkers(ExportStatus.State state) {
         var live = new LiveChunkStatusSnapshot(Map.of(), Map.of(0L, status(0, 0, state)));
-        for (boolean conflict : new boolean[]{false, true}) {
+        for (boolean conflict : new boolean[] {false, true}) {
             var saved = saved(conflict);
-            for (double pixelsPerBlock : new double[]{.0625, .3125, 1}) {
+            for (double pixelsPerBlock : new double[] {.0625, .3125, 1}) {
                 assertEquals(xaero(saved, LiveChunkStatusSnapshot.EMPTY, pixelsPerBlock),
                         xaero(saved, live, pixelsPerBlock));
             }
             for (var mode : WorldChunkOverlayColorMode.values()) {
                 var settings = new ChunkWorldOverlay.Settings(96, 50, true, 60, mode);
                 var range = new ChunkBounds(0, 0, 0, 0);
-                assertEquals(ChunkWorldOverlay.build(saved, LiveChunkStatusSnapshot.EMPTY, range, settings, 200),
+                assertEquals(
+                        ChunkWorldOverlay.build(saved, LiveChunkStatusSnapshot.EMPTY, range, settings, 200),
                         ChunkWorldOverlay.build(saved, live, range, settings, 200));
             }
         }
@@ -107,8 +116,8 @@ class ExportStatusRenderingTest {
         var live = new LiveChunkStatusSnapshot(Map.of(), Map.of(0L, status(0, 0, state)));
         assertTrue(xaero(ChunkStatusSnapshot.EMPTY, live, 1).isEmpty());
         for (var mode : WorldChunkOverlayColorMode.values()) {
-            var overlay = ChunkWorldOverlay.build(ChunkStatusSnapshot.EMPTY, live, new ChunkBounds(0, 0, 0, 0),
-                    new ChunkWorldOverlay.Settings(96, 0, false, 60, mode), 200);
+            var overlay = ChunkWorldOverlay.build(ChunkStatusSnapshot.EMPTY, live,
+                    new ChunkBounds(0, 0, 0, 0), new ChunkWorldOverlay.Settings(96, 0, false, 60, mode), 200);
             assertTrue(overlay.isEmpty());
         }
     }
@@ -124,9 +133,11 @@ class ExportStatusRenderingTest {
         assertEquals("screen.worldmirror.export.state." + state.name().toLowerCase(Locale.ROOT),
                 text((Component) text(lines.getFirst()).getArgs()[0]).getKey());
         var parts = text(lines.get(1)).getArgs();
-        assertEquals("screen.worldmirror.export.part." + status.terrain().state().name().toLowerCase(Locale.ROOT),
+        assertEquals(
+                "screen.worldmirror.export.part." + status.terrain().state().name().toLowerCase(Locale.ROOT),
                 text((Component) parts[0]).getKey());
-        assertEquals("screen.worldmirror.export.part." + status.entities().state().name().toLowerCase(Locale.ROOT),
+        assertEquals(
+                "screen.worldmirror.export.part." + status.entities().state().name().toLowerCase(Locale.ROOT),
                 text((Component) parts[1]).getKey());
     }
 
@@ -135,16 +146,17 @@ class ExportStatusRenderingTest {
         for (var part : List.of(new ExportStatus.Part(1, -1, 1, 1), new ExportStatus.Part(2, -1, 1, -1))) {
             var retry = new ExportStatus.Chunk(0, 0, part, ExportStatus.Part.NONE, false, 0);
             var live = new LiveChunkStatusSnapshot(Map.of(), Map.of(0L, retry));
-            for (int size : new int[]{1, 5, 8}) {
-                assertTrue(builtIn(saved(false), live, size, 1, false).stream()
-                        .anyMatch(rect -> rect.color() == ExportStatusMarkers.FAILED));
+            for (int size : new int[] {1, 5, 8}) {
+                assertTrue(builtIn(saved(false), live, size, 1, false)
+                                .stream()
+                                .anyMatch(rect -> rect.color() == ExportStatusMarkers.FAILED));
             }
             var lines = new ArrayList<Component>();
             ExportStatusText.append(lines, retry, true);
             assertEquals("screen.worldmirror.export.unresolved", text(lines.getLast()).getKey());
         }
-        var metadata = new ExportStatus.Chunk(0, 0, new ExportStatus.Part(1, 1, -1, -1),
-                ExportStatus.Part.NONE, true, 100);
+        var metadata = new ExportStatus.Chunk(
+                0, 0, new ExportStatus.Part(1, 1, -1, -1), ExportStatus.Part.NONE, true, 100);
         var lines = new ArrayList<Component>();
         ExportStatusText.append(lines, metadata, true);
         assertEquals("screen.worldmirror.export.metadata", text(lines.getLast()).getKey());
@@ -153,9 +165,13 @@ class ExportStatusRenderingTest {
         var saved = saved(false);
         var range = new ChunkBounds(0, 0, 0, 0);
         var layout = new ChunkBucketLayout(range.expand(1), 1);
-        assertFalse(projection.get(saved, new LiveChunkStatusSnapshot(Map.of(), Map.of(0L, metadata)),
-                range, 200, layout, true).marks().isEmpty());
-        var recovered = new LiveChunkStatusSnapshot(Map.of(), Map.of(0L, status(0, 0, ExportStatus.State.SUCCEEDED)));
+        assertFalse(projection
+                        .get(saved, new LiveChunkStatusSnapshot(Map.of(), Map.of(0L, metadata)), range, 200,
+                                layout, true)
+                        .marks()
+                        .isEmpty());
+        var recovered =
+                new LiveChunkStatusSnapshot(Map.of(), Map.of(0L, status(0, 0, ExportStatus.State.SUCCEEDED)));
         assertTrue(projection.get(saved, recovered, range, 200, layout, true).marks().isEmpty());
         lines.clear();
         ExportStatusText.append(lines, null, true);
@@ -173,16 +189,19 @@ class ExportStatusRenderingTest {
         var range = new ChunkBounds(-512, 511, -512, 511);
         var layout = ChunkBucketLayout.withinBudget(range, 1024);
         var summaries = live.index().query(layout);
-        var counts = summaries.values().stream().map(ChunkBucketIndex.Summary::exports)
-                .reduce(ExportStatus.Counts.EMPTY, ExportStatus.Counts::plus);
-        assertEquals(new ExportStatus.Counts(10_000, 10_000, 10_000, 10_000, 10_000, 20_000, 10_000, 0), counts);
+        var counts = summaries.values()
+                             .stream()
+                             .map(ChunkBucketIndex.Summary::exports)
+                             .reduce(ExportStatus.Counts.EMPTY, ExportStatus.Counts::plus);
+        assertEquals(
+                new ExportStatus.Counts(10_000, 10_000, 10_000, 10_000, 10_000, 20_000, 10_000, 0), counts);
         long visits = live.index().visits();
         for (int frame = 0; frame < 120; frame++) assertEquals(summaries, live.index().query(layout));
         assertEquals(visits, live.index().visits());
         var map = new ChunkMapProjection().get(ChunkStatusSnapshot.EMPTY, live, range, 200, layout, false);
         assertTrue(map.marks().size() <= 1024);
-        assertEquals(counts.unresolved(), map.marks().values().stream()
-                .mapToInt(summary -> summary.exports().unresolved()).sum());
+        assertEquals(counts.unresolved(),
+                map.marks().values().stream().mapToInt(summary -> summary.exports().unresolved()).sum());
         var geometry = new ChunkWorldOverlay.GeometryCache();
         var settings = new ChunkWorldOverlay.Settings(96, 0, false, 60, WorldChunkOverlayColorMode.SESSION);
         var overlay = geometry.get(ChunkStatusSnapshot.EMPTY, live, range, settings, 0);
@@ -192,22 +211,28 @@ class ExportStatusRenderingTest {
         }
     }
 
-    private record Rect(int left, int top, int right, int bottom, int color) { }
+    private record Rect(int left, int top, int right, int bottom, int color) {}
 
-    private static List<Rect> builtIn(ChunkStatusSnapshot saved, LiveChunkStatusSnapshot live,
-                                     int size, int threshold, boolean transparent) {
+    private static List<Rect> builtIn(ChunkStatusSnapshot saved, LiveChunkStatusSnapshot live, int size,
+            int threshold, boolean transparent) {
         var drawn = new ArrayList<Rect>();
-        ChunkMapView.renderBuiltIn((x1, z1, x2, z2, color) -> drawn.add(new Rect(x1, z1, x2, z2, color)),
+        ChunkMapView.renderBuiltIn((x1, z1, x2, z2, color)
+                                           -> drawn.add(new Rect(x1, z1, x2, z2, color)),
                 new ChunkMapProjection(), saved, live,
                 new ChunkMapView.BuiltInViewport(100, 100, 0, 0, size, transparent), 200, threshold);
         return drawn;
     }
 
-    private static List<Rect> xaero(ChunkStatusSnapshot saved, LiveChunkStatusSnapshot live, double pixelsPerBlock) {
+    private static List<Rect> xaero(
+            ChunkStatusSnapshot saved, LiveChunkStatusSnapshot live, double pixelsPerBlock) {
         var drawn = new ArrayList<Rect>();
-        ChunkMapView.renderOverlay((x1, z1, x2, z2, color) -> drawn.add(new Rect(x1, z1, x2, z2, color)),
-                new ChunkMapProjection(), coordinate -> 50 + (int) Math.round(coordinate * pixelsPerBlock),
-                coordinate -> 50 + (int) Math.round(coordinate * pixelsPerBlock),
+        ChunkMapView.renderOverlay((x1, z1, x2, z2, color)
+                                           -> drawn.add(new Rect(x1, z1, x2, z2, color)),
+                new ChunkMapProjection(),
+                coordinate
+                -> 50 + (int) Math.round(coordinate * pixelsPerBlock),
+                coordinate
+                -> 50 + (int) Math.round(coordinate * pixelsPerBlock),
                 saved, live, 100, 100, 0, 0, pixelsPerBlock, 200, 1000);
         return drawn;
     }
@@ -229,6 +254,8 @@ class ExportStatusRenderingTest {
             case PARTIAL, SUCCEEDED -> new ExportStatus.Part(1, 1, -1, -1);
         };
         return new ExportStatus.Chunk(x, z, part,
-                state == ExportStatus.State.PARTIAL ? new ExportStatus.Part(1, -1, 1, -1) : ExportStatus.Part.NONE, false, 0);
+                state == ExportStatus.State.PARTIAL ? new ExportStatus.Part(1, -1, 1, -1)
+                                                    : ExportStatus.Part.NONE,
+                false, 0);
     }
 }

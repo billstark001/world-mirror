@@ -22,8 +22,8 @@ public final class WorldMetadata {
     public enum Schema { MISSING, CURRENT, FUTURE, UNMANAGED, UNREADABLE }
     public enum GenerationMode { VOID }
 
-    public record Generation(GenerationMode mode, int revision, int assetRevision, int dataVersion,
-                             int cleanupRevision) {
+    public record Generation(
+            GenerationMode mode, int revision, int assetRevision, int dataVersion, int cleanupRevision) {
         public Generation {
             if (mode == null || revision < 0 || assetRevision < 0 || dataVersion < 0 || cleanupRevision < 0) {
                 throw new IllegalArgumentException("Invalid mirror generation");
@@ -45,8 +45,8 @@ public final class WorldMetadata {
 
     private WorldMetadata() {}
 
-    public static WorldMetadata create(String nodeId, WorldGraph.Kind kind, String parentNodeId,
-                                       WorldGraph.Role role, String sourceId) {
+    public static WorldMetadata create(
+            String nodeId, WorldGraph.Kind kind, String parentNodeId, WorldGraph.Role role, String sourceId) {
         WorldMetadata metadata = new WorldMetadata();
         metadata.modVersion = currentModVersion();
         metadata.nodeId = nodeId;
@@ -62,8 +62,10 @@ public final class WorldMetadata {
     /** Inspects current metadata without adopting a document of an unsupported format. */
     public static Schema inspectSchema(Path worldFolder) {
         var read = readDocument(worldFolder);
-        if (read.state() == JsonSupport.ReadState.MISSING) return Schema.MISSING;
-        if (read.state() != JsonSupport.ReadState.VALID) return Schema.UNREADABLE;
+        if (read.state() == JsonSupport.ReadState.MISSING)
+            return Schema.MISSING;
+        if (read.state() != JsonSupport.ReadState.VALID)
+            return Schema.UNREADABLE;
         try {
             return switch (schema(read.value())) {
                 case CURRENT -> {
@@ -82,11 +84,12 @@ public final class WorldMetadata {
     /** Reads a complete current document. Explicit upgrade code owns older disk schemas. */
     public static Optional<WorldMetadata> loadIfPresent(Path worldFolder) {
         var read = readDocument(worldFolder);
-        if (read.state() == JsonSupport.ReadState.MISSING) return Optional.empty();
+        if (read.state() == JsonSupport.ReadState.MISSING)
+            return Optional.empty();
         try {
             if (read.state() == JsonSupport.ReadState.VALID) {
                 return schema(read.value()) == Schema.CURRENT ? Optional.of(fromCurrent(read.value()))
-                        : Optional.empty();
+                                                              : Optional.empty();
             }
             WMLogger.warnRateLimited("metadata-read-" + worldFolder, 30_000L,
                     "World metadata unavailable: " + worldFolder, read.failure());
@@ -103,10 +106,13 @@ public final class WorldMetadata {
 
     private static Schema schema(JsonObject json) {
         String marker = string(json, "format", false);
-        if (marker == null && json.has("metadataSchema")) return Schema.UNREADABLE;
-        if (!FORMAT.equals(marker)) return Schema.UNMANAGED;
+        if (marker == null && json.has("metadataSchema"))
+            return Schema.UNREADABLE;
+        if (!FORMAT.equals(marker))
+            return Schema.UNMANAGED;
         int version = integer(json, "metadataSchema", -1);
-        if (version > CURRENT_METADATA_SCHEMA) return Schema.FUTURE;
+        if (version > CURRENT_METADATA_SCHEMA)
+            return Schema.FUTURE;
         return version == CURRENT_METADATA_SCHEMA ? Schema.CURRENT : Schema.UNREADABLE;
     }
 
@@ -131,7 +137,8 @@ public final class WorldMetadata {
 
     private static String string(JsonObject json, String name, boolean required) {
         JsonElement element = json.get(name);
-        if (!required && (element == null || element.isJsonNull())) return null;
+        if (!required && (element == null || element.isJsonNull()))
+            return null;
         if (element == null || !element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()
                 || !validKey(element.getAsString())) {
             throw new IllegalArgumentException("Invalid metadata string: " + name);
@@ -149,7 +156,8 @@ public final class WorldMetadata {
 
     private static long number(JsonObject json, String name, long defaultValue) {
         JsonElement element = json.get(name);
-        if (element == null) return defaultValue;
+        if (element == null)
+            return defaultValue;
         if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isNumber()) {
             throw new IllegalArgumentException("Invalid metadata number: " + name);
         }
@@ -213,8 +221,8 @@ public final class WorldMetadata {
 
     /** Marks both layers of world-generation migration as complete after a successful write. */
     public void markWorldgenCurrent(int dataVersion, int assetRevision) {
-        generation = new Generation(GenerationMode.VOID, CURRENT_WORLDGEN_SCHEMA, assetRevision,
-                dataVersion, LegacyVoidChunkCleanup.COMPLETED_REVISION);
+        generation = new Generation(GenerationMode.VOID, CURRENT_WORLDGEN_SCHEMA, assetRevision, dataVersion,
+                LegacyVoidChunkCleanup.COMPLETED_REVISION);
         modVersion = currentModVersion();
     }
 
@@ -225,7 +233,9 @@ public final class WorldMetadata {
     }
 
     private static String currentModVersion() {
-        return FabricLoader.getInstance().getModContainer("worldmirror")
-                .map(container -> container.getMetadata().getVersion().getFriendlyString()).orElse("unknown");
+        return FabricLoader.getInstance()
+                .getModContainer("worldmirror")
+                .map(container -> container.getMetadata().getVersion().getFriendlyString())
+                .orElse("unknown");
     }
 }

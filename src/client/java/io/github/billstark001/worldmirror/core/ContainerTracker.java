@@ -35,41 +35,38 @@ import net.minecraft.world.phys.HitResult;
 
 @Environment(EnvType.CLIENT)
 public final class ContainerTracker {
-    private record ContainerKey(ResourceKey<Level> dimension, BlockPos pos) { }
+    private record ContainerKey(ResourceKey<Level> dimension, BlockPos pos) {}
 
-    private record OpenContainer(
-            ClientLevel world,
-            BlockPos pos,
-            String blockEntityType,
-            Component name,
-            Map<Integer, ItemStack> slots,
-            int containerSize
-    ) {
+    private record OpenContainer(ClientLevel world, BlockPos pos, String blockEntityType, Component name,
+            Map<Integer, ItemStack> slots, int containerSize) {
         OpenContainer withSlots(Map<Integer, ItemStack> slots, int size) {
             return new OpenContainer(world, pos, blockEntityType, name, new ConcurrentHashMap<>(slots), size);
         }
     }
 
-    private record DoubleChestPositions(BlockPos first, BlockPos second) { }
+    private record DoubleChestPositions(BlockPos first, BlockPos second) {}
 
     private static final Map<Integer, OpenContainer> openContainers = new ConcurrentHashMap<>();
     private static final Map<ContainerKey, CompoundTag> savedContainerData = new ConcurrentHashMap<>();
 
-    private ContainerTracker() { }
+    private ContainerTracker() {}
 
     /** Binds inventory packets to the exact client world and block-entity type opened by the player. */
     public static void onContainerOpened(int syncId, Component name) {
         openContainers.remove(syncId);
         Minecraft client = Minecraft.getInstance();
-        if (client.level == null || !WorldGraphService.instance().observationIsCurrent(client)) return;
+        if (client.level == null || !WorldGraphService.instance().observationIsCurrent(client))
+            return;
         HitResult hitResult = client.hitResult;
         if (hitResult instanceof BlockHitResult blockHit) {
             BlockPos pos = blockHit.getBlockPos();
             BlockEntity blockEntity = client.level.getBlockEntity(pos);
             // Ender-chest contents belong to the player, not to this world block.
-            if (blockEntity == null || blockEntity instanceof EnderChestBlockEntity) return;
-            openContainers.put(syncId, new OpenContainer(client.level, pos.immutable(),
-                    typeId(blockEntity), name == null ? null : name.copy(), new ConcurrentHashMap<>(), 0));
+            if (blockEntity == null || blockEntity instanceof EnderChestBlockEntity)
+                return;
+            openContainers.put(syncId,
+                    new OpenContainer(client.level, pos.immutable(), typeId(blockEntity),
+                            name == null ? null : name.copy(), new ConcurrentHashMap<>(), 0));
             WMLogger.debug("Container opened position=" + pos + " syncId=" + syncId);
         }
     }
@@ -89,8 +86,7 @@ public final class ContainerTracker {
             container.slots().put(slot, stack.copy());
         }
 
-        if (container.containerSize() == 54
-                && saveDoubleChestOverlay(container, container.slots())) {
+        if (container.containerSize() == 54 && saveDoubleChestOverlay(container, container.slots())) {
             return;
         }
         saveOverlay(container, container.pos(), container.slots());
@@ -113,17 +109,14 @@ public final class ContainerTracker {
     }
 
     private static void handleRegularContainer(
-            int syncId,
-            OpenContainer container,
-            List<ItemStack> contents,
-            int containerSlots) {
+            int syncId, OpenContainer container, List<ItemStack> contents, int containerSlots) {
         Map<Integer, ItemStack> slots = copyContainerSlots(contents, containerSlots);
         openContainers.replace(syncId, container, container.withSlots(slots, containerSlots));
         saveOverlay(container, container.pos(), slots);
 
         int nonEmptySlots = slots.size();
-        WMLogger.debug("Saved regular container at " + container.pos()
-                + " with " + nonEmptySlots + "/" + containerSlots + " filled slots");
+        WMLogger.debug("Saved regular container at " + container.pos() + " with " + nonEmptySlots + "/"
+                + containerSlots + " filled slots");
     }
 
     private static void handleDoubleChest(int syncId, OpenContainer container, List<ItemStack> contents) {
@@ -143,8 +136,8 @@ public final class ContainerTracker {
 
             DoubleChestPositions positions = doubleChestPositions(pos, blockState, chestType);
 
-            Map<Integer, ItemStack> firstSlots = copyContainerSlots(
-                    contents.subList(0, Math.min(27, contents.size())), 27);
+            Map<Integer, ItemStack> firstSlots =
+                    copyContainerSlots(contents.subList(0, Math.min(27, contents.size())), 27);
             Map<Integer, ItemStack> secondSlots = copyContainerSlots(
                     contents.subList(Math.min(27, contents.size()), Math.min(54, contents.size())), 27);
 
@@ -154,9 +147,8 @@ public final class ContainerTracker {
             Map<Integer, ItemStack> combinedSlots = copyContainerSlots(contents, 54);
             openContainers.replace(syncId, container, container.withSlots(combinedSlots, 54));
 
-            WMLogger.debug("Saved double chest at " + positions.first() + "/"
-                    + positions.second() + " with " + firstSlots.size() + "+"
-                    + secondSlots.size() + " filled slots");
+            WMLogger.debug("Saved double chest at " + positions.first() + "/" + positions.second() + " with "
+                    + firstSlots.size() + "+" + secondSlots.size() + " filled slots");
         } catch (Exception e) {
             WMLogger.warnRateLimited("container-double-chest", 30_000L,
                     "Double-chest capture failed; falling back to a single container", e);
@@ -176,8 +168,7 @@ public final class ContainerTracker {
     }
 
     private static boolean saveDoubleChestOverlay(
-            OpenContainer container,
-            Map<Integer, ItemStack> combinedSlots) {
+            OpenContainer container, Map<Integer, ItemStack> combinedSlots) {
         BlockPos pos = container.pos();
         BlockState blockState = container.world().getBlockState(pos);
         if (!(blockState.getBlock() instanceof ChestBlock)) {
@@ -196,19 +187,14 @@ public final class ContainerTracker {
     }
 
     private static DoubleChestPositions doubleChestPositions(
-            BlockPos pos,
-            BlockState blockState,
-            ChestType chestType) {
+            BlockPos pos, BlockState blockState, ChestType chestType) {
         BlockPos connectedPos = ChestBlock.getConnectedBlockPos(pos, blockState);
-        return chestType == ChestType.RIGHT
-                ? new DoubleChestPositions(pos, connectedPos)
-                : new DoubleChestPositions(connectedPos, pos);
+        return chestType == ChestType.RIGHT ? new DoubleChestPositions(pos, connectedPos)
+                                            : new DoubleChestPositions(connectedPos, pos);
     }
 
     private static Map<Integer, ItemStack> copySlotRange(
-            Map<Integer, ItemStack> slots,
-            int startSlot,
-            int slotCount) {
+            Map<Integer, ItemStack> slots, int startSlot, int slotCount) {
         Map<Integer, ItemStack> result = new HashMap<>();
         for (Map.Entry<Integer, ItemStack> entry : slots.entrySet()) {
             int slot = entry.getKey();
@@ -224,22 +210,21 @@ public final class ContainerTracker {
         return result;
     }
 
-    private static void saveOverlay(
-            OpenContainer container,
-            BlockPos pos,
-            Map<Integer, ItemStack> slots) {
+    private static void saveOverlay(OpenContainer container, BlockPos pos, Map<Integer, ItemStack> slots) {
         BlockEntity blockEntity = container.world().getBlockEntity(pos);
-        if (blockEntity == null || !container.blockEntityType().equals(typeId(blockEntity))) return;
+        if (blockEntity == null || !container.blockEntityType().equals(typeId(blockEntity)))
+            return;
         ResourceKey<Level> dimension = container.world().dimension();
         CompoundTag overlay = new CompoundTag();
         overlay.putString("id", container.blockEntityType());
         overlay.put("Items", serializeItems(container.world(), slots));
-        ContainerNameSupport.encodeCustomName(container.name()).ifPresent(customName -> overlay.put("CustomName", customName));
+        ContainerNameSupport.encodeCustomName(container.name())
+                .ifPresent(customName -> overlay.put("CustomName", customName));
         rememberOverlay(dimension, pos, overlay);
         Minecraft client = Minecraft.getInstance();
         if (client.level != null && client.level.dimension().equals(dimension)) {
-            DownloadManager.queueChunkCapture(client.level,
-                    new ChunkPos(pos.getX() >> 4, pos.getZ() >> 4), "container-update");
+            DownloadManager.queueChunkCapture(
+                    client.level, new ChunkPos(pos.getX() >> 4, pos.getZ() >> 4), "container-update");
         }
     }
 
@@ -253,9 +238,9 @@ public final class ContainerTracker {
             }
 
             DataResult<Tag> result = ItemStack.CODEC.encodeStart(ops, stack);
-            result.resultOrPartial(error -> WMLogger.warnRateLimited(
-                            "container-item-encode", 30_000L,
-                            "Failed to encode a container item stack: " + error))
+            result.resultOrPartial(error
+                          -> WMLogger.warnRateLimited("container-item-encode", 30_000L,
+                                  "Failed to encode a container item stack: " + error))
                     .ifPresent(tag -> {
                         if (tag instanceof CompoundTag itemNbt) {
                             itemNbt.putByte("Slot", entry.getKey().byteValue());
@@ -279,7 +264,8 @@ public final class ContainerTracker {
 
     /** Returns a caller-owned copy so inventory overlays cannot be changed outside this tracker. */
     public static CompoundTag getContainerData(ResourceKey<Level> dimension, BlockPos pos) {
-        if (dimension == null || pos == null) return null;
+        if (dimension == null || pos == null)
+            return null;
         CompoundTag data = savedContainerData.get(new ContainerKey(dimension, pos));
         return data == null ? null : data.copy();
     }
@@ -295,7 +281,8 @@ public final class ContainerTracker {
     }
 
     public static boolean hasContainerData(ResourceKey<Level> dimension, BlockPos pos) {
-        if (dimension == null || pos == null) return false;
+        if (dimension == null || pos == null)
+            return false;
         return savedContainerData.containsKey(new ContainerKey(dimension, pos));
     }
 
@@ -315,7 +302,8 @@ public final class ContainerTracker {
         ChunkListener.markChunkDirty(dimension, new ChunkPos(pos.getX() >> 4, pos.getZ() >> 4));
     }
 
-    public static void evictForChunks(Map<ResourceKey<Level>, ? extends java.util.Collection<ChunkPos>> evictedByDim) {
+    public static void evictForChunks(
+            Map<ResourceKey<Level>, ? extends java.util.Collection<ChunkPos>> evictedByDim) {
         evictForChunks(evictedByDim, null);
     }
 
@@ -323,30 +311,37 @@ public final class ContainerTracker {
     public static void evictForChunks(
             Map<ResourceKey<Level>, ? extends java.util.Collection<ChunkPos>> evictedByDim,
             Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> exported) {
-        if (evictedByDim == null || evictedByDim.isEmpty()) return;
+        if (evictedByDim == null || evictedByDim.isEmpty())
+            return;
 
         Map<ResourceKey<Level>, java.util.Set<ChunkPos>> normalized = new java.util.HashMap<>();
-        for (Map.Entry<ResourceKey<Level>, ? extends java.util.Collection<ChunkPos>> entry : evictedByDim.entrySet()) {
+        for (Map.Entry<ResourceKey<Level>, ? extends java.util.Collection<ChunkPos>> entry :
+                evictedByDim.entrySet()) {
             java.util.Collection<ChunkPos> chunks = entry.getValue();
-            if (chunks == null || chunks.isEmpty()) continue;
+            if (chunks == null || chunks.isEmpty())
+                continue;
             normalized.put(entry.getKey(), new java.util.HashSet<>(chunks));
         }
-        if (normalized.isEmpty()) return;
+        if (normalized.isEmpty())
+            return;
 
         int removed = 0;
         for (var entry : savedContainerData.entrySet()) {
             ContainerKey key = entry.getKey();
             java.util.Set<ChunkPos> chunkSet = normalized.get(key.dimension());
-            if (chunkSet == null || !chunkSet.contains(new ChunkPos(key.pos().getX() >> 4, key.pos().getZ() >> 4))) continue;
-            CompoundTag expected = exported == null ? entry.getValue()
+            if (chunkSet == null
+                    || !chunkSet.contains(new ChunkPos(key.pos().getX() >> 4, key.pos().getZ() >> 4)))
+                continue;
+            CompoundTag expected = exported == null
+                    ? entry.getValue()
                     : exported.getOrDefault(key.dimension(), Map.of()).get(key.pos());
             if (entry.getValue().equals(expected) && savedContainerData.remove(key, entry.getValue())) {
                 removed++;
             }
         }
         if (removed > 0) {
-            WMLogger.debug("Evicted " + removed + " container entries across "
-                    + normalized.size() + " dimension(s).");
+            WMLogger.debug("Evicted " + removed + " container entries across " + normalized.size()
+                    + " dimension(s).");
         }
     }
 
@@ -356,11 +351,13 @@ public final class ContainerTracker {
 
     private static OpenContainer currentContainer(int syncId) {
         OpenContainer container = openContainers.get(syncId);
-        if (container == null) return null;
+        if (container == null)
+            return null;
         Minecraft client = Minecraft.getInstance();
         if (client.level == container.world() && WorldGraphService.instance().observationIsCurrent(client)) {
             BlockEntity blockEntity = container.world().getBlockEntity(container.pos());
-            if (blockEntity != null && container.blockEntityType().equals(typeId(blockEntity))) return container;
+            if (blockEntity != null && container.blockEntityType().equals(typeId(blockEntity)))
+                return container;
         }
         openContainers.remove(syncId, container);
         return null;

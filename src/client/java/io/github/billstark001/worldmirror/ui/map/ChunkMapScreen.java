@@ -54,7 +54,9 @@ public class ChunkMapScreen extends Screen {
         private final ChunkMapView.Canvas target;
         private int fills;
 
-        private MeasuredCanvas(ChunkMapView.Canvas target) { this.target = target; }
+        private MeasuredCanvas(ChunkMapView.Canvas target) {
+            this.target = target;
+        }
 
         @Override
         public void fill(int left, int top, int right, int bottom, int color) {
@@ -107,19 +109,21 @@ public class ChunkMapScreen extends Screen {
         if (client.level != null) {
             currentDimension = client.level.dimension();
         }
-        if (currentDimension == null) currentDimension = Level.OVERWORLD;
+        if (currentDimension == null)
+            currentDimension = Level.OVERWORLD;
 
         loadData(client);
 
         // Permanent bottom buttons
-        addRenderableWidget(Button.builder(
-                Component.translatable("gui.done"), btn -> onClose()
-        ).bounds(this.width - 60, this.height - 24, 54, 20).build());
+        addRenderableWidget(Button.builder(Component.translatable("gui.done"), btn -> onClose())
+                        .bounds(this.width - 60, this.height - 24, 54, 20)
+                        .build());
 
-        addRenderableWidget(Button.builder(
-                Component.translatable("screen.worldmirror.chunkmap.refresh"),
-                btn -> loadData(Minecraft.getInstance())
-        ).bounds(this.width - 120, this.height - 24, 54, 20).build());
+        addRenderableWidget(
+                Button.builder(Component.translatable("screen.worldmirror.chunkmap.refresh"),
+                              btn -> loadData(Minecraft.getInstance()))
+                        .bounds(this.width - 120, this.height - 24, 54, 20)
+                        .build());
 
         // Dialog buttons (hidden initially)
         int dw = 220, dh = 90;
@@ -130,25 +134,25 @@ public class ChunkMapScreen extends Screen {
         int totalW = 3 * btnW + 2 * gap;
         int bx = (this.width - totalW) / 2;
 
-        dialogCancelBtn = addRenderableWidget(Button.builder(
-                Component.translatable("gui.cancel"), btn -> closeDialog()
-        ).bounds(bx, btnY, btnW, 20).build());
+        dialogCancelBtn =
+                addRenderableWidget(Button.builder(Component.translatable("gui.cancel"), btn -> closeDialog())
+                                .bounds(bx, btnY, btnW, 20)
+                                .build());
 
-        dialogOverwriteBtn = addRenderableWidget(Button.builder(
-                Component.translatable("screen.worldmirror.chunkmap.dialog.overwrite"),
-                btn -> {
-                    resolveSelectedConflict(true);
-                    closeDialog();
-                }
-        ).bounds(bx + btnW + gap, btnY, btnW, 20).build());
+        dialogOverwriteBtn = addRenderableWidget(
+                Button.builder(Component.translatable("screen.worldmirror.chunkmap.dialog.overwrite"),
+                              btn -> {
+                                  resolveSelectedConflict(true);
+                                  closeDialog();
+                              })
+                        .bounds(bx + btnW + gap, btnY, btnW, 20)
+                        .build());
 
-        dialogDiscardBtn = addRenderableWidget(Button.builder(
-                Component.translatable("screen.worldmirror.chunkmap.dialog.discard"),
-                btn -> {
-                    resolveSelectedConflict(false);
-                    closeDialog();
-                }
-        ).bounds(bx + 2 * (btnW + gap), btnY, btnW, 20).build());
+        dialogDiscardBtn = addRenderableWidget(
+                Button.builder(Component.translatable("screen.worldmirror.chunkmap.dialog.discard"), btn -> {
+                          resolveSelectedConflict(false);
+                          closeDialog();
+                      }).bounds(bx + 2 * (btnW + gap), btnY, btnW, 20).build());
 
         setDialogButtonsVisible(false);
     }
@@ -158,11 +162,13 @@ public class ChunkMapScreen extends Screen {
         Minecraft client = Minecraft.getInstance();
         if (resolvingConflict || dialogChunk == null || selected == null || currentDimension == null
                 || client.level == null || !currentDimension.equals(client.level.dimension())
-                || !selected.equals(ChunkStatusCache.targetFor(client))) return;
+                || !selected.equals(ChunkStatusCache.targetFor(client)))
+            return;
         resolvingConflict = true;
         ConflictActions.resolve(selected.mirror(), dialogChunk, currentDimension, overwrite, () -> {
             resolvingConflict = false;
-            if (selected.equals(statusTarget)) loadData(Minecraft.getInstance());
+            if (selected.equals(statusTarget))
+                loadData(Minecraft.getInstance());
         });
     }
 
@@ -170,7 +176,8 @@ public class ChunkMapScreen extends Screen {
 
     private void loadData(Minecraft client) {
         updateTarget(client);
-        if (currentDimension == null) currentDimension = Level.OVERWORLD;
+        if (currentDimension == null)
+            currentDimension = Level.OVERWORLD;
 
         statusSnapshot = ChunkStatusCache.getOrScheduleRefresh(statusTarget, currentDimension, 0L);
         viewportCache.clear();
@@ -178,7 +185,8 @@ public class ChunkMapScreen extends Screen {
 
     private void updateTarget(Minecraft client) {
         StatusTarget next = ChunkStatusCache.targetFor(client);
-        ResourceKey<Level> dimension = client == null || client.level == null ? Level.OVERWORLD : client.level.dimension();
+        ResourceKey<Level> dimension =
+                client == null || client.level == null ? Level.OVERWORLD : client.level.dimension();
         if (!Objects.equals(statusTarget, next) || !dimension.equals(currentDimension)) {
             closeDialog();
             statusTarget = next;
@@ -203,26 +211,27 @@ public class ChunkMapScreen extends Screen {
                 statusTarget, currentDimension, PERSISTENT_REFRESH_INTERVAL_MS);
         long savedReady = measure ? System.nanoTime() : 0L;
         long now = System.currentTimeMillis();
-        ChunkMapView.BuiltInViewport viewport = viewport(
-                mapConfig.background == ModConfig.ChunkMapBackground.TRANSPARENT);
+        ChunkMapView.BuiltInViewport viewport =
+                viewport(mapConfig.background == ModConfig.ChunkMapBackground.TRANSPARENT);
         liveSnapshot = viewportCache.get(this.minecraft, statusTarget, currentDimension,
                 ChunkMapView.visibleRange(viewport), statusSnapshot, now);
         long liveReady = measure ? System.nanoTime() : 0L;
         var previousFrame = measure ? projection.currentFrame() : null;
         MeasuredCanvas measured = measure ? new MeasuredCanvas(ctx::fill) : null;
-        ChunkMapView.renderBuiltIn(
-                measure ? measured : ctx::fill, projection, statusSnapshot, liveSnapshot, viewport, now,
-                mapConfig.sparseRenderCellThreshold);
+        ChunkMapView.renderBuiltIn(measure ? measured : ctx::fill, projection, statusSnapshot, liveSnapshot,
+                viewport, now, mapConfig.sparseRenderCellThreshold);
         if (measure) {
             long drawn = System.nanoTime();
             var frame = projection.currentFrame();
             boolean rebuilt = frame != previousFrame;
             if (rebuilt || drawn - start >= SLOW_MAP_FRAME_NS) {
                 WMLogger.infoRateLimited("chunk-map-render", 1_000L,
-                        "[perf] chunkMap cellPx=" + viewport.cellSize() + " bucketChunks=" + frame.bucketSize()
-                                + " layoutBuckets=" + frame.projectedBuckets() + " visibleOccupiedBuckets=" + frame.occupiedBuckets()
-                                + " dense=" + frame.dense() + " rebuilt=" + rebuilt + " fills=" + measured.fills
-                                + " savedUs=" + (savedReady - start) / 1_000L + " liveUs=" + (liveReady - savedReady) / 1_000L
+                        "[perf] chunkMap cellPx=" + viewport.cellSize() + " bucketChunks="
+                                + frame.bucketSize() + " layoutBuckets=" + frame.projectedBuckets()
+                                + " visibleOccupiedBuckets=" + frame.occupiedBuckets()
+                                + " dense=" + frame.dense() + " rebuilt=" + rebuilt
+                                + " fills=" + measured.fills + " savedUs=" + (savedReady - start) / 1_000L
+                                + " liveUs=" + (liveReady - savedReady) / 1_000L
                                 + " geometryAndDrawUs=" + (drawn - liveReady) / 1_000L);
             }
         }
@@ -237,12 +246,14 @@ public class ChunkMapScreen extends Screen {
 #if MC_VERSION >= 260102
             ctx.centeredText(this.font, Component.translatable("screen.worldmirror.chunkmap.currentMirror"),
 #else
-            ctx.drawCenteredString(this.font, Component.translatable("screen.worldmirror.chunkmap.currentMirror"),
+            ctx.drawCenteredString(this.font,
+                    Component.translatable("screen.worldmirror.chunkmap.currentMirror"),
 #endif
                     width / 2, 16, 0xFFFFFF55);
         }
 
-        if (dialogChunk != null) drawConflictDialog(ctx);
+        if (dialogChunk != null)
+            drawConflictDialog(ctx);
 #if MC_VERSION >= 260102
         super.extractRenderState(ctx, mx, my, delta);
 #else
@@ -267,15 +278,16 @@ public class ChunkMapScreen extends Screen {
         lines.add(Component.translatable("screen.worldmirror.chunkmap.chunk", chunkX, chunkZ));
         lines.add(Component.translatable("screen.worldmirror.chunkmap.block", chunkX * 16, chunkZ * 16));
         if (live != null) {
-            lines.add(Component.translatable("screen.worldmirror.chunkmap.live."
-                    + live.state().name().toLowerCase(Locale.ROOT)));
+            lines.add(Component.translatable(
+                    "screen.worldmirror.chunkmap.live." + live.state().name().toLowerCase(Locale.ROOT)));
             if (rec == null && live.capturedAtMs() > 0L) {
                 lines.add(Component.translatable("screen.worldmirror.chunkmap.updated",
                         formatAge((now - live.capturedAtMs()) / 1000)));
             }
         }
         if (rec != null) {
-            lines.add(Component.translatable("screen.worldmirror.chunkmap.updated", formatAge((now - rec.updateTime()) / 1000)));
+            lines.add(Component.translatable(
+                    "screen.worldmirror.chunkmap.updated", formatAge((now - rec.updateTime()) / 1000)));
             lines.add(Component.translatable("screen.worldmirror.chunkmap.source",
                     "replay_import".equals(rec.updateSource())
                             ? Component.translatable("screen.worldmirror.chunkmap.source.replayImport")
@@ -302,8 +314,8 @@ public class ChunkMapScreen extends Screen {
         ChunkMapView.DialogBounds bounds = ChunkMapView.drawDialogFrame(ctx::fill, width, height);
         ctx.drawCenteredString(this.font,
 #endif
-                Component.translatable("screen.worldmirror.chunkmap.dialog.title"),
-                bounds.centerX(), bounds.top() + 8, 0xFFFFFFFF);
+                Component.translatable("screen.worldmirror.chunkmap.dialog.title"), bounds.centerX(),
+                bounds.top() + 8, 0xFFFFFFFF);
         if (dialogChunk != null) {
             int chunkX = dialogChunk.getMinBlockX() >> 4;
             int chunkZ = dialogChunk.getMinBlockZ() >> 4;
@@ -312,16 +324,16 @@ public class ChunkMapScreen extends Screen {
 #else
             ctx.drawCenteredString(this.font,
 #endif
-                    Component.literal("(" + chunkX + ", " + chunkZ + ")"),
-                    bounds.centerX(), bounds.top() + 22, 0xFFAAAAAA);
+                    Component.literal("(" + chunkX + ", " + chunkZ + ")"), bounds.centerX(),
+                    bounds.top() + 22, 0xFFAAAAAA);
         }
 #if MC_VERSION >= 260102
         ctx.centeredText(this.font,
 #else
         ctx.drawCenteredString(this.font,
 #endif
-                Component.translatable("screen.worldmirror.chunkmap.dialog.prompt"),
-                bounds.centerX(), bounds.top() + 36, 0xFFCCCCCC);
+                Component.translatable("screen.worldmirror.chunkmap.dialog.prompt"), bounds.centerX(),
+                bounds.top() + 36, 0xFFCCCCCC);
     }
 
     private void openDialog(ChunkPos chunk) {
@@ -335,9 +347,12 @@ public class ChunkMapScreen extends Screen {
     }
 
     private void setDialogButtonsVisible(boolean visible) {
-        if (dialogCancelBtn != null)    dialogCancelBtn.visible    = visible;
-        if (dialogOverwriteBtn != null) dialogOverwriteBtn.visible = visible;
-        if (dialogDiscardBtn != null)   dialogDiscardBtn.visible   = visible;
+        if (dialogCancelBtn != null)
+            dialogCancelBtn.visible = visible;
+        if (dialogOverwriteBtn != null)
+            dialogOverwriteBtn.visible = visible;
+        if (dialogDiscardBtn != null)
+            dialogDiscardBtn.visible = visible;
     }
 
     // ── Input handling ────────────────────────────────────────────────────────
@@ -346,16 +361,19 @@ public class ChunkMapScreen extends Screen {
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         double mx = event.x();
         double my = event.y();
-        if (super.mouseClicked(event, doubleClick)) return true;
+        if (super.mouseClicked(event, doubleClick))
+            return true;
 
         if (dialogChunk != null) {
-            if (!ChunkMapView.dialogBounds(width, height).contains(mx, my)) closeDialog();
+            if (!ChunkMapView.dialogBounds(width, height).contains(mx, my))
+                closeDialog();
             return true;
         }
 
         if (ChunkMapPan.isPrimary(event) && hoveredChunk != null && statusTarget != null
-                && ConflictActions.canResolve(statusTarget.mirror()) && statusSnapshot.hasConflict(
-                hoveredChunk.getMinBlockX() >> 4, hoveredChunk.getMinBlockZ() >> 4)) {
+                && ConflictActions.canResolve(statusTarget.mirror())
+                && statusSnapshot.hasConflict(
+                        hoveredChunk.getMinBlockX() >> 4, hoveredChunk.getMinBlockZ() >> 4)) {
             openDialog(hoveredChunk);
             return true;
         }
@@ -370,7 +388,8 @@ public class ChunkMapScreen extends Screen {
 
     @Override
     public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
-        if (dialogChunk == null && pan.move(event, cellSize)) return true;
+        if (dialogChunk == null && pan.move(event, cellSize))
+            return true;
         return super.mouseDragged(event, dx, dy);
     }
 
@@ -383,7 +402,9 @@ public class ChunkMapScreen extends Screen {
     }
 
     @Override
-    public boolean isPauseScreen() { return false; }
+    public boolean isPauseScreen() {
+        return false;
+    }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -398,10 +419,14 @@ public class ChunkMapScreen extends Screen {
     }
 
     private static Component formatAge(long secs) {
-        if (secs < 0) secs = 0;
-        if (secs < 60)    return Component.translatable("screen.worldmirror.status.age.seconds", secs);
-        if (secs < 3600)  return Component.translatable("screen.worldmirror.status.age.minutes", secs / 60);
-        if (secs < 86400) return Component.translatable("screen.worldmirror.status.age.hours", secs / 3600);
+        if (secs < 0)
+            secs = 0;
+        if (secs < 60)
+            return Component.translatable("screen.worldmirror.status.age.seconds", secs);
+        if (secs < 3600)
+            return Component.translatable("screen.worldmirror.status.age.minutes", secs / 60);
+        if (secs < 86400)
+            return Component.translatable("screen.worldmirror.status.age.hours", secs / 3600);
         return Component.translatable("screen.worldmirror.status.age.days", secs / 86400);
     }
 

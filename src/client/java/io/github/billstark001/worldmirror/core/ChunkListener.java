@@ -21,10 +21,8 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 
-
 @Environment(EnvType.CLIENT)
 public class ChunkListener {
-
     // Capture, lighting, eviction, acknowledgements, and clear all run on the
     // game thread. Export workers only materialize independent DirtySnapshots.
 
@@ -32,13 +30,8 @@ public class ChunkListener {
      * A captured chunk and its process-local revision. The cache owns this NBT;
      * callers must materialize an export copy before mutating it.
      */
-    public record CapturedChunk(
-            CompoundTag nbt,
-            long capturedAtMs,
-            long revision,
-            boolean authoritativeEmpty
-    ) {
-    }
+    public record
+            CapturedChunk(CompoundTag nbt, long capturedAtMs, long revision, boolean authoritativeEmpty) {}
 
     /**
      * Immutable export view of dirty chunk references and frozen lighting maps.
@@ -50,8 +43,7 @@ public class ChunkListener {
         private final Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> chunks;
         private final Map<ResourceKey<Level>, Map<ChunkPos, LightingOverlay.Snapshot>> lighting;
 
-        private DirtySnapshot(
-                Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> chunks,
+        private DirtySnapshot(Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> chunks,
                 Map<ResourceKey<Level>, Map<ChunkPos, LightingOverlay.Snapshot>> lighting) {
             this.chunks = chunks;
             this.lighting = lighting;
@@ -62,34 +54,36 @@ public class ChunkListener {
         }
 
         /** Releases durable revisions while retaining the remaining chunks' frozen lighting. */
-        public DirtySnapshot withoutAcknowledged(
-                Map<ResourceKey<Level>, Map<ChunkPos, Long>> acknowledged) {
+        public DirtySnapshot withoutAcknowledged(Map<ResourceKey<Level>, Map<ChunkPos, Long>> acknowledged) {
             Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> remaining = new HashMap<>();
-            Map<ResourceKey<Level>, Map<ChunkPos, LightingOverlay.Snapshot>> remainingLighting = new HashMap<>();
+            Map<ResourceKey<Level>, Map<ChunkPos, LightingOverlay.Snapshot>> remainingLighting =
+                    new HashMap<>();
             chunks.forEach((dimension, captured) -> {
                 Map<ChunkPos, Long> receipts = acknowledged.getOrDefault(dimension, Map.of());
                 Map<ChunkPos, CapturedChunk> kept = new HashMap<>();
                 Map<ChunkPos, LightingOverlay.Snapshot> keptLighting = new HashMap<>();
                 captured.forEach((pos, chunk) -> {
-                    if (Long.valueOf(chunk.revision()).equals(receipts.get(pos))) return;
+                    if (Long.valueOf(chunk.revision()).equals(receipts.get(pos)))
+                        return;
                     kept.put(pos, chunk);
                     LightingOverlay.Snapshot overlay = lighting.getOrDefault(dimension, Map.of()).get(pos);
-                    if (overlay != null) keptLighting.put(pos, overlay);
+                    if (overlay != null)
+                        keptLighting.put(pos, overlay);
                 });
-                if (!kept.isEmpty()) remaining.put(dimension, Map.copyOf(kept));
-                if (!keptLighting.isEmpty()) remainingLighting.put(dimension, Map.copyOf(keptLighting));
+                if (!kept.isEmpty())
+                    remaining.put(dimension, Map.copyOf(kept));
+                if (!keptLighting.isEmpty())
+                    remainingLighting.put(dimension, Map.copyOf(keptLighting));
             });
             return new DirtySnapshot(Map.copyOf(remaining), Map.copyOf(remainingLighting));
         }
 
-        public CapturedChunk materialize(
-                ResourceKey<Level> dimension, ChunkPos pos, CapturedChunk captured) {
+        public CapturedChunk materialize(ResourceKey<Level> dimension, ChunkPos pos, CapturedChunk captured) {
             Map<ChunkPos, LightingOverlay.Snapshot> lightingByChunk = lighting.get(dimension);
             LightingOverlay.Snapshot overlay = lightingByChunk == null ? null : lightingByChunk.get(pos);
-            CompoundTag nbt = overlay == null
-                    ? captured.nbt().copy()
-                    : overlay.materialize(captured.nbt());
-            return new CapturedChunk(nbt, captured.capturedAtMs(), captured.revision(), captured.authoritativeEmpty());
+            CompoundTag nbt = overlay == null ? captured.nbt().copy() : overlay.materialize(captured.nbt());
+            return new CapturedChunk(
+                    nbt, captured.capturedAtMs(), captured.revision(), captured.authoritativeEmpty());
         }
     }
 
@@ -109,7 +103,8 @@ public class ChunkListener {
     private static final AtomicLong nextRevision = new AtomicLong();
     private static final AtomicLong nextCaptureTimestamp = new AtomicLong();
     private static final AtomicInteger dirtyCount = new AtomicInteger();
-    private static final Map<ResourceKey<Level>, ChunkRegionIndex<MapChunkStatus>> mapStatus = new HashMap<>();
+    private static final Map<ResourceKey<Level>, ChunkRegionIndex<MapChunkStatus>> mapStatus =
+            new HashMap<>();
     private static final AtomicLong mapStatusVersion = new AtomicLong();
     private static final Map<ResourceKey<Level>, Long> mapStatusVersions = new HashMap<>();
     private static long mapStatusResetVersion;
@@ -124,25 +119,26 @@ public class ChunkListener {
      * non-air blocks or block entities. Missing old block entities must not be
      * restored into that confirmed empty terrain.
      */
-    public static void addChunkNbt(ResourceKey<Level> dimension, ChunkPos pos, CompoundTag chunkNbt,
-                                    boolean authoritativeEmpty) {
+    public static void addChunkNbt(
+            ResourceKey<Level> dimension, ChunkPos pos, CompoundTag chunkNbt, boolean authoritativeEmpty) {
         ConcurrentHashMap<ChunkPos, LightingOverlay> lightingByChunk =
                 dimLighting.computeIfAbsent(dimension, k -> new ConcurrentHashMap<>());
         dimChunks.computeIfAbsent(dimension, k -> new ConcurrentHashMap<>())
-                 .compute(pos, (ignored, previous) -> {
-                     boolean becameDirty = previous == null || isClean(dimension, pos, previous);
-                     CompoundTag mergedNbt = chunkNbt;
-                     if (previous != null && !authoritativeEmpty) {
-                         BlockEntityNbtSupport.mergeChunkBlockEntities(mergedNbt, previous.nbt());
-                     }
-                     lightingByChunk.computeIfAbsent(pos, ignoredKey -> new LightingOverlay())
-                             .absorbAndStrip(mergedNbt);
-                     CapturedChunk captured = new CapturedChunk(mergedNbt,
-                             nextTimestamp(previous), nextRevision.incrementAndGet(), authoritativeEmpty);
-                     if (becameDirty) dirtyCount.incrementAndGet();
-                     updateMapStatus(dimension, pos, captured);
-                     return captured;
-                 });
+                .compute(pos, (ignored, previous) -> {
+                    boolean becameDirty = previous == null || isClean(dimension, pos, previous);
+                    CompoundTag mergedNbt = chunkNbt;
+                    if (previous != null && !authoritativeEmpty) {
+                        BlockEntityNbtSupport.mergeChunkBlockEntities(mergedNbt, previous.nbt());
+                    }
+                    lightingByChunk.computeIfAbsent(pos, ignoredKey -> new LightingOverlay())
+                            .absorbAndStrip(mergedNbt);
+                    CapturedChunk captured = new CapturedChunk(mergedNbt, nextTimestamp(previous),
+                            nextRevision.incrementAndGet(), authoritativeEmpty);
+                    if (becameDirty)
+                        dirtyCount.incrementAndGet();
+                    updateMapStatus(dimension, pos, captured);
+                    return captured;
+                });
     }
 
     /**
@@ -152,18 +148,19 @@ public class ChunkListener {
      * export cannot invalidate light waiting in the export coalescing window.
      */
     public static boolean applyLightUpdate(
-            ResourceKey<Level> dimension,
-            ChunkPos pos,
-            LightingUpdate update) {
+            ResourceKey<Level> dimension, ChunkPos pos, LightingUpdate update) {
         ConcurrentHashMap<ChunkPos, CapturedChunk> chunks = dimChunks.get(dimension);
-        if (chunks == null) return false;
+        if (chunks == null)
+            return false;
         AtomicBoolean applied = new AtomicBoolean();
         chunks.computeIfPresent(pos, (ignored, previous) -> {
             dimLighting.computeIfAbsent(dimension, key -> new ConcurrentHashMap<>())
-                    .computeIfAbsent(pos, key -> new LightingOverlay()).applyUpdate(update);
+                    .computeIfAbsent(pos, key -> new LightingOverlay())
+                    .applyUpdate(update);
             CapturedChunk captured = new CapturedChunk(previous.nbt(), nextTimestamp(previous),
                     nextRevision.incrementAndGet(), previous.authoritativeEmpty());
-            if (isClean(dimension, pos, previous)) dirtyCount.incrementAndGet();
+            if (isClean(dimension, pos, previous))
+                dirtyCount.incrementAndGet();
             applied.set(true);
             updateMapStatus(dimension, pos, captured);
             return captured;
@@ -174,9 +171,11 @@ public class ChunkListener {
     /** Marks a chunk dirty after its light-update coalescing window has elapsed. */
     public static void markChunkDirty(ResourceKey<Level> dimension, ChunkPos pos) {
         ConcurrentHashMap<ChunkPos, CapturedChunk> chunks = dimChunks.get(dimension);
-        if (chunks == null) return;
+        if (chunks == null)
+            return;
         chunks.computeIfPresent(pos, (ignored, previous) -> {
-            if (isClean(dimension, pos, previous)) dirtyCount.incrementAndGet();
+            if (isClean(dimension, pos, previous))
+                dirtyCount.incrementAndGet();
             CapturedChunk captured = new CapturedChunk(previous.nbt(), nextTimestamp(previous),
                     nextRevision.incrementAndGet(), previous.authoritativeEmpty());
             updateMapStatus(dimension, pos, captured);
@@ -194,8 +193,8 @@ public class ChunkListener {
             java.util.function.BiPredicate<ResourceKey<Level>, ChunkPos> include) {
         Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> result = new HashMap<>();
         Map<ResourceKey<Level>, Map<ChunkPos, LightingOverlay.Snapshot>> lighting = new HashMap<>();
-        for (Map.Entry<ResourceKey<Level>, ConcurrentHashMap<ChunkPos, CapturedChunk>> dimEntry
-                : dimChunks.entrySet()) {
+        for (Map.Entry<ResourceKey<Level>, ConcurrentHashMap<ChunkPos, CapturedChunk>> dimEntry :
+                dimChunks.entrySet()) {
             Map<ChunkPos, CapturedChunk> dirty = new HashMap<>();
             Map<ChunkPos, LightingOverlay.Snapshot> dimensionLighting = new HashMap<>();
             Map<ChunkPos, LightingOverlay> liveLighting = dimLighting.get(dimEntry.getKey());
@@ -205,7 +204,8 @@ public class ChunkListener {
                     dirty.put(entry.getKey(), entry.getValue());
                     if (liveLighting != null) {
                         LightingOverlay overlay = liveLighting.get(entry.getKey());
-                        if (overlay != null) dimensionLighting.put(entry.getKey(), overlay.snapshot());
+                        if (overlay != null)
+                            dimensionLighting.put(entry.getKey(), overlay.snapshot());
                     }
                 }
             }
@@ -222,16 +222,15 @@ public class ChunkListener {
     /** Visits live dirty references without copying NBT or freezing lighting for telemetry. */
     public static void forEachDirtyRevision(java.util.function.LongConsumer visitor) {
         dimChunks.forEach((dimension, chunks) -> chunks.forEach((pos, chunk) -> {
-            if (!isClean(dimension, pos, chunk)) visitor.accept(chunk.revision());
+            if (!isClean(dimension, pos, chunk))
+                visitor.accept(chunk.revision());
         }));
     }
 
     /** Wraps an already independent chunk map, such as a one-shot nearby export. */
-    public static DirtySnapshot snapshotOf(
-            Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> chunks) {
+    public static DirtySnapshot snapshotOf(Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> chunks) {
         Map<ResourceKey<Level>, Map<ChunkPos, CapturedChunk>> immutable = new HashMap<>();
-        chunks.forEach((dimension, dimensionChunks) ->
-                immutable.put(dimension, Map.copyOf(dimensionChunks)));
+        chunks.forEach((dimension, dimensionChunks) -> immutable.put(dimension, Map.copyOf(dimensionChunks)));
         return new DirtySnapshot(Map.copyOf(immutable), Map.of());
     }
 
@@ -242,13 +241,14 @@ public class ChunkListener {
     }
 
     /** Lightweight viewport state for maps; serialized chunk NBT never leaves the cache. */
-    public record MapChunkStatus(int x, int z, long capturedAtMs, boolean pendingWrite, long revision) { }
+    public record MapChunkStatus(int x, int z, long capturedAtMs, boolean pendingWrite, long revision) {}
 
     public static List<MapChunkStatus> snapshotMapStatusInRange(
             ResourceKey<Level> dimension, int minX, int maxX, int minZ, int maxZ) {
         List<MapChunkStatus> result = new ArrayList<>();
         ChunkRegionIndex<MapChunkStatus> index = mapStatus.get(dimension);
-        if (index != null) index.forEachInRange(minX, maxX, minZ, maxZ, result::add);
+        if (index != null)
+            index.forEachInRange(minX, maxX, minZ, maxZ, result::add);
         return result;
     }
 
@@ -260,15 +260,19 @@ public class ChunkListener {
         int x = pos.getRegionX() * 32 + pos.getRegionLocalX();
         int z = pos.getRegionZ() * 32 + pos.getRegionLocalZ();
         if (mapStatus.computeIfAbsent(dimension, ignored -> new ChunkRegionIndex<>())
-                .put(x, z, new MapChunkStatus(x, z, captured.capturedAtMs(), !isClean(dimension, pos, captured), captured.revision()))) {
+                        .put(x, z,
+                                new MapChunkStatus(x, z, captured.capturedAtMs(),
+                                        !isClean(dimension, pos, captured), captured.revision()))) {
             mapStatusVersions.put(dimension, mapStatusVersion.incrementAndGet());
         }
     }
 
     private static void removeMapStatus(ResourceKey<Level> dimension, ChunkPos pos) {
         ChunkRegionIndex<MapChunkStatus> index = mapStatus.get(dimension);
-        if (index != null && index.remove(pos.getRegionX() * 32 + pos.getRegionLocalX(),
-                pos.getRegionZ() * 32 + pos.getRegionLocalZ())) mapStatusVersions.put(dimension, mapStatusVersion.incrementAndGet());
+        if (index != null
+                && index.remove(pos.getRegionX() * 32 + pos.getRegionLocalX(),
+                        pos.getRegionZ() * 32 + pos.getRegionLocalZ()))
+            mapStatusVersions.put(dimension, mapStatusVersion.incrementAndGet());
     }
 
     /** Total captured chunks across all dimensions. */
@@ -277,7 +281,8 @@ public class ChunkListener {
     }
 
     public static boolean isEmpty() {
-        if (dimChunks.isEmpty()) return true;
+        if (dimChunks.isEmpty())
+            return true;
         return dimChunks.values().stream().allMatch(Map::isEmpty);
     }
 
@@ -305,22 +310,23 @@ public class ChunkListener {
             boolean invalidateCleanEntries) {
         int invalidated = 0;
         Map<ResourceKey<Level>, Set<ChunkPos>> invalidatedByDim = new HashMap<>();
-        for (Map.Entry<ResourceKey<Level>, ? extends Map<ChunkPos, Long>> dimEntry
-                : revisionsByDim.entrySet()) {
+        for (Map.Entry<ResourceKey<Level>, ? extends Map<ChunkPos, Long>> dimEntry :
+                revisionsByDim.entrySet()) {
             ResourceKey<Level> dimension = dimEntry.getKey();
             ConcurrentHashMap<ChunkPos, CapturedChunk> chunks = dimChunks.get(dimension);
-            if (chunks == null) continue;
+            if (chunks == null)
+                continue;
             ConcurrentHashMap<ChunkPos, Long> durable =
                     dimDurableRevisions.computeIfAbsent(dimension, ignored -> new ConcurrentHashMap<>());
             for (Map.Entry<ChunkPos, Long> entry : dimEntry.getValue().entrySet()) {
                 ChunkPos pos = entry.getKey();
                 long revision = entry.getValue();
                 CapturedChunk current = chunks.get(pos);
-                if (current == null) continue;
+                if (current == null)
+                    continue;
                 long previousDurable = durable.getOrDefault(pos, 0L);
                 long acknowledgedRevision = durable.merge(pos, revision, Math::max);
-                if (current != null
-                        && previousDurable < current.revision()
+                if (current != null && previousDurable < current.revision()
                         && acknowledgedRevision >= current.revision()) {
                     decrementDirtyCount();
                 }
@@ -335,8 +341,8 @@ public class ChunkListener {
                     removeLighting(dimension, pos);
                     durable.remove(pos);
                     invalidated++;
-                    invalidatedByDim.computeIfAbsent(dimension,
-                            ignored -> ConcurrentHashMap.newKeySet()).add(pos);
+                    invalidatedByDim.computeIfAbsent(dimension, ignored -> ConcurrentHashMap.newKeySet())
+                            .add(pos);
                 } else if (current != null) {
                     updateMapStatus(dimension, pos, current);
                 }
@@ -358,17 +364,16 @@ public class ChunkListener {
      * @param playerCZ     player chunk Z (used only when {@code maxDistChunks > 0})
      * @param maxDistChunks evict chunks farther than this radius; 0 = disabled
      */
-    public static void evictStale(long maxAgeMs, int maxCount,
-                                  ResourceKey<Level> playerDimension,
-                                  int playerCX, int playerCZ, int maxDistChunks) {
+    public static void evictStale(long maxAgeMs, int maxCount, ResourceKey<Level> playerDimension,
+            int playerCX, int playerCZ, int maxDistChunks) {
         long now = System.currentTimeMillis();
         int evicted = 0;
         Map<ResourceKey<Level>, Set<ChunkPos>> evictedByDim = new HashMap<>();
 
         // ── Age-based eviction ────────────────────────────────────────────────
         if (maxAgeMs > 0) {
-            for (Map.Entry<ResourceKey<Level>, ConcurrentHashMap<ChunkPos, CapturedChunk>> dimEntry
-                    : dimChunks.entrySet()) {
+            for (Map.Entry<ResourceKey<Level>, ConcurrentHashMap<ChunkPos, CapturedChunk>> dimEntry :
+                    dimChunks.entrySet()) {
                 ConcurrentHashMap<ChunkPos, CapturedChunk> dimMap = dimEntry.getValue();
                 List<ChunkPos> toRemove = new ArrayList<>();
                 for (Map.Entry<ChunkPos, CapturedChunk> e : dimMap.entrySet()) {
@@ -378,7 +383,8 @@ public class ChunkListener {
                     }
                 }
                 for (ChunkPos p : toRemove) {
-                    if (removeChunk(dimEntry.getKey(), p)) evicted++;
+                    if (removeChunk(dimEntry.getKey(), p))
+                        evicted++;
                 }
                 if (!toRemove.isEmpty()) {
                     evictedByDim.computeIfAbsent(dimEntry.getKey(), k -> ConcurrentHashMap.newKeySet())
@@ -396,13 +402,14 @@ public class ChunkListener {
                     int dx = (pos.getMinBlockX() >> 4) - playerCX;
                     int dz = (pos.getMinBlockZ() >> 4) - playerCZ;
                     CapturedChunk captured = dimMap.get(pos);
-                    if ((Math.abs(dx) > maxDistChunks || Math.abs(dz) > maxDistChunks)
-                            && captured != null && isClean(playerDimension, pos, captured)) {
+                    if ((Math.abs(dx) > maxDistChunks || Math.abs(dz) > maxDistChunks) && captured != null
+                            && isClean(playerDimension, pos, captured)) {
                         toRemove.add(pos);
                     }
                 }
                 for (ChunkPos p : toRemove) {
-                    if (removeChunk(playerDimension, p)) evicted++;
+                    if (removeChunk(playerDimension, p))
+                        evicted++;
                 }
                 if (!toRemove.isEmpty()) {
                     evictedByDim.computeIfAbsent(playerDimension, k -> ConcurrentHashMap.newKeySet())
@@ -415,8 +422,8 @@ public class ChunkListener {
         if (maxCount > 0) {
             record Entry(ResourceKey<Level> dim, ChunkPos pos, long ts) {}
             List<Entry> allEntries = new ArrayList<>();
-            for (Map.Entry<ResourceKey<Level>, ConcurrentHashMap<ChunkPos, CapturedChunk>> dimEntry
-                    : dimChunks.entrySet()) {
+            for (Map.Entry<ResourceKey<Level>, ConcurrentHashMap<ChunkPos, CapturedChunk>> dimEntry :
+                    dimChunks.entrySet()) {
                 for (Map.Entry<ChunkPos, CapturedChunk> e : dimEntry.getValue().entrySet()) {
                     if (isClean(dimEntry.getKey(), e.getKey(), e.getValue())) {
                         allEntries.add(new Entry(dimEntry.getKey(), e.getKey(), e.getValue().capturedAtMs()));
@@ -447,11 +454,13 @@ public class ChunkListener {
 
     private static boolean removeChunk(ResourceKey<Level> dimension, ChunkPos pos) {
         ConcurrentHashMap<ChunkPos, CapturedChunk> chunks = dimChunks.get(dimension);
-        if (chunks == null || chunks.remove(pos) == null) return false;
+        if (chunks == null || chunks.remove(pos) == null)
+            return false;
         removeMapStatus(dimension, pos);
         removeLighting(dimension, pos);
         ConcurrentHashMap<ChunkPos, Long> durable = dimDurableRevisions.get(dimension);
-        if (durable != null) durable.remove(pos);
+        if (durable != null)
+            durable.remove(pos);
         return true;
     }
 
@@ -465,8 +474,7 @@ public class ChunkListener {
         }
     }
 
-    private static boolean isClean(
-            ResourceKey<Level> dimension, ChunkPos pos, CapturedChunk captured) {
+    private static boolean isClean(ResourceKey<Level> dimension, ChunkPos pos, CapturedChunk captured) {
         Map<ChunkPos, Long> durable = dimDurableRevisions.get(dimension);
         return durable != null && durable.getOrDefault(pos, 0L) >= captured.revision();
     }
@@ -478,8 +486,6 @@ public class ChunkListener {
     private static long nextTimestamp(CapturedChunk previous) {
         long now = System.currentTimeMillis();
         long previousMinimum = previous == null ? 0L : previous.capturedAtMs() + 1L;
-        return nextCaptureTimestamp.updateAndGet(last ->
-                Math.max(Math.max(now, previousMinimum), last + 1L));
+        return nextCaptureTimestamp.updateAndGet(last -> Math.max(Math.max(now, previousMinimum), last + 1L));
     }
 }
-

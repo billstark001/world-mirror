@@ -46,7 +46,8 @@ class WorldRelocationTest {
     void laterAmbiguityPreventsMovingAnyEarlierEntry() throws Exception {
         Fixture pending = fixture();
         Files.writeString(pending.target().resolve("b"), "other b");
-        assertThrows(IOException.class, () -> WorldRelocation.recover(pending.source(), pending.target(), allowed()));
+        assertThrows(IOException.class,
+                () -> WorldRelocation.recover(pending.source(), pending.target(), allowed()));
         assertEquals("a contents", Files.readString(pending.source().resolve("a")));
         assertEquals("b contents", Files.readString(pending.source().resolve("b")));
         assertEquals("other b", Files.readString(pending.target().resolve("b")));
@@ -55,9 +56,12 @@ class WorldRelocationTest {
     @Test
     void anotherMirrorWithTheSameSourceCannotBeAdopted() throws Exception {
         Fixture pending = fixture();
-        assertTrue(WorldMetadata.create("mirror:" + UUID.randomUUID(), WorldGraph.Kind.MIRROR, PARENT,
-                WorldGraph.Role.SYNC, SOURCE).save(pending.target()));
-        assertThrows(IOException.class, () -> WorldRelocation.recover(pending.source(), pending.target(), allowed()));
+        assertTrue(WorldMetadata
+                        .create("mirror:" + UUID.randomUUID(), WorldGraph.Kind.MIRROR, PARENT,
+                                WorldGraph.Role.SYNC, SOURCE)
+                        .save(pending.target()));
+        assertThrows(IOException.class,
+                () -> WorldRelocation.recover(pending.source(), pending.target(), allowed()));
         assertEquals("a contents", Files.readString(pending.source().resolve("a")));
         assertTrue(Files.exists(pending.target().resolve(WorldMetadata.FILE_NAME)));
     }
@@ -68,12 +72,14 @@ class WorldRelocationTest {
         var changed = new java.util.HashMap<>(pending.plan());
         changed.put("operation", UUID.randomUUID());
         JsonSupport.writeDocument(pending.target().resolve(WorldRelocation.JOURNAL), changed);
-        assertThrows(IOException.class, () -> WorldRelocation.recover(pending.source(), pending.target(), allowed()));
+        assertThrows(IOException.class,
+                () -> WorldRelocation.recover(pending.source(), pending.target(), allowed()));
         changed = new java.util.HashMap<>(pending.plan());
         changed.put("entries", List.of("a", "../escape", WorldMetadata.FILE_NAME));
         JsonSupport.writeDocument(pending.source().resolve(WorldRelocation.JOURNAL), changed);
         JsonSupport.writeDocument(pending.target().resolve(WorldRelocation.JOURNAL), changed);
-        assertThrows(IOException.class, () -> WorldRelocation.recover(pending.source(), pending.target(), allowed()));
+        assertThrows(IOException.class,
+                () -> WorldRelocation.recover(pending.source(), pending.target(), allowed()));
         assertEquals("a contents", Files.readString(pending.source().resolve("a")));
     }
 
@@ -81,10 +87,12 @@ class WorldRelocationTest {
     void unexpectedNewFilesAndNativeLocksPreventRecovery() throws Exception {
         Fixture pending = fixture();
         Files.writeString(pending.target().resolve("new-player-data"), "keep");
-        assertThrows(IOException.class, () -> WorldRelocation.recover(pending.source(), pending.target(), allowed()));
+        assertThrows(IOException.class,
+                () -> WorldRelocation.recover(pending.source(), pending.target(), allowed()));
         Files.delete(pending.target().resolve("new-player-data"));
         try (var lock = net.minecraft.util.DirectoryLock.create(pending.target())) {
-            assertThrows(IOException.class, () -> WorldRelocation.recover(pending.source(), pending.target(), allowed()));
+            assertThrows(IOException.class,
+                    () -> WorldRelocation.recover(pending.source(), pending.target(), allowed()));
             assertEquals("a contents", Files.readString(pending.source().resolve("a")));
         }
     }
@@ -94,12 +102,14 @@ class WorldRelocationTest {
         Path source = Files.createDirectories(root.resolve("downloaded_worlds/legacy"));
         Path target = Files.createDirectories(root.resolve("saves/legacy"));
         String legacyId = NODE.substring("mirror:".length());
-        JsonSupport.writeDocument(source.resolve(WorldMetadata.FILE_NAME), Map.of("format", WorldMetadata.FORMAT,
-                "metadataSchema", 1, "sourceId", SOURCE, "sourceType", "server", "mirrorId", legacyId,
-                "mirrorKind", "synchronized"));
-        JsonSupport.writeDocument(target.resolve(MirrorClaim.FILE_NAME), Map.of("sourceId", SOURCE, "token", UUID.randomUUID()));
-        var plan = Map.of("schema", 1, "operation", UUID.randomUUID(), "sourceId", SOURCE, "mirrorId", legacyId,
-                "source", source.toString(), "target", target.toString(), "entries", List.of(WorldMetadata.FILE_NAME));
+        JsonSupport.writeDocument(source.resolve(WorldMetadata.FILE_NAME),
+                Map.of("format", WorldMetadata.FORMAT, "metadataSchema", 1, "sourceId", SOURCE, "sourceType",
+                        "server", "mirrorId", legacyId, "mirrorKind", "synchronized"));
+        JsonSupport.writeDocument(target.resolve(MirrorClaim.FILE_NAME),
+                Map.of("sourceId", SOURCE, "token", UUID.randomUUID()));
+        var plan = Map.of("schema", 1, "operation", UUID.randomUUID(), "sourceId", SOURCE, "mirrorId",
+                legacyId, "source", source.toString(), "target", target.toString(), "entries",
+                List.of(WorldMetadata.FILE_NAME));
         JsonSupport.writeDocument(source.resolve(WorldRelocation.JOURNAL), plan);
         JsonSupport.writeDocument(target.resolve(WorldRelocation.JOURNAL), plan);
         var journal = WorldRelocation.journal(source);
@@ -118,10 +128,12 @@ class WorldRelocationTest {
     void refusesAnExistingReservationForAnotherMirrorOfTheSameSource() throws Exception {
         Path source = Files.createDirectories(root.resolve("downloaded_worlds/actual"));
         Path target = Files.createDirectories(root.resolve("saves/actual"));
-        assertTrue(WorldMetadata.create(NODE, WorldGraph.Kind.MIRROR, PARENT, WorldGraph.Role.SYNC, SOURCE).save(source));
+        assertTrue(WorldMetadata.create(NODE, WorldGraph.Kind.MIRROR, PARENT, WorldGraph.Role.SYNC, SOURCE)
+                        .save(source));
         MirrorClaim.create(target, "mirror:" + UUID.randomUUID(), PARENT, SOURCE);
 
-        assertThrows(IOException.class, () -> WorldRelocation.move(source, target, binding(source), () -> true));
+        assertThrows(
+                IOException.class, () -> WorldRelocation.move(source, target, binding(source), () -> true));
         assertTrue(Files.isRegularFile(source.resolve(WorldMetadata.FILE_NAME)));
         assertFalse(Files.exists(target.resolve(WorldMetadata.FILE_NAME)));
     }
@@ -130,10 +142,12 @@ class WorldRelocationTest {
     void rollsBackAnUnpublishedMove() throws Exception {
         Path source = Files.createDirectories(root.resolve("downloaded_worlds/actual"));
         Path target = root.resolve("saves/actual");
-        assertTrue(WorldMetadata.create(NODE, WorldGraph.Kind.MIRROR, PARENT, WorldGraph.Role.SYNC, SOURCE).save(source));
+        assertTrue(WorldMetadata.create(NODE, WorldGraph.Kind.MIRROR, PARENT, WorldGraph.Role.SYNC, SOURCE)
+                        .save(source));
         Files.writeString(source.resolve("entry"), "original data");
 
-        assertThrows(IOException.class, () -> WorldRelocation.move(source, target, binding(source), () -> false));
+        assertThrows(
+                IOException.class, () -> WorldRelocation.move(source, target, binding(source), () -> false));
 
         assertEquals("original data", Files.readString(source.resolve("entry")));
         assertEquals(NODE, WorldMetadata.loadIfPresent(source).orElseThrow().nodeId);
@@ -145,10 +159,15 @@ class WorldRelocationTest {
     void refusesToMoveAnIdWhoseParentChanged() throws Exception {
         Path source = Files.createDirectories(root.resolve("downloaded_worlds/actual"));
         Path target = root.resolve("saves/actual");
-        assertTrue(WorldMetadata.create(NODE, WorldGraph.Kind.MIRROR, "remote:different-parent", WorldGraph.Role.SYNC, SOURCE).save(source));
-        assertThrows(IOException.class, () -> WorldRelocation.move(source, target, binding(source), () -> true));
+        assertTrue(WorldMetadata
+                        .create(NODE, WorldGraph.Kind.MIRROR, "remote:different-parent", WorldGraph.Role.SYNC,
+                                SOURCE)
+                        .save(source));
+        assertThrows(
+                IOException.class, () -> WorldRelocation.move(source, target, binding(source), () -> true));
         assertFalse(Files.exists(target));
-        assertEquals("remote:different-parent", WorldMetadata.loadIfPresent(source).orElseThrow().parentNodeId);
+        assertEquals(
+                "remote:different-parent", WorldMetadata.loadIfPresent(source).orElseThrow().parentNodeId);
     }
 
     private static WorldGraphService.Target binding(Path source) {
@@ -160,17 +179,20 @@ class WorldRelocationTest {
     private Fixture fixture() throws IOException {
         Path source = Files.createDirectories(root.resolve("downloaded_worlds/mirror"));
         Path target = Files.createDirectories(root.resolve("saves/mirror"));
-        WorldMetadata metadata = WorldMetadata.create(NODE, WorldGraph.Kind.MIRROR, PARENT, WorldGraph.Role.SYNC, SOURCE);
+        WorldMetadata metadata =
+                WorldMetadata.create(NODE, WorldGraph.Kind.MIRROR, PARENT, WorldGraph.Role.SYNC, SOURCE);
         assertTrue(metadata.save(source));
         Files.writeString(source.resolve("a"), "a contents");
         Files.writeString(source.resolve("b"), "b contents");
         Map<String, Object> plan = Map.of("schema", 2, "operation", UUID.randomUUID(), "sourceId", SOURCE,
-                "nodeId", NODE, "parentNodeId", PARENT, "source", source.toString(), "target", target.toString(),
-                "entries", List.of("a", "b", WorldMetadata.FILE_NAME));
+                "nodeId", NODE, "parentNodeId", PARENT, "source", source.toString(), "target",
+                target.toString(), "entries", List.of("a", "b", WorldMetadata.FILE_NAME));
         JsonSupport.writeDocument(source.resolve(WorldRelocation.JOURNAL), plan);
         JsonSupport.writeDocument(target.resolve(WorldRelocation.JOURNAL), plan);
         return new Fixture(source, target, plan);
     }
 
-    private Set<Path> allowed() { return Set.of(root.resolve("downloaded_worlds"), root.resolve("saves")); }
+    private Set<Path> allowed() {
+        return Set.of(root.resolve("downloaded_worlds"), root.resolve("saves"));
+    }
 }

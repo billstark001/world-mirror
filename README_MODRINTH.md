@@ -26,16 +26,16 @@ You can also press **I** and choose **Export Now**. The status screen stays open
 
 ## Controls
 
-| Key | Action |
-| --- | --- |
-| **P** | Start or stop the download session |
-| **O** | Export captured changes now |
-| **I** | Open World Mirror's status and settings screen |
-| **M** | Open the built-in chunk map |
+| Key   | Action                                                       |
+| ----- | ------------------------------------------------------------ |
+| **P** | Start or stop the download session                           |
+| **O** | Export captured changes now                                  |
+| **I** | Open World Mirror's status and settings screen               |
+| **M** | Open the built-in chunk map                                  |
 | **K** | Toggle the in-world chunk overlay for the current world type |
-| **L** | Clear the in-memory capture cache |
+| **L** | Clear the in-memory capture cache                            |
 
-All controls can be rebound under *Options → Controls → World Mirror*. Clearing the cache with **L** does not delete mirror files already written to disk or cancel exports already queued with their own captured data.
+All controls can be rebound under _Options → Controls → World Mirror_. Clearing the cache with **L** does not delete mirror files already written to disk or cancel exports already queued with their own captured data.
 
 ## What World Mirror saves
 
@@ -89,12 +89,12 @@ If applying a conflict fails, its incoming version remains pending. A newer vers
 
 ## Installation
 
-| Minecraft | Required Java |
-| --- | --- |
-| 1.21.11 | Java 21 or newer |
-| 26.1.2 | Java 25 or newer |
-| 26.2 | Java 25 or newer |
-| 26.3 | Java 25 or newer |
+| Minecraft | Required Java    |
+| --------- | ---------------- |
+| 1.21.11   | Java 21 or newer |
+| 26.1.2    | Java 25 or newer |
+| 26.2      | Java 25 or newer |
+| 26.3      | Java 25 or newer |
 
 Install:
 

@@ -20,11 +20,13 @@ public abstract class WorldOverlayRenderMixin {
     @Shadow @Final private LevelRenderState levelRenderState;
 
 #if MC_VERSION >= 260200
-    @Inject(method = "render", at = @At(value = "INVOKE",
+    @Inject(method = "render",
+            at = @At(value = "INVOKE",
 #else
-    @Inject(method = "renderLevel", at = @At(value = "INVOKE",
+    @Inject(method = "renderLevel",
+            at = @At(value = "INVOKE",
 #endif
-            target = "Lnet/minecraft/client/renderer/LevelTargetBundle;clear()V"))
+                    target = "Lnet/minecraft/client/renderer/LevelTargetBundle;clear()V"))
     private void worldmirror$drawOverlay(CallbackInfo ci) {
         var camera = levelRenderState.cameraRenderState;
         if (camera != null && camera.pos != null) {

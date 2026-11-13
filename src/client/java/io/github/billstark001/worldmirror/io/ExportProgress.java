@@ -10,12 +10,13 @@ import java.util.Collection;
 @FunctionalInterface
 public interface ExportProgress {
     enum Part { TERRAIN, ENTITIES }
-    ExportProgress NONE = (part, dimension, chunks) -> { };
+    ExportProgress NONE = (part, dimension, chunks) -> {};
     void writing(Part part, ResourceKey<Level> dimension, Collection<ChunkPos> chunks);
 
     default void start(Part part, ResourceKey<Level> dimension, Collection<ChunkPos> chunks) {
-        try { writing(part, dimension, chunks); }
-        catch (RuntimeException failure) {
+        try {
+            writing(part, dimension, chunks);
+        } catch (RuntimeException failure) {
             WMLogger.warnRateLimited("export-progress-observer", 30_000,
                     "Export progress observer failed; continuing native write", failure);
         }

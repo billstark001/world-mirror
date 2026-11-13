@@ -29,20 +29,28 @@ public final class ClientDialogs {
 #endif
     }
 
-    public static void confirm(Minecraft client, MirrorPrompt.Confirmation prompt,
-                               Runnable accept, Runnable cancel) {
+    public static void confirm(
+            Minecraft client, MirrorPrompt.Confirmation prompt, Runnable accept, Runnable cancel) {
 #if MC_VERSION >= 260200
         Screen parent = client.gui.screen();
-        client.gui.setScreen(new ConfirmScreen(yes -> {
-            client.gui.setScreen(parent);
+        client.gui.setScreen(new ConfirmScreen(
+                yes
+                -> {
+                    client.gui.setScreen(parent);
 #else
         Screen parent = client.screen;
-        client.setScreen(new ConfirmScreen(yes -> {
-            client.setScreen(parent);
+        client.setScreen(new ConfirmScreen(
+                yes
+                -> {
+                    client.setScreen(parent);
 #endif
-            if (yes) accept.run(); else cancel.run();
-        }, component(prompt.title()), component(prompt.message()),
-                component(prompt.accept()), component(prompt.cancel())));
+                    if (yes)
+                        accept.run();
+                    else
+                        cancel.run();
+                },
+                component(prompt.title()), component(prompt.message()), component(prompt.accept()),
+                component(prompt.cancel())));
     }
 
     public static void alert(Minecraft client, MirrorPrompt.Alert prompt, Runnable done) {
@@ -59,19 +67,34 @@ public final class ClientDialogs {
         }, component(prompt.title()), component(prompt.message()), component(prompt.acknowledge()), true));
     }
 
-    public static void upgrade(Minecraft client, MirrorPrompt.Upgrade prompt,
-                               Runnable upgrade, Runnable skip, Runnable cancel) {
+    public static void upgrade(
+            Minecraft client, MirrorPrompt.Upgrade prompt, Runnable upgrade, Runnable skip, Runnable cancel) {
 #if MC_VERSION >= 260200
         Screen parent = client.gui.screen();
         client.gui.setScreen(new BackupConfirmScreen(
-                () -> { client.gui.setScreen(parent); cancel.run(); },
+                ()
+                        -> {
+                    client.gui.setScreen(parent);
+                    cancel.run();
+                },
 #else
         Screen parent = client.screen;
         client.setScreen(new BackupConfirmScreen(
-                () -> { client.setScreen(parent); cancel.run(); },
+                ()
+                        -> {
+                    client.setScreen(parent);
+                    cancel.run();
+                },
 #endif
-                (backup, ignored) -> { if (backup) upgrade.run(); else skip.run(); },
-                component(prompt.title()), component(prompt.description()), component(prompt.upgrade()), false));
+                (backup, ignored)
+                        -> {
+                    if (backup)
+                        upgrade.run();
+                    else
+                        skip.run();
+                },
+                component(prompt.title()), component(prompt.description()), component(prompt.upgrade()),
+                false));
     }
 
     public static MirrorPrompt.ProgressHandle progress(Minecraft client, MirrorPrompt.Text title) {
@@ -87,19 +110,28 @@ public final class ClientDialogs {
         client.setScreen(screen);
 #endif
         return new MirrorPrompt.ProgressHandle() {
-            @Override public void stage(MirrorPrompt.Text stage) { screen.progressStage(component(stage)); }
-            @Override public void progress(int completed, int total) {
-                screen.progressStagePercentage(total <= 0 ? 100 : Math.clamp(completed * 100 / total, 0, 100));
+            @Override
+            public void stage(MirrorPrompt.Text stage) {
+                screen.progressStage(component(stage));
+            }
+            @Override
+            public void progress(int completed, int total) {
+                screen.progressStagePercentage(
+                        total <= 0 ? 100 : Math.clamp(completed * 100 / total, 0, 100));
             }
 #if MC_VERSION >= 260200
-            @Override public void close() {
+            @Override
+            public void close() {
                 screen.stop();
-                if (client.gui.screen() == screen) client.gui.setScreen(parent);
+                if (client.gui.screen() == screen)
+                    client.gui.setScreen(parent);
             }
 #else
-            @Override public void close() {
+            @Override
+            public void close() {
                 screen.stop();
-                if (client.screen == screen) client.setScreen(parent);
+                if (client.screen == screen)
+                    client.setScreen(parent);
             }
 #endif
         };

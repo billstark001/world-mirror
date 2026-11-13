@@ -22,18 +22,15 @@ class MirrorWorldContextTest {
     }
 
     private static void createWorld(Path world) {
-        assertTrue(io.github.billstark001.worldmirror.io.WorldStructureCreator.createLoadableWorld(
-                world, "test", true, true,
-                io.github.billstark001.worldmirror.io.WorldSettingsSnapshot.defaults()));
+        assertTrue(io.github.billstark001.worldmirror.io.WorldStructureCreator.createLoadableWorld(world,
+                "test", true, true, io.github.billstark001.worldmirror.io.WorldSettingsSnapshot.defaults()));
     }
-
 
     @Test
     void classifiesUnversionedMetadataBeforeAndAfterExplicitUpgrade(@TempDir Path world) throws Exception {
         createWorld(world);
         Files.writeString(world.resolve(WorldMetadata.FILE_NAME),
-                JsonSupport.toPrettyJson(new LegacyMetadata(
-                        "server:example.test", "server")));
+                JsonSupport.toPrettyJson(new LegacyMetadata("server:example.test", "server")));
 
         assertTrue(LegacyWorldMetadata.hasLegacyHeader(world));
         assertEquals(WorldMetadata.Schema.UNMANAGED, WorldMetadata.inspectSchema(world));
@@ -59,7 +56,8 @@ class MirrorWorldContextTest {
     void protectsFutureMetadataEvenWhenWorldgenIsCurrent(@TempDir Path world) throws Exception {
         WorldMetadata metadata = metadata();
         metadata.markWorldgenCurrent(100, MirrorWorldgenAssets.ASSET_REVISION);
-        var document = com.google.gson.JsonParser.parseString(JsonSupport.toPrettyJson(metadata)).getAsJsonObject();
+        var document =
+                com.google.gson.JsonParser.parseString(JsonSupport.toPrettyJson(metadata)).getAsJsonObject();
         document.addProperty("metadataSchema", WorldMetadata.CURRENT_METADATA_SCHEMA + 1);
         JsonSupport.writeDocument(world.resolve(WorldMetadata.FILE_NAME), document);
 
@@ -71,7 +69,8 @@ class MirrorWorldContextTest {
     void doesNotAdoptMetadataFromAnotherFormat(@TempDir Path world) throws Exception {
         WorldMetadata metadata = metadata();
         metadata.markWorldgenCurrent(100, MirrorWorldgenAssets.ASSET_REVISION);
-        var document = com.google.gson.JsonParser.parseString(JsonSupport.toPrettyJson(metadata)).getAsJsonObject();
+        var document =
+                com.google.gson.JsonParser.parseString(JsonSupport.toPrettyJson(metadata)).getAsJsonObject();
         document.addProperty("format", "another-tool");
         JsonSupport.writeDocument(world.resolve(WorldMetadata.FILE_NAME), document);
 
@@ -95,8 +94,8 @@ class MirrorWorldContextTest {
         Path unmanaged = root.resolve("unmanaged");
         Files.createDirectories(unmanaged);
         Files.writeString(unmanaged.resolve("level.dat"), "not a real level file");
-        assertEquals(MirrorMigrationPlan.State.UNMANAGED,
-                MirrorMigrationPlan.inspect(unmanaged, 100).state());
+        assertEquals(
+                MirrorMigrationPlan.State.UNMANAGED, MirrorMigrationPlan.inspect(unmanaged, 100).state());
     }
 
     @Test
@@ -135,5 +134,5 @@ class MirrorWorldContextTest {
                 WorldGraph.Role.SYNC, "server:example.test");
     }
 
-    private record LegacyMetadata(String sourceId, String sourceType) { }
+    private record LegacyMetadata(String sourceId, String sourceType) {}
 }

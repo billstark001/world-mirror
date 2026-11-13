@@ -10,23 +10,27 @@ import java.nio.file.Path;
 
 /** Runs in a separate target JVM: the fixture is written by real 26.2 APIs, not relabelled 26.3 NBT. */
 public final class CrossVersionWorldgenFixture {
-    private CrossVersionWorldgenFixture() { }
+    private CrossVersionWorldgenFixture() {}
 
     public static void main(String[] arguments) throws Exception {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         if (!"26.2".equals(SharedConstants.getCurrentVersion().name())) {
-            throw new IllegalStateException("Wrong fixture runtime: " + SharedConstants.getCurrentVersion().name());
+            throw new IllegalStateException(
+                    "Wrong fixture runtime: " + SharedConstants.getCurrentVersion().name());
         }
         Path output = Path.of(arguments[0]);
         Files.createDirectories(output);
         Path world = Files.createTempDirectory(output, "world-");
-        if (!WorldStructureCreator.createLoadableWorld(world, "26.2 fixture", true, true,
-                WorldSettingsSnapshot.defaults())) throw new IllegalStateException("Fixture creation failed");
-        WorldMetadata metadata = WorldMetadata.create("mirror:cross-version", WorldGraph.Kind.MIRROR, "local:cross-version",
-                WorldGraph.Role.SYNC, "local:cross-version");
-        metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), MirrorWorldgenAssets.ASSET_REVISION);
-        if (!metadata.save(world)) throw new IllegalStateException("Fixture metadata failed");
+        if (!WorldStructureCreator.createLoadableWorld(
+                    world, "26.2 fixture", true, true, WorldSettingsSnapshot.defaults()))
+            throw new IllegalStateException("Fixture creation failed");
+        WorldMetadata metadata = WorldMetadata.create("mirror:cross-version", WorldGraph.Kind.MIRROR,
+                "local:cross-version", WorldGraph.Role.SYNC, "local:cross-version");
+        metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(),
+                MirrorWorldgenAssets.ASSET_REVISION);
+        if (!metadata.save(world))
+            throw new IllegalStateException("Fixture metadata failed");
         Files.writeString(output.resolve("fixture-root.txt"), world.toAbsolutePath().toString());
     }
 }

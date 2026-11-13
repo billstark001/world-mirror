@@ -54,22 +54,26 @@ public final class NbtReadSupport {
 
     public static CompoundTag readWorldData(Path file) throws IOException {
         var observed = FileReadFailures.check(file);
-        if (observed != null && observed.size() > WORLD_DATA_BYTES) throw new IOException("World NBT exceeds compressed-input policy: " + file);
+        if (observed != null && observed.size() > WORLD_DATA_BYTES)
+            throw new IOException("World NBT exceeds compressed-input policy: " + file);
         try (var raw = new java.io.BufferedInputStream(Files.newInputStream(file), 64 * 1024);
-             var decoded = net.minecraft.world.level.chunk.storage.RegionFileVersion.VERSION_GZIP.wrap(
-                     com.google.common.io.ByteStreams.limit(raw, WORLD_DATA_BYTES));
-             var input = new java.io.DataInputStream(decoded)) {
+                var decoded = net.minecraft.world.level.chunk.storage.RegionFileVersion.VERSION_GZIP.wrap(
+                        com.google.common.io.ByteStreams.limit(raw, WORLD_DATA_BYTES));
+                var input = new java.io.DataInputStream(decoded)) {
             CompoundTag result = NbtIo.read(input, NbtAccounter.create(WORLD_DATA_BYTES));
-            if (input.read() != -1) throw new FileReadFailures.InvalidData("Trailing world NBT: " + file);
+            if (input.read() != -1)
+                throw new FileReadFailures.InvalidData("Trailing world NBT: " + file);
             return result;
         } catch (net.minecraft.nbt.NbtAccounterException limit) {
             throw new IOException("World NBT exceeds allocation/depth policy: " + file, limit);
         } catch (RuntimeException invalid) {
-            var failure = new FileReadFailures.InvalidData("Invalid or oversized world NBT: " + file, invalid);
+            var failure =
+                    new FileReadFailures.InvalidData("Invalid or oversized world NBT: " + file, invalid);
             FileReadFailures.record(file, observed, failure);
             throw failure;
         } catch (IOException failure) {
-            IOException contextual = failure instanceof java.io.EOFException || failure instanceof java.util.zip.ZipException
+            IOException contextual =
+                    failure instanceof java.io.EOFException || failure instanceof java.util.zip.ZipException
                     ? new FileReadFailures.InvalidData("Invalid world NBT: " + file, failure)
                     : new IOException("Cannot read world NBT: " + file, failure);
             FileReadFailures.record(file, observed, contextual);

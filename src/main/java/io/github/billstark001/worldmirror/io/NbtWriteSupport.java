@@ -21,12 +21,13 @@ import java.util.Set;
 final class NbtWriteSupport {
     private static final int MAX_UTF_BYTES = 65_535;
 
-    private NbtWriteSupport() { }
+    private NbtWriteSupport() {}
 
     /** Owns the native output stream; the digest describes exactly the uncompressed bytes written. */
     static byte[] writeChunkAndDigest(CompoundTag tag, DataOutputStream nativeOutput) throws IOException {
         var digest = FileProof.sha256();
-        try (var output = new DataOutputStream(new BufferedOutputStream(new DigestOutputStream(nativeOutput, digest)))) {
+        try (var output = new DataOutputStream(
+                     new BufferedOutputStream(new DigestOutputStream(nativeOutput, digest)))) {
             NbtIo.writeUnnamedTag(tag, output);
         }
         return digest.digest();
@@ -59,12 +60,14 @@ final class NbtWriteSupport {
 
     private static void validateUtfLength(String value) throws UTFDataFormatException {
         int length = value.length();
-        if (length <= MAX_UTF_BYTES / 3) return;
+        if (length <= MAX_UTF_BYTES / 3)
+            return;
         // Modified UTF-8 counts UTF-16 code units, including both halves of a surrogate pair.
         int bytes = length;
         for (int i = 0; i < length && bytes <= MAX_UTF_BYTES; i++) {
             char unit = value.charAt(i);
-            if (unit == 0 || unit > 0x7F) bytes += unit <= 0x7FF ? 1 : 2;
+            if (unit == 0 || unit > 0x7F)
+                bytes += unit <= 0x7FF ? 1 : 2;
         }
         if (bytes > MAX_UTF_BYTES) {
             throw new UTFDataFormatException("NBT string exceeds " + MAX_UTF_BYTES + " modified UTF-8 bytes");

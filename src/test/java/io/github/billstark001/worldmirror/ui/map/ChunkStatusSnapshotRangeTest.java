@@ -26,22 +26,23 @@ class ChunkStatusSnapshotRangeTest {
 
     @Test
     void sparseWorldScaleViewportVisitsOnlyIndexedRegions() {
-        ChunkDatabase.ChunkRecord west = new ChunkDatabase.ChunkRecord(
-                -1_500_000, 0, 1L, "world_mirror");
-        ChunkDatabase.ChunkRecord east = new ChunkDatabase.ChunkRecord(
-                1_500_000, 0, 2L, "world_mirror");
-        ChunkStatusSnapshot snapshot = new ChunkStatusSnapshot(List.of(west, east), List.of(new ChunkPos(1_500_000, 0)));
+        ChunkDatabase.ChunkRecord west = new ChunkDatabase.ChunkRecord(-1_500_000, 0, 1L, "world_mirror");
+        ChunkDatabase.ChunkRecord east = new ChunkDatabase.ChunkRecord(1_500_000, 0, 2L, "world_mirror");
+        ChunkStatusSnapshot snapshot =
+                new ChunkStatusSnapshot(List.of(west, east), List.of(new ChunkPos(1_500_000, 0)));
 
         assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
-            var buckets = snapshot.index().query(new ChunkBucketLayout(
-                    new ChunkBounds(-1_875_000, 1_875_000, -1_875_000, 1_875_000), 1));
+            var buckets = snapshot.index().query(
+                    new ChunkBucketLayout(new ChunkBounds(-1_875_000, 1_875_000, -1_875_000, 1_875_000), 1));
             assertEquals(2, buckets.size());
             assertTrue(buckets.get(ChunkBounds.key(east.x(), east.z())).conflict());
         });
 
         var visible = new ChunkBounds(-1_500_000, -1_500_000, 0, 0);
-        var nearby = new ChunkMapProjection().get(snapshot, LiveChunkStatusSnapshot.EMPTY,
-                visible, 0L, new ChunkBucketLayout(visible.expand(1), 1), true).boundaries();
+        var nearby = new ChunkMapProjection()
+                             .get(snapshot, LiveChunkStatusSnapshot.EMPTY, visible, 0L,
+                                     new ChunkBucketLayout(visible.expand(1), 1), true)
+                             .boundaries();
         assertEquals(4, nearby.size());
     }
 
@@ -50,8 +51,7 @@ class ChunkStatusSnapshotRangeTest {
         assertNull(ChunkMapView.overlayVisibleRange(100, 100, Double.NaN, 0, 1));
         assertNull(ChunkMapView.overlayVisibleRange(100, 100, 0, 0, 0));
         assertNull(ChunkMapView.overlayVisibleRange(0, 100, 0, 0, 1));
-        ChunkBounds range = ChunkMapView.overlayVisibleRange(
-                100, 100, 0, 0, Double.MIN_VALUE);
+        ChunkBounds range = ChunkMapView.overlayVisibleRange(100, 100, 0, 0, Double.MIN_VALUE);
         assertNotNull(range);
         assertEquals(-1_875_000, range.minX());
         assertEquals(1_875_000, range.maxX());
@@ -72,7 +72,8 @@ class ChunkStatusSnapshotRangeTest {
     void coordinateLookupAndRegionIterationAgreeWhenInputContainsDuplicates() {
         var previous = new ChunkDatabase.ChunkRecord(1, 2, 3L, "world_mirror");
         var replacement = new ChunkDatabase.ChunkRecord(1, 2, 4L, "external");
-        var snapshot = new ChunkStatusSnapshot(List.of(previous, replacement), List.of(new ChunkPos(1, 2), new ChunkPos(1, 2)));
+        var snapshot = new ChunkStatusSnapshot(
+                List.of(previous, replacement), List.of(new ChunkPos(1, 2), new ChunkPos(1, 2)));
         var buckets = snapshot.index().query(new ChunkBucketLayout(new ChunkBounds(0, 3, 0, 3), 1));
         assertEquals(1, snapshot.recordCount());
         assertEquals(1, buckets.size());

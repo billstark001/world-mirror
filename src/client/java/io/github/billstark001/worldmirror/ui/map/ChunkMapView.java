@@ -39,9 +39,8 @@ public final class ChunkMapView {
         int project(double coordinate);
     }
 
-    public record BuiltInViewport(int width, int height,
-                                  double centerChunkX, double centerChunkZ,
-                                  int cellSize, boolean transparentBackground) {
+    public record BuiltInViewport(int width, int height, double centerChunkX, double centerChunkZ,
+            int cellSize, boolean transparentBackground) {
         public int halfWidth() {
             return width / 2;
         }
@@ -72,40 +71,41 @@ public final class ChunkMapView {
     }
 
     public static ChunkBounds renderBuiltIn(Canvas canvas, ChunkMapProjection projection,
-                                           ChunkStatusSnapshot snapshot,
-                                           LiveChunkStatusSnapshot live,
-                                           BuiltInViewport viewport,
-                                           long now,
-                                           int sparseThreshold) {
+            ChunkStatusSnapshot snapshot, LiveChunkStatusSnapshot live, BuiltInViewport viewport, long now,
+            int sparseThreshold) {
         if (!viewport.transparentBackground()) {
             canvas.fill(0, 0, viewport.width(), viewport.height(), COLOR_BACKGROUND);
         }
         ChunkBounds range = visibleRange(viewport);
-        var frame = mapFrame(projection, snapshot, live, range, viewport.width(), viewport.height(), viewport.cellSize(),
-                now, ChunkBucketLayout.DEFAULT_MAP_BUDGET, viewport.cellSize() > clampSparseThreshold(sparseThreshold));
+        var frame = mapFrame(projection, snapshot, live, range, viewport.width(), viewport.height(),
+                viewport.cellSize(), now, ChunkBucketLayout.DEFAULT_MAP_BUDGET,
+                viewport.cellSize() > clampSparseThreshold(sparseThreshold));
         int alpha = viewport.transparentBackground() ? TRANSPARENT_FILL_ALPHA : 0xFF;
-        var target = new MapCanvas(canvas, viewport.width(), viewport.height(), viewport::screenX, viewport::screenZ, 1, alpha);
+        var target = new MapCanvas(
+                canvas, viewport.width(), viewport.height(), viewport::screenX, viewport::screenZ, 1, alpha);
         renderCells(target, frame, range, now);
         int grid = gridIntervalForCellSize(viewport.cellSize());
-        if (frame.dense()) renderGrid(canvas, viewport, range, grid);
+        if (frame.dense())
+            renderGrid(canvas, viewport, range, grid);
         renderBoundaries(target, frame);
-        if (!frame.dense()) renderGrid(canvas, viewport, range, Math.max(4, grid));
+        if (!frame.dense())
+            renderGrid(canvas, viewport, range, Math.max(4, grid));
         renderBuiltInMarks(canvas, frame, viewport);
         return range;
     }
 
-    public static ChunkBounds overlayVisibleRange(int width, int height,
-                                                 double cameraX, double cameraZ,
-                                                 double pixelsPerBlock) {
-        if (width <= 0 || height <= 0 || !Double.isFinite(cameraX)
-                || !Double.isFinite(cameraZ) || !Double.isFinite(pixelsPerBlock)
-                || pixelsPerBlock <= 0.0D) return null;
-        ChunkBounds range = visibleRange(width, height, cameraX / CHUNK_BLOCK_SIZE, cameraZ / CHUNK_BLOCK_SIZE,
-                pixelsPerBlock * CHUNK_BLOCK_SIZE);
+    public static ChunkBounds overlayVisibleRange(
+            int width, int height, double cameraX, double cameraZ, double pixelsPerBlock) {
+        if (width <= 0 || height <= 0 || !Double.isFinite(cameraX) || !Double.isFinite(cameraZ)
+                || !Double.isFinite(pixelsPerBlock) || pixelsPerBlock <= 0.0D)
+            return null;
+        ChunkBounds range = visibleRange(width, height, cameraX / CHUNK_BLOCK_SIZE,
+                cameraZ / CHUNK_BLOCK_SIZE, pixelsPerBlock * CHUNK_BLOCK_SIZE);
         return range.isEmpty() ? null : range;
     }
 
-    private static ChunkBounds visibleRange(int width, int height, double centerX, double centerZ, double pixelsPerChunk) {
+    private static ChunkBounds visibleRange(
+            int width, int height, double centerX, double centerZ, double pixelsPerChunk) {
         double halfX = width / (2.0D * pixelsPerChunk);
         double halfZ = height / (2.0D * pixelsPerChunk);
         int minX = Math.max(-MAX_WORLD_CHUNK, (int) (Math.floor(centerX - halfX) - VIEW_MARGIN));
@@ -117,31 +117,24 @@ public final class ChunkMapView {
 
     private static long viewportSpan(int pixels, double pixelsPerChunk) {
         // Rounding the two endpoints can add one chunk beyond the ceil of the span.
-        return (long) Math.min(2L * MAX_WORLD_CHUNK + 1, Math.ceil(pixels / pixelsPerChunk) + 2 * VIEW_MARGIN + 2);
+        return (long) Math.min(
+                2L * MAX_WORLD_CHUNK + 1, Math.ceil(pixels / pixelsPerChunk) + 2 * VIEW_MARGIN + 2);
     }
 
     private static ChunkMapProjection.Frame mapFrame(ChunkMapProjection projection, ChunkStatusSnapshot saved,
-                                                      LiveChunkStatusSnapshot live, ChunkBounds range,
-                                                      int width, int height, double pixelsPerChunk, long now,
-                                                      int budget, boolean detailed) {
+            LiveChunkStatusSnapshot live, ChunkBounds range, int width, int height, double pixelsPerChunk,
+            long now, int budget, boolean detailed) {
         return projection.get(saved, live, range, now, viewportSpan(width, pixelsPerChunk),
                 viewportSpan(height, pixelsPerChunk), budget, detailed);
     }
 
     public static void renderOverlay(Canvas canvas, ChunkMapProjection projection,
-                                     CoordinateProjection screenX,
-                                     CoordinateProjection screenY,
-                                     ChunkStatusSnapshot snapshot,
-                                     LiveChunkStatusSnapshot live,
-                                     int width,
-                                     int height,
-                                     double cameraX,
-                                     double cameraZ,
-                                     double pixelsPerBlock,
-                                     long now,
-                                     int maxCells) {
+            CoordinateProjection screenX, CoordinateProjection screenY, ChunkStatusSnapshot snapshot,
+            LiveChunkStatusSnapshot live, int width, int height, double cameraX, double cameraZ,
+            double pixelsPerBlock, long now, int maxCells) {
         ChunkBounds range = overlayVisibleRange(width, height, cameraX, cameraZ, pixelsPerBlock);
-        if (range == null) return;
+        if (range == null)
+            return;
         ChunkMapProjection.Frame aggregate = mapFrame(projection, snapshot, live, range, width, height,
                 pixelsPerBlock * CHUNK_BLOCK_SIZE, now, clampOverlayMaxCells(maxCells), false);
         var target = new MapCanvas(canvas, width, height, screenX, screenY, CHUNK_BLOCK_SIZE, OVERLAY_ALPHA);
@@ -149,39 +142,42 @@ public final class ChunkMapView {
         renderBoundaries(target, aggregate);
     }
 
-    private static void renderBuiltInMarks(Canvas canvas, ChunkMapProjection.Frame frame,
-                                          BuiltInViewport viewport) {
+    private static void renderBuiltInMarks(
+            Canvas canvas, ChunkMapProjection.Frame frame, BuiltInViewport viewport) {
         double size = frame.bucketSize();
         frame.marks().forEach((key, summary) -> {
             double x = ChunkBounds.x(key) * size, z = ChunkBounds.z(key) * size;
             int pixelLeft = viewport.screenX(x), pixelTop = viewport.screenZ(z);
             int pixelRight = Math.max(pixelLeft + 1, viewport.screenX(x + size));
             int pixelBottom = Math.max(pixelTop + 1, viewport.screenZ(z + size));
-            if (pixelRight <= 0 || pixelBottom <= 0 || pixelLeft >= viewport.width() || pixelTop >= viewport.height()) return;
-            if (pixelRight - pixelLeft < MIN_MARKER_GLYPH_SIZE || pixelBottom - pixelTop < MIN_MARKER_GLYPH_SIZE) {
+            if (pixelRight <= 0 || pixelBottom <= 0 || pixelLeft >= viewport.width()
+                    || pixelTop >= viewport.height())
+                return;
+            if (pixelRight - pixelLeft < MIN_MARKER_GLYPH_SIZE
+                    || pixelBottom - pixelTop < MIN_MARKER_GLYPH_SIZE) {
                 if (summary.conflict()) {
                     fillVisible(canvas, viewport, pixelLeft, pixelTop, pixelLeft + 1, pixelTop + 1,
                             ExportStatusMarkers.CONFLICT);
                 }
                 int warning = ExportStatusMarkers.compact(summary.exports());
                 if (warning != 0) {
-                    fillVisible(canvas, viewport, pixelRight - 1, pixelBottom - 1, pixelRight, pixelBottom, warning);
+                    fillVisible(canvas, viewport, pixelRight - 1, pixelBottom - 1, pixelRight, pixelBottom,
+                            warning);
                 }
                 return;
             }
-            ExportStatusMarkers.draw(summary.exports(), summary.conflict(), (left, top, right, bottom, color) -> {
-                int x1 = viewport.screenX(x + left * size), z1 = viewport.screenZ(z + top * size);
-                int x2 = Math.max(x1 + 1, viewport.screenX(x + right * size));
-                int z2 = Math.max(z1 + 1, viewport.screenZ(z + bottom * size));
-                fillVisible(canvas, viewport, x1, z1, x2, z2, color);
-            });
+            ExportStatusMarkers.draw(
+                    summary.exports(), summary.conflict(), (left, top, right, bottom, color) -> {
+                        int x1 = viewport.screenX(x + left * size), z1 = viewport.screenZ(z + top * size);
+                        int x2 = Math.max(x1 + 1, viewport.screenX(x + right * size));
+                        int z2 = Math.max(z1 + 1, viewport.screenZ(z + bottom * size));
+                        fillVisible(canvas, viewport, x1, z1, x2, z2, color);
+                    });
         });
     }
 
-    public static void drawPlayerMarker(Canvas canvas,
-                                        BuiltInViewport viewport,
-                                        double playerChunkX,
-                                        double playerChunkZ) {
+    public static void drawPlayerMarker(
+            Canvas canvas, BuiltInViewport viewport, double playerChunkX, double playerChunkZ) {
         int x = viewport.screenX(playerChunkX);
         int z = viewport.screenZ(playerChunkZ);
         fillVisible(canvas, viewport, x - 1, z - 1, x + 2, z + 2, COLOR_PLAYER);
@@ -204,10 +200,10 @@ public final class ChunkMapView {
     }
 
     public static ChunkCoordinate screenToChunk(BuiltInViewport viewport, double screenX, double screenZ) {
-        int chunkX = (int) Math.floor(viewport.centerChunkX()
-                + (screenX - viewport.halfWidth()) / viewport.cellSize() + 0.5D);
-        int chunkZ = (int) Math.floor(viewport.centerChunkZ()
-                + (screenZ - viewport.halfHeight()) / viewport.cellSize() + 0.5D);
+        int chunkX = (int) Math.floor(
+                viewport.centerChunkX() + (screenX - viewport.halfWidth()) / viewport.cellSize() + 0.5D);
+        int chunkZ = (int) Math.floor(
+                viewport.centerChunkZ() + (screenZ - viewport.halfHeight()) / viewport.cellSize() + 0.5D);
         return new ChunkCoordinate(chunkX, chunkZ);
     }
 
@@ -217,21 +213,26 @@ public final class ChunkMapView {
     }
 
     public static ChunkBounds visibleRange(BuiltInViewport viewport) {
-        return visibleRange(viewport.width(), viewport.height(), viewport.centerChunkX(), viewport.centerChunkZ(),
-                viewport.cellSize());
+        return visibleRange(viewport.width(), viewport.height(), viewport.centerChunkX(),
+                viewport.centerChunkZ(), viewport.cellSize());
     }
 
     private record MapCanvas(Canvas canvas, int width, int height, CoordinateProjection screenX,
-                             CoordinateProjection screenZ, int unitsPerChunk, int alpha) {
-        int x(double chunk) { return screenX.project(chunk * unitsPerChunk); }
-        int z(double chunk) { return screenZ.project(chunk * unitsPerChunk); }
+            CoordinateProjection screenZ, int unitsPerChunk, int alpha) {
+        int x(double chunk) {
+            return screenX.project(chunk * unitsPerChunk);
+        }
+        int z(double chunk) {
+            return screenZ.project(chunk * unitsPerChunk);
+        }
 
         void fill(int left, int top, int right, int bottom, int color) {
             fillVisible(canvas, width, height, left, top, right, bottom, color);
         }
     }
 
-    private static void renderCells(MapCanvas target, ChunkMapProjection.Frame frame, ChunkBounds range, long now) {
+    private static void renderCells(
+            MapCanvas target, ChunkMapProjection.Frame frame, ChunkBounds range, long now) {
         int size = frame.bucketSize();
         for (ChunkTileGeometry.Run run : frame.runs()) {
             if (run.color() != 0) {
@@ -240,7 +241,8 @@ public final class ChunkMapView {
             }
         }
 
-        if (frame.live().isEmpty()) return;
+        if (frame.live().isEmpty())
+            return;
         int minX = Math.floorDiv(range.minX(), size);
         int maxX = Math.floorDiv(range.maxX(), size);
         int minZ = Math.floorDiv(range.minZ(), size);
@@ -249,7 +251,8 @@ public final class ChunkMapView {
             int x = ChunkBounds.x(entry.getKey());
             int z = ChunkBounds.z(entry.getKey());
             if (x >= minX && x <= maxX && z >= minZ && z <= maxZ) {
-                fillBuckets(target, size, x, z, x, withAlpha(ChunkMapStyle.live(entry.getValue(), now), target.alpha()));
+                fillBuckets(target, size, x, z, x,
+                        withAlpha(ChunkMapStyle.live(entry.getValue(), now), target.alpha()));
             }
         }
     }
@@ -280,44 +283,43 @@ public final class ChunkMapView {
         }
     }
 
-    private static void fillVisible(Canvas canvas, int width, int height, int left, int top,
-                                    int right, int bottom, int color) {
+    private static void fillVisible(
+            Canvas canvas, int width, int height, int left, int top, int right, int bottom, int color) {
         left = Math.max(0, left);
         top = Math.max(0, top);
         right = Math.min(width, right);
         bottom = Math.min(height, bottom);
-        if (left < right && top < bottom) canvas.fill(left, top, right, bottom, color);
+        if (left < right && top < bottom)
+            canvas.fill(left, top, right, bottom, color);
     }
 
-    private static void fillVisible(Canvas canvas, BuiltInViewport viewport, int left, int top,
-                                    int right, int bottom, int color) {
+    private static void fillVisible(
+            Canvas canvas, BuiltInViewport viewport, int left, int top, int right, int bottom, int color) {
         fillVisible(canvas, viewport.width(), viewport.height(), left, top, right, bottom, color);
     }
 
-    private static void renderGrid(Canvas canvas,
-                                   BuiltInViewport viewport,
-                                   ChunkBounds range,
-                                   int interval) {
-        if (range.isEmpty()) return;
+    private static void renderGrid(Canvas canvas, BuiltInViewport viewport, ChunkBounds range, int interval) {
+        if (range.isEmpty())
+            return;
         int top = viewport.screenZ(range.minZ());
         int bottom = viewport.screenZ(range.maxZ() + 1);
         int left = viewport.screenX(range.minX());
         int right = viewport.screenX(range.maxX() + 1);
-        for (int x = firstMultipleAtOrAfter(range.minX(), interval);
-             x <= range.maxX(); x += interval) {
+        for (int x = firstMultipleAtOrAfter(range.minX(), interval); x <= range.maxX(); x += interval) {
             int screenX = viewport.screenX(x);
             fillVisible(canvas, viewport, screenX, top, screenX + 1, bottom, COLOR_GRID);
         }
-        for (int z = firstMultipleAtOrAfter(range.minZ(), interval);
-             z <= range.maxZ(); z += interval) {
+        for (int z = firstMultipleAtOrAfter(range.minZ(), interval); z <= range.maxZ(); z += interval) {
             int screenZ = viewport.screenZ(z);
             fillVisible(canvas, viewport, left, screenZ, right, screenZ + 1, COLOR_GRID);
         }
     }
 
     private static int gridIntervalForCellSize(int size) {
-        if (size >= 8) return 1;
-        if (size >= 4) return 4;
+        if (size >= 8)
+            return 1;
+        if (size >= 4)
+            return 4;
         return 16;
     }
 

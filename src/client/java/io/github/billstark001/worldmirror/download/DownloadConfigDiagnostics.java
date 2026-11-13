@@ -14,8 +14,10 @@ final class DownloadConfigDiagnostics {
         var graph = WorldGraphService.instance();
         var target = DownloadManager.captureTarget();
         WMLogger.info("[perf] config.global=" + globalJson(config));
-        WMLogger.info("[perf] config.local=" + localJson(target,
-                target == null ? null : graph.conflictStrategy(target.nodeId(), target.parentNodeId())));
+        WMLogger.info("[perf] config.local="
+                + localJson(target,
+                        target == null ? null
+                                       : graph.conflictStrategy(target.nodeId(), target.parentNodeId())));
     }
 
     static String globalJson(ModConfig config) {
@@ -25,9 +27,10 @@ final class DownloadConfigDiagnostics {
     static String localJson(WorldGraphService.Target target, ModConfig.ConflictStrategy strategy) {
         return JsonSupport.toCompactJsonWithNulls(new LocalConfigSnapshot(
                 target == null ? null : target.nodeId(), target == null ? null : target.parentNodeId(),
-                target == null ? null : target.sourceId(), target == null ? null : target.folder().toString(), strategy));
+                target == null ? null : target.sourceId(), target == null ? null : target.folder().toString(),
+                strategy));
     }
 
     private record LocalConfigSnapshot(String nodeId, String parentNodeId, String indexSourceId,
-                                       String output, ModConfig.ConflictStrategy conflictStrategy) {}
+            String output, ModConfig.ConflictStrategy conflictStrategy) {}
 }

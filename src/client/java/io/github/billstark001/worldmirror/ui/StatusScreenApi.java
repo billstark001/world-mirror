@@ -30,8 +30,7 @@ abstract class StatusScreenApi extends Screen {
 
     @Override
 #if MC_VERSION >= 260102
-    public final void extractRenderState(GuiGraphicsExtractor graphics,
-                                         int mouseX, int mouseY, float delta) {
+    public final void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
         super.extractRenderState(graphics, mouseX, mouseY, delta);
 #else
     public final void render(GuiGraphics graphics, int mouseX, int mouseY, float delta) {

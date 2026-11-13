@@ -18,12 +18,14 @@ public abstract class ClientEntityLifecycleMixin {
     @Inject(method = "onChunkLoaded", at = @At("TAIL"))
     private void worldmirror$onChunkLoaded(ChunkPos pos, CallbackInfo ci) {
         ClientLevel world = (ClientLevel) (Object) this;
-        if (DownloadManager.canCapture(world)) EntityTracker.onChunkLoaded(world, pos);
+        if (DownloadManager.canCapture(world))
+            EntityTracker.onChunkLoaded(world, pos);
     }
 
     @Inject(method = "unload", at = @At("HEAD"))
     private void worldmirror$onChunkUnloaded(LevelChunk chunk, CallbackInfo ci) {
         ClientLevel world = (ClientLevel) (Object) this;
-        if (DownloadManager.canCapture(world)) EntityTracker.onChunkUnloaded(world, chunk.getPos());
+        if (DownloadManager.canCapture(world))
+            EntityTracker.onChunkUnloaded(world, chunk.getPos());
     }
 }

@@ -21,24 +21,28 @@ public final class LegacySourceIds {
         return (old.kind() == Kind.SNAPSHOT ? "snapshot:" : "mirror:") + old.mirrorId();
     }
 
-    public static String legacyParent(LegacyWorldMetadata old, Map<String, String> remotes, Map<String, String> knownIds) {
-        if (old.kind() == Kind.SNAPSHOT) return null;
+    public static String legacyParent(
+            LegacyWorldMetadata old, Map<String, String> remotes, Map<String, String> knownIds) {
+        if (old.kind() == Kind.SNAPSHOT)
+            return null;
         return legacyParent(old.sourceId(), remotes, knownIds);
     }
 
-    public static String legacyParent(String source, Map<String, String> remotes, Map<String, String> knownIds) {
+    public static String legacyParent(
+            String source, Map<String, String> remotes, Map<String, String> knownIds) {
         if (source.startsWith("mirror:")) {
             return knownIds.getOrDefault(source.substring("mirror:".length()), source);
         }
         return remotes.getOrDefault(source, WorldGraphConfig.deterministicId("unresolved", source));
     }
 
-    public static Map<String, String> importRemoteIds(Collection<String> oldSourceIds, Map<String, String> persisted,
-                                                       Map<String, EndpointRule> rules) {
+    public static Map<String, String> importRemoteIds(
+            Collection<String> oldSourceIds, Map<String, String> persisted, Map<String, EndpointRule> rules) {
         Set<String> keys = new TreeSet<>(oldSourceIds);
         Map<String, List<String>> grouped = new TreeMap<>();
         for (String key : keys) {
-            if (!key.startsWith("server:")) continue;
+            if (!key.startsWith("server:"))
+                continue;
             try {
                 String endpoint = WorldGraphConfig.normalizeEndpoint(key.substring("server:".length()));
                 grouped.computeIfAbsent(endpoint, ignored -> new ArrayList<>()).add(key);
@@ -56,8 +60,9 @@ public final class LegacySourceIds {
                 String split = WorldGraphConfig.deterministicId("remote", key);
                 String id = persisted.get(key);
                 if (id == null) {
-                    boolean otherPersistedKey = persisted.entrySet().stream().anyMatch(existing ->
-                            !key.equals(existing.getKey()) && endpointMatches(endpoint, existing.getKey()));
+                    boolean otherPersistedKey = persisted.entrySet().stream().anyMatch(existing
+                            -> !key.equals(existing.getKey())
+                                    && endpointMatches(endpoint, existing.getKey()));
                     boolean useCanonical = entry.getValue().size() == 1 && !otherPersistedKey
                             && (newEndpoint || rule.sourceIds().equals(Set.of(canonical)));
                     id = useCanonical ? canonical : split;
@@ -71,10 +76,10 @@ public final class LegacySourceIds {
 
     private static boolean endpointMatches(String endpoint, String legacySource) {
         try {
-            return endpoint.equals(WorldGraphConfig.normalizeEndpoint(legacySource.substring("server:".length())));
+            return endpoint.equals(
+                    WorldGraphConfig.normalizeEndpoint(legacySource.substring("server:".length())));
         } catch (IllegalArgumentException invalid) {
             return false;
         }
     }
-
 }

@@ -22,61 +22,67 @@ class ExportStatusStoreTest {
 
     @Test
     void mixedBatchCountersMatchItsPublishedChunkReceipts() {
-        var chunks = new java.util.HashMap<ChunkPos,ChunkListener.CapturedChunk>();
-        Map<ChunkPos,Long> written = new java.util.HashMap<>();
+        var chunks = new java.util.HashMap<ChunkPos, ChunkListener.CapturedChunk>();
+        Map<ChunkPos, Long> written = new java.util.HashMap<>();
         for (int n = 0; n < 100; n++) {
-            var pos = new ChunkPos(n,0);
-            chunks.put(pos,new ChunkListener.CapturedChunk(new CompoundTag(),100,n+1, false));
-            if (n%2==0) written.put(pos,(long)n+1);
+            var pos = new ChunkPos(n, 0);
+            chunks.put(pos, new ChunkListener.CapturedChunk(new CompoundTag(), 100, n + 1, false));
+            if (n % 2 == 0)
+                written.put(pos, (long) n + 1);
         }
-        var base = work("mixed",-1,-1);
-        var work = new ExportWork.Frozen(base.context(),ChunkListener.snapshotOf(Map.of(Level.OVERWORLD,chunks)),
-                Map.of(),Map.of(),base.settings(),0,OptionalLong.empty());
+        var base = work("mixed", -1, -1);
+        var work = new ExportWork.Frozen(base.context(),
+                ChunkListener.snapshotOf(Map.of(Level.OVERWORLD, chunks)), Map.of(), Map.of(),
+                base.settings(), 0, OptionalLong.empty());
         var store = new ExportStatusStore();
         store.queued(work);
-        store.writing(work,ExportProgress.Part.TERRAIN,Level.OVERWORLD,chunks.keySet());
-        assertEquals(100,store.health("mirror:mixed").counts().writing());
-        var result = new ChunkExporter.ExportResult(Map.of(),Map.of(),Map.of(),Map.of(),false,true,
-                new ChunkExporter.ExportTimings(0,0,0,0,0,0,0));
-        var receipts = Map.of(Level.OVERWORLD,written);
-        var outcome = new MirrorExportTransaction.ExportOutcome(result,receipts,work.remaining(result,receipts,100),true,true,0,null);
-        var counts = store.finish(work,outcome).counts();
-        assertEquals(new ExportStatus.Counts(0,0,50,0,50,50,50,0),counts);
-        assertEquals(counts,store.inRange("mirror:mixed",Level.OVERWORLD,0,99,0,0).stream()
-                .map(ExportStatus.Chunk::counts).reduce(ExportStatus.Counts.EMPTY,ExportStatus.Counts::plus));
+        store.writing(work, ExportProgress.Part.TERRAIN, Level.OVERWORLD, chunks.keySet());
+        assertEquals(100, store.health("mirror:mixed").counts().writing());
+        var result = new ChunkExporter.ExportResult(Map.of(), Map.of(), Map.of(), Map.of(), false, true,
+                new ChunkExporter.ExportTimings(0, 0, 0, 0, 0, 0, 0));
+        var receipts = Map.of(Level.OVERWORLD, written);
+        var outcome = new MirrorExportTransaction.ExportOutcome(
+                result, receipts, work.remaining(result, receipts, 100), true, true, 0, null);
+        var counts = store.finish(work, outcome).counts();
+        assertEquals(new ExportStatus.Counts(0, 0, 50, 0, 50, 50, 50, 0), counts);
+        assertEquals(counts,
+                store.inRange("mirror:mixed", Level.OVERWORLD, 0, 99, 0, 0)
+                        .stream()
+                        .map(ExportStatus.Chunk::counts)
+                        .reduce(ExportStatus.Counts.EMPTY, ExportStatus.Counts::plus));
     }
 
     @Test
     void idleViewsReadPublishedVersionAndHealthWithoutWaitingForBulkMutationLock() throws Exception {
         var store = new ExportStatusStore();
-        var work = work("a",1,-1);
+        var work = work("a", 1, -1);
         store.queued(work);
-        long version = store.version("mirror:a",Level.OVERWORLD);
+        long version = store.version("mirror:a", Level.OVERWORLD);
         var health = store.health("mirror:a");
         synchronized (store) {
             var read = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
-                assertEquals(version,store.version("mirror:a",Level.OVERWORLD));
-                assertSame(health,store.health("mirror:a"));
-                assertEquals(1,store.inRange("mirror:a",Level.OVERWORLD,-33,-33,65,65).size());
+                assertEquals(version, store.version("mirror:a", Level.OVERWORLD));
+                assertSame(health, store.health("mirror:a"));
+                assertEquals(1, store.inRange("mirror:a", Level.OVERWORLD, -33, -33, 65, 65).size());
                 return true;
             });
-            assertTrue(read.get(2,java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue(read.get(2, java.util.concurrent.TimeUnit.SECONDS));
         }
     }
 
     @Test
     void idempotentQueuesReusePublishedHealthAndChunkObservations() {
         var store = new ExportStatusStore();
-        var work = work("a",1,2);
+        var work = work("a", 1, 2);
         store.queued(work);
         var health = store.health("mirror:a");
-        var chunk = chunk(store,"a");
-        long version = store.version("mirror:a",Level.OVERWORLD);
+        var chunk = chunk(store, "a");
+        long version = store.version("mirror:a", Level.OVERWORLD);
         for (int attempt = 0; attempt < 100; attempt++) store.queued(work);
-        assertSame(health,store.health("mirror:a"));
-        assertSame(chunk,chunk(store,"a"));
-        assertSame(chunk,chunk.withTerrain(1));
-        assertEquals(version,store.version("mirror:a",Level.OVERWORLD));
+        assertSame(health, store.health("mirror:a"));
+        assertSame(chunk, chunk(store, "a"));
+        assertSame(chunk, chunk.withTerrain(1));
+        assertEquals(version, store.version("mirror:a", Level.OVERWORLD));
     }
 
     @Test
@@ -98,7 +104,8 @@ class ExportStatusStoreTest {
         var newerTerrain = work("a", 2, -1);
         store.queued(newerTerrain);
         store.finish(newerTerrain, outcome(newerTerrain, true, true, true));
-        assertEquals(PARTIAL, chunk(store, "a").state(), "a later terrain pass cannot recover failed entities");
+        assertEquals(
+                PARTIAL, chunk(store, "a").state(), "a later terrain pass cannot recover failed entities");
         assertTrue(store.health("mirror:a").degraded());
         store.finish(work, outcome(work, true, true, true));
         assertEquals(SUCCEEDED, chunk(store, "a").state());
@@ -114,7 +121,8 @@ class ExportStatusStoreTest {
         store.queued(old);
         store.writing(old, ExportProgress.Part.TERRAIN, Level.OVERWORLD, Set.of(POS));
         store.queued(next);
-        assertEquals(WRITING, chunk(store, "a").state(), "a newer queued capture must not hide an active older write");
+        assertEquals(WRITING, chunk(store, "a").state(),
+                "a newer queued capture must not hide an active older write");
         store.finish(old, outcome(old, true, true, true));
         assertEquals(QUEUED, chunk(store, "a").state());
         store.finish(next, outcome(next, true, true, true));
@@ -174,7 +182,8 @@ class ExportStatusStoreTest {
         assertEquals(SUCCEEDED, observed.state(), "viewport enrichment cannot mutate durable observations");
         long version = store.version("mirror:a", Level.OVERWORLD);
         store.finish(work, outcome(work, true, true, true));
-        assertEquals(version, store.version("mirror:a", Level.OVERWORLD), "unchanged results must not invalidate geometry");
+        assertEquals(version, store.version("mirror:a", Level.OVERWORLD),
+                "unchanged results must not invalidate geometry");
     }
 
     @Test
@@ -195,25 +204,47 @@ class ExportStatusStoreTest {
         return store.inRange("mirror:" + source, Level.OVERWORLD, -33, -33, 65, 65).getFirst();
     }
     static ExportWork.Frozen work(String source, long terrain, long entity) {
-        return new ExportWork.Frozen(new ExportWork.Context(ExportWork.Trigger.PERIODIC, false,
-                ExportTestTargets.source(source)),
-                ChunkListener.snapshotOf(terrain < 0 ? Map.of() : Map.of(Level.OVERWORLD, Map.of(POS,
-                        new ChunkListener.CapturedChunk(new CompoundTag(), terrain * 100, terrain, false)))),
-                entity < 0 ? Map.of() : Map.of(Level.OVERWORLD, Map.of(POS,
-                        new EntityTracker.ChunkUpdate(entity, EntityTracker.Observation.PARTIAL, Map.of(), Set.of()))),
+        return new ExportWork.Frozen(
+                new ExportWork.Context(ExportWork.Trigger.PERIODIC, false, ExportTestTargets.source(source)),
+                ChunkListener.snapshotOf(terrain < 0
+                                ? Map.of()
+                                : Map.of(Level.OVERWORLD,
+                                          Map.of(POS,
+                                                  new ChunkListener.CapturedChunk(new CompoundTag(),
+                                                          terrain * 100, terrain, false)))),
+                entity < 0 ? Map.of()
+                           : Map.of(Level.OVERWORLD,
+                                     Map.of(POS,
+                                             new EntityTracker.ChunkUpdate(entity,
+                                                     EntityTracker.Observation.PARTIAL, Map.of(), Set.of()))),
                 Map.of(), WorldSettingsSnapshot.defaults(), 0, OptionalLong.empty());
     }
-    static MirrorExportTransaction.ExportOutcome outcome(ExportWork.Frozen work, boolean terrain, boolean entities, boolean metadata) {
+    static MirrorExportTransaction.ExportOutcome outcome(
+            ExportWork.Frozen work, boolean terrain, boolean entities, boolean metadata) {
         Map<ChunkPos, Long> terrainReceipts = new java.util.HashMap<>();
         Map<ChunkPos, Long> entityReceipts = new java.util.HashMap<>();
-        if (terrain) work.terrain().chunks().getOrDefault(Level.OVERWORLD, Map.of()).forEach((pos, capture) -> terrainReceipts.put(pos, capture.revision()));
-        if (entities) work.entities().getOrDefault(Level.OVERWORLD, Map.of()).forEach((pos, update) -> entityReceipts.put(pos, update.revision()));
-        var result = new ChunkExporter.ExportResult(Map.of(), Map.of(), Map.of(), Map.of(Level.OVERWORLD, entityReceipts),
-                terrain, entities, new ChunkExporter.ExportTimings(0,0,0,0,0,0,0));
+        if (terrain)
+            work.terrain()
+                    .chunks()
+                    .getOrDefault(Level.OVERWORLD, Map.of())
+                    .forEach((pos, capture) -> terrainReceipts.put(pos, capture.revision()));
+        if (entities)
+            work.entities()
+                    .getOrDefault(Level.OVERWORLD, Map.of())
+                    .forEach((pos, update) -> entityReceipts.put(pos, update.revision()));
+        var result = new ChunkExporter.ExportResult(Map.of(), Map.of(), Map.of(),
+                Map.of(Level.OVERWORLD, entityReceipts), terrain, entities,
+                new ChunkExporter.ExportTimings(0, 0, 0, 0, 0, 0, 0));
         var receipts = Map.of(Level.OVERWORLD, terrainReceipts);
-        long time = work.terrain().chunks().getOrDefault(Level.OVERWORLD, Map.of()).values().stream()
-                .mapToLong(ChunkListener.CapturedChunk::capturedAtMs).max().orElse(work.durableCaptureTime());
-        return new MirrorExportTransaction.ExportOutcome(result, receipts, work.remaining(result, receipts, time),
-                true, metadata, 0, null);
+        long time = work.terrain()
+                            .chunks()
+                            .getOrDefault(Level.OVERWORLD, Map.of())
+                            .values()
+                            .stream()
+                            .mapToLong(ChunkListener.CapturedChunk::capturedAtMs)
+                            .max()
+                            .orElse(work.durableCaptureTime());
+        return new MirrorExportTransaction.ExportOutcome(
+                result, receipts, work.remaining(result, receipts, time), true, metadata, 0, null);
     }
 }

@@ -20,7 +20,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MirrorWorldgenAssetsTest {
-
     @BeforeAll
     static void bootstrapMinecraftRegistries() {
         SharedConstants.tryDetectVersion();
@@ -37,18 +36,18 @@ class MirrorWorldgenAssetsTest {
         MirrorWorldgenAssets.install(world, 99);
 
         Path pack = world.resolve("datapacks").resolve(MirrorWorldgenAssets.PACK_DIRECTORY);
-        MirrorWorldgenJson.PackSection packSection = readModel(
-                pack.resolve("pack.mcmeta"), MirrorWorldgenJson.PackDocument.class).pack();
+        MirrorWorldgenJson.PackSection packSection =
+                readModel(pack.resolve("pack.mcmeta"), MirrorWorldgenJson.PackDocument.class).pack();
         assertEquals(99, packSection.packFormat());
         assertEquals(99, packSection.minFormat());
         assertEquals(99, packSection.maxFormat());
-        assertEquals(MirrorWorldgenAssets.ASSET_REVISION, readModel(
-                pack.resolve("worldmirror_manifest.json"),
-                MirrorWorldgenJson.AssetManifest.class).assetRevision());
+        assertEquals(MirrorWorldgenAssets.ASSET_REVISION,
+                readModel(pack.resolve("worldmirror_manifest.json"), MirrorWorldgenJson.AssetManifest.class)
+                        .assetRevision());
         for (String biome : new String[] {"mirror_overworld", "mirror_nether", "mirror_end"}) {
-            MirrorWorldgenJson.BiomeBeforeEnvironmentAttributes document = readModel(
-                    pack.resolve("data/worldmirror/worldgen/biome/" + biome + ".json"),
-                    MirrorWorldgenJson.BiomeBeforeEnvironmentAttributes.class);
+            MirrorWorldgenJson.BiomeBeforeEnvironmentAttributes document =
+                    readModel(pack.resolve("data/worldmirror/worldgen/biome/" + biome + ".json"),
+                            MirrorWorldgenJson.BiomeBeforeEnvironmentAttributes.class);
             assertTrue(document.features().isEmpty());
             assertTrue(document.carvers().isEmpty());
             assertNotNull(document.spawners());
@@ -57,17 +56,14 @@ class MirrorWorldgenAssetsTest {
     }
 
     @Test
-    void installsEnvironmentAttributeBiomesForMinecraft263(@TempDir Path world)
-            throws Exception {
+    void installsEnvironmentAttributeBiomesForMinecraft263(@TempDir Path world) throws Exception {
         assertEquals(3, MirrorWorldgenAssets.ASSET_REVISION);
-        MirrorWorldgenAssets.install(world,
-                MirrorWorldgenAssets.ENVIRONMENT_ATTRIBUTE_BIOME_FORMAT);
+        MirrorWorldgenAssets.install(world, MirrorWorldgenAssets.ENVIRONMENT_ATTRIBUTE_BIOME_FORMAT);
 
         Path biome = world.resolve("datapacks")
-                .resolve(MirrorWorldgenAssets.PACK_DIRECTORY)
-                .resolve("data/worldmirror/worldgen/biome/mirror_overworld.json");
-        MirrorWorldgenJson.ModernBiome document = readModel(
-                biome, MirrorWorldgenJson.ModernBiome.class);
+                             .resolve(MirrorWorldgenAssets.PACK_DIRECTORY)
+                             .resolve("data/worldmirror/worldgen/biome/mirror_overworld.json");
+        MirrorWorldgenJson.ModernBiome document = readModel(biome, MirrorWorldgenJson.ModernBiome.class);
         assertNotNull(document.attributes().naturalMobSpawns());
         assertNotNull(document.attributes().naturalMobSpawns().spawnsByCategory());
         assertEquals("#78a7ff", document.attributes().skyColor());
@@ -78,8 +74,7 @@ class MirrorWorldgenAssetsTest {
         assertFalse(contents.contains("\"spawners\""));
         if (SharedConstants.DATA_PACK_FORMAT_MAJOR
                 >= MirrorWorldgenAssets.ENVIRONMENT_ATTRIBUTE_BIOME_FORMAT) {
-            Biome.DIRECT_CODEC.parse(JsonOps.INSTANCE, JsonParser.parseString(contents))
-                    .getOrThrow();
+            Biome.DIRECT_CODEC.parse(JsonOps.INSTANCE, JsonParser.parseString(contents)).getOrThrow();
         }
     }
 

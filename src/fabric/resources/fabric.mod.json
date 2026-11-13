@@ -4,9 +4,7 @@
   "version": "${version}",
   "name": "World Mirror",
   "description": "A client-side mod that lets you download the world you are currently playing on a multiplayer server. Captures chunks, entities, and container contents, then exports them as a loadable singleplayer save.",
-  "authors": [
-    "billstark001"
-  ],
+  "authors": ["billstark001"],
   "contact": {
     "sources": "https://github.com/billstark001/world-mirror",
     "issues": "https://github.com/billstark001/world-mirror/issues"
@@ -15,12 +13,8 @@
   "icon": "assets/worldmirror/icon.png",
   "environment": "client",
   "entrypoints": {
-    "client": [
-      "io.github.billstark001.worldmirror.WorldMirrorClient"
-    ],
-    "modmenu": [
-      "io.github.billstark001.worldmirror.config.ModMenuApiImpl"
-    ]
+    "client": ["io.github.billstark001.worldmirror.WorldMirrorClient"],
+    "modmenu": ["io.github.billstark001.worldmirror.config.ModMenuApiImpl"]
   },
   "mixins": [
     {

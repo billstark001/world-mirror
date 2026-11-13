@@ -8,7 +8,6 @@ package io.github.billstark001.worldmirror.conflict;
  * sync sessions.
  */
 public interface ConflictResolver {
-
     /**
      * Called once per chunk during an export/sync pass.
      *

@@ -30,7 +30,6 @@ import net.minecraft.world.level.lighting.LevelLightEngine;
 
 @Environment(EnvType.CLIENT)
 public class ChunkSerializer {
-
     /**
      * Returns {@code true} if the chunk has no non-air blocks and no block entities,
      * which may be a server placeholder beyond its render distance. Ordinary
@@ -123,28 +122,17 @@ public class ChunkSerializer {
 
         ChunkAccess.PackedTicks ticks = chunk.getTicksForSerialization(world.getGameTime());
 
-        return new SerializableChunkData(
-                world.palettedContainerFactory(),
-                chunkPos,
-                chunk.getMinSectionY(),
-                world.getGameTime(),
-                chunk.getInhabitedTime(),
-                chunk.getPersistedStatus(),
-                Optionull.map(chunk.getBlendingData(), blendingData -> blendingData != null ? blendingData.pack() : null),
-                chunk.getBelowZeroRetrogen(),
-                chunk.getUpgradeData().copy(),
+        return new SerializableChunkData(world.palettedContainerFactory(), chunkPos, chunk.getMinSectionY(),
+                world.getGameTime(), chunk.getInhabitedTime(), chunk.getPersistedStatus(),
+                Optionull.map(chunk.getBlendingData(),
+                        blendingData -> blendingData != null ? blendingData.pack() : null),
+                chunk.getBelowZeroRetrogen(), chunk.getUpgradeData().copy(),
 #if MC_VERSION >= 260300
 #else
                 carvingMask,
 #endif
-                heightmaps,
-                ticks,
-                chunk.getPostProcessing(),
-                chunk.isLightCorrect(),
-                sections,
-                entities,
-                blockEntities,
-                createEmptyStructuresCompound());
+                heightmaps, ticks, chunk.getPostProcessing(), chunk.isLightCorrect(), sections, entities,
+                blockEntities, createEmptyStructuresCompound());
     }
 
     private static CompoundTag createEmptyStructuresCompound() {

@@ -45,28 +45,25 @@ import java.util.UUID;
 /** Minecraft 26.x translation for level.dat and the dimension-first save layout. */
 final class WorldStructureApi {
     private static final WorldClockLookup WORLD_CLOCK_LOOKUP = new WorldClockLookup();
-    private static final Map<ResourceKey<WorldClock>, Holder.Reference<WorldClock>> WORLD_CLOCKS =
-            Map.of(
-                    WorldClocks.OVERWORLD,
-                    Holder.Reference.createStandAlone(WORLD_CLOCK_LOOKUP, WorldClocks.OVERWORLD),
-                    WorldClocks.THE_END,
-                    Holder.Reference.createStandAlone(WORLD_CLOCK_LOOKUP, WorldClocks.THE_END));
-    private static final RegistryOps<Tag> WORLD_CLOCK_OPS = RegistryOps.create(
-            NbtOps.INSTANCE, new RegistryOps.RegistryInfoLookup() {
+    private static final Map<ResourceKey<WorldClock>, Holder.Reference<WorldClock>> WORLD_CLOCKS = Map.of(
+            WorldClocks.OVERWORLD,
+            Holder.Reference.createStandAlone(WORLD_CLOCK_LOOKUP, WorldClocks.OVERWORLD), WorldClocks.THE_END,
+            Holder.Reference.createStandAlone(WORLD_CLOCK_LOOKUP, WorldClocks.THE_END));
+    private static final RegistryOps<Tag> WORLD_CLOCK_OPS =
+            RegistryOps.create(NbtOps.INSTANCE, new RegistryOps.RegistryInfoLookup() {
                 @Override
                 @SuppressWarnings("unchecked")
                 public <T> Optional<HolderGetter<T>> lookup(
                         ResourceKey<? extends Registry<? extends T>> registryKey) {
-                    if (!Registries.WORLD_CLOCK.equals(registryKey)) return Optional.empty();
+                    if (!Registries.WORLD_CLOCK.equals(registryKey))
+                        return Optional.empty();
                     return Optional.of((HolderGetter<T>) (HolderGetter<?>) WORLD_CLOCK_LOOKUP);
                 }
             });
 
-    private static final class WorldClockLookup
-            implements HolderGetter<WorldClock>, HolderOwner<WorldClock> {
+    private static final class WorldClockLookup implements HolderGetter<WorldClock>, HolderOwner<WorldClock> {
         @Override
-        public Optional<Holder.Reference<WorldClock>> get(
-                ResourceKey<WorldClock> resourceKey) {
+        public Optional<Holder.Reference<WorldClock>> get(ResourceKey<WorldClock> resourceKey) {
             return Optional.ofNullable(WORLD_CLOCKS.get(resourceKey));
         }
 
@@ -119,38 +116,34 @@ import java.util.UUID;
 
 /** Minecraft 26.x translation for level.dat and the dimension-first save layout. */
 final class WorldStructureApi {
-    private static final HolderOwner<WorldClock> WORLD_CLOCK_OWNER = new HolderOwner<>() { };
-    private static final Map<ResourceKey<WorldClock>, Holder.Reference<WorldClock>> WORLD_CLOCKS =
-            Map.of(
-                    WorldClocks.OVERWORLD,
-                    Holder.Reference.createStandAlone(WORLD_CLOCK_OWNER, WorldClocks.OVERWORLD),
-                    WorldClocks.THE_END,
-                    Holder.Reference.createStandAlone(WORLD_CLOCK_OWNER, WorldClocks.THE_END));
-    private static final HolderGetter<WorldClock> WORLD_CLOCK_GETTER =
-            new HolderGetter<>() {
-                @Override
-                public Optional<Holder.Reference<WorldClock>> get(
-                        ResourceKey<WorldClock> resourceKey) {
-                    return Optional.ofNullable(WORLD_CLOCKS.get(resourceKey));
-                }
+    private static final HolderOwner<WorldClock> WORLD_CLOCK_OWNER = new HolderOwner<>() {};
+    private static final Map<ResourceKey<WorldClock>, Holder.Reference<WorldClock>> WORLD_CLOCKS = Map.of(
+            WorldClocks.OVERWORLD,
+            Holder.Reference.createStandAlone(WORLD_CLOCK_OWNER, WorldClocks.OVERWORLD), WorldClocks.THE_END,
+            Holder.Reference.createStandAlone(WORLD_CLOCK_OWNER, WorldClocks.THE_END));
+    private static final HolderGetter<WorldClock> WORLD_CLOCK_GETTER = new HolderGetter<>() {
+        @Override
+        public Optional<Holder.Reference<WorldClock>> get(ResourceKey<WorldClock> resourceKey) {
+            return Optional.ofNullable(WORLD_CLOCKS.get(resourceKey));
+        }
 
-                @Override
-                public Optional<HolderSet.Named<WorldClock>> get(TagKey<WorldClock> tagKey) {
-                    return Optional.empty();
-                }
-            };
+        @Override
+        public Optional<HolderSet.Named<WorldClock>> get(TagKey<WorldClock> tagKey) {
+            return Optional.empty();
+        }
+    };
     private static final RegistryOps.RegistryInfo<WorldClock> WORLD_CLOCK_REGISTRY =
-            new RegistryOps.RegistryInfo<>(
-                    WORLD_CLOCK_OWNER, WORLD_CLOCK_GETTER, Lifecycle.stable());
-    private static final RegistryOps<Tag> WORLD_CLOCK_OPS = RegistryOps.create(
-            NbtOps.INSTANCE, new RegistryOps.RegistryInfoLookup() {
+            new RegistryOps.RegistryInfo<>(WORLD_CLOCK_OWNER, WORLD_CLOCK_GETTER, Lifecycle.stable());
+    private static final RegistryOps<Tag> WORLD_CLOCK_OPS =
+            RegistryOps.create(NbtOps.INSTANCE, new RegistryOps.RegistryInfoLookup() {
                 @Override
                 @SuppressWarnings("unchecked")
                 public <T> Optional<RegistryOps.RegistryInfo<T>> lookup(
                         ResourceKey<? extends Registry<? extends T>> registryKey) {
-                    if (!Registries.WORLD_CLOCK.equals(registryKey)) return Optional.empty();
-                    return Optional.of((RegistryOps.RegistryInfo<T>)
-                            (RegistryOps.RegistryInfo<?>) WORLD_CLOCK_REGISTRY);
+                    if (!Registries.WORLD_CLOCK.equals(registryKey))
+                        return Optional.empty();
+                    return Optional.of(
+                            (RegistryOps.RegistryInfo<T>) (RegistryOps.RegistryInfo<?>) WORLD_CLOCK_REGISTRY);
                 }
             });
 
@@ -172,7 +165,7 @@ import java.util.UUID;
 /** Minecraft 1.21.11 translation for its native level.dat and save layout. */
 final class WorldStructureApi {
 #endif
-    private WorldStructureApi() { }
+    private WorldStructureApi() {}
 
     static Path worldgenDataPath(Path worldFolder) {
 #if MC_VERSION >= 260102
@@ -187,7 +180,8 @@ final class WorldStructureApi {
         return root.get("data") instanceof CompoundTag settings ? settings : null;
 #else
         return root.getCompoundOrEmpty("Data").get("WorldGenSettings") instanceof CompoundTag settings
-                ? settings : null;
+                ? settings
+                : null;
 #endif
     }
 
@@ -198,26 +192,18 @@ final class WorldStructureApi {
     static String[] worldSubdirectories() {
         return new String[] {
 #if MC_VERSION >= 260102
-                "dimensions/minecraft/overworld/region",
-                "dimensions/minecraft/overworld/entities",
-                "dimensions/minecraft/overworld/poi",
-                "dimensions/minecraft/overworld/data/minecraft",
-                "dimensions/minecraft/the_nether/region",
-                "dimensions/minecraft/the_nether/entities",
-                "dimensions/minecraft/the_nether/poi",
-                "dimensions/minecraft/the_nether/data/minecraft",
-                "dimensions/minecraft/the_end/region",
-                "dimensions/minecraft/the_end/entities",
-                "dimensions/minecraft/the_end/poi",
-                "dimensions/minecraft/the_end/data/minecraft",
-                "players/advancements", "players/data", "players/stats",
-                "data/minecraft", "datapacks", "resourcepacks"
+                "dimensions/minecraft/overworld/region", "dimensions/minecraft/overworld/entities",
+                "dimensions/minecraft/overworld/poi", "dimensions/minecraft/overworld/data/minecraft",
+                "dimensions/minecraft/the_nether/region", "dimensions/minecraft/the_nether/entities",
+                "dimensions/minecraft/the_nether/poi", "dimensions/minecraft/the_nether/data/minecraft",
+                "dimensions/minecraft/the_end/region", "dimensions/minecraft/the_end/entities",
+                "dimensions/minecraft/the_end/poi", "dimensions/minecraft/the_end/data/minecraft",
+                "players/advancements", "players/data", "players/stats", "data/minecraft", "datapacks",
+                "resourcepacks"
 #else
-                "region", "entities", "poi",
-                "DIM-1/region", "DIM-1/entities", "DIM-1/poi",
-                "DIM1/region", "DIM1/entities", "DIM1/poi",
-                "playerdata", "advancements", "stats", "data",
-                "datapacks", "resourcepacks"
+                "region", "entities", "poi", "DIM-1/region", "DIM-1/entities", "DIM-1/poi", "DIM1/region",
+                "DIM1/entities", "DIM1/poi", "playerdata", "advancements", "stats", "data", "datapacks",
+                "resourcepacks"
 #endif
         };
     }
@@ -231,17 +217,13 @@ final class WorldStructureApi {
     }
 
     static void createInitialWorld(Path worldFolder, String levelName, UUID playerId,
-                                   CompoundTag worldGenSettings,
-                                   WorldSettingsSnapshot settings) throws Exception {
+            CompoundTag worldGenSettings, WorldSettingsSnapshot settings) throws Exception {
 #if MC_VERSION >= 260102
         PrimaryLevelData data = createLevelData(levelName, 0, 80, 0, settings);
         writeLevelData(worldFolder.resolve("level.dat"), data, playerId);
-        writeSavedData(worldFolder.resolve("data/minecraft/world_gen_settings.dat"),
-                worldGenSettings);
-        LevelStorageSource.writeGameRules(data, worldFolder,
-                createGameRules(data.getDataConfiguration()));
-        writeSavedData(worldFolder.resolve("data/minecraft/weather.dat"),
-                createWeatherData(settings));
+        writeSavedData(worldFolder.resolve("data/minecraft/world_gen_settings.dat"), worldGenSettings);
+        LevelStorageSource.writeGameRules(data, worldFolder, createGameRules(data.getDataConfiguration()));
+        writeSavedData(worldFolder.resolve("data/minecraft/weather.dat"), createWeatherData(settings));
         writeSavedData(worldFolder.resolve("data/minecraft/world_clocks.dat"),
                 createWorldClocksData(settings.dayTime()));
 #else
@@ -251,14 +233,12 @@ final class WorldStructureApi {
     }
 
     static void writeSpawnedLevelData(Path worldFolder, String levelName, UUID playerId,
-                                      ResourceKey<Level> spawnDimension,
-                                      int spawnX, int spawnY, int spawnZ,
-                                      CompoundTag worldGenSettings,
-                                      WorldSettingsSnapshot settings) throws Exception {
+            ResourceKey<Level> spawnDimension, int spawnX, int spawnY, int spawnZ,
+            CompoundTag worldGenSettings, WorldSettingsSnapshot settings) throws Exception {
 #if MC_VERSION >= 260102
         PrimaryLevelData data = createLevelData(levelName, spawnX, spawnY, spawnZ, settings);
-        data.setSpawn(LevelData.RespawnData.of(spawnDimension,
-                new BlockPos(spawnX, spawnY, spawnZ), 0.0F, 0.0F));
+        data.setSpawn(
+                LevelData.RespawnData.of(spawnDimension, new BlockPos(spawnX, spawnY, spawnZ), 0.0F, 0.0F));
         writeLevelData(worldFolder.resolve("level.dat"), data, playerId);
 #else
         CompoundTag data = createLevelData(levelName, spawnX, spawnY, spawnZ, worldGenSettings, settings);
@@ -297,64 +277,58 @@ final class WorldStructureApi {
 
     static WorldSettingsSnapshot captureWorldSettings(ClientLevel world) {
 #if MC_VERSION >= 260300
-        long dayTime = world.dimensionType().defaultClock()
-                .map(clock -> world.clockManager().getInstance(clock).totalTicks())
-                .orElse(world.getGameTime());
-        return new WorldSettingsSnapshot(
-                world.getGameTime(), dayTime,
+        long dayTime = world.dimensionType()
+                               .defaultClock()
+                               .map(clock -> world.clockManager().getInstance(clock).totalTicks())
+                               .orElse(world.getGameTime());
+        return new WorldSettingsSnapshot(world.getGameTime(), dayTime,
 #elif MC_VERSION >= 260102
-        long dayTime = world.dimensionType().defaultClock()
-                .map(clock -> world.clockManager().getTotalTicks(clock))
-                .orElse(world.getGameTime());
-        return new WorldSettingsSnapshot(
-                world.getGameTime(), dayTime,
+        long dayTime = world.dimensionType()
+                               .defaultClock()
+                               .map(clock -> world.clockManager().getTotalTicks(clock))
+                               .orElse(world.getGameTime());
+        return new WorldSettingsSnapshot(world.getGameTime(), dayTime,
 #else
-        return new WorldSettingsSnapshot(
-                world.getGameTime(), world.getDayTime(),
+        return new WorldSettingsSnapshot(world.getGameTime(), world.getDayTime(),
 #endif
-                world.getRainLevel(1.0F) > 0.0F,
-                world.getThunderLevel(1.0F) > 0.0F,
+                world.getRainLevel(1.0F) > 0.0F, world.getThunderLevel(1.0F) > 0.0F,
                 world.getDifficulty().getId());
     }
 
     static void syncWorldSetting(Path worldFolder, WorldSettingsSnapshot settings,
-                                 WorldStructureCreator.Setting setting) throws Exception {
+            WorldStructureCreator.Setting setting) throws Exception {
 #if MC_VERSION >= 260102
         switch (setting) {
             case TIME -> {
                 patchLevelData(worldFolder, data -> data.putLong("Time", settings.gameTime()));
-                writeSavedDataAtomically(
-                        worldFolder.resolve("data/minecraft/world_clocks.dat"),
+                writeSavedDataAtomically(worldFolder.resolve("data/minecraft/world_clocks.dat"),
                         createWorldClocksData(settings.dayTime()));
             }
-            case WEATHER -> writeSavedDataAtomically(
-                    worldFolder.resolve("data/minecraft/weather.dat"),
-                    createWeatherData(settings));
-            case DIFFICULTY -> patchLevelData(worldFolder, data -> {
-                CompoundTag difficultySettings = data.getCompoundOrEmpty("difficulty_settings");
-                difficultySettings.putString("difficulty",
-                        Difficulty.byId(settings.difficultyId()).getSerializedName());
-                data.put("difficulty_settings", difficultySettings);
-            });
+            case WEATHER ->
+                writeSavedDataAtomically(
+                        worldFolder.resolve("data/minecraft/weather.dat"), createWeatherData(settings));
+            case DIFFICULTY ->
+                patchLevelData(worldFolder, data -> {
+                    CompoundTag difficultySettings = data.getCompoundOrEmpty("difficulty_settings");
+                    difficultySettings.putString(
+                            "difficulty", Difficulty.byId(settings.difficultyId()).getSerializedName());
+                    data.put("difficulty_settings", difficultySettings);
+                });
         }
     }
 
-    private static PrimaryLevelData createLevelData(String levelName,
-                                                    int spawnX, int spawnY, int spawnZ,
-                                                    WorldSettingsSnapshot settings) {
-        LevelSettings levelSettings = new LevelSettings(
-                WorldStructureCreator.resolvedLevelName(levelName),
+    private static PrimaryLevelData createLevelData(
+            String levelName, int spawnX, int spawnY, int spawnZ, WorldSettingsSnapshot settings) {
+        LevelSettings levelSettings = new LevelSettings(WorldStructureCreator.resolvedLevelName(levelName),
                 GameType.CREATIVE,
-                new LevelSettings.DifficultySettings(
-                        Difficulty.byId(settings.difficultyId()), false, false),
-                true,
-                WorldDataConfiguration.DEFAULT);
-        PrimaryLevelData data = new PrimaryLevelData(levelSettings,
-                PrimaryLevelData.SpecialWorldProperty.NONE, Lifecycle.stable());
+                new LevelSettings.DifficultySettings(Difficulty.byId(settings.difficultyId()), false, false),
+                true, WorldDataConfiguration.DEFAULT);
+        PrimaryLevelData data = new PrimaryLevelData(
+                levelSettings, PrimaryLevelData.SpecialWorldProperty.NONE, Lifecycle.stable());
         data.setInitialized(true);
         data.setGameTime(settings.gameTime());
-        data.setSpawn(LevelData.RespawnData.of(Level.OVERWORLD,
-                new BlockPos(spawnX, spawnY, spawnZ), 0.0F, 0.0F));
+        data.setSpawn(
+                LevelData.RespawnData.of(Level.OVERWORLD, new BlockPos(spawnX, spawnY, spawnZ), 0.0F, 0.0F));
         return data;
     }
 
@@ -366,8 +340,7 @@ final class WorldStructureApi {
         return rules;
     }
 
-    private static void writeLevelData(Path file, PrimaryLevelData data, UUID playerId)
-            throws Exception {
+    private static void writeLevelData(Path file, PrimaryLevelData data, UUID playerId) throws Exception {
         CompoundTag root = new CompoundTag();
         CompoundTag levelData = data.createTag(playerId);
         enableDataPack(levelData);
@@ -388,11 +361,13 @@ final class WorldStructureApi {
         CompoundTag packs = levelData.getCompoundOrEmpty("DataPacks");
         ListTag enabled = packs.getListOrEmpty("Enabled");
         for (int i = 0; i < enabled.size(); i++) {
-            if (MirrorWorldgenAssets.PACK_ID.equals(enabled.getStringOr(i, ""))) return;
+            if (MirrorWorldgenAssets.PACK_ID.equals(enabled.getStringOr(i, "")))
+                return;
         }
         enabled.add(StringTag.valueOf(MirrorWorldgenAssets.PACK_ID));
         packs.put("Enabled", enabled);
-        if (!packs.contains("Disabled")) packs.put("Disabled", new ListTag());
+        if (!packs.contains("Disabled"))
+            packs.put("Disabled", new ListTag());
         levelData.put("DataPacks", packs);
     }
 
@@ -410,8 +385,7 @@ final class WorldStructureApi {
         WorldStructureCreator.writeVerifiedWorldData(file, root);
     }
 
-    private static void patchLevelData(Path worldFolder,
-                                       java.util.function.Consumer<CompoundTag> patch)
+    private static void patchLevelData(Path worldFolder, java.util.function.Consumer<CompoundTag> patch)
             throws Exception {
 #else
 #endif
@@ -455,17 +429,15 @@ final class WorldStructureApi {
     }
 
     static CompoundTag roundTripWorldClocksData(CompoundTag data) {
-        PackedClockStates decoded = PackedClockStates.CODEC.parse(
-                WORLD_CLOCK_OPS, data).getOrThrow();
+        PackedClockStates decoded = PackedClockStates.CODEC.parse(WORLD_CLOCK_OPS, data).getOrThrow();
         Tag encoded = PackedClockStates.CODEC.encodeStart(WORLD_CLOCK_OPS, decoded).getOrThrow();
         if (!(encoded instanceof CompoundTag compound)) {
             throw new IllegalStateException("Packed clock codec did not produce a compound tag");
         }
         return compound;
 #else
-    private static CompoundTag createLevelData(String levelName, int spawnX, int spawnY,
-                                               int spawnZ, CompoundTag worldGenSettings,
-                                               WorldSettingsSnapshot settings) {
+    private static CompoundTag createLevelData(String levelName, int spawnX, int spawnY, int spawnZ,
+            CompoundTag worldGenSettings, WorldSettingsSnapshot settings) {
         CompoundTag data = new CompoundTag();
         data.putInt("DataVersion", SharedConstants.getCurrentVersion().dataVersion().version());
         data.putString("LevelName", WorldStructureCreator.resolvedLevelName(levelName));
@@ -490,8 +462,8 @@ final class WorldStructureApi {
         return data;
     }
 
-    private static void applyWorldSetting(CompoundTag data, WorldSettingsSnapshot settings,
-                                          WorldStructureCreator.Setting setting) {
+    private static void applyWorldSetting(
+            CompoundTag data, WorldSettingsSnapshot settings, WorldStructureCreator.Setting setting) {
         switch (setting) {
             case TIME -> {
                 data.putLong("Time", settings.gameTime());

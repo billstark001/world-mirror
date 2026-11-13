@@ -23,27 +23,38 @@ public final class WorldRecovery {
         boolean uncertain;
         boolean marked;
         final java.util.Set<Path> discovered = new java.util.HashSet<>();
-        Scope(Path root) { this.root = root; }
+        Scope(Path root) {
+            this.root = root;
+        }
     }
 
     private WorldRecovery() {}
 
-    public static boolean required(Path root) { return !Files.notExists(root.resolve(MARKER), LinkOption.NOFOLLOW_LINKS); }
+    public static boolean required(Path root) {
+        return !Files.notExists(root.resolve(MARKER), LinkOption.NOFOLLOW_LINKS);
+    }
 
     static boolean owns(Path directory) {
         Scope scope = CURRENT.get();
         return scope != null && directory.startsWith(scope.root);
     }
 
-    static Path root() { return CURRENT.get().root; }
+    static Path root() {
+        return CURRENT.get().root;
+    }
 
-    static boolean needsDiscovery(Path directory) { return !CURRENT.get().discovered.contains(directory); }
+    static boolean needsDiscovery(Path directory) {
+        return !CURRENT.get().discovered.contains(directory);
+    }
 
-    static void discovered(Path directory) { CURRENT.get().discovered.add(directory); }
+    static void discovered(Path directory) {
+        CURRENT.get().discovered.add(directory);
+    }
 
     /** Only the holder of the world's native session lock may begin/end this scope. */
     public static void begin(Path root) throws IOException {
-        if (CURRENT.get() != null) throw new IllegalStateException("Recovery scope already owned");
+        if (CURRENT.get() != null)
+            throw new IllegalStateException("Recovery scope already owned");
         recover(root);
         CURRENT.set(new Scope(root));
     }
@@ -52,24 +63,31 @@ public final class WorldRecovery {
         Scope scope = CURRENT.get();
         try {
             if (scope != null && scope.marked && !scope.uncertain && scope.pending == 0) {
-                try { Files.deleteIfExists(scope.root.resolve(MARKER)); }
-                catch (IOException retained) {
+                try {
+                    Files.deleteIfExists(scope.root.resolve(MARKER));
+                } catch (IOException retained) {
                     // Retrying discovery is harmless; misreporting a durable commit
                     // as failed could incorrectly authorize an unrelated rollback.
                     WMLogger.warn("World recovery marker cleanup deferred: " + scope.root, retained);
                 }
             }
-        } finally { CURRENT.remove(); }
+        } finally {
+            CURRENT.remove();
+        }
     }
 
     static boolean preparing(Path transactionRoot) throws IOException {
         Scope scope = CURRENT.get();
-        if (scope == null || !transactionRoot.startsWith(scope.root)) return false;
+        if (scope == null || !transactionRoot.startsWith(scope.root))
+            return false;
         if (!scope.marked) {
             Path marker = scope.root.resolve(MARKER);
-            Files.writeString(marker, "Recovery requires the native world session lock", StandardOpenOption.CREATE_NEW,
-                    StandardOpenOption.WRITE);
-            try (var channel = FileChannel.open(marker, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) { channel.force(true); }
+            Files.writeString(marker, "Recovery requires the native world session lock",
+                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            try (var channel =
+                            FileChannel.open(marker, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
+                channel.force(true);
+            }
             scope.marked = true;
         }
         scope.pending++;
@@ -78,9 +96,11 @@ public final class WorldRecovery {
 
     static void finished(Path directory, boolean safe) {
         Scope scope = CURRENT.get();
-        if (scope == null || scope.pending <= 0) throw new IllegalStateException("No owned replacement");
+        if (scope == null || scope.pending <= 0)
+            throw new IllegalStateException("No owned replacement");
         scope.uncertain |= !safe;
-        if (!safe) scope.discovered.remove(directory);
+        if (!safe)
+            scope.discovered.remove(directory);
         scope.pending--;
     }
 
@@ -92,13 +112,17 @@ public final class WorldRecovery {
         FileProof.requirePlainFile(root.resolve(MARKER));
         var directories = new LinkedHashSet<Path>();
         Files.walkFileTree(root, new SimpleFileVisitor<>() {
-            @Override public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) {
+            @Override
+            public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) {
                 String name = directory.getFileName().toString();
-                if (!directory.equals(root) && (name.startsWith(FileTransaction.PREFIX) || name.startsWith(FileTransaction.CLEANUP_PREFIX))) {
+                if (!directory.equals(root)
+                        && (name.startsWith(FileTransaction.PREFIX)
+                                || name.startsWith(FileTransaction.CLEANUP_PREFIX))) {
                     directories.add(directory.getParent());
                     return FileVisitResult.SKIP_SUBTREE;
                 }
-                return FileProof.isPlainDirectory(attributes) ? FileVisitResult.CONTINUE : FileVisitResult.SKIP_SUBTREE;
+                return FileProof.isPlainDirectory(attributes) ? FileVisitResult.CONTINUE
+                                                              : FileVisitResult.SKIP_SUBTREE;
             }
         });
         for (Path directory : directories) FileTransaction.recover(directory);

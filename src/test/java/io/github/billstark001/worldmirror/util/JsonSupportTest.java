@@ -67,8 +67,8 @@ class JsonSupportTest {
         String original = Files.readString(file);
         assertTrue(original.contains("镜像ワールド"));
 
-        assertThrows(IllegalArgumentException.class, () ->
-                JsonSupport.writeDocument(file, Map.of("invalid", Double.NaN)));
+        assertThrows(IllegalArgumentException.class,
+                () -> JsonSupport.writeDocument(file, Map.of("invalid", Double.NaN)));
 
         assertEquals(original, Files.readString(file));
         try (var files = Files.list(file.getParent())) {

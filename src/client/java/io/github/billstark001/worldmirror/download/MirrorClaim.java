@@ -32,7 +32,8 @@ public final class MirrorClaim {
     static Claim read(Path folder) {
         Path file = folder.resolve(FILE_NAME);
         return Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)
-                ? JsonSupport.readDocument(file, Claim.class).value() : null;
+                ? JsonSupport.readDocument(file, Claim.class).value()
+                : null;
     }
 
     static boolean ownedBy(Path folder, String nodeId) {
@@ -40,22 +41,25 @@ public final class MirrorClaim {
         return claim != null && nodeId.equals(claim.nodeId());
     }
 
-    static void reassign(Path folder, String previousId, String parentId, String replacementId) throws IOException {
+    static void reassign(Path folder, String previousId, String parentId, String replacementId)
+            throws IOException {
         Path file = folder.resolve(FILE_NAME);
         FileProof.Version stamp = FileProof.version(file);
         Claim current = read(folder);
-        if (current == null || !previousId.equals(current.nodeId()) || !parentId.equals(current.parentNodeId())) {
+        if (current == null || !previousId.equals(current.nodeId())
+                || !parentId.equals(current.parentNodeId())) {
             throw new IOException("Mirror reservation changed: " + folder);
         }
-        JsonSupport.compareAndWriteDocument(file,
-                new Claim(UUID.randomUUID(), replacementId, parentId, current.sourceId()), stamp);
+        JsonSupport.compareAndWriteDocument(
+                file, new Claim(UUID.randomUUID(), replacementId, parentId, current.sourceId()), stamp);
     }
 
     static void finish(Path folder, String nodeId) throws IOException {
-        if (ownedBy(folder, nodeId) && WorldMetadata.loadIfPresent(folder)
-                .filter(metadata -> nodeId.equals(metadata.nodeId)).isPresent()) {
+        if (ownedBy(folder, nodeId)
+                && WorldMetadata.loadIfPresent(folder)
+                        .filter(metadata -> nodeId.equals(metadata.nodeId))
+                        .isPresent()) {
             Files.deleteIfExists(folder.resolve(FILE_NAME));
         }
     }
-
 }

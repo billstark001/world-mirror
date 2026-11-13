@@ -16,14 +16,14 @@ This database is designed to be readable by third-party tools (map renderers, im
 
 Records terrain chunks that World Mirror (or an external tool) has durably written to the mirror world. These rows do not track entity-file completion, export queue positions, active writes, or failed attempts.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `source` | TEXT | Index namespace matching `worldmirror_meta.json → sourceId`. The graph uses a separate node ID. |
-| `dimension` | TEXT | Minecraft dimension key, e.g. `minecraft:overworld` |
-| `x` | INTEGER | Chunk X coordinate |
-| `y` | INTEGER | Chunk Z coordinate *(named `y` for 2-D map convention)* |
-| `update_time` | INTEGER | Unix timestamp in **milliseconds** of the captured data represented by the last successful write |
-| `update_source` | TEXT | Name of the update source that wrote this chunk (see `update_sources`) |
+| Column          | Type    | Description                                                                                      |
+| --------------- | ------- | ------------------------------------------------------------------------------------------------ |
+| `source`        | TEXT    | Index namespace matching `worldmirror_meta.json → sourceId`. The graph uses a separate node ID.  |
+| `dimension`     | TEXT    | Minecraft dimension key, e.g. `minecraft:overworld`                                              |
+| `x`             | INTEGER | Chunk X coordinate                                                                               |
+| `y`             | INTEGER | Chunk Z coordinate _(named `y` for 2-D map convention)_                                          |
+| `update_time`   | INTEGER | Unix timestamp in **milliseconds** of the captured data represented by the last successful write |
+| `update_source` | TEXT    | Name of the update source that wrote this chunk (see `update_sources`)                           |
 
 **Primary key:** `(source, dimension, x, y)`
 
@@ -33,23 +33,23 @@ Records terrain chunks that World Mirror (or an external tool) has durably writt
 
 Defines the update sources known to the system and their relative priorities.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `update_source` | TEXT PRIMARY KEY | Unique source name |
-| `priority` | INTEGER | Lower number = **higher** priority |
-| `apply_to_source` | TEXT \| NULL | If set, this row only applies when `chunks.source` equals this value; NULL means all sources |
-| `apply_to_dimension` | TEXT \| NULL | If set, this row only applies in this dimension; NULL means all dimensions |
+| Column               | Type             | Description                                                                                  |
+| -------------------- | ---------------- | -------------------------------------------------------------------------------------------- |
+| `update_source`      | TEXT PRIMARY KEY | Unique source name                                                                           |
+| `priority`           | INTEGER          | Lower number = **higher** priority                                                           |
+| `apply_to_source`    | TEXT \| NULL     | If set, this row only applies when `chunks.source` equals this value; NULL means all sources |
+| `apply_to_dimension` | TEXT \| NULL     | If set, this row only applies in this dimension; NULL means all dimensions                   |
 
 **Default rows (seeded when the index is opened):**
 
-| update_source | priority | apply_to_source | apply_to_dimension |
-|---------------|----------|-----------------|-------------------|
-| `player` | 0 | NULL | NULL |
-| `world_mirror` | 10 | NULL | NULL |
-| `replay_import` | 10 | NULL | NULL |
-| `game_events` | 20 | NULL | NULL |
-| `map_hp` | 30 | NULL | NULL |
-| `map_lp` | 50 | NULL | NULL |
+| update_source   | priority | apply_to_source | apply_to_dimension |
+| --------------- | -------- | --------------- | ------------------ |
+| `player`        | 0        | NULL            | NULL               |
+| `world_mirror`  | 10       | NULL            | NULL               |
+| `replay_import` | 10       | NULL            | NULL               |
+| `game_events`   | 20       | NULL            | NULL               |
+| `map_hp`        | 30       | NULL            | NULL               |
+| `map_lp`        | 50       | NULL            | NULL               |
 
 ---
 

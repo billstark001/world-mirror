@@ -48,13 +48,16 @@ class MirrorWorldgenRepairTest {
         settings.putString("extra_option", "retain");
         CompoundTag dimensions = settings.getCompoundOrEmpty("dimensions");
         CompoundTag custom = WorldStructureCreator.createMirrorWorldGenSettings()
-                .getCompoundOrEmpty("dimensions").getCompoundOrEmpty("minecraft:overworld").copy();
+                                     .getCompoundOrEmpty("dimensions")
+                                     .getCompoundOrEmpty("minecraft:overworld")
+                                     .copy();
         custom.putString("extra_dimension_option", "retain");
         dimensions.put("example:extra", custom);
         // A valid customized generator must survive repair of its obsolete neighbors.
         CompoundTag endGenerator = WorldStructureCreator.createMirrorWorldGenSettings()
-                .getCompoundOrEmpty("dimensions").getCompoundOrEmpty("minecraft:the_end")
-                .getCompoundOrEmpty("generator");
+                                           .getCompoundOrEmpty("dimensions")
+                                           .getCompoundOrEmpty("minecraft:the_end")
+                                           .getCompoundOrEmpty("generator");
         endGenerator.getCompoundOrEmpty("settings").putInt("sea_level", 47);
         dimensions.getCompoundOrEmpty("minecraft:the_end").put("generator", endGenerator);
         write(world, root);
@@ -81,11 +84,14 @@ class MirrorWorldgenRepairTest {
         assertEquals(12345L, updated.getLongOr("seed", 0));
         assertEquals("retain", updated.getStringOr("extra_option", ""));
         assertEquals(custom, updated.getCompoundOrEmpty("dimensions").get("example:extra"));
-        assertEquals(endGenerator, updated.getCompoundOrEmpty("dimensions")
-                .getCompoundOrEmpty("minecraft:the_end").get("generator"));
+        assertEquals(endGenerator,
+                updated.getCompoundOrEmpty("dimensions")
+                        .getCompoundOrEmpty("minecraft:the_end")
+                        .get("generator"));
         assertEquals("retain captured data", Files.readString(unrelated));
         try (var zip = new ZipFile(result.backup().toFile())) {
-            String relative = world.relativize(WorldStructureApi.worldgenDataPath(world)).toString().replace('\\', '/');
+            String relative =
+                    world.relativize(WorldStructureApi.worldgenDataPath(world)).toString().replace('\\', '/');
             try (var input = zip.getInputStream(zip.getEntry(relative))) {
                 assertArrayEquals(original, input.readAllBytes());
             }
@@ -99,15 +105,19 @@ class MirrorWorldgenRepairTest {
         assertFalse(repeated.changed());
         assertNull(repeated.backup());
         assertSnapshot(world, after);
-        try (var backups = Files.list(world.resolve("backups"))) { assertEquals(1, backups.count()); }
+        try (var backups = Files.list(world.resolve("backups"))) {
+            assertEquals(1, backups.count());
+        }
     }
 
     @Test
     void refusesUnknownAndUnreadableGeneratorsWithoutReplacingAnything(@TempDir Path world) throws Exception {
         createOldWorld(world);
         CompoundTag root = read(world);
-        WorldStructureApi.worldgenData(root).getCompoundOrEmpty("dimensions")
-                .getCompoundOrEmpty("minecraft:overworld").getCompoundOrEmpty("generator")
+        WorldStructureApi.worldgenData(root)
+                .getCompoundOrEmpty("dimensions")
+                .getCompoundOrEmpty("minecraft:overworld")
+                .getCompoundOrEmpty("generator")
                 .putString("type", "example:custom_generator");
         write(world, root);
         Map<Path, byte[]> original = snapshot(world);
@@ -140,7 +150,8 @@ class MirrorWorldgenRepairTest {
         createOldWorld(world);
         Path file = world.resolve("level.dat");
         CompoundTag root = NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap());
-        root.getCompoundOrEmpty("Data").putInt("DataVersion", SharedConstants.getCurrentVersion().dataVersion().version() + 1);
+        root.getCompoundOrEmpty("Data").putInt(
+                "DataVersion", SharedConstants.getCurrentVersion().dataVersion().version() + 1);
         NbtIo.writeCompressed(root, file);
         Map<Path, byte[]> original = snapshot(world);
         assertFalse(MirrorMigrationCoordinator.migrateApproved(world).success());
@@ -153,7 +164,8 @@ class MirrorWorldgenRepairTest {
         MirrorWorldgenCheck.Result first;
         try (var executor = Executors.newFixedThreadPool(4)) {
             var tasks = java.util.stream.IntStream.range(0, 16)
-                    .mapToObj(i -> executor.submit(() -> MirrorWorldgenCheck.inspect(world))).toList();
+                                .mapToObj(i -> executor.submit(() -> MirrorWorldgenCheck.inspect(world)))
+                                .toList();
             first = tasks.getFirst().get();
             for (var task : tasks) assertSame(first, task.get());
         }
@@ -202,10 +214,15 @@ class MirrorWorldgenRepairTest {
         var result = MirrorMigrationCoordinator.migrateApproved(world, (phase, complete, total) -> {
             if (phase == MirrorMigrationCoordinator.Phase.WRITING_WORLD_DATA && complete == total) {
                 try (var paths = Files.list(world)) {
-                    Path transaction = paths.filter(p -> p.getFileName().toString().startsWith(FileTransaction.PREFIX))
-                            .findFirst().orElseThrow();
-                    Files.writeString(WorldStructureApi.worldgenDataPath(transaction.resolve("new")), "damaged staged gzip");
-                } catch (java.io.IOException failure) { throw new java.io.UncheckedIOException(failure); }
+                    Path transaction =
+                            paths.filter(p -> p.getFileName().toString().startsWith(FileTransaction.PREFIX))
+                                    .findFirst()
+                                    .orElseThrow();
+                    Files.writeString(WorldStructureApi.worldgenDataPath(transaction.resolve("new")),
+                            "damaged staged gzip");
+                } catch (java.io.IOException failure) {
+                    throw new java.io.UncheckedIOException(failure);
+                }
             }
         });
         assertFalse(result.success());
@@ -216,7 +233,7 @@ class MirrorWorldgenRepairTest {
     }
 
     @ParameterizedTest
-    @ValueSource(booleans = { false, true })
+    @ValueSource(booleans = {false, true})
     void interruptedRepairRestoresOnlyCheckedImagesWithoutOverwritingUnknownEdits(
             boolean externalEdit, @TempDir Path world) throws Exception {
         createOldWorld(world);
@@ -227,35 +244,42 @@ class MirrorWorldgenRepairTest {
         CompoundTag current = WorldStructureCreator.createMirrorWorldGenSettings();
         if (generator.equals(world.resolve("level.dat"))) {
             root.getCompoundOrEmpty("Data").put("WorldGenSettings", current);
-        } else root.put("data", current);
+        } else
+            root.put("data", current);
         write(world, root);
         byte[] replacement = Files.readAllBytes(generator);
         Files.write(generator, oldGenerator);
         Path metadata = world.resolve(WorldMetadata.FILE_NAME);
         byte[] oldMetadata = Files.readAllBytes(metadata);
-        byte[] newMetadata = (Files.readString(metadata) + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] newMetadata =
+                (Files.readString(metadata) + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8);
         Path journal = Files.createDirectory(world.resolve(FileTransaction.PREFIX + "interrupted-upgrade"));
         Files.createDirectory(journal.resolve("old"));
         Properties manifest = new Properties();
         manifest.setProperty("schema", "2");
         manifest.setProperty("count", "2");
-        Path[] files = { generator, metadata };
-        byte[][] previous = { oldGenerator, oldMetadata }, next = { replacement, newMetadata };
+        Path[] files = {generator, metadata};
+        byte[][] previous = {oldGenerator, oldMetadata}, next = {replacement, newMetadata};
         for (int i = 0; i < files.length; i++) {
             Path backup = Files.write(journal.resolve("old/" + i), previous[i]);
             manifest.setProperty("path." + i, world.relativize(files[i]).toString());
             manifest.setProperty("existed." + i, "true");
             manifest.setProperty("sha256." + i, FileProof.sha256(backup));
-            manifest.setProperty("new." + i, java.util.HexFormat.of().formatHex(FileProof.sha256().digest(next[i])));
+            manifest.setProperty(
+                    "new." + i, java.util.HexFormat.of().formatHex(FileProof.sha256().digest(next[i])));
         }
-        try (var output = Files.newOutputStream(journal.resolve("prepared"))) { manifest.store(output, "interrupted migration fixture"); }
+        try (var output = Files.newOutputStream(journal.resolve("prepared"))) {
+            manifest.store(output, "interrupted migration fixture");
+        }
         Files.writeString(journal.resolve("manifest.sha256"), FileProof.sha256(journal.resolve("prepared")));
-        if (externalEdit) Files.writeString(world.resolve(WorldRecovery.MARKER), "interrupted migration fixture");
+        if (externalEdit)
+            Files.writeString(world.resolve(WorldRecovery.MARKER), "interrupted migration fixture");
         Files.write(generator, replacement); // Crash after the first replacement, before metadata.
         if (externalEdit) {
             String external = "{\"external_edit\":true}";
             Files.writeString(metadata, external);
-            assertThrows(java.io.IOException.class, () -> MirrorMigrationCoordinator.recoverAndInspect(world));
+            assertThrows(
+                    java.io.IOException.class, () -> MirrorMigrationCoordinator.recoverAndInspect(world));
             assertArrayEquals(replacement, Files.readAllBytes(generator));
             assertEquals(external, Files.readString(metadata));
             assertArrayEquals(oldGenerator, Files.readAllBytes(journal.resolve("old/0")));
@@ -272,13 +296,16 @@ class MirrorWorldgenRepairTest {
     }
 
     private static void createOldWorld(Path world) throws Exception {
-        assertTrue(WorldStructureCreator.createLoadableWorld(world, "test", true, true, WorldSettingsSnapshot.defaults()));
+        assertTrue(WorldStructureCreator.createLoadableWorld(
+                world, "test", true, true, WorldSettingsSnapshot.defaults()));
         WorldMetadata metadata = WorldMetadata.create("mirror:repair", WorldGraph.Kind.MIRROR, "local:repair",
                 WorldGraph.Role.SYNC, "local:repair");
-        metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), MirrorWorldgenAssets.ASSET_REVISION);
+        metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(),
+                MirrorWorldgenAssets.ASSET_REVISION);
         assertTrue(metadata.save(world));
         CompoundTag root = read(world);
-        CompoundTag flat = TagParser.parseCompoundFully("{type:'minecraft:flat',settings:{layers:[{block:'minecraft:air',height:1}],structure_overrides:[],biome:'minecraft:the_void'}}");
+        CompoundTag flat = TagParser.parseCompoundFully(
+                "{type:'minecraft:flat',settings:{layers:[{block:'minecraft:air',height:1}],structure_overrides:[],biome:'minecraft:the_void'}}");
         CompoundTag dimensions = WorldStructureApi.worldgenData(root).getCompoundOrEmpty("dimensions");
         for (var dimension : MirrorWorldgenDefinition.DIMENSIONS) {
             dimensions.getCompoundOrEmpty(dimension.dimensionType()).put("generator", flat.copy());
@@ -297,16 +324,19 @@ class MirrorWorldgenRepairTest {
     private static Map<Path, byte[]> snapshot(Path world) throws Exception {
         Map<Path, byte[]> files = new LinkedHashMap<>();
         for (String relative : Arrays.asList("level.dat", WorldMetadata.FILE_NAME,
-                "data/minecraft/world_gen_settings.dat", "data/minecraft/world_clocks.dat",
-                "datapacks/worldmirror_environment/pack.mcmeta",
-                "datapacks/worldmirror_environment/data/worldmirror/worldgen/biome/mirror_overworld.json")) {
+                     "data/minecraft/world_gen_settings.dat", "data/minecraft/world_clocks.dat",
+                     "datapacks/worldmirror_environment/pack.mcmeta",
+                     "datapacks/worldmirror_environment/data/worldmirror/worldgen/biome/mirror_overworld.json")) {
             Path file = world.resolve(relative);
-            if (Files.exists(file)) files.put(file, Files.readAllBytes(file));
+            if (Files.exists(file))
+                files.put(file, Files.readAllBytes(file));
         }
         return files;
     }
 
     private static void assertSnapshot(Path world, Map<Path, byte[]> expected) throws Exception {
-        for (var file : expected.entrySet()) assertArrayEquals(file.getValue(), Files.readAllBytes(file.getKey()), world.relativize(file.getKey()).toString());
+        for (var file : expected.entrySet())
+            assertArrayEquals(file.getValue(), Files.readAllBytes(file.getKey()),
+                    world.relativize(file.getKey()).toString());
     }
 }

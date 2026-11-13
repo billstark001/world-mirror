@@ -19,7 +19,8 @@ public record MirrorTarget(Path folder, String nodeId, String sourceId) {
     }
 
     public static Optional<MirrorTarget> at(Path folder) {
-        return WorldMetadata.loadIfPresent(folder).map(metadata -> new MirrorTarget(folder, metadata.nodeId, metadata.sourceId));
+        return WorldMetadata.loadIfPresent(folder).map(
+                metadata -> new MirrorTarget(folder, metadata.nodeId, metadata.sourceId));
     }
 
     public boolean matches(WorldMetadata metadata) {

@@ -28,17 +28,18 @@ class DimensionPathTest {
     @ParameterizedTest
     @ValueSource(strings = {"../escape", "/absolute", "foo/../../escape", "foo//bar", "foo/./bar"})
     void rejectsDimensionPathsThatAliasOrEscapeTheirNamespace(String path, @TempDir Path world) {
-        ResourceKey<Level> dimension = ResourceKey.create(Registries.DIMENSION,
-                Identifier.fromNamespaceAndPath("example", path));
+        ResourceKey<Level> dimension =
+                ResourceKey.create(Registries.DIMENSION, Identifier.fromNamespaceAndPath("example", path));
 
-        assertThrows(IllegalArgumentException.class, () -> WorldSaveLayout.dimensionDirectory(world, dimension));
+        assertThrows(
+                IllegalArgumentException.class, () -> WorldSaveLayout.dimensionDirectory(world, dimension));
         assertThrows(IllegalArgumentException.class, () -> ConflictManager.getConflictDir(world, dimension));
     }
 
     @Test
     void nestedCustomDimensionsKeepTheirExactNamespacedLayout(@TempDir Path world) {
-        ResourceKey<Level> dimension = ResourceKey.create(Registries.DIMENSION,
-                Identifier.fromNamespaceAndPath("example", "nested/caves"));
+        ResourceKey<Level> dimension = ResourceKey.create(
+                Registries.DIMENSION, Identifier.fromNamespaceAndPath("example", "nested/caves"));
 
         assertEquals(world.resolve("dimensions/example/nested/caves"),
                 WorldSaveLayout.dimensionDirectory(world, dimension));

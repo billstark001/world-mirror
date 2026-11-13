@@ -17,7 +17,8 @@ public final class LegacyEntityRecords {
     public static UUID storedUuid(CompoundTag entity) {
         int[] raw = entity.getIntArray("UUID").orElseThrow(
                 () -> new IllegalArgumentException("Missing stored UUID"));
-        if (raw.length != 4) throw new IllegalArgumentException("Invalid stored UUID");
+        if (raw.length != 4)
+            throw new IllegalArgumentException("Invalid stored UUID");
         return UUIDUtil.uuidFromIntArray(raw);
     }
 
@@ -37,10 +38,13 @@ public final class LegacyEntityRecords {
                 throw new IllegalArgumentException("Duplicate UUID within an entity passenger tree");
             }
             Tag passengers = current.get("Passengers");
-            if (passengers == null) continue;
-            if (!(passengers instanceof ListTag list)) throw new IllegalArgumentException("Invalid entity list: Passengers");
+            if (passengers == null)
+                continue;
+            if (!(passengers instanceof ListTag list))
+                throw new IllegalArgumentException("Invalid entity list: Passengers");
             for (Tag passenger : list) {
-                if (!(passenger instanceof CompoundTag compound)) throw new IllegalArgumentException("Invalid entity record");
+                if (!(passenger instanceof CompoundTag compound))
+                    throw new IllegalArgumentException("Invalid entity record");
                 pending.push(compound);
             }
         }

@@ -34,7 +34,8 @@ class ContainerTrackerStateTest {
     void callersCannotMutateTheStoredInventoryThroughQueries() {
         ContainerTracker.rememberOverlay(Level.OVERWORLD, BlockPos.ZERO, overlay(1));
         ContainerTracker.getContainerData(Level.OVERWORLD, BlockPos.ZERO).putInt("version", 9);
-        assertEquals(1, ContainerTracker.getContainerData(Level.OVERWORLD, BlockPos.ZERO).getIntOr("version", -1));
+        assertEquals(
+                1, ContainerTracker.getContainerData(Level.OVERWORLD, BlockPos.ZERO).getIntOr("version", -1));
     }
 
     @Test
@@ -45,7 +46,8 @@ class ContainerTrackerStateTest {
         var chunks = Map.of(Level.OVERWORLD, Set.of(new ChunkPos(0, 0)));
 
         ContainerTracker.evictForChunks(chunks, exported);
-        assertEquals(2, ContainerTracker.getContainerData(Level.OVERWORLD, BlockPos.ZERO).getIntOr("version", -1));
+        assertEquals(
+                2, ContainerTracker.getContainerData(Level.OVERWORLD, BlockPos.ZERO).getIntOr("version", -1));
         ContainerTracker.evictForChunks(chunks, ContainerTracker.snapshotSavedData());
         assertNull(ContainerTracker.getContainerData(Level.OVERWORLD, BlockPos.ZERO));
     }

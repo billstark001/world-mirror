@@ -13,8 +13,8 @@ class OfflineTasksTest {
         var callbacks = new LinkedBlockingQueue<Runnable>();
         AtomicBoolean cleaned = new AtomicBoolean();
         AtomicBoolean completed = new AtomicBoolean();
-        OfflineTasks.start("WM-TestOfflineCompletion", () -> true, failure -> false,
-                callbacks::add, result -> {
+        OfflineTasks.start(
+                "WM-TestOfflineCompletion", () -> true, failure -> false, callbacks::add, result -> {
                     assertTrue(cleaned.get());
                     completed.set(result);
                 }, () -> cleaned.set(true));
@@ -31,16 +31,25 @@ class OfflineTasksTest {
     void unexpectedWorkAndProgressFailuresStillCompleteTheUiLifecycle() throws Exception {
         CountDownLatch completed = new CountDownLatch(1);
         AtomicBoolean cleaned = new AtomicBoolean();
-        OfflineTasks.<Boolean>start("WM-TestOfflineFailure", () -> {
-            throw new java.io.UncheckedIOException(new java.io.IOException("injected iteration failure"));
-        }, failure -> false, Runnable::run, result -> {
-            assertFalse(result);
-            assertTrue(cleaned.get());
-            completed.countDown();
-        }, () -> {
-            cleaned.set(true);
-            throw new IllegalStateException("progress close failure");
-        });
+        OfflineTasks.<Boolean>start("WM-TestOfflineFailure",
+                ()
+                        -> {
+                    throw new java.io.UncheckedIOException(
+                            new java.io.IOException("injected iteration failure"));
+                },
+                failure
+                -> false,
+                Runnable::run,
+                result
+                -> {
+                    assertFalse(result);
+                    assertTrue(cleaned.get());
+                    completed.countDown();
+                },
+                () -> {
+                    cleaned.set(true);
+                    throw new IllegalStateException("progress close failure");
+                });
         assertTrue(completed.await(5, TimeUnit.SECONDS));
     }
 }

@@ -21,26 +21,36 @@ public final class LegacyMirrorClaim {
 
     public static String readSource(Path folder) {
         Path file = folder.resolve(MirrorClaim.FILE_NAME);
-        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) return null;
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS))
+            return null;
         JsonObject claim = JsonSupport.readDocument(file, JsonObject.class).value();
-        if (claim == null || !claim.keySet().equals(V0_FIELDS)) return null;
+        if (claim == null || !claim.keySet().equals(V0_FIELDS))
+            return null;
         var source = claim.get("sourceId");
         var token = claim.get("token");
-        if (!source.isJsonPrimitive() || !source.getAsJsonPrimitive().isString()
-                || !token.isJsonPrimitive() || !token.getAsJsonPrimitive().isString()) return null;
+        if (!source.isJsonPrimitive() || !source.getAsJsonPrimitive().isString() || !token.isJsonPrimitive()
+                || !token.getAsJsonPrimitive().isString())
+            return null;
         String sourceId = source.getAsString();
-        if (sourceId.isBlank() || sourceId.chars().anyMatch(Character::isISOControl)) return null;
-        try { UUID.fromString(token.getAsString()); }
-        catch (IllegalArgumentException invalid) { return null; }
+        if (sourceId.isBlank() || sourceId.chars().anyMatch(Character::isISOControl))
+            return null;
+        try {
+            UUID.fromString(token.getAsString());
+        } catch (IllegalArgumentException invalid) {
+            return null;
+        }
         return sourceId;
     }
 
-    public static MirrorClaim.Claim upgrade(Path folder, String sourceId, String parentId) throws IOException {
+    public static MirrorClaim.Claim upgrade(Path folder, String sourceId, String parentId)
+            throws IOException {
         try (WorldWriteLock ignored = WorldWriteLock.acquire(folder)) {
             Path file = folder.resolve(MirrorClaim.FILE_NAME);
             FileProof.Version stamp = FileProof.version(file);
-            if (!sourceId.equals(readSource(folder))) throw new IOException("Legacy reservation changed");
-            var claim = new MirrorClaim.Claim(UUID.randomUUID(), "mirror:" + UUID.randomUUID(), parentId, sourceId);
+            if (!sourceId.equals(readSource(folder)))
+                throw new IOException("Legacy reservation changed");
+            var claim = new MirrorClaim.Claim(
+                    UUID.randomUUID(), "mirror:" + UUID.randomUUID(), parentId, sourceId);
             JsonSupport.compareAndWriteDocument(file, claim, stamp);
             return claim;
         }

@@ -42,11 +42,14 @@ public final class McaWriteSupport {
     public static CompoundTag readChunk(RegionFile region, ChunkPos pos) throws IOException {
         try (DataInputStream input = region.getChunkDataInputStream(pos)) {
             if (input == null) {
-                if (region.hasChunk(pos)) throw new IOException("Allocated chunk cannot be decoded: " + region.getPath() + " " + pos);
+                if (region.hasChunk(pos))
+                    throw new IOException(
+                            "Allocated chunk cannot be decoded: " + region.getPath() + " " + pos);
                 return null;
             }
             CompoundTag chunk = NbtReadSupport.readChunk(input);
-            if (input.read() != -1) throw new IOException("Trailing chunk data: " + region.getPath() + " " + pos);
+            if (input.read() != -1)
+                throw new IOException("Trailing chunk data: " + region.getPath() + " " + pos);
             return chunk;
         }
     }
@@ -75,9 +78,10 @@ public final class McaWriteSupport {
      * this method returns successfully. When copying between region files, release
      * the source file lock before calling this method to avoid lock-order cycles.
      */
-    public static void writeChunks(Path file, ResourceKey<Level> dimension,
-                                   Map<ChunkPos, CompoundTag> chunks) throws IOException {
-        if (chunks.isEmpty()) return;
+    public static void writeChunks(Path file, ResourceKey<Level> dimension, Map<ChunkPos, CompoundTag> chunks)
+            throws IOException {
+        if (chunks.isEmpty())
+            return;
         ChunkPos first = chunks.keySet().iterator().next();
         for (ChunkPos pos : chunks.keySet()) {
             if (pos.getRegionX() != first.getRegionX() || pos.getRegionZ() != first.getRegionZ()) {
@@ -113,5 +117,4 @@ public final class McaWriteSupport {
             }
         }
     }
-
 }

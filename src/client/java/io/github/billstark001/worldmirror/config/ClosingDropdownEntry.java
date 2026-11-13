@@ -14,24 +14,20 @@ import java.util.function.Supplier;
 /** Cloth dropdown that deterministically closes after selection, focus loss, or Escape. */
 @SuppressWarnings("deprecation")
 final class ClosingDropdownEntry<T> extends DropdownBoxEntry<T> {
-    ClosingDropdownEntry(
-            Component fieldName,
-            Component resetButtonKey,
-            Supplier<Optional<Component[]>> tooltipSupplier,
-            Supplier<T> defaultValue,
-            Consumer<T> saveConsumer,
-            Iterable<T> selections,
-            SelectionTopCellElement<T> topCell,
+    ClosingDropdownEntry(Component fieldName, Component resetButtonKey,
+            Supplier<Optional<Component[]>> tooltipSupplier, Supplier<T> defaultValue,
+            Consumer<T> saveConsumer, Iterable<T> selections, SelectionTopCellElement<T> topCell,
             SelectionCellCreator<T> cellCreator) {
-        super(fieldName, resetButtonKey, tooltipSupplier, false, defaultValue, saveConsumer,
-                selections, topCell, cellCreator);
+        super(fieldName, resetButtonKey, tooltipSupplier, false, defaultValue, saveConsumer, selections,
+                topCell, cellCreator);
         setSuggestionMode(false);
     }
 
     @Override
     public void setFocused(GuiEventListener listener) {
         super.setFocused(listener);
-        if (listener != selectionElement) updateSelected(false);
+        if (listener != selectionElement)
+            updateSelected(false);
     }
 
     @Override
@@ -41,7 +37,8 @@ final class ClosingDropdownEntry<T> extends DropdownBoxEntry<T> {
             closeMenu();
         }
         boolean handled = super.mouseClicked(click, doubled);
-        if (expanded && handled) closeMenu();
+        if (expanded && handled)
+            closeMenu();
         return handled;
     }
 

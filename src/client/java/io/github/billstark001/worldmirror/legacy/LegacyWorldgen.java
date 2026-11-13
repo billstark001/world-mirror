@@ -13,29 +13,34 @@ public final class LegacyWorldgen {
     /** Unversioned (v0) mirrors used the same one-air-layer flat generator in each dimension. */
     private static final CompoundTag FLAT_V0 = flatGenerator();
     /** Schema 1 before Minecraft 26.3 encoded void noise and block states in the old native form. */
-    private static final CompoundTag NOISE_V1_BEFORE_26_3 = WorldStructureCreator
-            .createMirrorWorldGenSettings(WorldStructureCreator.GeneratorEncoding.BEFORE_26_3)
-            .getCompoundOrEmpty("dimensions");
+    private static final CompoundTag NOISE_V1_BEFORE_26_3 =
+            WorldStructureCreator
+                    .createMirrorWorldGenSettings(WorldStructureCreator.GeneratorEncoding.BEFORE_26_3)
+                    .getCompoundOrEmpty("dimensions");
 
     private LegacyWorldgen() {}
 
     public static boolean recognizes(CompoundTag generator, MirrorWorldgenDefinition.Dimension dimension) {
         return generator.equals(FLAT_V0)
-                || generator.equals(NOISE_V1_BEFORE_26_3.getCompoundOrEmpty(dimension.dimensionType()).get("generator"));
+                || generator.equals(
+                        NOISE_V1_BEFORE_26_3.getCompoundOrEmpty(dimension.dimensionType()).get("generator"));
     }
 
     /** Upgrades only the exact old generators rejected by the current Minecraft codec. */
     public static void upgrade(CompoundTag settings, CompoundTag current,
-                               BiPredicate<CompoundTag, String> canDecode) throws IOException {
+            BiPredicate<CompoundTag, String> canDecode) throws IOException {
         CompoundTag dimensions = settings.getCompoundOrEmpty("dimensions");
         CompoundTag currentDimensions = current.getCompoundOrEmpty("dimensions");
         for (var definition : MirrorWorldgenDefinition.DIMENSIONS) {
             String id = definition.dimensionType();
             CompoundTag dimension = dimensions.getCompoundOrEmpty(id);
             CompoundTag generator = dimension.getCompoundOrEmpty("generator");
-            if (canDecode.test(generator, definition.biome())) continue;
-            if (!recognizes(generator, definition)) throw new IOException("Unrecognized generator for " + id);
-            dimension.put("generator", currentDimensions.getCompoundOrEmpty(id).getCompoundOrEmpty("generator"));
+            if (canDecode.test(generator, definition.biome()))
+                continue;
+            if (!recognizes(generator, definition))
+                throw new IOException("Unrecognized generator for " + id);
+            dimension.put(
+                    "generator", currentDimensions.getCompoundOrEmpty(id).getCompoundOrEmpty("generator"));
         }
     }
 

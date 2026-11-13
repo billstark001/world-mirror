@@ -30,7 +30,7 @@ public final class ChunkWorldOverlay {
     private static final GeometryCache geometryCache = new GeometryCache();
     private static final ChunkViewportCache viewportCache = new ChunkViewportCache();
     private record ViewState(ResourceKey<Level> dimension, ChunkBounds range, Settings settings,
-                             ChunkStatusCache.StatusTarget target) { }
+            ChunkStatusCache.StatusTarget target) {}
 
     private ChunkWorldOverlay() {}
 
@@ -55,21 +55,26 @@ public final class ChunkWorldOverlay {
         int radius = Math.max(8, Math.min(16_384, config.worldChunkOverlayRenderDistance));
         int height = Math.max(-64, Math.min(319, config.worldChunkOverlayHeight));
         WorldChunkOverlayColorMode colorMode = config.worldChunkOverlayColorMode != null
-                ? config.worldChunkOverlayColorMode : WorldChunkOverlayColorMode.SESSION;
+                ? config.worldChunkOverlayColorMode
+                : WorldChunkOverlayColorMode.SESSION;
         boolean showInnerGrid = config.showWorldChunkOverlayInnerGrid;
         int opacityPercent = Math.max(0, Math.min(100, config.worldChunkOverlayOpacityPercent));
         long now = System.currentTimeMillis();
         long sessionStartedAtMs = DownloadManager.downloadSessionStartedAtMs();
         // Wide views can scan many saved records; their coarse tiles do not
         // need the same update cadence as a nearby per-chunk view.
-        ChunkBounds range = new ChunkBounds(centerX - radius, centerX + radius, centerZ - radius, centerZ + radius);
+        ChunkBounds range =
+                new ChunkBounds(centerX - radius, centerX + radius, centerZ - radius, centerZ + radius);
         long rebuildIntervalMs = ChunkViewportCache.refreshInterval(range);
-        Settings settings = new Settings(height, sessionStartedAtMs, showInnerGrid, opacityPercent, colorMode);
+        Settings settings =
+                new Settings(height, sessionStartedAtMs, showInnerGrid, opacityPercent, colorMode);
         var target = ChunkStatusCache.targetFor(client);
         ViewState view = new ViewState(dimension, range, settings, target);
-        if (now >= lastBuildMs && now - lastBuildMs < rebuildIntervalMs
-                && client.level == lastLevel.get() && view.equals(lastView)) return;
-        ChunkStatusSnapshot persistent = ChunkStatusCache.getOrScheduleRefresh(target, dimension, PERSISTENT_REFRESH_INTERVAL_MS);
+        if (now >= lastBuildMs && now - lastBuildMs < rebuildIntervalMs && client.level == lastLevel.get()
+                && view.equals(lastView))
+            return;
+        ChunkStatusSnapshot persistent =
+                ChunkStatusCache.getOrScheduleRefresh(target, dimension, PERSISTENT_REFRESH_INTERVAL_MS);
         if (client.level != lastLevel.get() || lastView == null || !dimension.equals(lastView.dimension())) {
             geometryCache.clear();
             viewportCache.clear();
@@ -82,7 +87,8 @@ public final class ChunkWorldOverlay {
     }
 
     private static void deactivate() {
-        if (!captureActive) return;
+        if (!captureActive)
+            return;
         captureActive = false;
         cached = OverlaySnapshot.EMPTY;
         geometryCache.clear();
@@ -99,7 +105,8 @@ public final class ChunkWorldOverlay {
 
     /** Toggles and saves the setting for the world currently being played. */
     public static synchronized void toggleForCurrentWorld(Minecraft client) {
-        if (client == null || client.level == null || client.player == null) return;
+        if (client == null || client.level == null || client.player == null)
+            return;
         ModConfig config = ModConfig.get();
         boolean mirrorWorld = MirrorWorldContext.current().isMirror();
         config.chunkMap.toggleWorldChunkOverlay(mirrorWorld);
@@ -110,15 +117,16 @@ public final class ChunkWorldOverlay {
     }
 
     record Settings(int height, long sessionStartedAtMs, boolean innerGrid, int opacityPercent,
-                    WorldChunkOverlayColorMode mode) { }
+            WorldChunkOverlayColorMode mode) {}
 
     static OverlaySnapshot build(ChunkStatusSnapshot persistent, LiveChunkStatusSnapshot live,
-                                 ChunkBounds range, Settings settings, long now) {
+            ChunkBounds range, Settings settings, long now) {
         ChunkBucketLayout layout = ChunkBucketLayout.withinBudget(range, MAX_BUCKET_CELLS);
         var cells = new Long2ObjectOpenHashMap<ChunkTileGeometry.Cell>();
         ChunkBucketIndex.combine(persistent.index(), live.index(), layout).forEach((key, summary) -> {
             int color = ChunkMapStyle.world(summary, settings.mode(), settings.sessionStartedAtMs(), now);
-            if (color != 0) cells.put(key, ChunkTileGeometry.Cell.world(ChunkBounds.x(key), ChunkBounds.z(key), color));
+            if (color != 0)
+                cells.put(key, ChunkTileGeometry.Cell.world(ChunkBounds.x(key), ChunkBounds.z(key), color));
         });
         int size = layout.size();
         ArrayList<OverlayChunk> rectangles = new ArrayList<>();
@@ -137,9 +145,11 @@ public final class ChunkWorldOverlay {
             int x2 = coordinate(edge.vertical() ? fixed : end, range.minX(), (long) range.maxX() + 1);
             int z1 = coordinate(edge.vertical() ? start : fixed, range.minZ(), (long) range.maxZ() + 1);
             int z2 = coordinate(edge.vertical() ? end : fixed, range.minZ(), (long) range.maxZ() + 1);
-            edges.add(new OverlayEdge(x1, z1, x2, z2, settings.height(), edge.color(), edge.interior(), edge.outwardPositive()));
+            edges.add(new OverlayEdge(x1, z1, x2, z2, settings.height(), edge.color(), edge.interior(),
+                    edge.outwardPositive()));
         }
-        return new OverlaySnapshot(List.copyOf(rectangles), List.copyOf(edges), settings.innerGrid(), settings.opacityPercent());
+        return new OverlaySnapshot(
+                List.copyOf(rectangles), List.copyOf(edges), settings.innerGrid(), settings.opacityPercent());
     }
 
     private static int coordinate(long coordinate, long minimum, long maximum) {
@@ -149,32 +159,34 @@ public final class ChunkWorldOverlay {
     /** A geometry key contains all semantic inputs; time affects MAP colors only. */
     static final class GeometryCache {
         private record Key(ChunkStatusSnapshot persistent, LiveChunkStatusSnapshot live, ChunkBounds range,
-                           Settings settings, long colorEpoch) { }
+                Settings settings, long colorEpoch) {}
         private Key key;
         private OverlaySnapshot snapshot;
         OverlaySnapshot get(ChunkStatusSnapshot persistent, LiveChunkStatusSnapshot live, ChunkBounds range,
-                            Settings settings, long now) {
+                Settings settings, long now) {
             Key next = new Key(persistent, live, range, settings,
                     settings.mode() == WorldChunkOverlayColorMode.MAP ? Math.floorDiv(now, 1_000L) : 0L);
-            if (next.equals(key)) return snapshot;
+            if (next.equals(key))
+                return snapshot;
             snapshot = build(persistent, live, range, settings, now);
             key = next;
             return snapshot;
         }
-        void clear() { key = null; snapshot = null; }
+        void clear() {
+            key = null;
+            snapshot = null;
+        }
     }
 
-    public record OverlayChunk(int startChunkX, int endChunkX,
-                               int startChunkZ, int endChunkZ, int y, int color) {}
+    public record
+            OverlayChunk(int startChunkX, int endChunkX, int startChunkZ, int endChunkZ, int y, int color) {}
 
-    public record OverlayEdge(int startChunkX, int startChunkZ,
-                              int endChunkX, int endChunkZ, int y, int color,
-                              boolean sameColorInterior, boolean outwardPositive) {}
+    public record OverlayEdge(int startChunkX, int startChunkZ, int endChunkX, int endChunkZ, int y,
+            int color, boolean sameColorInterior, boolean outwardPositive) {}
 
-    public record OverlaySnapshot(List<OverlayChunk> chunks, List<OverlayEdge> edges,
-                                  boolean showInnerGrid, int opacityPercent) {
-        public static final OverlaySnapshot EMPTY =
-                new OverlaySnapshot(List.of(), List.of(), true, 60);
+    public record OverlaySnapshot(
+            List<OverlayChunk> chunks, List<OverlayEdge> edges, boolean showInnerGrid, int opacityPercent) {
+        public static final OverlaySnapshot EMPTY = new OverlaySnapshot(List.of(), List.of(), true, 60);
 
         public boolean isEmpty() {
             return chunks.isEmpty() || opacityPercent <= 0;

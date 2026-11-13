@@ -42,8 +42,11 @@ class DownloadCaptureQueueTest {
         terrain.putString("terrain", "saved before unload");
         assertTrue(queue.captureBeforeUnload(first, () -> false, () -> terrain));
         assertTrue(queue.captureBeforeUnload(removed, () -> true, CompoundTag::new));
-        assertEquals("saved before unload", ChunkListener.getDimension(Level.OVERWORLD)
-                .get(new ChunkPos(1, 0)).nbt().getStringOr("terrain", ""));
+        assertEquals("saved before unload",
+                ChunkListener.getDimension(Level.OVERWORLD)
+                        .get(new ChunkPos(1, 0))
+                        .nbt()
+                        .getStringOr("terrain", ""));
         assertTrue(ChunkListener.getDimension(Level.OVERWORLD).get(new ChunkPos(3, 0)).authoritativeEmpty());
         assertEquals(second, queue.pollPending().key());
         assertFalse(queue.hasWork());
@@ -75,7 +78,8 @@ class DownloadCaptureQueueTest {
         long version = queue.statusVersion(Level.OVERWORLD);
         queue.pollPending();
         assertEquals(Set.of(new ChunkPos(-1, 0)), queue.pendingChunkPositions(Level.OVERWORLD, -1, 0, 0, 0));
-        assertEquals(version, queue.statusVersion(Level.OVERWORLD), "the visible state remains pending while light is queued");
+        assertEquals(version, queue.statusVersion(Level.OVERWORLD),
+                "the visible state remains pending while light is queued");
         queue.finishLightUpdates();
         assertTrue(queue.pendingChunkPositions(Level.OVERWORLD, -1, 0, 0, 0).isEmpty());
         assertTrue(queue.statusVersion(Level.OVERWORLD) > version);
@@ -102,8 +106,9 @@ class DownloadCaptureQueueTest {
         mask.set(0);
         byte[] light = new byte[2048];
         light[0] = 7;
-        ChunkListener.applyLightUpdate(Level.OVERWORLD, pos, new LightingUpdate(0, 1,
-                mask, new BitSet(), List.of(light), new BitSet(), new BitSet(), List.of()));
+        ChunkListener.applyLightUpdate(Level.OVERWORLD, pos,
+                new LightingUpdate(
+                        0, 1, mask, new BitSet(), List.of(light), new BitSet(), new BitSet(), List.of()));
         DownloadCaptureQueue queue = new DownloadCaptureQueue(() -> false, 1, () -> 8192);
         for (int hint = 0; hint < 10; hint++) {
             queue.markLightDirty(new DownloadCaptureQueue.Key(Level.OVERWORLD, 0, 0));
@@ -119,7 +124,11 @@ class DownloadCaptureQueueTest {
         var captured = snapshot.chunks().get(Level.OVERWORLD).get(pos);
         assertTrue(captured.revision() > previous);
         CompoundTag nbt = snapshot.materialize(Level.OVERWORLD, pos, captured).nbt();
-        assertArrayEquals(light, nbt.getListOrEmpty("sections").getCompound(0).orElseThrow()
-                .getByteArray("BlockLight").orElseThrow());
+        assertArrayEquals(light,
+                nbt.getListOrEmpty("sections")
+                        .getCompound(0)
+                        .orElseThrow()
+                        .getByteArray("BlockLight")
+                        .orElseThrow());
     }
 }

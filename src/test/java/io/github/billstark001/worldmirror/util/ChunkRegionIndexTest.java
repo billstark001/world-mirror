@@ -9,13 +9,16 @@ class ChunkRegionIndexTest {
     @Test
     void collisionHeavyCoordinateCopiesAreIsolatedAndFullyReadOnly() {
         var source = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<Integer>();
-        for (int n = -10_000; n < 10_000; n++) source.put(((long)n<<32)|(n&0xFFFFFFFFL),Integer.valueOf(n));
+        for (int n = -10_000; n < 10_000; n++)
+            source.put(((long) n << 32) | (n & 0xFFFFFFFFL), Integer.valueOf(n));
         var copy = ChunkRegionIndex.copyCoordinates(source);
         source.clear();
-        assertEquals(20_000,copy.size());
-        for (int n = -10_000; n < 10_000; n++) assertEquals(n,copy.get(((long)n<<32)|(n&0xFFFFFFFFL)));
-        assertThrows(UnsupportedOperationException.class,()->copy.put(0L,1));
-        assertThrows(UnsupportedOperationException.class,()->copy.entrySet().iterator().next().setValue(1));
+        assertEquals(20_000, copy.size());
+        for (int n = -10_000; n < 10_000; n++)
+            assertEquals(n, copy.get(((long) n << 32) | (n & 0xFFFFFFFFL)));
+        assertThrows(UnsupportedOperationException.class, () -> copy.put(0L, 1));
+        assertThrows(
+                UnsupportedOperationException.class, () -> copy.entrySet().iterator().next().setValue(1));
     }
     @Test
     void publishedPagesCopyOnlyChangedRegionsAndRemainStableWhileWriting() {
@@ -28,7 +31,8 @@ class ChunkRegionIndexTest {
         assertEquals(1, index.forEachInRange(0, 0, 0, 0, old::add));
         assertEquals(List.of(0), old, "unpublished edits cannot leak into readers");
         index.publish();
-        assertEquals(before + 1, index.copiedRecords(), "a one-region edit must not copy the distant history");
+        assertEquals(
+                before + 1, index.copiedRecords(), "a one-region edit must not copy the distant history");
         var next = new ArrayList<Integer>();
         assertEquals(1, index.forEachInRange(0, 0, 0, 0, next::add));
         assertEquals(List.of(-1), next);
@@ -40,21 +44,23 @@ class ChunkRegionIndexTest {
     @Test
     void concurrentReadersSeeCompleteImmutableRegionPages() throws Exception {
         var index = new ChunkRegionIndex.Publication<Integer>();
-        for (int x = 0; x < 32; x++) for (int z = 0; z < 32; z++) index.put(x,z,0);
+        for (int x = 0; x < 32; x++)
+            for (int z = 0; z < 32; z++) index.put(x, z, 0);
         index.publish();
         var writer = java.util.concurrent.CompletableFuture.runAsync(() -> {
             for (int revision = 1; revision <= 20; revision++) {
-                for (int x = 0; x < 32; x++) for (int z = 0; z < 32; z++) index.put(x,z,revision);
+                for (int x = 0; x < 32; x++)
+                    for (int z = 0; z < 32; z++) index.put(x, z, revision);
                 index.publish();
             }
         });
         for (int read = 0; read < 200; read++) {
             var page = new ArrayList<Integer>();
-            assertEquals(1024,index.forEachInRange(0,31,0,31,page::add));
-            assertEquals(1,page.stream().distinct().count());
+            assertEquals(1024, index.forEachInRange(0, 31, 0, 31, page::add));
+            assertEquals(1, page.stream().distinct().count());
         }
-        writer.get(5,java.util.concurrent.TimeUnit.SECONDS);
-        assertEquals(21L*1024,index.copiedRecords());
+        writer.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertEquals(21L * 1024, index.copiedRecords());
     }
     @Test
     void aSmallViewportDoesNotVisitALargeDistantHistory() {
@@ -76,8 +82,9 @@ class ChunkRegionIndexTest {
         index.put(-1, -1, "negative");
         index.put(0, 0, "origin");
         List<String> found = new ArrayList<>();
-        assertEquals(3, index.forEachInRange(Integer.MIN_VALUE, Integer.MAX_VALUE,
-                Integer.MIN_VALUE, Integer.MAX_VALUE, found::add));
+        assertEquals(3,
+                index.forEachInRange(Integer.MIN_VALUE, Integer.MAX_VALUE, Integer.MIN_VALUE,
+                        Integer.MAX_VALUE, found::add));
         assertEquals(3, found.size());
         found.clear();
         index.forEachInRange(-1, -1, -1, -1, found::add);

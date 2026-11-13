@@ -15,7 +15,6 @@ import java.lang.reflect.Modifier;
  */
 @Config(name = "worldmirror")
 public class ModConfig implements ConfigData {
-
     // ── Enums ────────────────────────────────────────────────────────────────
 
     public enum SaveLocation {
@@ -54,10 +53,7 @@ public class ModConfig implements ConfigData {
         KEEP
     }
 
-    public enum ChunkMapBackground {
-        BLACK,
-        TRANSPARENT
-    }
+    public enum ChunkMapBackground { BLACK, TRANSPARENT }
 
     public enum WorldChunkOverlayColorMode {
         /** Queued captures, current-session captures, and historical coverage. */
@@ -67,10 +63,7 @@ public class ModConfig implements ConfigData {
     }
 
     /** How a setting is chosen when a mirror save is first created. */
-    public enum NewWorldSettingBehavior {
-        FOLLOW_CURRENT,
-        DEFAULT
-    }
+    public enum NewWorldSettingBehavior { FOLLOW_CURRENT, DEFAULT }
 
     // ── Fields ───────────────────────────────────────────────────────────────
 
@@ -105,11 +98,9 @@ public class ModConfig implements ConfigData {
 
     // ── Cache control ─────────────────────────────────────────────────────────
 
-    @ConfigEntry.Gui.CollapsibleObject
-    public CacheConfig cache = new CacheConfig();
+    @ConfigEntry.Gui.CollapsibleObject public CacheConfig cache = new CacheConfig();
 
-    @ConfigEntry.Gui.CollapsibleObject
-    public PerformanceConfig performance = new PerformanceConfig();
+    @ConfigEntry.Gui.CollapsibleObject public PerformanceConfig performance = new PerformanceConfig();
 
     public static class PerformanceConfig {
         /** Non-adaptive scheduling ceiling used by every capture pipeline. */
@@ -133,8 +124,7 @@ public class ModConfig implements ConfigData {
         public int maxPendingCaptureHints = 8192;
 
         /** Emit low-frequency pipeline snapshots and slow-stage timings. */
-        @ConfigEntry.Gui.Tooltip
-        public boolean diagnosticPerformanceLogging = false;
+        @ConfigEntry.Gui.Tooltip public boolean diagnosticPerformanceLogging = false;
 
         /** Log an individual region stage when it exceeds this duration. */
         @ConfigEntry.Gui.Tooltip
@@ -142,11 +132,9 @@ public class ModConfig implements ConfigData {
         public int slowRegionMillis = 500;
     }
 
-    @ConfigEntry.Gui.CollapsibleObject
-    public ChunkMapConfig chunkMap = new ChunkMapConfig();
+    @ConfigEntry.Gui.CollapsibleObject public ChunkMapConfig chunkMap = new ChunkMapConfig();
 
     public static class ChunkMapConfig {
-
         /**
          * At or below this cell size, the chunk map skips the per-chunk grid.
          * Low zoom may still draw coarse guide lines because they are cheap.
@@ -159,8 +147,7 @@ public class ModConfig implements ConfigData {
         @ConfigEntry.Gui.EnumHandler(option = ConfigEntry.Gui.EnumHandler.EnumDisplayOption.DROPDOWN)
         public ChunkMapBackground background = ChunkMapBackground.BLACK;
 
-        @ConfigEntry.Gui.Tooltip
-        public boolean showXaeroWorldMapOverlay = true;
+        @ConfigEntry.Gui.Tooltip public boolean showXaeroWorldMapOverlay = true;
 
         @ConfigEntry.Gui.Tooltip
         @ConfigEntry.BoundedDiscrete(min = 1, max = 60)
@@ -171,16 +158,13 @@ public class ModConfig implements ConfigData {
         public int xaeroWorldMapOverlayMaxCells = ChunkBucketLayout.DEFAULT_MAP_BUDGET;
 
         /** Draws chunk status in source worlds and on servers. */
-        @ConfigEntry.Gui.Tooltip
-        public boolean showWorldChunkOverlay = false;
+        @ConfigEntry.Gui.Tooltip public boolean showWorldChunkOverlay = false;
 
         /** Draws chunk status when a World Mirror save is open. */
-        @ConfigEntry.Gui.Tooltip
-        public boolean showMirrorWorldChunkOverlay = false;
+        @ConfigEntry.Gui.Tooltip public boolean showMirrorWorldChunkOverlay = false;
 
         /** Keep the in-world overlay visible while F1 hides the game interface. */
-        @ConfigEntry.Gui.Tooltip
-        public boolean showWorldChunkOverlayWithHiddenGui = false;
+        @ConfigEntry.Gui.Tooltip public boolean showWorldChunkOverlayWithHiddenGui = false;
 
         public boolean isWorldChunkOverlayEnabled(boolean mirrorWorld) {
             return mirrorWorld ? showMirrorWorldChunkOverlay : showWorldChunkOverlay;
@@ -211,8 +195,7 @@ public class ModConfig implements ConfigData {
         public WorldChunkOverlayColorMode worldChunkOverlayColorMode = WorldChunkOverlayColorMode.SESSION;
 
         /** Draw boundaries between adjacent tiles that have the same status. */
-        @ConfigEntry.Gui.Tooltip
-        public boolean showWorldChunkOverlayInnerGrid = true;
+        @ConfigEntry.Gui.Tooltip public boolean showWorldChunkOverlayInnerGrid = true;
 
         /** Percentage of the original fill and outline opacity. */
         @ConfigEntry.Gui.Tooltip
@@ -221,7 +204,6 @@ public class ModConfig implements ConfigData {
     }
 
     public static class CacheConfig {
-
         /**
          * Retention target across all dimensions. Evicts the oldest durable chunks
          * first; unsaved changes are retained even when this target is exceeded.
@@ -253,27 +235,27 @@ public class ModConfig implements ConfigData {
          * If {@code true}, remove the exact exported cache revision after region
          * verification and SQLite commit. Newer captures remain in memory.
          */
-        @ConfigEntry.Gui.Tooltip
-        public boolean invalidateAfterExport = true;
+        @ConfigEntry.Gui.Tooltip public boolean invalidateAfterExport = true;
     }
 
     // ── Lifecycle behaviour ───────────────────────────────────────────────────
 
-    @ConfigEntry.Gui.CollapsibleObject
-    public LifecycleConfig lifecycle = new LifecycleConfig();
+    @ConfigEntry.Gui.CollapsibleObject public LifecycleConfig lifecycle = new LifecycleConfig();
 
     /** Repairs optional fields and clamps GUI bounds before any runtime consumer sees the model. */
     @Override
     public void validatePostLoad() {
         // Unknown overwrite policy must never turn into the ordinary OVERWRITE default.
-        if (defaultConflictStrategy == null) defaultConflictStrategy = ConflictStrategy.IGNORE;
+        if (defaultConflictStrategy == null)
+            defaultConflictStrategy = ConflictStrategy.IGNORE;
         normalize(this, new ModConfig());
     }
 
     private static void normalize(Object value, Object defaults) {
         try {
             for (var field : value.getClass().getFields()) {
-                if (Modifier.isStatic(field.getModifiers())) continue;
+                if (Modifier.isStatic(field.getModifiers()))
+                    continue;
                 Object current = field.get(value);
                 if (current == null) {
                     current = field.get(defaults);
@@ -297,7 +279,6 @@ public class ModConfig implements ConfigData {
      * start, stop, or keep the current state.
      */
     public static class LifecycleConfig {
-
         /**
          * Behaviour when the player first joins a world (or reconnects to a server).
          * Default: STOP — downloading does not start automatically.
@@ -328,27 +309,23 @@ public class ModConfig implements ConfigData {
          * If enabled, queue a short loaded-chunk scan before a manual export.
          * Automatic periodic and adaptive exports do not run this scan.
          */
-        @ConfigEntry.Gui.Tooltip
-        public boolean captureNearbyBeforeExport = true;
+        @ConfigEntry.Gui.Tooltip public boolean captureNearbyBeforeExport = true;
 
         /**
          * If enabled, capture loaded chunks around the player once when download stops.
          * This runs before optional stop-time export.
          */
-        @ConfigEntry.Gui.Tooltip
-        public boolean captureNearbyOnStop = false;
+        @ConfigEntry.Gui.Tooltip public boolean captureNearbyOnStop = false;
 
         /**
          * If enabled, trigger one final export of all cached chunks when download stops.
          */
-        @ConfigEntry.Gui.Tooltip
-        public boolean exportAllCachedOnStop = false;
+        @ConfigEntry.Gui.Tooltip public boolean exportAllCachedOnStop = false;
     }
 
     // ── Singleton + AutoConfig integration ────────────────────────────────────
 
-    @ConfigEntry.Gui.Excluded
-    private static boolean registered = false;
+    @ConfigEntry.Gui.Excluded private static boolean registered = false;
 
     /**
      * Registers the config with AutoConfig (idempotent).

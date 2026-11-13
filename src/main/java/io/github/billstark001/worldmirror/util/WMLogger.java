@@ -9,14 +9,13 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /** Central logging API for World Mirror. Player messages use {@code WMPlayerMessages}. */
 public final class WMLogger {
-
     private static final Logger LOGGER = LoggerFactory.getLogger("WorldMirror");
     private static final ConcurrentHashMap<String, RateLimitState> RATE_LIMITS = new ConcurrentHashMap<>();
 
-    private record RateLimitState(AtomicLong nextLogMs, AtomicLong suppressed) { }
+    private record RateLimitState(AtomicLong nextLogMs, AtomicLong suppressed) {}
     private enum Level { INFO, WARN, ERROR }
 
-    private WMLogger() { }
+    private WMLogger() {}
 
     public static void debug(String message) {
         LOGGER.debug(message);
@@ -46,8 +45,7 @@ public final class WMLogger {
         warnRateLimited(key, intervalMs, message, null);
     }
 
-    public static void warnRateLimited(
-            String key, long intervalMs, String message, Throwable error) {
+    public static void warnRateLimited(String key, long intervalMs, String message, Throwable error) {
         logRateLimited(key, intervalMs, message, error, Level.WARN);
     }
 
@@ -56,8 +54,8 @@ public final class WMLogger {
         Objects.requireNonNull(key, "key");
         long now = System.currentTimeMillis();
         long nextInterval = Math.max(1L, intervalMs);
-        RateLimitState state = RATE_LIMITS.computeIfAbsent(key,
-                ignored -> new RateLimitState(new AtomicLong(), new AtomicLong()));
+        RateLimitState state = RATE_LIMITS.computeIfAbsent(
+                key, ignored -> new RateLimitState(new AtomicLong(), new AtomicLong()));
         long next = state.nextLogMs().get();
         if (now < next || !state.nextLogMs().compareAndSet(next, now + nextInterval)) {
             state.suppressed().incrementAndGet();
@@ -65,9 +63,7 @@ public final class WMLogger {
         }
 
         long suppressed = state.suppressed().getAndSet(0L);
-        String summary = suppressed == 0
-                ? message
-                : message + " (suppressed=" + suppressed + ")";
+        String summary = suppressed == 0 ? message : message + " (suppressed=" + suppressed + ")";
         switch (level) {
             case INFO -> LOGGER.info(summary);
             case WARN -> LOGGER.warn(summary, error);

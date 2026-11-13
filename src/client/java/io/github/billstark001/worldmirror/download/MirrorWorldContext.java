@@ -7,7 +7,6 @@ import java.nio.file.Path;
  * infer ownership from a folder name: a mirror is identified by its metadata.
  */
 public final class MirrorWorldContext {
-
     public enum State { NOT_MIRROR, CURRENT, OUTDATED, FUTURE, UNREADABLE }
 
     public record Snapshot(Path worldFolder, State state, WorldMetadata metadata) {
@@ -40,13 +39,15 @@ public final class MirrorWorldContext {
     }
 
     public static Snapshot inspect(Path worldFolder, int dataVersion) {
-        if (worldFolder == null) return Snapshot.NONE;
+        if (worldFolder == null)
+            return Snapshot.NONE;
         MirrorMigrationPlan.Inspection inspection = MirrorMigrationPlan.inspect(worldFolder, dataVersion);
         return switch (inspection.state()) {
             case CURRENT -> new Snapshot(inspection.worldFolder(), State.CURRENT, inspection.metadata());
             case OUTDATED -> new Snapshot(inspection.worldFolder(), State.OUTDATED, inspection.metadata());
             case FUTURE -> new Snapshot(inspection.worldFolder(), State.FUTURE, inspection.metadata());
-            case UNREADABLE -> new Snapshot(inspection.worldFolder(), State.UNREADABLE, inspection.metadata());
+            case UNREADABLE ->
+                new Snapshot(inspection.worldFolder(), State.UNREADABLE, inspection.metadata());
             default -> Snapshot.NONE;
         };
     }

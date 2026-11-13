@@ -9,14 +9,17 @@ public final class ExportStatusMarkers {
     public static final int PARTIAL = 0xFFFF9090;
     private static final int SAVED_PART = 0xFF40E080;
     private static final int BORDER = 0xFF202020;
-    private ExportStatusMarkers() { }
-    @FunctionalInterface public interface Rects {
+    private ExportStatusMarkers() {}
+    @FunctionalInterface
+    public interface Rects {
         void fill(double left, double top, double right, double bottom, int color);
     }
     /** Small cells use a warning dot; zero means that no export marker is needed. */
     public static int compact(ExportStatus.Counts counts) {
-        if (counts.failed() > 0) return FAILED;
-        if (counts.partial() > 0) return PARTIAL;
+        if (counts.failed() > 0)
+            return FAILED;
+        if (counts.partial() > 0)
+            return PARTIAL;
         return counts.unresolved() > 0 ? FAILED : 0;
     }
     /** Coordinates are fractions of a bucket. Counts retain failures hidden by aggregation. */

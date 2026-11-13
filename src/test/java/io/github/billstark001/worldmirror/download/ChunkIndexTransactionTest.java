@@ -27,8 +27,10 @@ class ChunkIndexTransactionTest {
             String dimension = "minecraft:overworld";
             var index = new ChunkIndexStore(connection, "server:test");
             var corner = new ChunkCoordinate(-32, 32);
-            index.recordUpdates(dimension, Map.of(corner, 100L, new ChunkCoordinate(-33, 32), 200L,
-                    new ChunkCoordinate(-32, 64), 300L), "world_mirror");
+            index.recordUpdates(dimension,
+                    Map.of(corner, 100L, new ChunkCoordinate(-33, 32), 200L, new ChunkCoordinate(-32, 64),
+                            300L),
+                    "world_mirror");
             index.recordUpdates("minecraft:the_nether", Map.of(corner, 400L), "world_mirror");
             new ChunkIndexStore(connection, "server:other")
                     .recordUpdates(dimension, Map.of(corner, 500L), "world_mirror");
@@ -62,13 +64,14 @@ class ChunkIndexTransactionTest {
     void retainsTheOriginalFailureWhenRestoringAutoCommitAlsoFails() throws Exception {
         try (Connection connection = open()) {
             Connection wrapper = intercept(connection, (method, args) -> {
-                if (method.equals("executeBatch")) throw new SQLException("write failed");
+                if (method.equals("executeBatch"))
+                    throw new SQLException("write failed");
                 if (method.equals("setAutoCommit") && Boolean.TRUE.equals(args[0])) {
                     throw new SQLException("reset failed");
                 }
             });
-            SQLException failure = assertThrows(SQLException.class,
-                    () -> write(new ChunkIndexStore(wrapper, "server:test")));
+            SQLException failure = assertThrows(
+                    SQLException.class, () -> write(new ChunkIndexStore(wrapper, "server:test")));
 
             assertEquals("write failed", failure.getMessage());
             assertEquals(1, failure.getSuppressed().length);
@@ -82,14 +85,15 @@ class ChunkIndexTransactionTest {
         try (Connection connection = open()) {
             AtomicBoolean attemptedRestore = new AtomicBoolean();
             Connection wrapper = intercept(connection, (method, args) -> {
-                if (method.equals("executeBatch")) throw new SQLException("write failed");
-                if (method.equals("rollback")) throw new SQLException("rollback failed");
+                if (method.equals("executeBatch"))
+                    throw new SQLException("write failed");
+                if (method.equals("rollback"))
+                    throw new SQLException("rollback failed");
                 if (method.equals("setAutoCommit") && Boolean.TRUE.equals(args[0])) {
                     attemptedRestore.set(true);
                 }
             });
-            assertThrows(SQLException.class,
-                    () -> write(new ChunkIndexStore(wrapper, "server:test")));
+            assertThrows(SQLException.class, () -> write(new ChunkIndexStore(wrapper, "server:test")));
 
             assertFalse(attemptedRestore.get(), "enabling auto-commit would commit an uncertain batch");
             assertFalse(connection.getAutoCommit());
@@ -118,7 +122,7 @@ class ChunkIndexTransactionTest {
 
     private static Connection intercept(Connection delegate, FailureHook hook) {
         return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(),
-                new Class<?>[]{Connection.class}, (proxy, method, args) -> {
+                new Class<?>[] {Connection.class}, (proxy, method, args) -> {
                     // Rollback/reset failures must happen before touching the actual connection.
                     if (method.getName().equals("rollback") || method.getName().equals("setAutoCommit")) {
                         hook.after(method.getName(), args);
@@ -126,7 +130,8 @@ class ChunkIndexTransactionTest {
                     Object result = invoke(delegate, method, args);
                     if (result instanceof PreparedStatement statement) {
                         return Proxy.newProxyInstance(PreparedStatement.class.getClassLoader(),
-                                new Class<?>[]{PreparedStatement.class}, (statementProxy, operation, parameters) -> {
+                                new Class<?>[] {PreparedStatement.class},
+                                (statementProxy, operation, parameters) -> {
                                     Object value = invoke(statement, operation, parameters);
                                     hook.after(operation.getName(), parameters);
                                     return value;
@@ -136,7 +141,8 @@ class ChunkIndexTransactionTest {
                 });
     }
 
-    private static Object invoke(Object target, java.lang.reflect.Method method, Object[] args) throws Throwable {
+    private static Object invoke(Object target, java.lang.reflect.Method method, Object[] args)
+            throws Throwable {
         try {
             return method.invoke(target, args);
         } catch (InvocationTargetException exception) {
@@ -150,12 +156,13 @@ class ChunkIndexTransactionTest {
             var pos = new ChunkCoordinate(0, 0);
             store.recordUpdates("minecraft:overworld", Map.of(pos, 100L), "player");
             assertTrue(store.shouldSkipUpdate("minecraft:overworld", 0, 0, "world_mirror", 200L));
-            try (var sql = connection.createStatement()) { sql.execute("DROP TABLE update_sources"); }
-            assertThrows(SQLException.class, () -> store.shouldSkipUpdate(
-                    "minecraft:overworld", 0, 0, "world_mirror", 200L));
+            try (var sql = connection.createStatement()) {
+                sql.execute("DROP TABLE update_sources");
+            }
+            assertThrows(SQLException.class,
+                    () -> store.shouldSkipUpdate("minecraft:overworld", 0, 0, "world_mirror", 200L));
             store.removeUnreadableUpdates("minecraft:overworld", java.util.Set.of(pos));
             assertEquals("player", store.queryAll("minecraft:overworld").getFirst().updateSource());
         }
     }
-
 }

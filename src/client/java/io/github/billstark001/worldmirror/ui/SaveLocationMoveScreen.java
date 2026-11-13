@@ -34,32 +34,42 @@ public final class SaveLocationMoveScreen extends Screen {
     protected void init() {
         int x = width / 2;
         int y = height / 2;
-        addRenderableWidget(Button.builder(Component.translatable("screen.worldmirror.move.confirm"), button -> move())
-                .bounds(x - 102, y + 22, 98, 20).build());
+        addRenderableWidget(
+                Button.builder(Component.translatable("screen.worldmirror.move.confirm"), button -> move())
+                        .bounds(x - 102, y + 22, 98, 20)
+                        .build());
 #if MC_VERSION >= 260200
-        addRenderableWidget(Button.builder(Component.translatable("gui.cancel"), button -> ClientScreens.set(parent))
+        addRenderableWidget(
+                Button.builder(Component.translatable("gui.cancel"), button -> ClientScreens.set(parent))
 #else
-        addRenderableWidget(Button.builder(Component.translatable("gui.cancel"), button -> Minecraft.getInstance().setScreen(parent))
+        addRenderableWidget(
+                Button.builder(Component.translatable("gui.cancel"),
+                              button -> Minecraft.getInstance().setScreen(parent))
 #endif
-                .bounds(x + 4, y + 22, 98, 20).build());
+                        .bounds(x + 4, y + 22, 98, 20)
+                        .build());
     }
 
     private boolean moving;
 
     private void move() {
-        if (moving) return;
+        if (moving)
+            return;
         moving = true;
         Minecraft client = Minecraft.getInstance();
         DownloadManager.moveMirrorWorld(client, target, targetLocation, result -> {
             moving = false;
 #if MC_VERSION >= 260200
-            if (client.gui.screen() != this) return;
-            if (result.success()) ClientScreens.set(new StatusScreen());
+            if (client.gui.screen() != this)
+                return;
+            if (result.success())
+                ClientScreens.set(new StatusScreen());
 #else
             if (client.screen != this) return;
             if (result.success()) client.setScreen(new StatusScreen());
 #endif
-            else failure = Component.translatable("screen.worldmirror.move.failure." + result.failureCode());
+            else
+                failure = Component.translatable("screen.worldmirror.move.failure." + result.failureCode());
         });
     }
 
@@ -70,23 +80,35 @@ public final class SaveLocationMoveScreen extends Screen {
         int x = width / 2;
         int y = height / 2;
         graphics.centeredText(font, title, x, y - 50, 0xFFFFFFFF);
-        graphics.centeredText(font, Component.translatable("screen.worldmirror.move.message",
-                Component.translatable("config.worldmirror.saveLoc." + targetLocation.name().toLowerCase())), x, y - 28, 0xFFE0E0E0);
-        graphics.centeredText(font, Component.translatable("screen.worldmirror.move.warning"), x, y - 14, 0xFFFFAA55);
-        if (failure != null) graphics.centeredText(font, failure, x, y + 2, 0xFFFF5555);
+        graphics.centeredText(font,
+                Component.translatable("screen.worldmirror.move.message",
+                        Component.translatable(
+                                "config.worldmirror.saveLoc." + targetLocation.name().toLowerCase())),
+                x, y - 28, 0xFFE0E0E0);
+        graphics.centeredText(
+                font, Component.translatable("screen.worldmirror.move.warning"), x, y - 14, 0xFFFFAA55);
+        if (failure != null)
+            graphics.centeredText(font, failure, x, y + 2, 0xFFFF5555);
 #else
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float delta) {
         super.render(graphics, mouseX, mouseY, delta);
         int x = width / 2;
         int y = height / 2;
         graphics.drawCenteredString(font, title, x, y - 50, 0xFFFFFFFF);
-        graphics.drawCenteredString(font, Component.translatable("screen.worldmirror.move.message",
-                Component.translatable("config.worldmirror.saveLoc." + targetLocation.name().toLowerCase())), x, y - 28, 0xFFE0E0E0);
-        graphics.drawCenteredString(font, Component.translatable("screen.worldmirror.move.warning"), x, y - 14, 0xFFFFAA55);
-        if (failure != null) graphics.drawCenteredString(font, failure, x, y + 2, 0xFFFF5555);
+        graphics.drawCenteredString(font,
+                Component.translatable("screen.worldmirror.move.message",
+                        Component.translatable(
+                                "config.worldmirror.saveLoc." + targetLocation.name().toLowerCase())),
+                x, y - 28, 0xFFE0E0E0);
+        graphics.drawCenteredString(
+                font, Component.translatable("screen.worldmirror.move.warning"), x, y - 14, 0xFFFFAA55);
+        if (failure != null)
+            graphics.drawCenteredString(font, failure, x, y + 2, 0xFFFF5555);
 #endif
     }
 
     @Override
-    public boolean isPauseScreen() { return false; }
+    public boolean isPauseScreen() {
+        return false;
+    }
 }

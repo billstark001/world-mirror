@@ -16,17 +16,14 @@ import net.minecraft.nbt.ListTag;
 class LightingOverlayTest {
     @Test
     void emptyMaskOverwritesKnownDataButUnknownLayerDoesNot() {
-        CompoundTag chunk = chunkWithSection(3,
-                bytes((byte) 7), bytes((byte) 11));
+        CompoundTag chunk = chunkWithSection(3, bytes((byte) 7), bytes((byte) 11));
         LightingOverlay overlay = new LightingOverlay();
         overlay.absorbAndStrip(chunk);
 
         BitSet emptyBlock = new BitSet();
         emptyBlock.set(3);
         overlay.applyUpdate(new LightingUpdate(
-                0, 5,
-                new BitSet(), emptyBlock, List.of(),
-                new BitSet(), new BitSet(), List.of()));
+                0, 5, new BitSet(), emptyBlock, List.of(), new BitSet(), new BitSet(), List.of()));
 
         CompoundTag section = onlySection(overlay.snapshot().materialize(chunk));
         assertArrayEquals(new byte[2048], section.getByteArray("BlockLight").orElseThrow());
@@ -40,10 +37,8 @@ class LightingOverlayTest {
         blockUpdates.set(1);
         blockUpdates.set(3);
 
-        overlay.applyUpdate(new LightingUpdate(
-                0, 5,
-                blockUpdates, new BitSet(), List.of(bytes((byte) 1), bytes((byte) 3)),
-                new BitSet(), new BitSet(), List.of()));
+        overlay.applyUpdate(new LightingUpdate(0, 5, blockUpdates, new BitSet(),
+                List.of(bytes((byte) 1), bytes((byte) 3)), new BitSet(), new BitSet(), List.of()));
 
         CompoundTag materialized = overlay.snapshot().materialize(new CompoundTag());
         assertTrue(materialized.contains("sections"));
@@ -61,8 +56,8 @@ class LightingOverlayTest {
         BitSet updated = new BitSet();
         updated.set(0);
         byte[] light = bytes((byte) 9);
-        var update = new LightingUpdate(-1, 1, updated, new BitSet(), List.of(light),
-                new BitSet(), new BitSet(), List.of());
+        var update = new LightingUpdate(
+                -1, 1, updated, new BitSet(), List.of(light), new BitSet(), new BitSet(), List.of());
         overlay.applyUpdate(update);
         var snapshot = overlay.snapshot();
 

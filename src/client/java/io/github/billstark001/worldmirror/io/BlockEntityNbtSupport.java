@@ -32,10 +32,7 @@ public final class BlockEntityNbtSupport {
     }
 
     public static BlockEntity deserialize(
-            BlockPos pos,
-            BlockState state,
-            CompoundTag nbt,
-            HolderLookup.Provider registryLookup) {
+            BlockPos pos, BlockState state, CompoundTag nbt, HolderLookup.Provider registryLookup) {
         return BlockEntity.loadStatic(pos, state, nbt, registryLookup);
     }
 
@@ -78,21 +75,19 @@ public final class BlockEntityNbtSupport {
                 targetByPos.put(pos, restored);
                 continue;
             }
-            if (!sourceType.equals(targetBlockEntity.getStringOr("id", ""))) continue;
+            if (!sourceType.equals(targetBlockEntity.getStringOr("id", "")))
+                continue;
 
             sanitizeBlockEntity(targetBlockEntity);
             mergePreservedKeys(sourceBlockEntity, targetBlockEntity);
         }
-
     }
 
     public static void applyContainerOverlays(ResourceKey<Level> dimension, CompoundTag chunkNbt) {
         applyContainerOverlays(dimension, chunkNbt, null);
     }
 
-    public static void applyContainerOverlays(
-            ResourceKey<Level> dimension,
-            CompoundTag chunkNbt,
+    public static void applyContainerOverlays(ResourceKey<Level> dimension, CompoundTag chunkNbt,
             Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> containerSnapshot) {
         ListTag blockEntities = chunkNbt.getListOrEmpty(BLOCK_ENTITIES_KEY);
         if (blockEntities.isEmpty()) {
@@ -118,22 +113,17 @@ public final class BlockEntityNbtSupport {
     }
 
     public static void applyContainerOverlay(BlockEntity blockEntity, CompoundTag blockEntityNbt) {
-        ResourceKey<Level> dimension = blockEntity.getLevel() != null
-                ? blockEntity.getLevel().dimension()
-                : null;
+        ResourceKey<Level> dimension =
+                blockEntity.getLevel() != null ? blockEntity.getLevel().dimension() : null;
         applyContainerOverlay(dimension, blockEntity.getBlockPos(), blockEntityNbt);
     }
 
     private static void applyContainerOverlay(
-            ResourceKey<Level> dimension,
-            BlockPos pos,
-            CompoundTag blockEntityNbt) {
+            ResourceKey<Level> dimension, BlockPos pos, CompoundTag blockEntityNbt) {
         applyContainerOverlay(dimension, pos, blockEntityNbt, null);
     }
 
-    private static void applyContainerOverlay(
-            ResourceKey<Level> dimension,
-            BlockPos pos,
+    private static void applyContainerOverlay(ResourceKey<Level> dimension, BlockPos pos,
             CompoundTag blockEntityNbt,
             Map<ResourceKey<Level>, Map<BlockPos, CompoundTag>> containerSnapshot) {
         CompoundTag containerData = containerSnapshot != null
@@ -143,7 +133,8 @@ public final class BlockEntityNbtSupport {
             return;
         }
         String containerType = containerData.getStringOr("id", "");
-        if (!containerType.isEmpty() && !containerType.equals(blockEntityNbt.getStringOr("id", ""))) return;
+        if (!containerType.isEmpty() && !containerType.equals(blockEntityNbt.getStringOr("id", "")))
+            return;
 
         copyTagIfPresent(containerData, blockEntityNbt, "Items");
         copyCustomNameIfPresent(containerData, blockEntityNbt);

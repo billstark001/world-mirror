@@ -33,7 +33,8 @@ public final class FileProof {
     /** Checks an existing regular file without following a link at its final component. */
     public static BasicFileAttributes requirePlainFile(Path path) throws IOException {
         var attributes = Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-        if (!isPlainFile(attributes)) throw new IOException("Not a plain file: " + path);
+        if (!isPlainFile(attributes))
+            throw new IOException("Not a plain file: " + path);
         return attributes;
     }
 
@@ -49,14 +50,17 @@ public final class FileProof {
     public static void requirePlainPath(Path root, Path path) throws IOException {
         root = root.toAbsolutePath().normalize();
         path = path.toAbsolutePath().normalize();
-        if (!path.startsWith(root)) throw new IOException("Path leaves its root: " + path);
+        if (!path.startsWith(root))
+            throw new IOException("Path leaves its root: " + path);
         requirePlainDirectory(root);
         Path part = root;
         for (Path segment : root.relativize(path)) {
             part = part.resolve(segment);
             var attributes = attributesIfPresent(part);
-            if (attributes == null) return;
-            if (isAlias(attributes)) throw new IOException("Aliased path: " + part);
+            if (attributes == null)
+                return;
+            if (isAlias(attributes))
+                throw new IOException("Aliased path: " + part);
         }
     }
 
@@ -82,13 +86,17 @@ public final class FileProof {
     }
 
     public static MessageDigest sha256() {
-        try { return MessageDigest.getInstance("SHA-256"); }
-        catch (java.security.NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
     }
 
     public static String sha256(Path file) throws IOException {
         MessageDigest digest = sha256();
-        try (var input = new DigestInputStream(Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS), digest)) {
+        try (var input = new DigestInputStream(
+                     Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS), digest)) {
             input.transferTo(java.io.OutputStream.nullOutputStream());
         }
         return HexFormat.of().formatHex(digest.digest());
@@ -98,7 +106,8 @@ public final class FileProof {
     public static String copyVerified(Path source, Path destination) throws IOException {
         Version before = version(source);
         MessageDigest digest = sha256();
-        try (var input = new DigestInputStream(Files.newInputStream(source, LinkOption.NOFOLLOW_LINKS), digest)) {
+        try (var input = new DigestInputStream(
+                     Files.newInputStream(source, LinkOption.NOFOLLOW_LINKS), digest)) {
             Files.copy(input, destination);
         }
         String expected = HexFormat.of().formatHex(digest.digest());

@@ -10,8 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class WorldMetadataCaptureTimeTest {
     @Test
     void keepsOlderCompletionTimeUntilASavedCaptureIsNewer(@TempDir Path world) {
-        WorldMetadata metadata = WorldMetadata.create("mirror:test", WorldGraph.Kind.MIRROR, "local:test",
-                WorldGraph.Role.SYNC, "local:test");
+        WorldMetadata metadata = WorldMetadata.create(
+                "mirror:test", WorldGraph.Kind.MIRROR, "local:test", WorldGraph.Role.SYNC, "local:test");
         metadata.lastSyncTime = 2_000L; // A value from a release that wrote export completion time.
         metadata.save(world);
 

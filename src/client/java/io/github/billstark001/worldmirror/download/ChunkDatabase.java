@@ -54,7 +54,11 @@ public class ChunkDatabase implements Closeable {
             ChunkIndexStore.initialize(connection);
             return new ChunkDatabase(connection, sourceId);
         } catch (SQLException failure) {
-            try { connection.close(); } catch (SQLException close) { failure.addSuppressed(close); }
+            try {
+                connection.close();
+            } catch (SQLException close) {
+                failure.addSuppressed(close);
+            }
             throw failure;
         }
     }
@@ -81,43 +85,46 @@ public class ChunkDatabase implements Closeable {
     }
 
     /** Unavailable durability/priority evidence must defer writes, not authorize them. */
-    public boolean shouldSkipUpdate(String dimension, int x, int z,
-                                    String newUpdateSource, long newTimestamp) throws SQLException {
+    public boolean shouldSkipUpdate(String dimension, int x, int z, String newUpdateSource, long newTimestamp)
+            throws SQLException {
         return store.shouldSkipUpdate(dimension, x, z, newUpdateSource, newTimestamp);
     }
 
-    public boolean shouldSkipUpdate(String dimension, ChunkPos chunk,
-                                    String newUpdateSource, long newTimestamp) throws SQLException {
+    public boolean shouldSkipUpdate(
+            String dimension, ChunkPos chunk, String newUpdateSource, long newTimestamp) throws SQLException {
         ChunkCoordinate position = coordinate(chunk);
         return shouldSkipUpdate(dimension, position.x(), position.z(), newUpdateSource, newTimestamp);
     }
 
     /** A database row is recorded only after the region entry has been verified. */
-    public boolean recordUpdates(String dimension, Map<ChunkPos, Long> timestamps,
-                                 String updateSource) {
-        if (timestamps.isEmpty()) return true;
+    public boolean recordUpdates(String dimension, Map<ChunkPos, Long> timestamps, String updateSource) {
+        if (timestamps.isEmpty())
+            return true;
         Map<ChunkCoordinate, Long> coordinates = new HashMap<>();
         timestamps.forEach((chunk, time) -> coordinates.put(coordinate(chunk), time));
         try {
             store.recordUpdates(dimension, coordinates, updateSource);
             return true;
         } catch (SQLException e) {
-            WMLogger.warn("Chunk durability commit failed dimension=" + dimension
-                    + " updates=" + timestamps.size(), e);
+            WMLogger.warn(
+                    "Chunk durability commit failed dimension=" + dimension + " updates=" + timestamps.size(),
+                    e);
             return false;
         }
     }
 
     public boolean removeUnreadableUpdates(String dimension, Set<ChunkPos> chunks) {
-        if (chunks.isEmpty()) return true;
-        Set<ChunkCoordinate> coordinates = chunks.stream()
-                .map(ChunkDatabase::coordinate).collect(Collectors.toSet());
+        if (chunks.isEmpty())
+            return true;
+        Set<ChunkCoordinate> coordinates =
+                chunks.stream().map(ChunkDatabase::coordinate).collect(Collectors.toSet());
         try {
             store.removeUnreadableUpdates(dimension, coordinates);
             return true;
         } catch (SQLException e) {
-            WMLogger.warn("Unreadable chunk durability cleanup failed dimension="
-                    + dimension + " chunks=" + chunks.size(), e);
+            WMLogger.warn("Unreadable chunk durability cleanup failed dimension=" + dimension
+                            + " chunks=" + chunks.size(),
+                    e);
             return false;
         }
     }
@@ -125,29 +132,34 @@ public class ChunkDatabase implements Closeable {
     private static ChunkCoordinate coordinate(ChunkPos chunk) {
         // Region and local accessors are stable across the ChunkPos class/record
         // transition, and unlike block coordinates retain all 32 coordinate bits.
-        return new ChunkCoordinate(
-                chunk.getRegionX() * ChunkPos.REGION_SIZE + chunk.getRegionLocalX(),
+        return new ChunkCoordinate(chunk.getRegionX() * ChunkPos.REGION_SIZE + chunk.getRegionLocalX(),
                 chunk.getRegionZ() * ChunkPos.REGION_SIZE + chunk.getRegionLocalZ());
     }
 
-    public record ChunkRecord(int x, int z, long updateTime, String updateSource) { }
+    public record ChunkRecord(int x, int z, long updateTime, String updateSource) {}
 
     public List<ChunkRecord> queryAll(String dimension) throws SQLException {
-        return store.queryAll(dimension).stream()
-                .map(record -> new ChunkRecord(record.x(), record.z(),
-                        record.updateTime(), record.updateSource())).toList();
+        return store.queryAll(dimension)
+                .stream()
+                .map(record
+                        -> new ChunkRecord(
+                                record.x(), record.z(), record.updateTime(), record.updateSource()))
+                .toList();
     }
 
     /** Missing indexes are empty; unreadable indexes have no trustworthy empty result. */
-    public static List<ChunkRecord> queryAllReadOnly(
-            Path worldFolder, String sourceId, String dimension) throws SQLException {
+    public static List<ChunkRecord> queryAllReadOnly(Path worldFolder, String sourceId, String dimension)
+            throws SQLException {
         Path database = worldFolder.resolve(MirrorFormat.DATABASE_FILE);
-        if (Files.notExists(database)) return List.of();
+        if (Files.notExists(database))
+            return List.of();
         SQLiteConfig config = new SQLiteConfig();
         config.setReadOnly(true);
-        try (Connection connection = openConnection(
-                "jdbc:sqlite:" + database.toAbsolutePath(), config.toProperties())) {
-            try (Statement statement = connection.createStatement()) { statement.execute("PRAGMA query_only=TRUE"); }
+        try (Connection connection =
+                        openConnection("jdbc:sqlite:" + database.toAbsolutePath(), config.toProperties())) {
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("PRAGMA query_only=TRUE");
+            }
             return new ChunkDatabase(connection, sourceId).queryAll(dimension);
         }
     }
@@ -155,18 +167,19 @@ public class ChunkDatabase implements Closeable {
     /** Returns -1 when the durable count cannot be read. */
     public static int countAllReadOnly(Path worldFolder, String sourceId) {
         Path database = worldFolder.resolve(MirrorFormat.DATABASE_FILE);
-        if (Files.notExists(database)) return 0;
+        if (Files.notExists(database))
+            return 0;
         SQLiteConfig config = new SQLiteConfig();
         config.setReadOnly(true);
-        try (Connection connection = openConnection(
-                "jdbc:sqlite:" + database.toAbsolutePath(), config.toProperties())) {
+        try (Connection connection =
+                        openConnection("jdbc:sqlite:" + database.toAbsolutePath(), config.toProperties())) {
             try (Statement statement = connection.createStatement()) {
                 statement.execute("PRAGMA query_only=TRUE");
             }
             return new ChunkIndexStore(connection, sourceId).countAll();
         } catch (SQLException e) {
-            WMLogger.warnRateLimited("db-count-read-only", 30_000L,
-                    "Read-only chunk count failed world=" + worldFolder, e);
+            WMLogger.warnRateLimited(
+                    "db-count-read-only", 30_000L, "Read-only chunk count failed world=" + worldFolder, e);
             return -1;
         }
     }
@@ -196,7 +209,8 @@ public class ChunkDatabase implements Closeable {
 
     private static void ensureSqliteDriverReadyLocked() throws SQLException {
         configureSqliteNativeDirectoryLocked();
-        if (sqliteDriverLoaded) return;
+        if (sqliteDriverLoaded)
+            return;
         try {
             Class.forName("org.sqlite.JDBC");
             sqliteDriverLoaded = true;
@@ -206,10 +220,11 @@ public class ChunkDatabase implements Closeable {
     }
 
     private static void configureSqliteNativeDirectoryLocked() {
-        if (sqliteNativeDirectoryConfigured) return;
+        if (sqliteNativeDirectoryConfigured)
+            return;
         if (System.getProperty("org.sqlite.tmpdir") == null) {
-            Path nativeDir = Paths.get(System.getProperty("java.io.tmpdir"),
-                    "worldmirror-sqlite-native", Long.toString(ProcessHandle.current().pid()));
+            Path nativeDir = Paths.get(System.getProperty("java.io.tmpdir"), "worldmirror-sqlite-native",
+                    Long.toString(ProcessHandle.current().pid()));
             try {
                 Files.createDirectories(nativeDir);
                 System.setProperty("org.sqlite.tmpdir", nativeDir.toAbsolutePath().toString());

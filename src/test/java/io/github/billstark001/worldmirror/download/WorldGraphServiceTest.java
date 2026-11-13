@@ -35,10 +35,10 @@ class WorldGraphServiceTest {
     @Test
     void migratesLegacyConfigMetadataAndIndexThenOnlyUsesTheGraph() throws Exception {
         Path output = folder("downloaded_worlds", "legacy");
-        JsonSupport.writeDocument(output.resolve(WorldMetadata.FILE_NAME), Map.of("format", WorldMetadata.FORMAT,
-                "metadataSchema", 1, "sourceId", SOURCE, "sourceType", "server", "mirrorId", MIRROR_UUID,
-                "mirrorKind", "synchronized", "lastSyncTime", 2000,
-                "chunkUpdateTimes", Map.of("minecraft:overworld|5,9", 2000)));
+        JsonSupport.writeDocument(output.resolve(WorldMetadata.FILE_NAME),
+                Map.of("format", WorldMetadata.FORMAT, "metadataSchema", 1, "sourceId", SOURCE, "sourceType",
+                        "server", "mirrorId", MIRROR_UUID, "mirrorKind", "synchronized", "lastSyncTime", 2000,
+                        "chunkUpdateTimes", Map.of("minecraft:overworld|5,9", 2000)));
         Path legacy = legacyConfig("legacy", ModConfig.SaveLocation.DOWNLOADED);
         String oldConfig = Files.readString(legacy);
         var service = service();
@@ -58,7 +58,9 @@ class WorldGraphServiceTest {
         assertEquals(ModConfig.ConflictStrategy.MANUAL, service.conflictStrategy(MIRROR, REMOTE));
         assertFalse(Files.exists(legacy));
         try (var files = Files.list(configDirectory())) {
-            Path archive = files.filter(path -> path.getFileName().toString().startsWith("mirrors.v1-")).findFirst().orElseThrow();
+            Path archive = files.filter(path -> path.getFileName().toString().startsWith("mirrors.v1-"))
+                                   .findFirst()
+                                   .orElseThrow();
             assertEquals(oldConfig, Files.readString(archive));
         }
         assertFalse(Files.exists(configDirectory().resolve(".world-graph-import.json")));
@@ -117,8 +119,10 @@ class WorldGraphServiceTest {
         String firstParent = "remote:first-split", secondParent = "remote:second-split";
         writeMirror(first, MIRROR, firstParent);
         String secondNode = "mirror:" + UUID.randomUUID();
-        assertTrue(WorldMetadata.create(secondNode, WorldGraph.Kind.MIRROR, secondParent,
-                WorldGraph.Role.SYNC, "server:" + ENDPOINT).save(second));
+        assertTrue(WorldMetadata
+                        .create(secondNode, WorldGraph.Kind.MIRROR, secondParent, WorldGraph.Role.SYNC,
+                                "server:" + ENDPOINT)
+                        .save(second));
         var service = service();
         service.refresh();
 
@@ -136,12 +140,15 @@ class WorldGraphServiceTest {
         var service = service();
         var target = service.prepare(remote());
 
-        try (var channel = FileChannel.open(configDirectory().resolve(".world-graph.lock"), StandardOpenOption.WRITE);
-             var ignored = channel.lock()) {
+        try (var channel = FileChannel.open(
+                     configDirectory().resolve(".world-graph.lock"), StandardOpenOption.WRITE);
+                var ignored = channel.lock()) {
             assertThrows(IOException.class, service::refresh);
             assertThrows(IOException.class, () -> service.prepare(remote()));
-            assertThrows(IOException.class, () -> service.setSaveLocation(remote(), ModConfig.SaveLocation.SAVES));
-            assertThrows(IOException.class, () -> service.setConflictStrategy(MIRROR, REMOTE, ModConfig.ConflictStrategy.MANUAL));
+            assertThrows(
+                    IOException.class, () -> service.setSaveLocation(remote(), ModConfig.SaveLocation.SAVES));
+            assertThrows(IOException.class,
+                    () -> service.setConflictStrategy(MIRROR, REMOTE, ModConfig.ConflictStrategy.MANUAL));
             assertThrows(IOException.class, () -> service.move(target, ModConfig.SaveLocation.SAVES));
         }
 
@@ -166,11 +173,12 @@ class WorldGraphServiceTest {
         Path junction = Files.createDirectory(game.resolve("saves")).resolve("Junction");
         var command = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
                 "New-Item -ItemType Junction -Path $env:WM_TEST_JUNCTION -Target $env:WM_TEST_EXTERNAL -ErrorAction Stop")
-                .redirectErrorStream(true);
+                              .redirectErrorStream(true);
         command.environment().put("WM_TEST_JUNCTION", junction.toString());
         command.environment().put("WM_TEST_EXTERNAL", outside.toString());
         var process = command.start();
-        String result = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        String result =
+                new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
         try {
             assumeTrue(process.waitFor() == 0, result);
             var service = service();
@@ -207,8 +215,9 @@ class WorldGraphServiceTest {
     @Test
     void lockedLegacyTargetKeepsItsRoutingAndDoesNotCreateAnotherMirror() throws Exception {
         Path output = folder("downloaded_worlds", "locked-legacy");
-        JsonSupport.writeDocument(output.resolve(WorldMetadata.FILE_NAME), Map.of("format", WorldMetadata.FORMAT,
-                "metadataSchema", 1, "sourceId", SOURCE, "sourceType", "server", "mirrorId", MIRROR_UUID));
+        JsonSupport.writeDocument(output.resolve(WorldMetadata.FILE_NAME),
+                Map.of("format", WorldMetadata.FORMAT, "metadataSchema", 1, "sourceId", SOURCE, "sourceType",
+                        "server", "mirrorId", MIRROR_UUID));
         legacyConfig("locked-legacy", ModConfig.SaveLocation.DOWNLOADED);
         var service = service();
         try (var ignored = net.minecraft.util.DirectoryLock.create(output)) {
@@ -238,7 +247,10 @@ class WorldGraphServiceTest {
         service.refresh();
         assertFalse(service.graph().nodes().containsKey(MIRROR));
         assertEquals(new WorldGraph.Location(WorldGraph.Root.DOWNLOADED, "original"),
-                WorldGraphConfig.open(configDirectory().resolve(WorldGraphConfig.FILE_NAME)).snapshot().locations().get(MIRROR));
+                WorldGraphConfig.open(configDirectory().resolve(WorldGraphConfig.FILE_NAME))
+                        .snapshot()
+                        .locations()
+                        .get(MIRROR));
         Files.move(held, original);
         Path copy = folder("saves", "copy");
         Files.copy(original.resolve(WorldMetadata.FILE_NAME), copy.resolve(WorldMetadata.FILE_NAME));
@@ -255,8 +267,9 @@ class WorldGraphServiceTest {
         service.refresh();
         assertTrue(Files.exists(configDirectory().resolve(WorldGraphConfig.FILE_NAME)));
         Path output = folder("downloaded_worlds", "late");
-        JsonSupport.writeDocument(output.resolve(WorldMetadata.FILE_NAME), Map.of("format", WorldMetadata.FORMAT,
-                "metadataSchema", 1, "sourceId", SOURCE, "sourceType", "server", "mirrorKind", "synchronized"));
+        JsonSupport.writeDocument(output.resolve(WorldMetadata.FILE_NAME),
+                Map.of("format", WorldMetadata.FORMAT, "metadataSchema", 1, "sourceId", SOURCE, "sourceType",
+                        "server", "mirrorKind", "synchronized"));
 
         service.refresh();
 
@@ -309,12 +322,14 @@ class WorldGraphServiceTest {
     @Test
     void resumesAnInterruptedImportWithItsOriginallyAllocatedId() throws Exception {
         Path output = folder("downloaded_worlds", "legacy");
-        JsonSupport.writeDocument(output.resolve(WorldMetadata.FILE_NAME), Map.of("format", WorldMetadata.FORMAT,
-                "metadataSchema", 1, "sourceId", SOURCE, "sourceType", "server"));
+        JsonSupport.writeDocument(output.resolve(WorldMetadata.FILE_NAME),
+                Map.of("format", WorldMetadata.FORMAT, "metadataSchema", 1, "sourceId", SOURCE, "sourceType",
+                        "server"));
         Path oldConfig = legacyConfig("legacy", ModConfig.SaveLocation.DOWNLOADED);
         Path plan = configDirectory().resolve(".world-graph-import.json");
-        JsonSupport.writeDocument(plan, Map.of("legacyDigest", FileProof.sha256(oldConfig),
-                "allocatedIds", Map.of("DOWNLOADED/legacy", MIRROR)));
+        JsonSupport.writeDocument(plan,
+                Map.of("legacyDigest", FileProof.sha256(oldConfig), "allocatedIds",
+                        Map.of("DOWNLOADED/legacy", MIRROR)));
 
         var service = service();
         service.refresh();
@@ -329,12 +344,13 @@ class WorldGraphServiceTest {
     void recoversLegacyRelocationBeforeMigratingTheSave() throws Exception {
         Path original = folder("downloaded_worlds", "pending");
         Path destination = folder("saves", "pending");
-        JsonSupport.writeDocument(original.resolve(WorldMetadata.FILE_NAME), Map.of("format", WorldMetadata.FORMAT,
-                "metadataSchema", 1, "sourceId", SOURCE, "sourceType", "server", "mirrorId", MIRROR_UUID));
+        JsonSupport.writeDocument(original.resolve(WorldMetadata.FILE_NAME),
+                Map.of("format", WorldMetadata.FORMAT, "metadataSchema", 1, "sourceId", SOURCE, "sourceType",
+                        "server", "mirrorId", MIRROR_UUID));
         Files.writeString(destination.resolve("entry"), "existing chunk data");
-        var journal = Map.of("schema", 1, "operation", UUID.randomUUID(), "sourceId", SOURCE, "mirrorId", MIRROR_UUID,
-                "source", original.toString(), "target", destination.toString(),
-                "entries", List.of(WorldMetadata.FILE_NAME, "entry"));
+        var journal = Map.of("schema", 1, "operation", UUID.randomUUID(), "sourceId", SOURCE, "mirrorId",
+                MIRROR_UUID, "source", original.toString(), "target", destination.toString(), "entries",
+                List.of(WorldMetadata.FILE_NAME, "entry"));
         JsonSupport.writeDocument(original.resolve(WorldRelocation.JOURNAL), journal);
         JsonSupport.writeDocument(destination.resolve(WorldRelocation.JOURNAL), journal);
         legacyConfig("pending", ModConfig.SaveLocation.DOWNLOADED);
@@ -378,16 +394,17 @@ class WorldGraphServiceTest {
         var service = service();
         service.prepare(remote());
         Files.writeString(destination.resolve("entry"), "existing chunk data");
-        var journal = Map.of("schema", 2, "operation", UUID.randomUUID(), "sourceId", SOURCE, "nodeId", MIRROR,
-                "parentNodeId", REMOTE, "source", original.toString(), "target", destination.toString(),
-                "entries", List.of(WorldMetadata.FILE_NAME, "entry"));
+        var journal = Map.of("schema", 2, "operation", UUID.randomUUID(), "sourceId", SOURCE, "nodeId",
+                MIRROR, "parentNodeId", REMOTE, "source", original.toString(), "target",
+                destination.toString(), "entries", List.of(WorldMetadata.FILE_NAME, "entry"));
         JsonSupport.writeDocument(original.resolve(WorldRelocation.JOURNAL), journal);
         JsonSupport.writeDocument(destination.resolve(WorldRelocation.JOURNAL), journal);
 
         try (var ignored = net.minecraft.util.DirectoryLock.create(destination)) {
             service.refresh();
             assertNull(service.target(remote()));
-            var persisted = WorldGraphConfig.open(configDirectory().resolve(WorldGraphConfig.FILE_NAME)).snapshot();
+            var persisted =
+                    WorldGraphConfig.open(configDirectory().resolve(WorldGraphConfig.FILE_NAME)).snapshot();
             assertEquals(new WorldGraph.Location(WorldGraph.Root.DOWNLOADED, "interrupted"),
                     persisted.locations().get(MIRROR));
         }
@@ -421,27 +438,35 @@ class WorldGraphServiceTest {
         assertThrows(IllegalArgumentException.class, () -> MirrorFolders.available(game, "../outside"));
     }
 
-    private WorldGraphService service() { return new WorldGraphService(game, configDirectory()); }
+    private WorldGraphService service() {
+        return new WorldGraphService(game, configDirectory());
+    }
 
-    private Path configDirectory() { return game.resolve("config/worldmirror"); }
+    private Path configDirectory() {
+        return game.resolve("config/worldmirror");
+    }
 
-    private WorldGraphService.Source remote() { return new WorldGraphService.Source(null, ENDPOINT, ENDPOINT); }
+    private WorldGraphService.Source remote() {
+        return new WorldGraphService.Source(null, ENDPOINT, ENDPOINT);
+    }
 
     private Path folder(String root, String name) throws IOException {
         return Files.createDirectories(game.resolve(root).resolve(name));
     }
 
     private static void writeMirror(Path folder, String id, String parent) {
-        assertTrue(WorldMetadata.create(id, WorldGraph.Kind.MIRROR, parent, WorldGraph.Role.SYNC, SOURCE).save(folder));
+        assertTrue(WorldMetadata.create(id, WorldGraph.Kind.MIRROR, parent, WorldGraph.Role.SYNC, SOURCE)
+                        .save(folder));
     }
 
     private Path legacyConfig(String name, ModConfig.SaveLocation location) throws IOException {
         Files.createDirectories(configDirectory());
         Path file = configDirectory().resolve("mirrors.json");
-        JsonSupport.writeDocument(file, Map.of("entries", Map.of(SOURCE, name),
-                "resolvedFolderNames", Map.of(SOURCE + '\0' + location.name(), name),
-                "perWorldSaveLocation", Map.of(SOURCE, location),
-                "perWorldConflictStrategy", Map.of(SOURCE, ModConfig.ConflictStrategy.MANUAL)));
+        JsonSupport.writeDocument(file,
+                Map.of("entries", Map.of(SOURCE, name), "resolvedFolderNames",
+                        Map.of(SOURCE + '\0' + location.name(), name), "perWorldSaveLocation",
+                        Map.of(SOURCE, location), "perWorldConflictStrategy",
+                        Map.of(SOURCE, ModConfig.ConflictStrategy.MANUAL)));
         return file;
     }
 }

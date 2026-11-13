@@ -15,25 +15,20 @@ import io.github.billstark001.worldmirror.util.WMLogger;
  * {@link IgnoreResolver}).
  */
 public class ManualResolver implements ConflictResolver {
-
     @Override
     public boolean shouldWriteChunk(ConflictContext context) {
         if (context.existsLocally()) {
             // Persist the incoming server chunk so the player can review it later.
             boolean saved = ConflictManager.saveConflict(
-                    context.worldFolder(),
-                    context.pos(),
-                    context.chunkNbt(),
-                    context.dimension());
+                    context.worldFolder(), context.pos(), context.chunkNbt(), context.dimension());
             if (!saved) {
                 throw new IllegalStateException("Could not persist incoming manual conflict");
             }
-            WMLogger.debug("Conflict saved for chunk " + context.pos()
-                    + " [" + context.dimension().identifier() + "]"
+            WMLogger.debug("Conflict saved for chunk " + context.pos() + " ["
+                    + context.dimension().identifier() + "]"
                     + " — keeping local copy until resolved.");
             return false;
         }
         return true;
     }
 }
-

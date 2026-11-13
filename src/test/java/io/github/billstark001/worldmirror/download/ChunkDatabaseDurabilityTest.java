@@ -26,18 +26,14 @@ class ChunkDatabaseDurabilityTest {
         ChunkPos older = new ChunkPos(1, 2);
         ChunkPos newer = new ChunkPos(3, 4);
         try (ChunkDatabase db = ChunkDatabase.open(world, "server:test")) {
-            assertTrue(db.recordUpdates("minecraft:overworld",
-                    Map.of(older, 100L, newer, 200L), "world_mirror"));
+            assertTrue(db.recordUpdates(
+                    "minecraft:overworld", Map.of(older, 100L, newer, 200L), "world_mirror"));
 
-            assertFalse(db.shouldSkipUpdate("minecraft:overworld", 1, 2,
-                    "world_mirror", 150L));
-            assertTrue(db.shouldSkipUpdate("minecraft:overworld", 3, 4,
-                    "world_mirror", 150L));
+            assertFalse(db.shouldSkipUpdate("minecraft:overworld", 1, 2, "world_mirror", 150L));
+            assertTrue(db.shouldSkipUpdate("minecraft:overworld", 3, 4, "world_mirror", 150L));
 
-            assertTrue(db.recordUpdates("minecraft:overworld",
-                    Map.of(newer, 50L), "world_mirror"));
-            assertTrue(db.shouldSkipUpdate("minecraft:overworld", 3, 4,
-                    "world_mirror", 150L));
+            assertTrue(db.recordUpdates("minecraft:overworld", Map.of(newer, 50L), "world_mirror"));
+            assertTrue(db.shouldSkipUpdate("minecraft:overworld", 3, 4, "world_mirror", 150L));
         }
     }
 
@@ -46,16 +42,13 @@ class ChunkDatabaseDurabilityTest {
         ChunkPos unreadable = new ChunkPos(1, 2);
         ChunkPos healthy = new ChunkPos(3, 4);
         try (ChunkDatabase db = ChunkDatabase.open(world, "server:test")) {
-            assertTrue(db.recordUpdates("minecraft:overworld",
-                    Map.of(unreadable, 100L, healthy, 100L), "world_mirror"));
+            assertTrue(db.recordUpdates(
+                    "minecraft:overworld", Map.of(unreadable, 100L, healthy, 100L), "world_mirror"));
 
-            assertTrue(db.removeUnreadableUpdates(
-                    "minecraft:overworld", Set.of(unreadable)));
+            assertTrue(db.removeUnreadableUpdates("minecraft:overworld", Set.of(unreadable)));
 
-            assertFalse(db.shouldSkipUpdate("minecraft:overworld", 1, 2,
-                    "world_mirror", 50L));
-            assertTrue(db.shouldSkipUpdate("minecraft:overworld", 3, 4,
-                    "world_mirror", 50L));
+            assertFalse(db.shouldSkipUpdate("minecraft:overworld", 1, 2, "world_mirror", 50L));
+            assertTrue(db.shouldSkipUpdate("minecraft:overworld", 3, 4, "world_mirror", 50L));
         }
     }
 
@@ -64,8 +57,8 @@ class ChunkDatabaseDurabilityTest {
         ChunkPos chunk = new ChunkPos(Integer.MAX_VALUE, Integer.MIN_VALUE);
         try (ChunkDatabase db = ChunkDatabase.open(world, "server:test")) {
             assertTrue(db.recordUpdates("minecraft:overworld", Map.of(chunk, 100L), "world_mirror"));
-            assertTrue(db.shouldSkipUpdate("minecraft:overworld", Integer.MAX_VALUE, Integer.MIN_VALUE,
-                    "world_mirror", 50L));
+            assertTrue(db.shouldSkipUpdate(
+                    "minecraft:overworld", Integer.MAX_VALUE, Integer.MIN_VALUE, "world_mirror", 50L));
             assertTrue(db.shouldSkipUpdate("minecraft:overworld", chunk, "world_mirror", 50L));
             assertTrue(db.removeUnreadableUpdates("minecraft:overworld", Set.of(chunk)));
             assertTrue(db.queryAll("minecraft:overworld").isEmpty());
@@ -82,7 +75,8 @@ class ChunkDatabaseDurabilityTest {
         entries.put("minecraft:overworld|5,6,7", 200L);
         try (var connection = ChunkDatabase.openWritableConnection(world)) {
             io.github.billstark001.worldmirror.format.ChunkIndexStore.initialize(connection);
-            io.github.billstark001.worldmirror.legacy.LegacyChunkTimes.importInto(connection, "server:test", entries);
+            io.github.billstark001.worldmirror.legacy.LegacyChunkTimes.importInto(
+                    connection, "server:test", entries);
         }
         try (ChunkDatabase db = ChunkDatabase.open(world, "server:test")) {
             assertEquals(1, db.queryAll("minecraft:overworld").size());

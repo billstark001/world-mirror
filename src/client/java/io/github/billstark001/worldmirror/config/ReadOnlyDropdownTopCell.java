@@ -13,8 +13,7 @@ import java.util.Optional;
 import java.util.function.Function;
 
 /** Version-neutral state, focus, layout, and truncation for read-only dropdown top cells. */
-abstract class ReadOnlyDropdownTopCell<T>
-        extends DropdownBoxEntry.SelectionTopCellElement<T> {
+abstract class ReadOnlyDropdownTopCell<T> extends DropdownBoxEntry.SelectionTopCellElement<T> {
     private static final int HORIZONTAL_PADDING = 5;
     private static final int LABEL_ARROW_GAP = 2;
 
@@ -27,11 +26,13 @@ abstract class ReadOnlyDropdownTopCell<T>
         this.initialValue = value;
         this.value = value;
         this.label = label;
-        this.focusTarget = Button.builder(label.apply(value), ignored -> { })
-                .bounds(0, 0, 0, 0).build();
+        this.focusTarget = Button.builder(label.apply(value), ignored -> {}).bounds(0, 0, 0, 0).build();
     }
 
-    @Override public T getValue() { return value; }
+    @Override
+    public T getValue() {
+        return value;
+    }
 
     @Override
     public void setValue(T value) {
@@ -39,8 +40,14 @@ abstract class ReadOnlyDropdownTopCell<T>
         focusTarget.setMessage(label.apply(value));
     }
 
-    @Override public Component getSearchTerm() { return label.apply(value); }
-    @Override public Optional<Component> getError() { return Optional.empty(); }
+    @Override
+    public Component getSearchTerm() {
+        return label.apply(value);
+    }
+    @Override
+    public Optional<Component> getError() {
+        return Optional.empty();
+    }
 
     @Override
     public boolean isEdited() {
@@ -67,21 +74,22 @@ abstract class ReadOnlyDropdownTopCell<T>
         Component text = fitLabel(label.apply(value), labelWidth);
         int textY = y + Math.max(0, (height - font.lineHeight) / 2);
         int arrowX = x + width - HORIZONTAL_PADDING - arrowWidth;
-        return new RenderModel(text, arrow, x + HORIZONTAL_PADDING, arrowX,
-                textY, getPreferredTextColor());
+        return new RenderModel(text, arrow, x + HORIZONTAL_PADDING, arrowX, textY, getPreferredTextColor());
     }
 
     private static Component fitLabel(Component label, int maximumWidth) {
         var font = Minecraft.getInstance().font;
-        if (maximumWidth <= 0) return Component.empty();
-        if (font.width(label) <= maximumWidth) return label;
+        if (maximumWidth <= 0)
+            return Component.empty();
+        if (font.width(label) <= maximumWidth)
+            return label;
         String ellipsis = "…";
         int ellipsisWidth = font.width(ellipsis);
-        if (maximumWidth < ellipsisWidth) return Component.empty();
-        return Component.literal(font.plainSubstrByWidth(
-                label.getString(), maximumWidth - ellipsisWidth)).append(ellipsis);
+        if (maximumWidth < ellipsisWidth)
+            return Component.empty();
+        return Component.literal(font.plainSubstrByWidth(label.getString(), maximumWidth - ellipsisWidth))
+                .append(ellipsis);
     }
 
-    protected record RenderModel(
-            Component text, String arrow, int textX, int arrowX, int y, int color) { }
+    protected record RenderModel(Component text, String arrow, int textX, int arrowX, int y, int color) {}
 }

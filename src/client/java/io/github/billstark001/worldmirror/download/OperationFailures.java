@@ -37,7 +37,8 @@ public final class OperationFailures {
 
     /** One volatile deadline comparison on idle ticks; delivery never runs on an IO worker. */
     public static void tick(Minecraft client, long now) {
-        if (now < wakeAt || client.player == null) return;
+        if (now < wakeAt || client.player == null)
+            return;
         Failure selected = null;
         synchronized (OperationFailures.class) {
             for (var entry : FAILURES.entrySet()) {
@@ -50,17 +51,20 @@ public final class OperationFailures {
                 }
             }
             wakeAt = FAILURES.values().stream().mapToLong(Failure::nextNotice).min().orElse(Long.MAX_VALUE);
-            if (selected != null) wakeAt = Math.max(wakeAt, now + 2_000L);
+            if (selected != null)
+                wakeAt = Math.max(wakeAt, now + 2_000L);
         }
         if (selected != null) {
             try {
-                Component title = Component.translatable("msg.worldmirror.fileOperationFailed").withStyle(ChatFormatting.RED);
+                Component title = Component.translatable("msg.worldmirror.fileOperationFailed")
+                                          .withStyle(ChatFormatting.RED);
                 Component body = Component.translatable("msg.worldmirror.fileOperationDetails",
                         selected.source(), selected.stage(), selected.path(), selected.reason());
                 WMPlayerMessages.sendSystemMessage(client.player, title.copy().append(" ").append(body));
                 WMPlayerMessages.showExportToast(client, title, Component.literal(selected.stage()));
             } catch (RuntimeException displayFailure) {
-                WMLogger.warnRateLimited("operation-notice", REMINDER_MS, "Cannot display file failure notice", displayFailure);
+                WMLogger.warnRateLimited("operation-notice", REMINDER_MS,
+                        "Cannot display file failure notice", displayFailure);
             }
         }
     }

@@ -17,36 +17,44 @@ class ExportNotificationsTest {
     @Test
     void notificationHealthReadsAreDrivenByFailuresAndDeadlines() {
         var notices = new ExportNotifications();
-        var unhealthy = health("a",true);
-        var healthy = new ExportStatus.Health("a",ExportStatus.Counts.EMPTY,false,ExportStatus.FailureStage.NONE);
+        var unhealthy = health("a", true);
+        var healthy = new ExportStatus.Health(
+                "a", ExportStatus.Counts.EMPTY, false, ExportStatus.FailureStage.NONE);
         var reads = new java.util.concurrent.atomic.AtomicInteger();
-        java.util.function.Function<String,ExportStatus.Health> current = source -> { reads.incrementAndGet(); return unhealthy; };
-        for (int source = 0; source < 100; source++) notices.observe(new ExportStatus.Health("healthy-"+source,healthy.counts(),false,healthy.stage()));
-        for (int tick = 0; tick < 600; tick++) assertNull(notices.next(tick*50,current));
-        assertEquals(0,reads.get(),"healthy sources must not create a polling history");
+        java.util.function.Function<String, ExportStatus.Health> current = source -> {
+            reads.incrementAndGet();
+            return unhealthy;
+        };
+        for (int source = 0; source < 100; source++)
+            notices.observe(
+                    new ExportStatus.Health("healthy-" + source, healthy.counts(), false, healthy.stage()));
+        for (int tick = 0; tick < 600; tick++) assertNull(notices.next(tick * 50, current));
+        assertEquals(0, reads.get(), "healthy sources must not create a polling history");
         notices.observe(unhealthy);
-        assertNotNull(notices.next(30_000,current));
-        for (int tick = 1; tick < 600; tick++) assertNull(notices.next(30_000+tick*50,current));
-        assertEquals(1,reads.get(),"no per-tick source scan between reminders");
-        assertNotNull(notices.next(60_000,current));
+        assertNotNull(notices.next(30_000, current));
+        for (int tick = 1; tick < 600; tick++) assertNull(notices.next(30_000 + tick * 50, current));
+        assertEquals(1, reads.get(), "no per-tick source scan between reminders");
+        assertNotNull(notices.next(60_000, current));
         notices.observe(healthy);
-        assertTrue(notices.next(62_000,source -> healthy).recovered());
-        for (int tick = 0; tick < 600; tick++) assertNull(notices.next(62_000+tick*50,current));
-        assertEquals(2,reads.get(),"recovered sources leave the notification queue");
+        assertTrue(notices.next(62_000, source -> healthy).recovered());
+        for (int tick = 0; tick < 600; tick++) assertNull(notices.next(62_000 + tick * 50, current));
+        assertEquals(2, reads.get(), "recovered sources leave the notification queue");
     }
     @Test
     void queuedWorkCancelsUndeliveredRecoveryAndNewFailuresTakePriorityOverReminders() {
         var notices = new ExportNotifications();
-        notices.observe(health("a",true));
+        notices.observe(health("a", true));
         notices.poll(0);
-        notices.observe(new ExportStatus.Health("a",ExportStatus.Counts.EMPTY,false,ExportStatus.FailureStage.NONE));
-        var queued = new ExportStatus.Health("a",new ExportStatus.Counts(1,0,0,0,0,0,0,0),false,ExportStatus.FailureStage.NONE);
+        notices.observe(new ExportStatus.Health(
+                "a", ExportStatus.Counts.EMPTY, false, ExportStatus.FailureStage.NONE));
+        var queued = new ExportStatus.Health(
+                "a", new ExportStatus.Counts(1, 0, 0, 0, 0, 0, 0, 0), false, ExportStatus.FailureStage.NONE);
         notices.refresh(source -> queued);
         assertNull(notices.poll(2_000), "new accepted work prevents a stale recovery notice");
-        notices.observe(health("a",true));
-        notices.observe(health("new",true));
-        assertEquals("new",notices.poll(30_000).health().source(), "reminders cannot starve first failures");
-        assertEquals("a",notices.poll(32_000).health().source());
+        notices.observe(health("a", true));
+        notices.observe(health("new", true));
+        assertEquals("new", notices.poll(30_000).health().source(), "reminders cannot starve first failures");
+        assertEquals("a", notices.poll(32_000).health().source());
     }
     @Test
     void automaticFailuresAreDeliveredAndRepeatedFailuresCoalesce() {
@@ -102,7 +110,8 @@ class ExportNotificationsTest {
     }
 
     private static ExportStatus.Health health(String source, boolean blocked) {
-        return new ExportStatus.Health(source, new ExportStatus.Counts(0,0,blocked ? 1 : 0,blocked ? 0 : 1,0,1,blocked ? 1 : 0,0),
+        return new ExportStatus.Health(source,
+                new ExportStatus.Counts(0, 0, blocked ? 1 : 0, blocked ? 0 : 1, 0, 1, blocked ? 1 : 0, 0),
                 false, blocked ? ExportStatus.FailureStage.TERRAIN : ExportStatus.FailureStage.ENTITIES);
     }
 }

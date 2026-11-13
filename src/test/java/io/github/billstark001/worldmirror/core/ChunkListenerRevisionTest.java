@@ -33,12 +33,16 @@ class ChunkListenerRevisionTest {
         assertTrue(first.getFirst().pendingWrite());
         long version = ChunkListener.mapStatusVersion(Level.OVERWORLD);
         ChunkListener.acknowledge(Map.of(Level.OVERWORLD, Map.of(pos, captured)), false);
-        assertFalse(ChunkListener.snapshotMapStatusInRange(Level.OVERWORLD, -2, 0, -1, 1).getFirst().pendingWrite());
+        assertFalse(ChunkListener.snapshotMapStatusInRange(Level.OVERWORLD, -2, 0, -1, 1)
+                        .getFirst()
+                        .pendingWrite());
         assertTrue(ChunkListener.mapStatusVersion(Level.OVERWORLD) > version);
         ChunkListener.markChunkDirty(Level.OVERWORLD, pos);
         long latest = ChunkListener.getDimension(Level.OVERWORLD).get(pos).revision();
         ChunkListener.acknowledge(Map.of(Level.OVERWORLD, Map.of(pos, captured)), true);
-        assertTrue(ChunkListener.snapshotMapStatusInRange(Level.OVERWORLD, -2, 0, -1, 1).getFirst().pendingWrite());
+        assertTrue(ChunkListener.snapshotMapStatusInRange(Level.OVERWORLD, -2, 0, -1, 1)
+                        .getFirst()
+                        .pendingWrite());
         ChunkListener.acknowledge(Map.of(Level.OVERWORLD, Map.of(pos, latest)), true);
         assertTrue(ChunkListener.snapshotMapStatusInRange(Level.OVERWORLD, -2, 0, -1, 1).isEmpty());
     }
@@ -107,7 +111,8 @@ class ChunkListenerRevisionTest {
         ChunkPos pos = new ChunkPos(0, 0);
         ChunkListener.addChunkNbt(Level.OVERWORLD, pos, new CompoundTag());
 
-        assertThrows(UnsupportedOperationException.class, () -> ChunkListener.getDimension(Level.OVERWORLD).clear());
+        assertThrows(UnsupportedOperationException.class,
+                () -> ChunkListener.getDimension(Level.OVERWORLD).clear());
         assertEquals(1, ChunkListener.getDirtyCount());
         assertNotNull(ChunkListener.getDimension(Level.OVERWORLD).get(pos));
     }
@@ -129,15 +134,18 @@ class ChunkListenerRevisionTest {
         ChunkListener.DirtySnapshot snapshot = ChunkListener.snapshotDirtyState();
         ChunkListener.CapturedChunk captured = snapshot.chunks().get(Level.OVERWORLD).get(pos);
 
-        var retry = snapshot.withoutAcknowledged(Map.of(Level.OVERWORLD, Map.of(pos, captured.revision() - 1)));
+        var retry =
+                snapshot.withoutAcknowledged(Map.of(Level.OVERWORLD, Map.of(pos, captured.revision() - 1)));
 
         ChunkListener.clear();
 
         CompoundTag materialized = retry.materialize(Level.OVERWORLD, pos, captured).nbt();
-        CompoundTag materializedSection = materialized.getListOrEmpty("sections")
-                .getCompound(0).orElseThrow();
+        CompoundTag materializedSection =
+                materialized.getListOrEmpty("sections").getCompound(0).orElseThrow();
         assertArrayEquals(light, materializedSection.getByteArray("BlockLight").orElseThrow());
-        assertTrue(retry.withoutAcknowledged(Map.of(Level.OVERWORLD, Map.of(pos, captured.revision()))).chunks().isEmpty());
+        assertTrue(retry.withoutAcknowledged(Map.of(Level.OVERWORLD, Map.of(pos, captured.revision())))
+                        .chunks()
+                        .isEmpty());
     }
 
     @Test
@@ -148,17 +156,17 @@ class ChunkListenerRevisionTest {
         updatedSection.set(0);
         byte[] initial = new byte[2048];
         java.util.Arrays.fill(initial, (byte) 3);
-        ChunkListener.applyLightUpdate(Level.OVERWORLD, pos, new LightingUpdate(
-                0, 1, updatedSection, new BitSet(), List.of(initial),
-                new BitSet(), new BitSet(), List.of()));
+        ChunkListener.applyLightUpdate(Level.OVERWORLD, pos,
+                new LightingUpdate(0, 1, updatedSection, new BitSet(), List.of(initial), new BitSet(),
+                        new BitSet(), List.of()));
         ChunkListener.DirtySnapshot snapshot = ChunkListener.snapshotDirtyState();
         ChunkListener.CapturedChunk captured = snapshot.chunks().get(Level.OVERWORLD).get(pos);
 
         byte[] later = new byte[2048];
         java.util.Arrays.fill(later, (byte) 8);
-        ChunkListener.applyLightUpdate(Level.OVERWORLD, pos, new LightingUpdate(
-                0, 1, updatedSection, new BitSet(), List.of(later),
-                new BitSet(), new BitSet(), List.of()));
+        ChunkListener.applyLightUpdate(Level.OVERWORLD, pos,
+                new LightingUpdate(0, 1, updatedSection, new BitSet(), List.of(later), new BitSet(),
+                        new BitSet(), List.of()));
         ChunkListener.addChunkNbt(Level.OVERWORLD, pos, new CompoundTag());
 
         CompoundTag materialized = snapshot.materialize(Level.OVERWORLD, pos, captured).nbt();
@@ -175,8 +183,9 @@ class ChunkListenerRevisionTest {
         mask.set(0);
         byte[] light = new byte[2048];
         light[0] = 11;
-        assertTrue(ChunkListener.applyLightUpdate(Level.OVERWORLD, pos, new LightingUpdate(0, 1,
-                mask, new BitSet(), List.of(light), new BitSet(), new BitSet(), List.of())));
+        assertTrue(ChunkListener.applyLightUpdate(Level.OVERWORLD, pos,
+                new LightingUpdate(
+                        0, 1, mask, new BitSet(), List.of(light), new BitSet(), new BitSet(), List.of())));
 
         // No markChunkDirty call yet: the packet's coalescing window is still open.
         ChunkListener.acknowledge(Map.of(Level.OVERWORLD, Map.of(pos, exportedRevision)), true);
@@ -185,9 +194,14 @@ class ChunkListenerRevisionTest {
         var snapshot = ChunkListener.snapshotDirtyState();
         var captured = snapshot.chunks().get(Level.OVERWORLD).get(pos);
         assertTrue(captured.revision() > exportedRevision);
-        assertArrayEquals(light, snapshot.materialize(Level.OVERWORLD, pos, captured).nbt()
-                .getListOrEmpty("sections").getCompound(0).orElseThrow()
-                .getByteArray("BlockLight").orElseThrow());
+        assertArrayEquals(light,
+                snapshot.materialize(Level.OVERWORLD, pos, captured)
+                        .nbt()
+                        .getListOrEmpty("sections")
+                        .getCompound(0)
+                        .orElseThrow()
+                        .getByteArray("BlockLight")
+                        .orElseThrow());
     }
 
     @Test
@@ -210,7 +224,9 @@ class ChunkListenerRevisionTest {
         var captured = snapshot.chunks().get(Level.OVERWORLD).get(pos);
 
         assertTrue(captured.authoritativeEmpty());
-        assertTrue(snapshot.materialize(Level.OVERWORLD, pos, captured).nbt()
-                .getListOrEmpty("block_entities").isEmpty());
+        assertTrue(snapshot.materialize(Level.OVERWORLD, pos, captured)
+                        .nbt()
+                        .getListOrEmpty("block_entities")
+                        .isEmpty());
     }
 }

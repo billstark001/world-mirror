@@ -16,25 +16,22 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Environment(EnvType.CLIENT)
 @Mixin({ClientPacketListener.class})
 public class ContainerMixin {
-    @Inject(method = {"handleOpenScreen"}, at = {@At("TAIL")})
+    @Inject(method = {"handleOpenScreen"}, at = { @At("TAIL") })
     private void onOpenScreen(ClientboundOpenScreenPacket packet, CallbackInfo ci) {
         ContainerTracker.onContainerOpened(packet.getContainerId(), packet.getTitle());
     }
 
-
-    @Inject(method = {"handleContainerSetSlot"}, at = {@At("TAIL")})
+    @Inject(method = {"handleContainerSetSlot"}, at = { @At("TAIL") })
     private void onSlotUpdate(ClientboundContainerSetSlotPacket packet, CallbackInfo ci) {
         ContainerTracker.onSlotUpdate(packet.getContainerId(), packet.getSlot(), packet.getItem());
     }
 
-
-    @Inject(method = {"handleContainerContent"}, at = {@At("TAIL")})
+    @Inject(method = {"handleContainerContent"}, at = { @At("TAIL") })
     private void onInventory(ClientboundContainerSetContentPacket packet, CallbackInfo ci) {
         ContainerTracker.onInventoryUpdate(packet.containerId(), packet.items());
     }
 
-
-    @Inject(method = {"handleContainerClose"}, at = {@At("TAIL")})
+    @Inject(method = {"handleContainerClose"}, at = { @At("TAIL") })
     private void onCloseScreen(ClientboundContainerClosePacket packet, CallbackInfo ci) {
         ContainerTracker.onContainerClosed(packet.getContainerId());
     }

@@ -112,8 +112,8 @@ class EntitySnapshotStoreTest {
         oldSession.capture(observed(chunk, record(uuid)), Set.of());
         newSession.capture(observed(chunk, record(uuid)), Set.of());
 
-        assertNotEquals(oldSession.snapshot().get(chunk).revision(),
-                newSession.snapshot().get(chunk).revision());
+        assertNotEquals(
+                oldSession.snapshot().get(chunk).revision(), newSession.snapshot().get(chunk).revision());
     }
 
     @Test
@@ -148,7 +148,8 @@ class EntitySnapshotStoreTest {
     void entityRecordDoesNotExposeMutableNbt() {
         EntityTracker.EntityRecord record = record(UUID.randomUUID());
 
-        record.nbt().putInt("MutatedOutsideRecord", 1);
+        record.nbt().putInt("MutatedOutsideRecord", 1)
+        ;
 
         assertFalse(record.nbt().contains("MutatedOutsideRecord"));
     }
@@ -171,7 +172,8 @@ class EntitySnapshotStoreTest {
         store.acknowledge(revisions);
         Map<ChunkPos, Map<UUID, EntityTracker.EntityRecord>> nearby = new HashMap<>();
         history.forEach((chunk, records) -> {
-            if ((chunk.getMinBlockX() >> 4) < 25) nearby.put(chunk, records);
+            if ((chunk.getMinBlockX() >> 4) < 25)
+                nearby.put(chunk, records);
         });
 
         for (int observation = 0; observation < 100; observation++) {
@@ -212,8 +214,7 @@ class EntitySnapshotStoreTest {
     }
 
     private static Map<ChunkPos, Map<UUID, EntityTracker.EntityRecord>> observed(
-            ChunkPos chunk,
-            EntityTracker.EntityRecord record) {
+            ChunkPos chunk, EntityTracker.EntityRecord record) {
         return Map.of(chunk, Map.of(record.rootUuid(), record));
     }
 
@@ -230,11 +231,7 @@ class EntitySnapshotStoreTest {
     }
 
     private static int[] uuidToIntArray(UUID uuid) {
-        return new int[] {
-                (int) (uuid.getMostSignificantBits() >> 32),
-                (int) uuid.getMostSignificantBits(),
-                (int) (uuid.getLeastSignificantBits() >> 32),
-                (int) uuid.getLeastSignificantBits()
-        };
+        return new int[] {(int) (uuid.getMostSignificantBits() >> 32), (int) uuid.getMostSignificantBits(),
+                (int) (uuid.getLeastSignificantBits() >> 32), (int) uuid.getLeastSignificantBits()};
     }
 }

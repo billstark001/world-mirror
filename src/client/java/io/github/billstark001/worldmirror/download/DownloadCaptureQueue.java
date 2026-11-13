@@ -34,23 +34,15 @@ final class DownloadCaptureQueue {
     private static final int MAX_DIAGNOSTIC_CAPTURE_REASONS = 32;
     private static final int LIGHT_UPDATE_COALESCE_TICKS = 2;
 
-    record Key(ResourceKey<Level> dimension, int chunkX, int chunkZ) { }
-    record Pending(Key key, String reason, long queuedAt, boolean allowEmpty) { }
-    private record LoadedScan(ClientLevel world, CaptureRegionScan coordinates, String reason) { }
+    record Key(ResourceKey<Level> dimension, int chunkX, int chunkZ) {}
+    record Pending(Key key, String reason, long queuedAt, boolean allowEmpty) {}
+    private record LoadedScan(ClientLevel world, CaptureRegionScan coordinates, String reason) {}
 
-    record Metrics(int pendingCaptures, long oldestCaptureAgeMs,
-                   long coalescedHints, long droppedHints) { }
+    record Metrics(int pendingCaptures, long oldestCaptureAgeMs, long coalescedHints, long droppedHints) {}
 
-    record DiagnosticSnapshot(
-            LatencyWindow.Summary captureTickLatency,
-            LatencyWindow.Summary unloadLatency,
-            long processed,
-            long completed,
-            long budgetOverruns,
-            long maximumBudgetOverrunUs,
-            long unloadFailures,
-            String hintSummary,
-            String reasonLatencySummary) { }
+    record DiagnosticSnapshot(LatencyWindow.Summary captureTickLatency, LatencyWindow.Summary unloadLatency,
+            long processed, long completed, long budgetOverruns, long maximumBudgetOverrunUs,
+            long unloadFailures, String hintSummary, String reasonLatencySummary) {}
 
     private static final class HintCounters {
         private long received;
@@ -88,7 +80,8 @@ final class DownloadCaptureQueue {
     private long processedCaptures;
     private long completedCaptures;
 
-    DownloadCaptureQueue(BooleanSupplier recordPerformance, int reconciliationRange, IntSupplier pendingLimit) {
+    DownloadCaptureQueue(
+            BooleanSupplier recordPerformance, int reconciliationRange, IntSupplier pendingLimit) {
         this.recordPerformance = recordPerformance;
         this.reconciliationRange = reconciliationRange;
         this.pendingLimit = pendingLimit;
@@ -97,30 +90,33 @@ final class DownloadCaptureQueue {
     Metrics metrics() {
         var first = pending.firstEntry();
         Pending oldest = first == null ? null : first.getValue();
-        long age = oldest == null ? 0L
-                : Math.max(0L, (System.nanoTime() / 1_000_000L) - oldest.queuedAt());
+        long age = oldest == null ? 0L : Math.max(0L, (System.nanoTime() / 1_000_000L) - oldest.queuedAt());
         return new Metrics(pending.size() + overflowBlockChanges.size(), age, coalescedHints, droppedHints);
     }
 
     void queueChunk(ClientLevel world, ChunkPos pos, String reason) {
-        if (world == null || pos == null) return;
+        if (world == null || pos == null)
+            return;
         queue(new Key(world.dimension(), pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4), reason, false);
     }
 
     void queueBlockChange(ClientLevel world, ChunkPos pos, String reason) {
-        if (world == null || pos == null) return;
-        if (!(world.getChunk(pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4,
-                ChunkStatus.FULL, false) instanceof LevelChunk)) return;
+        if (world == null || pos == null)
+            return;
+        if (!(world.getChunk(pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4, ChunkStatus.FULL, false)
+                            instanceof LevelChunk))
+            return;
         Key key = new Key(world.dimension(), pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4);
         queue(key, reason, true);
     }
 
     void captureBeforeUnload(ClientLevel world, LevelChunk chunk) {
-        if (world == null || chunk == null) return;
-        Key key = new Key(world.dimension(), chunk.getPos().getMinBlockX() >> 4,
-                chunk.getPos().getMinBlockZ() >> 4);
-        captureBeforeUnload(key, () -> ChunkSerializer.isChunkEmpty(chunk),
-                () -> ChunkSerializer.serialize(world, chunk));
+        if (world == null || chunk == null)
+            return;
+        Key key = new Key(
+                world.dimension(), chunk.getPos().getMinBlockX() >> 4, chunk.getPos().getMinBlockZ() >> 4);
+        captureBeforeUnload(key,
+                () -> ChunkSerializer.isChunkEmpty(chunk), () -> ChunkSerializer.serialize(world, chunk));
     }
 
     /** The unload path remains available while ordinary tick capture is resource-paused. */
@@ -128,7 +124,8 @@ final class DownloadCaptureQueue {
         long startedNs = System.nanoTime();
         ChunkPos pos = new ChunkPos(key.chunkX(), key.chunkZ());
         Pending lastHint = pending.remove(key);
-        boolean authoritative = overflowBlockChanges.remove(key) || (lastHint != null && lastHint.allowEmpty());
+        boolean authoritative =
+                overflowBlockChanges.remove(key) || (lastHint != null && lastHint.allowEmpty());
         boolean pendingLight = pendingLightUpdates.remove(key) != null;
         refreshPendingStatus(key);
 
@@ -142,8 +139,7 @@ final class DownloadCaptureQueue {
         } catch (Exception e) {
             unloadFailures++;
             WMLogger.warnRateLimited("capture-unload", 30_000L,
-                    "Final capture before unload failed chunk=" + pos
-                            + "; cached data may be stale", e);
+                    "Final capture before unload failed chunk=" + pos + "; cached data may be stale", e);
         } finally {
             if (pendingLight && !captured) {
                 ChunkListener.markChunkDirty(key.dimension(), new ChunkPos(key.chunkX(), key.chunkZ()));
@@ -163,7 +159,8 @@ final class DownloadCaptureQueue {
     }
 
     void markLightDirty(ClientLevel world, ChunkPos pos) {
-        if (world == null || pos == null) return;
+        if (world == null || pos == null)
+            return;
         markLightDirty(new Key(world.dimension(), pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4));
     }
 
@@ -173,13 +170,14 @@ final class DownloadCaptureQueue {
     }
 
     boolean queueLoaded(ClientLevel world, int playerCX, int playerCZ, int range, String reason) {
-        if (world == null || range <= 0) return false;
+        if (world == null || range <= 0)
+            return false;
         // Repeated recoveries need only the latest recovery scan, not an unbounded scan backlog.
         if ("resource-recovery".equals(reason)) {
             scans.removeIf(scan -> scan.world() == world && reason.equals(scan.reason()));
         }
-        scans.addLast(new LoadedScan(world,
-                new CaptureRegionScan(world.dimension(), playerCX, playerCZ, range), reason));
+        scans.addLast(new LoadedScan(
+                world, new CaptureRegionScan(world.dimension(), playerCX, playerCZ, range), reason));
 
         return true;
     }
@@ -188,14 +186,19 @@ final class DownloadCaptureQueue {
     void finishBlockChanges(ClientLevel world) {
         for (Key key : finalBlockChanges(world.dimension())) {
             ChunkAccess chunk = world.getChunk(key.chunkX(), key.chunkZ(), ChunkStatus.FULL, false);
-            if (chunk instanceof LevelChunk loaded) captureBeforeUnload(world, loaded);
+            if (chunk instanceof LevelChunk loaded)
+                captureBeforeUnload(world, loaded);
         }
     }
 
     Set<Key> finalBlockChanges(ResourceKey<Level> dimension) {
         Set<Key> result = new LinkedHashSet<>();
-        pending.values().stream().filter(Pending::allowEmpty).map(Pending::key)
-                .filter(key -> dimension.equals(key.dimension())).forEach(result::add);
+        pending.values()
+                .stream()
+                .filter(Pending::allowEmpty)
+                .map(Pending::key)
+                .filter(key -> dimension.equals(key.dimension()))
+                .forEach(result::add);
         overflowBlockChanges.stream().filter(key -> dimension.equals(key.dimension())).forEach(result::add);
         return result;
     }
@@ -203,7 +206,8 @@ final class DownloadCaptureQueue {
     void tick(Minecraft client, CaptureBudget budget) {
         clientTick++;
         flushLightUpdates(false);
-        if (budget.maxChunks() > 0) processPending(client, budget);
+        if (budget.maxChunks() > 0)
+            processPending(client, budget);
     }
 
     /** Marks already-applied light changes dirty before stopping or changing worlds. */
@@ -212,7 +216,8 @@ final class DownloadCaptureQueue {
     }
 
     boolean isLightingPending(ResourceKey<Level> dimension, ChunkPos pos) {
-        return pendingLightUpdates.containsKey(new Key(dimension, pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4));
+        return pendingLightUpdates.containsKey(
+                new Key(dimension, pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4));
     }
 
     /** Lighting coalescing is per chunk and must not delay an unrelated live export. */
@@ -220,12 +225,13 @@ final class DownloadCaptureQueue {
         return !pending.isEmpty() || !scans.isEmpty() || !overflowBlockChanges.isEmpty();
     }
 
-    Set<ChunkPos> pendingChunkPositions(ResourceKey<Level> dimension,
-                                        int minX, int maxX, int minZ, int maxZ) {
+    Set<ChunkPos> pendingChunkPositions(
+            ResourceKey<Level> dimension, int minX, int maxX, int minZ, int maxZ) {
         Set<ChunkPos> result = new HashSet<>();
         ChunkRegionIndex<Key> index = pendingStatus.get(dimension);
-        if (index != null) index.forEachInRange(minX, maxX, minZ, maxZ,
-                key -> result.add(new ChunkPos(key.chunkX(), key.chunkZ())));
+        if (index != null)
+            index.forEachInRange(
+                    minX, maxX, minZ, maxZ, key -> result.add(new ChunkPos(key.chunkX(), key.chunkZ())));
 
         return result;
     }
@@ -235,15 +241,20 @@ final class DownloadCaptureQueue {
     }
 
     private void refreshPendingStatus(Key key) {
-        ChunkRegionIndex<Key> index = pendingStatus.computeIfAbsent(key.dimension(), ignored -> new ChunkRegionIndex<>());
-        boolean changed = pending.containsKey(key) || pendingLightUpdates.containsKey(key) || overflowBlockChanges.contains(key)
-                ? index.put(key.chunkX(), key.chunkZ(), key) : index.remove(key.chunkX(), key.chunkZ());
-        if (changed) statusVersions.put(key.dimension(), ++statusVersion);
+        ChunkRegionIndex<Key> index =
+                pendingStatus.computeIfAbsent(key.dimension(), ignored -> new ChunkRegionIndex<>());
+        boolean changed = pending.containsKey(key) || pendingLightUpdates.containsKey(key)
+                        || overflowBlockChanges.contains(key)
+                ? index.put(key.chunkX(), key.chunkZ(), key)
+                : index.remove(key.chunkX(), key.chunkZ());
+        if (changed)
+            statusVersions.put(key.dimension(), ++statusVersion);
     }
 
     boolean hasPendingChunkWork(ResourceKey<Level> dimension, ChunkPos pos) {
         Key key = new Key(dimension, pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4);
-        return pending.containsKey(key) || pendingLightUpdates.containsKey(key) || overflowBlockChanges.contains(key);
+        return pending.containsKey(key) || pendingLightUpdates.containsKey(key)
+                || overflowBlockChanges.contains(key);
     }
 
     void clear() {
@@ -274,16 +285,9 @@ final class DownloadCaptureQueue {
     }
 
     DiagnosticSnapshot snapshotDiagnostics() {
-        var result = new DiagnosticSnapshot(
-                captureTickLatencies.snapshotAndReset(),
-                unloadLatencies.snapshotAndReset(),
-                processedCaptures,
-                completedCaptures,
-                budgetOverruns,
-                maximumBudgetOverrunUs,
-                unloadFailures,
-                hintSummary(),
-                reasonLatencySummary());
+        var result = new DiagnosticSnapshot(captureTickLatencies.snapshotAndReset(),
+                unloadLatencies.snapshotAndReset(), processedCaptures, completedCaptures, budgetOverruns,
+                maximumBudgetOverrunUs, unloadFailures, hintSummary(), reasonLatencySummary());
         processedCaptures = completedCaptures = budgetOverruns = maximumBudgetOverrunUs = 0;
         return result;
     }
@@ -301,12 +305,14 @@ final class DownloadCaptureQueue {
                 pending.put(key, new Pending(key, previous.reason(), previous.queuedAt(), true));
             }
             coalescedHints++;
-            if (counters != null) counters.coalesced++;
+            if (counters != null)
+                counters.coalesced++;
             return false;
         }
         if (overflowBlockChanges.contains(key)) {
             coalescedHints++;
-            if (counters != null) counters.coalesced++;
+            if (counters != null)
+                counters.coalesced++;
             return false;
         }
         int limit = Math.max(1, pendingLimit.getAsInt());
@@ -315,12 +321,14 @@ final class DownloadCaptureQueue {
                 overflowBlockChanges.add(key);
                 refreshPendingStatus(key);
                 coalescedHints++;
-                if (counters != null) counters.coalesced++;
+                if (counters != null)
+                    counters.coalesced++;
 
                 return false;
             }
             droppedHints++;
-            if (counters != null) counters.dropped++;
+            if (counters != null)
+                counters.dropped++;
             reconciliationNeeded = true;
             WMLogger.warnRateLimited("capture-queue-capacity", 30_000L,
                     "Capture-hint queue reached its configured limit (" + limit
@@ -329,14 +337,16 @@ final class DownloadCaptureQueue {
         }
         pending.put(key, new Pending(key, reason, (System.nanoTime() / 1_000_000L), allowEmpty));
         refreshPendingStatus(key);
-        if (counters != null) counters.queued++;
+        if (counters != null)
+            counters.queued++;
 
         return true;
     }
 
     private void processPending(Minecraft client, CaptureBudget budget) {
         ClientLevel world = client.level;
-        if (world == null) return;
+        if (world == null)
+            return;
         ResourceKey<Level> currentDimension = world.dimension();
         int processed = 0;
         int captured = 0;
@@ -350,36 +360,43 @@ final class DownloadCaptureQueue {
 
         while (processed < budget.maxChunks()) {
             long expectedCost = attemptedCapture ? estimatedCaptureNs : 0L;
-            if (processed > 0 && !budget.fitsAnotherCapture(System.nanoTime() - startedNs, expectedCost)) break;
+            if (processed > 0 && !budget.fitsAnotherCapture(System.nanoTime() - startedNs, expectedCost))
+                break;
             Pending request = pollPending();
-            if (request == null) break;
+            if (request == null)
+                break;
             processed++;
-            if (!currentDimension.equals(request.key().dimension())) continue;
-            ChunkAccess chunk = world.getChunk(request.key().chunkX(), request.key().chunkZ(),
-                    ChunkStatus.FULL, false);
-            if (!(chunk instanceof LevelChunk levelChunk)) continue;
+            if (!currentDimension.equals(request.key().dimension()))
+                continue;
+            ChunkAccess chunk =
+                    world.getChunk(request.key().chunkX(), request.key().chunkZ(), ChunkStatus.FULL, false);
+            if (!(chunk instanceof LevelChunk levelChunk))
+                continue;
 
             long captureStartedNs = System.nanoTime();
             boolean serializing = false;
             try {
                 boolean empty = ChunkSerializer.isChunkEmpty(levelChunk);
-                if (!request.allowEmpty() && empty) continue;
+                if (!request.allowEmpty() && empty)
+                    continue;
                 serializing = true;
                 attemptedCapture = true;
                 CompoundTag nbt = ChunkSerializer.serialize(world, levelChunk);
-                ChunkListener.addChunkNbt(request.key().dimension(), levelChunk.getPos(), nbt,
-                        request.allowEmpty() && empty);
+                ChunkListener.addChunkNbt(
+                        request.key().dimension(), levelChunk.getPos(), nbt, request.allowEmpty() && empty);
                 captured++;
             } catch (Exception e) {
                 WMLogger.warnRateLimited("capture-incremental-" + request.reason(), 30_000L,
                         "Incremental capture failed chunk=" + levelChunk.getPos()
-                                + " reason=" + request.reason(), e);
+                                + " reason=" + request.reason(),
+                        e);
             } finally {
                 long elapsedNs = System.nanoTime() - captureStartedNs;
                 if (serializing) {
                     // Smooth nearby costs and cap the influence of an isolated pause.
                     long sample = Math.min(elapsedNs, budgetNs);
-                    estimatedCaptureNs = estimatedCaptureNs == 0L ? sample
+                    estimatedCaptureNs = estimatedCaptureNs == 0L
+                            ? sample
                             : estimatedCaptureNs + (sample - estimatedCaptureNs) / 4;
                 }
                 if (diagnostics) {
@@ -431,7 +448,8 @@ final class DownloadCaptureQueue {
     Pending pollPending() {
         promoteBlockChanges();
         var first = pending.pollFirstEntry();
-        if (first != null) refreshPendingStatus(first.getKey());
+        if (first != null)
+            refreshPendingStatus(first.getKey());
 
         return first == null ? null : first.getValue();
     }
@@ -444,20 +462,23 @@ final class DownloadCaptureQueue {
         promoteBlockChanges();
         while (!scans.isEmpty() && scans.peekFirst().world() != world) scans.removeFirst();
         if (scans.isEmpty()) {
-
             return;
         }
         LoadedScan scan = scans.peekFirst();
         scan.coordinates().fill(maxChecks,
-                () -> pending.size() < Math.max(1, pendingLimit.getAsInt())
+                ()
+                        -> pending.size() < Math.max(1, pendingLimit.getAsInt())
                         && System.nanoTime() - startedNs < budgetNs,
-                key -> world.getChunk(key.chunkX(), key.chunkZ(), ChunkStatus.FULL, false) instanceof LevelChunk
+                key
+                -> world.getChunk(key.chunkX(), key.chunkZ(), ChunkStatus.FULL, false) instanceof LevelChunk
                         && queue(key, scan.reason(), false));
-        if (scan.coordinates().isComplete()) scans.removeFirst();
+        if (scan.coordinates().isComplete())
+            scans.removeFirst();
     }
 
     private void promoteBlockChanges() {
-        if (overflowBlockChanges.isEmpty()) return;
+        if (overflowBlockChanges.isEmpty())
+            return;
         int limit = Math.max(1, pendingLimit.getAsInt());
         Iterator<Key> overflow = overflowBlockChanges.iterator();
         while (overflow.hasNext() && pending.size() < limit) {
@@ -469,67 +490,79 @@ final class DownloadCaptureQueue {
 
     private String recordReasonLatency(String reason, long elapsedUs) {
         String metricReason = metricReason(reason, latenciesByReason);
-        latenciesByReason.computeIfAbsent(metricReason, ignored -> new LatencyWindow(512))
-                .record(elapsedUs);
+        latenciesByReason.computeIfAbsent(metricReason, ignored -> new LatencyWindow(512)).record(elapsedUs);
         return metricReason;
     }
 
     private static String metricReason(String reason, Map<String, ?> metrics) {
         String normalized = reason == null || reason.isBlank() ? "unknown" : reason;
-        if (metrics.containsKey(normalized)) return normalized;
+        if (metrics.containsKey(normalized))
+            return normalized;
         return metrics.size() < MAX_DIAGNOSTIC_CAPTURE_REASONS - 1 ? normalized : "other";
     }
 
-    private void logSlowCapture(String origin, String reason, Key key,
-                                long queueAgeMs, long elapsedUs) {
-        long thresholdUs = Math.max(5_000L,
-                (long) ModConfig.get().performance.captureBudgetMicros * 4L);
-        if (elapsedUs < thresholdUs) return;
+    private void logSlowCapture(String origin, String reason, Key key, long queueAgeMs, long elapsedUs) {
+        long thresholdUs = Math.max(5_000L, (long) ModConfig.get().performance.captureBudgetMicros * 4L);
+        if (elapsedUs < thresholdUs)
+            return;
         WMLogger.infoRateLimited("slow-capture-" + origin + '-' + reason, 30_000L,
-                "[perf] slowCapture origin=" + origin
-                        + " reason=" + reason
-                        + " dimension=" + key.dimension().identifier()
-                        + " chunk=" + key.chunkX() + ',' + key.chunkZ()
-                        + " queueAgeMs=" + queueAgeMs
-                        + " elapsedUs=" + elapsedUs
+                "[perf] slowCapture origin=" + origin + " reason=" + reason
+                        + " dimension=" + key.dimension().identifier() + " chunk=" + key.chunkX() + ','
+                        + key.chunkZ() + " queueAgeMs=" + queueAgeMs + " elapsedUs=" + elapsedUs
                         + " thresholdUs=" + thresholdUs);
     }
 
     private String hintSummary() {
-        if (hintsByReason.isEmpty()) return "none";
+        if (hintsByReason.isEmpty())
+            return "none";
         List<Map.Entry<String, HintCounters>> entries = new ArrayList<>(hintsByReason.entrySet());
-        entries.sort((left, right) -> Long.compare(
-                right.getValue().received, left.getValue().received));
+        entries.sort((left, right) -> Long.compare(right.getValue().received, left.getValue().received));
         StringBuilder summary = new StringBuilder();
         for (Map.Entry<String, HintCounters> entry : entries) {
-            if (summary.length() > 0) summary.append('|');
+            if (summary.length() > 0)
+                summary.append('|');
             HintCounters counters = entry.getValue();
-            summary.append(entry.getKey()).append(':').append(counters.received)
-                    .append('/').append(counters.queued)
-                    .append('/').append(counters.coalesced)
-                    .append('/').append(counters.dropped);
+            summary.append(entry.getKey())
+                    .append(':')
+                    .append(counters.received)
+                    .append('/')
+                    .append(counters.queued)
+                    .append('/')
+                    .append(counters.coalesced)
+                    .append('/')
+                    .append(counters.dropped);
         }
         return summary.toString();
     }
 
     private String reasonLatencySummary() {
-        if (latenciesByReason.isEmpty()) return "none";
+        if (latenciesByReason.isEmpty())
+            return "none";
         List<Map.Entry<String, LatencyWindow.Summary>> entries = new ArrayList<>();
-        latenciesByReason.forEach((reason, latency) ->
-                entries.add(Map.entry(reason, latency.snapshotAndReset())));
+        latenciesByReason.forEach(
+                (reason, latency) -> entries.add(Map.entry(reason, latency.snapshotAndReset())));
         entries.removeIf(entry -> entry.getValue().observations() == 0L);
-        if (entries.isEmpty()) return "none";
-        entries.sort((left, right) -> Long.compare(
-                right.getValue().observations(), left.getValue().observations()));
+        if (entries.isEmpty())
+            return "none";
+        entries.sort(
+                (left, right)
+                        -> Long.compare(right.getValue().observations(), left.getValue().observations()));
         StringBuilder summary = new StringBuilder();
         for (Map.Entry<String, LatencyWindow.Summary> entry : entries) {
-            if (summary.length() > 0) summary.append('|');
+            if (summary.length() > 0)
+                summary.append('|');
             LatencyWindow.Summary latency = entry.getValue();
-            summary.append(entry.getKey()).append(':').append(latency.observations())
-                    .append('/').append(latency.average())
-                    .append('/').append(latency.p95())
-                    .append('/').append(latency.p99())
-                    .append('/').append(latency.maximum());
+            summary.append(entry.getKey())
+                    .append(':')
+                    .append(latency.observations())
+                    .append('/')
+                    .append(latency.average())
+                    .append('/')
+                    .append(latency.p95())
+                    .append('/')
+                    .append(latency.p99())
+                    .append('/')
+                    .append(latency.maximum());
         }
         return summary.toString();
     }

@@ -25,9 +25,10 @@ final class RegionFileIntegrity {
     private RegionFileIntegrity() {}
 
     record Inspection(boolean usable, Set<ChunkPos> invalidChunks, Set<ChunkPos> presentChunks,
-                      String failure, int[] locations) {
+            String failure, int[] locations) {
         static Inspection valid(Set<ChunkPos> invalidChunks, Set<ChunkPos> presentChunks, int[] locations) {
-            return new Inspection(true, Set.copyOf(invalidChunks), Set.copyOf(presentChunks), null, locations);
+            return new Inspection(
+                    true, Set.copyOf(invalidChunks), Set.copyOf(presentChunks), null, locations);
         }
 
         static Inspection unusable(String failure) {
@@ -49,7 +50,8 @@ final class RegionFileIntegrity {
     private record Allocation(int index, int first, int end) {}
 
     static Inspection inspect(Path regionFile, int regionX, int regionZ) throws IOException {
-        if (Files.notExists(regionFile)) return Inspection.empty();
+        if (Files.notExists(regionFile))
+            return Inspection.empty();
         try (FileChannel channel = FileChannel.open(regionFile, StandardOpenOption.READ)) {
             return inspect(channel, regionX, regionZ);
         }
@@ -58,7 +60,8 @@ final class RegionFileIntegrity {
     /** Uses the reader's channel, retaining the validated table instead of rereading each location. */
     static Inspection inspect(FileChannel channel, int regionX, int regionZ) throws IOException {
         long fileSize = channel.size();
-        if (LegacyRegionPlaceholder.isEmpty(fileSize)) return Inspection.empty();
+        if (LegacyRegionPlaceholder.isEmpty(fileSize))
+            return Inspection.empty();
         if (fileSize < HEADER_BYTES) {
             return Inspection.unusable("truncated header bytes=" + fileSize);
         }
@@ -70,7 +73,8 @@ final class RegionFileIntegrity {
         long position = 0L;
         while (locations.hasRemaining()) {
             int read = channel.read(locations, position);
-            if (read < 0) throw new EOFException("truncated location table");
+            if (read < 0)
+                throw new EOFException("truncated location table");
             position += read;
         }
         locations.flip();
@@ -82,7 +86,8 @@ final class RegionFileIntegrity {
         for (int index = 0; index < LOCATION_COUNT; index++) {
             int packed = locations.getInt();
             table[index] = packed;
-            if (packed == 0) continue;
+            if (packed == 0)
+                continue;
 
             int sectorOffset = packed >>> 8;
             int sectorCount = packed & 0xFF;
@@ -104,7 +109,8 @@ final class RegionFileIntegrity {
                 invalid.add(chunkPos(regionX, regionZ, furthest.index()));
                 invalid.add(chunkPos(regionX, regionZ, allocation.index()));
             }
-            if (furthest == null || allocation.end() > furthest.end()) furthest = allocation;
+            if (furthest == null || allocation.end() > furthest.end())
+                furthest = allocation;
         }
         return Inspection.valid(invalid, present, table);
     }

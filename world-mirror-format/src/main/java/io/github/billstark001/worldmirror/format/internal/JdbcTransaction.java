@@ -8,7 +8,9 @@ public final class JdbcTransaction {
     private JdbcTransaction() {}
 
     @FunctionalInterface
-    public interface Action { void run() throws SQLException; }
+    public interface Action {
+        void run() throws SQLException;
+    }
 
     public static void run(Connection connection, Action action) throws SQLException {
         boolean originalAutoCommit = connection.getAutoCommit();
@@ -37,7 +39,8 @@ public final class JdbcTransaction {
                 try {
                     connection.setAutoCommit(true);
                 } catch (SQLException | RuntimeException | Error restore) {
-                    if (failure == null) throw restore;
+                    if (failure == null)
+                        throw restore;
                     failure.addSuppressed(restore);
                 }
             }

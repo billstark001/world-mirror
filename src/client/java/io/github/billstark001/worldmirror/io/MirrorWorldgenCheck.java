@@ -15,21 +15,27 @@ import java.util.Map;
 /** Bounded, read-only generator checks; cached entries never retain world NBT trees. */
 public final class MirrorWorldgenCheck {
     public enum State { CURRENT, LEGACY, FUTURE, UNRECOGNIZED, UNREADABLE }
-    public record Result(State state, String problem) { }
-    private record Cached(FileProof.Version version, Result result) { }
+    public record Result(State state, String problem) {}
+    private record Cached(FileProof.Version version, Result result) {}
     private static final int MAX_ENTRIES = 128;
     private static final Map<Path, Cached> CACHE = new LinkedHashMap<>(16, 0.75F, true);
     private static final Object[] LOCKS = new Object[32];
-    static { Arrays.setAll(LOCKS, ignored -> new Object()); }
+    static {
+        Arrays.setAll(LOCKS, ignored -> new Object());
+    }
 
-    private static final class FutureData extends IOException { }
+    private static final class FutureData extends IOException {}
 
-    private MirrorWorldgenCheck() { }
+    private MirrorWorldgenCheck() {}
 
-    public static Result inspect(Path world) { return inspect(world, false); }
+    public static Result inspect(Path world) {
+        return inspect(world, false);
+    }
 
     /** A migration must inspect the bytes again after acquiring its native world lease. */
-    public static Result inspectFresh(Path world) { return inspect(world, true); }
+    public static Result inspectFresh(Path world) {
+        return inspect(world, true);
+    }
 
     private static Result inspect(Path world, boolean fresh) {
         Path file = WorldStructureApi.worldgenDataPath(world).toAbsolutePath().normalize();
@@ -39,12 +45,16 @@ public final class MirrorWorldgenCheck {
                 if (!fresh) {
                     synchronized (CACHE) {
                         Cached cached = CACHE.get(file);
-                        if (cached != null && cached.version().equals(before)) return cached.result();
+                        if (cached != null && cached.version().equals(before))
+                            return cached.result();
                     }
                 }
                 Result result;
-                try { result = classify(readSettings(file)); }
-                catch (FutureData future) { result = new Result(State.FUTURE, "worldgen_future_data_version"); }
+                try {
+                    result = classify(readSettings(file));
+                } catch (FutureData future) {
+                    result = new Result(State.FUTURE, "worldgen_future_data_version");
+                }
                 if (!before.equals(FileProof.version(file))) {
                     return new Result(State.UNREADABLE, "worldgen_changed_during_read");
                 }
@@ -54,8 +64,8 @@ public final class MirrorWorldgenCheck {
                 }
                 return result;
             } catch (IOException | RuntimeException failure) {
-                io.github.billstark001.worldmirror.util.WMLogger.warnRateLimited(
-                        "worldgen-read-" + file, 30_000L, "Cannot inspect mirror world generation: " + file, failure);
+                io.github.billstark001.worldmirror.util.WMLogger.warnRateLimited("worldgen-read-" + file,
+                        30_000L, "Cannot inspect mirror world generation: " + file, failure);
                 return new Result(State.UNREADABLE, "worldgen_unreadable");
             }
         }
@@ -68,14 +78,15 @@ public final class MirrorWorldgenCheck {
     private static CompoundTag extractSettings(CompoundTag root) throws IOException {
         requireSupportedVersion(root);
         CompoundTag settings = WorldStructureApi.worldgenData(root);
-        if (settings == null) throw new IOException("Missing world generation settings");
+        if (settings == null)
+            throw new IOException("Missing world generation settings");
         return settings;
     }
 
     /** Applies to both the level.dat and saved-data wrappers touched by a generator repair. */
     static void requireSupportedVersion(CompoundTag root) throws IOException {
-        int dataVersion = root.getIntOr("DataVersion",
-                root.getCompoundOrEmpty("Data").getIntOr("DataVersion", 0));
+        int dataVersion =
+                root.getIntOr("DataVersion", root.getCompoundOrEmpty("Data").getIntOr("DataVersion", 0));
         if (dataVersion > net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version()) {
             throw new FutureData();
         }
@@ -93,7 +104,8 @@ public final class MirrorWorldgenCheck {
                     || !(dimension.get("generator") instanceof CompoundTag generator)) {
                 return new Result(State.UNRECOGNIZED, "worldgen_unrecognized_dimension:" + id);
             }
-            if (decodes(generator, definition.biome())) continue;
+            if (decodes(generator, definition.biome()))
+                continue;
             if (LegacyWorldgen.recognizes(generator, definition)) {
                 outdated = true;
             } else {
@@ -108,7 +120,8 @@ public final class MirrorWorldgenCheck {
                 || !(generator.get("biome_source") instanceof CompoundTag source)
                 || !"minecraft:fixed".equals(source.getStringOr("type", ""))
                 || !biome.equals(source.getStringOr("biome", ""))
-                || !(generator.get("settings") instanceof CompoundTag settings)) return false;
+                || !(generator.get("settings") instanceof CompoundTag settings))
+            return false;
         return NoiseGeneratorSettings.DIRECT_CODEC.parse(NbtOps.INSTANCE, settings).isSuccess();
     }
 
@@ -119,10 +132,12 @@ public final class MirrorWorldgenCheck {
         if (result.state() != State.CURRENT && result.state() != State.LEGACY) {
             throw new IOException("Refusing to replace unknown world generation: " + result.problem());
         }
-        if (result.state() == State.CURRENT) return settings;
-        LegacyWorldgen.upgrade(settings, WorldStructureCreator.createMirrorWorldGenSettings(), MirrorWorldgenCheck::decodes);
-        if (classify(settings).state() != State.CURRENT) throw new IOException("Invalid replacement world generation");
+        if (result.state() == State.CURRENT)
+            return settings;
+        LegacyWorldgen.upgrade(
+                settings, WorldStructureCreator.createMirrorWorldGenSettings(), MirrorWorldgenCheck::decodes);
+        if (classify(settings).state() != State.CURRENT)
+            throw new IOException("Invalid replacement world generation");
         return settings;
     }
-
 }

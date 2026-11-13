@@ -25,25 +25,18 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.storage.RegionFile;
 import net.minecraft.world.level.chunk.storage.RegionStorageInfo;
 
-
 @Environment(EnvType.CLIENT)
 public class ChunkExporter {
+    public record WriteStamp(long revision, long capturedAtMs) {}
 
-    public record WriteStamp(long revision, long capturedAtMs) { }
+    public record ExportTimings(long databaseLookupMs, long materializeMs, long chunkReadMs,
+            long resolveMergeWriteMs, long flushMs, long verificationMs, long entityMs) {}
 
-    public record ExportTimings(long databaseLookupMs, long materializeMs,
-                                long chunkReadMs, long resolveMergeWriteMs,
-                                long flushMs, long verificationMs, long entityMs) { }
-
-    public record ExportResult(
-            Map<ResourceKey<Level>, Map<ChunkPos, WriteStamp>> written,
+    public record ExportResult(Map<ResourceKey<Level>, Map<ChunkPos, WriteStamp>> written,
             Map<ResourceKey<Level>, Map<ChunkPos, WriteStamp>> settledWithoutWrite,
             Map<ResourceKey<Level>, Set<ChunkPos>> unreadableChunks,
-            Map<ResourceKey<Level>, Map<ChunkPos, Long>> entityRevisions,
-            boolean chunkWritesSuccessful,
-            boolean entityWritesSuccessful,
-            ExportTimings timings
-    ) {
+            Map<ResourceKey<Level>, Map<ChunkPos, Long>> entityRevisions, boolean chunkWritesSuccessful,
+            boolean entityWritesSuccessful, ExportTimings timings) {
         public int totalWritten() {
             return written.values().stream().mapToInt(Map::size).sum();
         }
@@ -68,20 +61,12 @@ public class ChunkExporter {
         }
     }
 
-    private record DimensionResult(
-            Map<ChunkPos, WriteStamp> written,
-            Map<ChunkPos, WriteStamp> settledWithoutWrite,
-            Set<ChunkPos> unreadableChunks,
-            boolean successful,
-            long databaseLookupNs,
-            long materializeNs,
-            long chunkReadNs,
-            long resolveMergeWriteNs,
-            long flushNs,
-            long verificationNs
-    ) { }
+    private record DimensionResult(Map<ChunkPos, WriteStamp> written,
+            Map<ChunkPos, WriteStamp> settledWithoutWrite, Set<ChunkPos> unreadableChunks, boolean successful,
+            long databaseLookupNs, long materializeNs, long chunkReadNs, long resolveMergeWriteNs,
+            long flushNs, long verificationNs) {}
 
-    private record StagedChunk(WriteStamp stamp, byte[] digest) { }
+    private record StagedChunk(WriteStamp stamp, byte[] digest) {}
 
     private static final class StagedRegion {
         final Map<ChunkPos, StagedChunk> chunks = new HashMap<>();
@@ -97,7 +82,7 @@ public class ChunkExporter {
         long verificationNs;
     }
 
-    private record RegionKey(int x, int z) { }
+    private record RegionKey(int x, int z) {}
 
     /**
      * Exports all chunks in the snapshot to the given world folder.
@@ -123,24 +108,22 @@ public class ChunkExporter {
      * @param progress Observes region/dimension write starts; cannot grant acknowledgements or abort writes.
      * @return Exact revisions durably written, plus revisions settled without a write.
      */
-    public static ExportResult exportChunks(
-            Path worldFolder,
-            ChunkListener.DirtySnapshot snapshot,
+    public static ExportResult exportChunks(Path worldFolder, ChunkListener.DirtySnapshot snapshot,
             Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> entitySnapshot,
             Map<ResourceKey<Level>, Map<BlockPos, net.minecraft.nbt.CompoundTag>> containerSnapshot,
-            ConflictResolver resolver, ChunkDatabase db, long slowRegionThresholdMs, ExportProgress progress) throws Exception {
+            ConflictResolver resolver, ChunkDatabase db, long slowRegionThresholdMs, ExportProgress progress)
+            throws Exception {
         try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
-            return exportChunksLocked(worldFolder, snapshot, entitySnapshot, containerSnapshot,
-                    resolver, db, slowRegionThresholdMs, progress);
+            return exportChunksLocked(worldFolder, snapshot, entitySnapshot, containerSnapshot, resolver, db,
+                    slowRegionThresholdMs, progress);
         }
     }
 
-    private static ExportResult exportChunksLocked(
-            Path worldFolder, ChunkListener.DirtySnapshot snapshot,
+    private static ExportResult exportChunksLocked(Path worldFolder, ChunkListener.DirtySnapshot snapshot,
             Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> entitySnapshot,
             Map<ResourceKey<Level>, Map<BlockPos, net.minecraft.nbt.CompoundTag>> containerSnapshot,
-            ConflictResolver resolver, ChunkDatabase db, long slowRegionThresholdMs, ExportProgress progress) throws Exception {
-
+            ConflictResolver resolver, ChunkDatabase db, long slowRegionThresholdMs, ExportProgress progress)
+            throws Exception {
         Map<ResourceKey<Level>, Map<ChunkPos, WriteStamp>> allWritten = new HashMap<>();
         Map<ResourceKey<Level>, Map<ChunkPos, WriteStamp>> allSettled = new HashMap<>();
         Map<ResourceKey<Level>, Set<ChunkPos>> allUnreadable = new HashMap<>();
@@ -156,13 +139,13 @@ public class ChunkExporter {
             try {
                 Path regionDir = WorldSaveLayout.regionDirectory(worldFolder, dimension);
                 Files.createDirectories(regionDir);
-                dimensionResult = exportDimensionChunks(
-                        regionDir, dimChunks, containerSnapshot, resolver, db,
+                dimensionResult = exportDimensionChunks(regionDir, dimChunks, containerSnapshot, resolver, db,
                         dimension, worldFolder, snapshot, slowRegionThresholdMs, progress);
             } catch (Exception failure) {
                 chunkWritesSuccessful = false;
                 WMLogger.warn("Cannot prepare terrain dimension=" + dimension.identifier()
-                        + "; other dimensions and entities continue", failure);
+                                + "; other dimensions and entities continue",
+                        failure);
                 continue;
             }
             chunkWritesSuccessful &= dimensionResult.successful();
@@ -175,7 +158,6 @@ public class ChunkExporter {
             resolveMergeWriteNs += dimensionResult.resolveMergeWriteNs();
             flushNs += dimensionResult.flushNs();
             verificationNs += dimensionResult.verificationNs();
-
         }
         long entityStartedNs = System.nanoTime();
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> entityRevisions =
@@ -185,31 +167,28 @@ public class ChunkExporter {
             Map<ChunkPos, Long> written = entityRevisions.get(entry.getKey());
             return written != null && written.size() == entry.getValue().size();
         });
-        return new ExportResult(allWritten, allSettled, allUnreadable, entityRevisions,
-                chunkWritesSuccessful, entityWritesSuccessful,
-                new ExportTimings(toMillis(databaseLookupNs), toMillis(materializeNs),
-                        toMillis(chunkReadNs), toMillis(resolveMergeWriteNs),
-                        toMillis(flushNs), toMillis(verificationNs), toMillis(entityNs)));
+        return new ExportResult(allWritten, allSettled, allUnreadable, entityRevisions, chunkWritesSuccessful,
+                entityWritesSuccessful,
+                new ExportTimings(toMillis(databaseLookupNs), toMillis(materializeNs), toMillis(chunkReadNs),
+                        toMillis(resolveMergeWriteNs), toMillis(flushNs), toMillis(verificationNs),
+                        toMillis(entityNs)));
     }
 
     // ── Per-dimension export ──────────────────────────────────────────────────
 
-    private static DimensionResult exportDimensionChunks(
-            Path regionDir,
+    private static DimensionResult exportDimensionChunks(Path regionDir,
             Map<ChunkPos, ChunkListener.CapturedChunk> dimChunks,
             Map<ResourceKey<Level>, Map<BlockPos, net.minecraft.nbt.CompoundTag>> containerSnapshot,
-            ConflictResolver resolver,
-            ChunkDatabase db,
-            ResourceKey<Level> dimension,
-            Path worldFolder,
+            ConflictResolver resolver, ChunkDatabase db, ResourceKey<Level> dimension, Path worldFolder,
             ChunkListener.DirtySnapshot snapshot, long slowRegionThresholdMs, ExportProgress progress) {
-
         Map<RegionKey, List<Map.Entry<ChunkPos, ChunkListener.CapturedChunk>>> chunksByRegion =
                 new HashMap<>();
         for (Map.Entry<ChunkPos, ChunkListener.CapturedChunk> entry : dimChunks.entrySet()) {
             ChunkPos pos = entry.getKey();
-            chunksByRegion.computeIfAbsent(new RegionKey(pos.getRegionX(), pos.getRegionZ()),
-                    ignored -> new ArrayList<>()).add(entry);
+            chunksByRegion
+                    .computeIfAbsent(
+                            new RegionKey(pos.getRegionX(), pos.getRegionZ()), ignored -> new ArrayList<>())
+                    .add(entry);
         }
 
         Map<ChunkPos, WriteStamp> written = new HashMap<>();
@@ -219,8 +198,8 @@ public class ChunkExporter {
         TerrainTimings timings = new TerrainTimings();
         boolean successful = true;
 
-        for (Map.Entry<RegionKey, List<Map.Entry<ChunkPos, ChunkListener.CapturedChunk>>> regionEntry
-                : chunksByRegion.entrySet()) {
+        for (Map.Entry<RegionKey, List<Map.Entry<ChunkPos, ChunkListener.CapturedChunk>>> regionEntry :
+                chunksByRegion.entrySet()) {
             progress.start(ExportProgress.Part.TERRAIN, dimension,
                     regionEntry.getValue().stream().map(Map.Entry::getKey).toList());
             int regionX = regionEntry.getKey().x();
@@ -229,8 +208,7 @@ public class ChunkExporter {
 
             synchronized (McaWriteSupport.lockFor(regionFile)) {
                 long regionStartedNs = System.nanoTime();
-                RegionStorageInfo storageInfo =
-                        new RegionStorageInfo("world_mirror", dimension, "chunk");
+                RegionStorageInfo storageInfo = new RegionStorageInfo("world_mirror", dimension, "chunk");
                 StagedRegion staged = new StagedRegion();
                 Set<ChunkPos> indexedClean = new HashSet<>();
                 try {
@@ -238,114 +216,130 @@ public class ChunkExporter {
                             RegionFileIntegrity.inspect(regionFile, regionX, regionZ);
                     if (!before.usable() || !before.invalidChunks().isEmpty()) {
                         successful = false;
-                        if (!before.usable()) regionEntry.getValue().forEach(entry -> unreadable.add(entry.getKey()));
+                        if (!before.usable())
+                            regionEntry.getValue().forEach(entry -> unreadable.add(entry.getKey()));
                         unreadable.addAll(before.invalidChunks());
-                        WMLogger.warn("Region validation failed before write file=" + regionFile
-                                + " reason=" + before.failure()
-                                + " invalidChunks=" + before.invalidChunks().size()
+                        WMLogger.warn("Region validation failed before write file=" + regionFile + " reason="
+                                + before.failure() + " invalidChunks=" + before.invalidChunks().size()
                                 + "; retainedChunks=" + regionEntry.getValue().size());
                         continue;
                     }
                     unreadable.addAll(before.invalidChunks());
 
-                    for (Map.Entry<ChunkPos, ChunkListener.CapturedChunk> entry
-                            : regionEntry.getValue()) {
+                    for (Map.Entry<ChunkPos, ChunkListener.CapturedChunk> entry : regionEntry.getValue()) {
                         ChunkPos pos = entry.getKey();
                         ChunkListener.CapturedChunk captured = entry.getValue();
                         long lookupStartedNs = System.nanoTime();
-                        boolean skip = db.shouldSkipUpdate(dimStr, pos,
-                                "world_mirror", captured.capturedAtMs());
+                        boolean skip =
+                                db.shouldSkipUpdate(dimStr, pos, "world_mirror", captured.capturedAtMs());
                         timings.databaseLookupNs += System.nanoTime() - lookupStartedNs;
-                        if (skip) indexedClean.add(pos);
+                        if (skip)
+                            indexedClean.add(pos);
                     }
 
-                    var result = RegionMerge.writeVerified(() -> {
-                        try (RegionFile vanillaRegion =
-                                     new RegionFile(storageInfo, regionFile, regionDir, false)) {
-                            for (Map.Entry<ChunkPos, ChunkListener.CapturedChunk> entry : regionEntry.getValue()) {
-                                ChunkPos chunkPos = entry.getKey();
-                                ChunkListener.CapturedChunk captured = entry.getValue();
-                                try {
-                                    long stageStartedNs = System.nanoTime();
-                                    net.minecraft.nbt.CompoundTag localNbt;
-                                    try { localNbt = McaWriteSupport.readChunk(vanillaRegion, chunkPos); }
-                                    catch (Exception invalidStoredChunk) {
-                                        unreadable.add(chunkPos);
-                                        throw invalidStoredChunk;
-                                    }
-                                    timings.chunkReadNs += System.nanoTime() - stageStartedNs;
-                                    // The SQLite claim is insufficient if the MCA
-                                    // entry was deleted or no longer decodes.
-                                    Action action = ChunkUpdatePolicy.decide(WritePolicy.LIVE_SYNC,
-                                            localNbt == null ? Destination.MISSING : Destination.PRESENT,
-                                            indexedClean.contains(chunkPos) ? IndexStatus.BLOCKED : IndexStatus.ELIGIBLE);
-                                    if (action == Action.PRESERVE || action == Action.REPAIR_INDEX) {
-                                        if (action == Action.PRESERVE) {
-                                            settled.put(chunkPos, stamp(captured));
-                                        } else {
-                                            // Let the coordinator clear the invalid
-                                            // claim first. A later pass can then
-                                            // record the repaired capture's actual
-                                            // timestamp without a stale UPSERT
-                                            // preserving a newer, lost timestamp.
-                                            staged.failed = true;
-                                            unreadable.add(chunkPos);
-                                            WMLogger.warnRateLimited("missing-indexed-chunk-" + dimension.identifier(),
-                                                    30_000L, "Durability index references unavailable MCA entry dimension="
-                                                            + dimension.identifier() + " chunk=" + chunkPos
-                                                            + "; retaining capture for repair after index cleanup");
-                                        }
-                                        continue;
-                                    }
-                                    stageStartedNs = System.nanoTime();
-                                    ChunkListener.CapturedChunk materialized =
-                                            snapshot.materialize(dimension, chunkPos, captured);
-                                    timings.materializeNs += System.nanoTime() - stageStartedNs;
-                                    net.minecraft.nbt.CompoundTag chunkNbt = materialized.nbt();
-                                    stageStartedNs = System.nanoTime();
-                                    BlockEntityNbtSupport.applyContainerOverlays(
-                                            dimension, chunkNbt, containerSnapshot);
-                                    boolean existsLocally = localNbt != null;
-                                    if (!resolver.shouldWriteChunk(new ConflictContext(
-                                            chunkPos, existsLocally, chunkNbt, dimension, worldFolder))) {
-                                        settled.put(chunkPos, stamp(materialized));
-                                        timings.resolveMergeWriteNs += System.nanoTime() - stageStartedNs;
-                                        continue;
-                                    }
+                    var result = RegionMerge.writeVerified(
+                            ()
+                                    -> {
+                                try (RegionFile vanillaRegion =
+                                                new RegionFile(storageInfo, regionFile, regionDir, false)) {
+                                    for (Map.Entry<ChunkPos, ChunkListener.CapturedChunk> entry :
+                                            regionEntry.getValue()) {
+                                        ChunkPos chunkPos = entry.getKey();
+                                        ChunkListener.CapturedChunk captured = entry.getValue();
+                                        try {
+                                            long stageStartedNs = System.nanoTime();
+                                            net.minecraft.nbt.CompoundTag localNbt;
+                                            try {
+                                                localNbt = McaWriteSupport.readChunk(vanillaRegion, chunkPos);
+                                            } catch (Exception invalidStoredChunk) {
+                                                unreadable.add(chunkPos);
+                                                throw invalidStoredChunk;
+                                            }
+                                            timings.chunkReadNs += System.nanoTime() - stageStartedNs;
+                                            // The SQLite claim is insufficient if the MCA
+                                            // entry was deleted or no longer decodes.
+                                            Action action = ChunkUpdatePolicy.decide(WritePolicy.LIVE_SYNC,
+                                                    localNbt == null ? Destination.MISSING
+                                                                     : Destination.PRESENT,
+                                                    indexedClean.contains(chunkPos) ? IndexStatus.BLOCKED
+                                                                                    : IndexStatus.ELIGIBLE);
+                                            if (action == Action.PRESERVE || action == Action.REPAIR_INDEX) {
+                                                if (action == Action.PRESERVE) {
+                                                    settled.put(chunkPos, stamp(captured));
+                                                } else {
+                                                    // Let the coordinator clear the invalid
+                                                    // claim first. A later pass can then
+                                                    // record the repaired capture's actual
+                                                    // timestamp without a stale UPSERT
+                                                    // preserving a newer, lost timestamp.
+                                                    staged.failed = true;
+                                                    unreadable.add(chunkPos);
+                                                    WMLogger.warnRateLimited(
+                                                            "missing-indexed-chunk-" + dimension.identifier(),
+                                                            30_000L,
+                                                            "Durability index references unavailable MCA entry dimension="
+                                                                    + dimension.identifier()
+                                                                    + " chunk=" + chunkPos
+                                                                    + "; retaining capture for repair after index cleanup");
+                                                }
+                                                continue;
+                                            }
+                                            stageStartedNs = System.nanoTime();
+                                            ChunkListener.CapturedChunk materialized =
+                                                    snapshot.materialize(dimension, chunkPos, captured);
+                                            timings.materializeNs += System.nanoTime() - stageStartedNs;
+                                            net.minecraft.nbt.CompoundTag chunkNbt = materialized.nbt();
+                                            stageStartedNs = System.nanoTime();
+                                            BlockEntityNbtSupport.applyContainerOverlays(
+                                                    dimension, chunkNbt, containerSnapshot);
+                                            boolean existsLocally = localNbt != null;
+                                            if (!resolver.shouldWriteChunk(new ConflictContext(chunkPos,
+                                                        existsLocally, chunkNbt, dimension, worldFolder))) {
+                                                settled.put(chunkPos, stamp(materialized));
+                                                timings.resolveMergeWriteNs +=
+                                                        System.nanoTime() - stageStartedNs;
+                                                continue;
+                                            }
 
-                                    if (localNbt != null && !materialized.authoritativeEmpty()) {
-                                        BlockEntityNbtSupport.mergeChunkBlockEntities(chunkNbt, localNbt);
+                                            if (localNbt != null && !materialized.authoritativeEmpty()) {
+                                                BlockEntityNbtSupport.mergeChunkBlockEntities(
+                                                        chunkNbt, localNbt);
+                                            }
+                                            BlockEntityNbtSupport.applyContainerOverlays(
+                                                    dimension, chunkNbt, containerSnapshot);
+                                            NbtWriteSupport.validateStrings(chunkNbt);
+                                            byte[] digest = NbtWriteSupport.writeChunkAndDigest(chunkNbt,
+                                                    vanillaRegion.getChunkDataOutputStream(chunkPos));
+                                            staged.chunks.put(
+                                                    chunkPos, new StagedChunk(stamp(materialized), digest));
+                                            timings.resolveMergeWriteNs += System.nanoTime() - stageStartedNs;
+                                        } catch (Exception e) {
+                                            staged.failed = true;
+                                            WMLogger.warnRateLimited(
+                                                    "chunk-process-" + dimension.identifier(), 30_000L,
+                                                    "Chunk processing failed dimension="
+                                                            + dimension.identifier() + " chunk=" + chunkPos
+                                                            + "; retained for retry",
+                                                    e);
+                                        }
                                     }
-                                    BlockEntityNbtSupport.applyContainerOverlays(
-                                            dimension, chunkNbt, containerSnapshot);
-                                    NbtWriteSupport.validateStrings(chunkNbt);
-                                    byte[] digest = NbtWriteSupport.writeChunkAndDigest(chunkNbt,
-                                            vanillaRegion.getChunkDataOutputStream(chunkPos));
-                                    staged.chunks.put(chunkPos, new StagedChunk(stamp(materialized), digest));
-                                    timings.resolveMergeWriteNs += System.nanoTime() - stageStartedNs;
-                                } catch (Exception e) {
-                                    staged.failed = true;
-                                    WMLogger.warnRateLimited("chunk-process-" + dimension.identifier(),
-                                            30_000L, "Chunk processing failed dimension="
-                                                    + dimension.identifier() + " chunk=" + chunkPos
-                                                    + "; retained for retry", e);
+                                    if (!staged.chunks.isEmpty()) {
+                                        long flushStartedNs = System.nanoTime();
+                                        vanillaRegion.flush();
+                                        timings.flushNs += System.nanoTime() - flushStartedNs;
+                                    }
                                 }
-                            }
-                            if (!staged.chunks.isEmpty()) {
-                                long flushStartedNs = System.nanoTime();
-                                vanillaRegion.flush();
-                                timings.flushNs += System.nanoTime() - flushStartedNs;
-                            }
-                        }
-                        return staged.chunks;
-                    }, expected -> {
-                        long started = System.nanoTime();
-                        try {
-                            return verifyWrittenRegion(storageInfo, regionFile, regionDir, regionX, regionZ, expected);
-                        } finally {
-                            timings.verificationNs += System.nanoTime() - started;
-                        }
-                    });
+                                return staged.chunks;
+                            },
+                            expected -> {
+                                long started = System.nanoTime();
+                                try {
+                                    return verifyWrittenRegion(
+                                            storageInfo, regionFile, regionDir, regionX, regionZ, expected);
+                                } finally {
+                                    timings.verificationNs += System.nanoTime() - started;
+                                }
+                            });
                     successful &= !staged.failed && result.complete();
                     if (!result.regionUsable()) {
                         regionEntry.getValue().forEach(entry -> unreadable.add(entry.getKey()));
@@ -356,16 +350,16 @@ public class ChunkExporter {
                     result.written().forEach((pos, chunk) -> written.put(pos, chunk.stamp()));
                     if (!result.complete()) {
                         WMLogger.warn("Region durability verification failed file=" + regionFile
-                                + " verified=" + result.written().size()
-                                + " failed=" + result.unreadable().size()
-                                + "; failed chunks retained for retry");
+                                + " verified=" + result.written().size() + " failed="
+                                + result.unreadable().size() + "; failed chunks retained for retry");
                     }
                 } catch (Exception e) {
                     successful = false;
                     regionEntry.getValue().forEach(entry -> settled.remove(entry.getKey()));
                     regionEntry.getValue().forEach(entry -> written.remove(entry.getKey()));
                     WMLogger.warn("Region write failed file=" + regionFile
-                            + " retainedChunks=" + regionEntry.getValue().size(), e);
+                                    + " retainedChunks=" + regionEntry.getValue().size(),
+                            e);
                 } finally {
                     logSlowRegion(dimension, regionFile, regionEntry.getValue().size(), staged.chunks.size(),
                             regionStartedNs, slowRegionThresholdMs);
@@ -378,12 +372,8 @@ public class ChunkExporter {
                 timings.resolveMergeWriteNs, timings.flushNs, timings.verificationNs);
     }
 
-    private static RegionMerge.Verification<ChunkPos> verifyWrittenRegion(
-            RegionStorageInfo storageInfo,
-            Path regionFile,
-            Path regionDirectory,
-            int regionX,
-            int regionZ,
+    private static RegionMerge.Verification<ChunkPos> verifyWrittenRegion(RegionStorageInfo storageInfo,
+            Path regionFile, Path regionDirectory, int regionX, int regionZ,
             Map<ChunkPos, StagedChunk> staged) {
         Set<ChunkPos> verified = new HashSet<>();
         Set<ChunkPos> unreadable = new HashSet<>(staged.keySet());
@@ -395,14 +385,15 @@ public class ChunkExporter {
                 return new RegionMerge.Verification<>(false, Set.of(), unreadable);
             }
             unreadable.addAll(inspection.invalidChunks());
-            try (RegionFile reader = new RegionFile(
-                    storageInfo, regionFile, regionDirectory, false)) {
+            try (RegionFile reader = new RegionFile(storageInfo, regionFile, regionDirectory, false)) {
                 regionUsable = true;
                 for (ChunkPos pos : staged.keySet()) {
-                    if (inspection.invalidChunks().contains(pos)) continue;
+                    if (inspection.invalidChunks().contains(pos))
+                        continue;
                     try {
                         try (var input = reader.getChunkDataInputStream(pos)) {
-                            if (input != null && NbtReadSupport.verifyChunk(input, staged.get(pos).digest())) {
+                            if (input != null
+                                    && NbtReadSupport.verifyChunk(input, staged.get(pos).digest())) {
                                 verified.add(pos);
                                 unreadable.remove(pos);
                             }
@@ -426,18 +417,15 @@ public class ChunkExporter {
         return nanos / 1_000_000L;
     }
 
-    private static void logSlowRegion(ResourceKey<Level> dimension, Path file,
-                                      int candidates, int written, long startedNs,
-                                      long thresholdMs) {
-        if (thresholdMs < 0L) return;
+    private static void logSlowRegion(ResourceKey<Level> dimension, Path file, int candidates, int written,
+            long startedNs, long thresholdMs) {
+        if (thresholdMs < 0L)
+            return;
         long elapsedMs = (System.nanoTime() - startedNs) / 1_000_000L;
-        if (elapsedMs < thresholdMs) return;
+        if (elapsedMs < thresholdMs)
+            return;
         WMLogger.info("[perf] slowRegion kind=chunk"
-                + " dimension=" + dimension.identifier()
-                + " file=" + file.getFileName()
-                + " candidates=" + candidates
-                + " written=" + written
-                + " elapsedMs=" + elapsedMs);
+                + " dimension=" + dimension.identifier() + " file=" + file.getFileName()
+                + " candidates=" + candidates + " written=" + written + " elapsedMs=" + elapsedMs);
     }
-
 }

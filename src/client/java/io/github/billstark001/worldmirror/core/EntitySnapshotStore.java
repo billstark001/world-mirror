@@ -33,13 +33,14 @@ final class EntitySnapshotStore {
     private final Set<ChunkPos> persistedCompleteChunks = new HashSet<>();
 
     void capture(
-            Map<ChunkPos, Map<UUID, EntityTracker.EntityRecord>> observed,
-            Set<ChunkPos> completeChunks) {
+            Map<ChunkPos, Map<UUID, EntityTracker.EntityRecord>> observed, Set<ChunkPos> completeChunks) {
         Map<UUID, ChunkPos> currentLocations = new HashMap<>();
-        observed.forEach((chunk, records) -> records.keySet().forEach(uuid -> currentLocations.put(uuid, chunk)));
+        observed.forEach(
+                (chunk, records) -> records.keySet().forEach(uuid -> currentLocations.put(uuid, chunk)));
         currentLocations.forEach((uuid, chunk) -> {
             ChunkPos previous = knownLocations.get(uuid);
-            if (previous != null && !previous.equals(chunk)) removeFromChunk(uuid, previous);
+            if (previous != null && !previous.equals(chunk))
+                removeFromChunk(uuid, previous);
         });
 
         for (ChunkPos chunk : completeChunks) {
@@ -52,8 +53,8 @@ final class EntitySnapshotStore {
                 boolean alreadyPersisted = current == null && persistedCompleteChunks.contains(chunk)
                         && persistedRecordsForChunk(chunk).equals(records);
                 if (!alreadyPersisted) {
-                    MutableUpdate update = new MutableUpdate(
-                            nextRevision(), EntityTracker.Observation.COMPLETE);
+                    MutableUpdate update =
+                            new MutableUpdate(nextRevision(), EntityTracker.Observation.COMPLETE);
                     records.forEach((uuid, record) -> update.upserts.put(uuid, record.copy()));
                     pending.put(chunk, update);
                 }
@@ -70,9 +71,10 @@ final class EntitySnapshotStore {
     }
 
     private void removeFromChunk(UUID uuid, ChunkPos chunk) {
-        MutableUpdate update = pending.computeIfAbsent(chunk,
-                ignored -> new MutableUpdate(0L, EntityTracker.Observation.PARTIAL));
-        if (update.upserts.get(uuid) == null && update.tombstones.contains(uuid)) return;
+        MutableUpdate update = pending.computeIfAbsent(
+                chunk, ignored -> new MutableUpdate(0L, EntityTracker.Observation.PARTIAL));
+        if (update.upserts.get(uuid) == null && update.tombstones.contains(uuid))
+            return;
         update.revision = nextRevision();
         update.upserts.remove(uuid);
         update.tombstones.add(uuid);
@@ -81,8 +83,10 @@ final class EntitySnapshotStore {
 
     Map<ChunkPos, EntityTracker.ChunkUpdate> snapshot() {
         Map<ChunkPos, EntityTracker.ChunkUpdate> result = new HashMap<>();
-        pending.forEach((chunk, update) -> result.put(chunk, new EntityTracker.ChunkUpdate(
-                update.revision, update.observation, update.upserts, update.tombstones)));
+        pending.forEach((chunk, update)
+                                -> result.put(chunk,
+                                        new EntityTracker.ChunkUpdate(update.revision, update.observation,
+                                                update.upserts, update.tombstones)));
         return Map.copyOf(result);
     }
 
@@ -93,14 +97,16 @@ final class EntitySnapshotStore {
     void acknowledge(Map<ChunkPos, Long> writtenRevisions) {
         writtenRevisions.forEach((chunk, revision) -> {
             MutableUpdate current = pending.get(chunk);
-            if (current == null || current.revision != revision) return;
+            if (current == null || current.revision != revision)
+                return;
 
             if (current.observation == EntityTracker.Observation.COMPLETE) {
                 for (UUID uuid : persistedLocations.removeChunk(chunk)) persistedRecords.remove(uuid);
                 persistedCompleteChunks.add(chunk);
             }
             current.tombstones.forEach(uuid -> {
-                if (persistedLocations.remove(uuid, chunk)) persistedRecords.remove(uuid);
+                if (persistedLocations.remove(uuid, chunk))
+                    persistedRecords.remove(uuid);
             });
             current.upserts.forEach((uuid, record) -> {
                 persistedLocations.put(uuid, chunk);
@@ -121,9 +127,11 @@ final class EntitySnapshotStore {
     private void upsert(ChunkPos chunk, EntityTracker.EntityRecord record) {
         MutableUpdate update = pending.get(chunk);
         if (update != null && record.equals(update.upserts.get(record.rootUuid()))
-                && !update.tombstones.contains(record.rootUuid())) return;
+                && !update.tombstones.contains(record.rootUuid()))
+            return;
         if (update == null && chunk.equals(persistedLocations.get(record.rootUuid()))
-                && record.equals(persistedRecords.get(record.rootUuid()))) return;
+                && record.equals(persistedRecords.get(record.rootUuid())))
+            return;
         if (update == null) {
             update = new MutableUpdate(0L, EntityTracker.Observation.PARTIAL);
             pending.put(chunk, update);
@@ -158,37 +166,44 @@ final class EntitySnapshotStore {
 
         void put(UUID uuid, ChunkPos chunk) {
             ChunkPos previous = byUuid.put(uuid, chunk);
-            if (previous != null && !previous.equals(chunk)) removeFromChunk(uuid, previous);
+            if (previous != null && !previous.equals(chunk))
+                removeFromChunk(uuid, previous);
             byChunk.computeIfAbsent(chunk, ignored -> new HashSet<>()).add(uuid);
         }
 
         boolean remove(UUID uuid, ChunkPos chunk) {
-            if (!byUuid.remove(uuid, chunk)) return false;
+            if (!byUuid.remove(uuid, chunk))
+                return false;
             removeFromChunk(uuid, chunk);
             return true;
         }
 
         Set<UUID> removeChunk(ChunkPos chunk) {
             Set<UUID> removed = byChunk.remove(chunk);
-            if (removed == null) return Set.of();
+            if (removed == null)
+                return Set.of();
             for (UUID uuid : removed) byUuid.remove(uuid, chunk);
             return removed;
         }
 
         void retainChunk(ChunkPos chunk, Set<UUID> retained) {
             Set<UUID> uuids = byChunk.get(chunk);
-            if (uuids == null) return;
+            if (uuids == null)
+                return;
             uuids.removeIf(uuid -> {
-                if (retained.contains(uuid)) return false;
+                if (retained.contains(uuid))
+                    return false;
                 byUuid.remove(uuid, chunk);
                 return true;
             });
-            if (uuids.isEmpty()) byChunk.remove(chunk);
+            if (uuids.isEmpty())
+                byChunk.remove(chunk);
         }
 
         private void removeFromChunk(UUID uuid, ChunkPos chunk) {
             Set<UUID> uuids = byChunk.get(chunk);
-            if (uuids != null && uuids.remove(uuid) && uuids.isEmpty()) byChunk.remove(chunk);
+            if (uuids != null && uuids.remove(uuid) && uuids.isEmpty())
+                byChunk.remove(chunk);
         }
     }
 

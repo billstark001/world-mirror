@@ -30,11 +30,12 @@ class CaptureRegionScanTest {
         int ticks = 0;
         while (!scan.isComplete() || queue.hasWork()) {
             assertTrue(++ticks < 200, "a full queue must resume from its cursor instead of restarting");
-            scan.fill(256, () -> queue.metrics().pendingCaptures() < 512,
-                    key -> queue.queue(key, "bulk", false));
+            scan.fill(256,
+                    () -> queue.metrics().pendingCaptures() < 512, key -> queue.queue(key, "bulk", false));
             for (int processed = 0; processed < 64; processed++) {
                 var request = queue.pollPending();
-                if (request == null) break;
+                if (request == null)
+                    break;
                 assertTrue(captured.add(request.key()), "bulk scan revisited an already captured chunk");
             }
         }
@@ -47,9 +48,15 @@ class CaptureRegionScanTest {
     void anExhaustedBudgetDoesNotConsumeTheNextCoordinate() {
         var scan = new CaptureRegionScan(Level.OVERWORLD, 5, -2, 1);
         var visited = new ArrayList<DownloadCaptureQueue.Key>();
-        assertEquals(0, scan.fill(20, () -> false, key -> { visited.add(key); return true; }));
+        assertEquals(0, scan.fill(20, () -> false, key -> {
+            visited.add(key);
+            return true;
+        }));
         assertFalse(scan.isComplete());
-        assertEquals(1, scan.fill(1, () -> true, key -> { visited.add(key); return true; }));
+        assertEquals(1, scan.fill(1, () -> true, key -> {
+            visited.add(key);
+            return true;
+        }));
         assertEquals(new DownloadCaptureQueue.Key(Level.OVERWORLD, 4, -3), visited.getFirst());
     }
 

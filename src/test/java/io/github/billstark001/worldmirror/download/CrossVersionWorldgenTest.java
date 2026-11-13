@@ -46,7 +46,8 @@ class CrossVersionWorldgenTest {
         WorldMetadata metadata = WorldMetadata.loadIfPresent(world).orElseThrow();
         assertEquals("mirror:cross-version", metadata.nodeId);
         assertEquals("local:cross-version", metadata.parentNodeId);
-        metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), MirrorWorldgenAssets.ASSET_REVISION);
+        metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(),
+                MirrorWorldgenAssets.ASSET_REVISION);
         assertTrue(metadata.save(world));
         assertTrue(MirrorMigrationCoordinator.inspect(world).repairWorldgen());
         upgradeAndLoad(world);
@@ -69,11 +70,12 @@ class CrossVersionWorldgenTest {
                 var dimensions = context.datapackDimensions().lookupOrThrow(Registries.LEVEL_STEM);
                 var decoded = LevelStorageSource.getLevelDataAndDimensions(access, data,
                         context.dataConfiguration(), dimensions, context.datapackWorldRegistries());
-                return new WorldLoader.DataLoadOutput<>(decoded.worldDataAndGenSettings(),
-                        decoded.dimensions().dimensionsRegistryAccess());
+                return new WorldLoader.DataLoadOutput<>(
+                        decoded.worldDataAndGenSettings(), decoded.dimensions().dimensionsRegistryAccess());
             }, WorldStem::new, ForkJoinPool.commonPool(), Runnable::run);
             try (var stem = loaded.get(60, TimeUnit.SECONDS)) {
-                assertEquals(3, stem.registries().compositeAccess().lookupOrThrow(Registries.LEVEL_STEM).size());
+                assertEquals(
+                        3, stem.registries().compositeAccess().lookupOrThrow(Registries.LEVEL_STEM).size());
             }
         }
         assertFalse(MirrorMigrationCoordinator.migrateApproved(world).changed());
@@ -86,19 +88,24 @@ class CrossVersionWorldgenTest {
         try (var paths = Files.walk(source)) {
             for (Path path : paths.toList()) {
                 Path destination = world.resolve(source.relativize(path));
-                if (Files.isDirectory(path)) Files.createDirectories(destination);
-                else Files.copy(path, destination);
+                if (Files.isDirectory(path))
+                    Files.createDirectories(destination);
+                else
+                    Files.copy(path, destination);
             }
         }
         int fixtureVersion = NbtIo.readCompressed(world.resolve("level.dat"), NbtAccounter.unlimitedHeap())
-                .getCompoundOrEmpty("Data").getIntOr("DataVersion", -1);
-        assertEquals(4903, fixtureVersion); // Published 26.2 data version, independently checked at generation.
+                                     .getCompoundOrEmpty("Data")
+                                     .getIntOr("DataVersion", -1);
+        assertEquals(
+                4903, fixtureVersion); // Published 26.2 data version, independently checked at generation.
         // Mirror the file-layout upgrade that vanilla performs before our world-open hook.
         var storage = LevelStorageSource.createDefault(world.getParent());
         try (var access = storage.validateAndCreateAccess(world.getFileName().toString())) {
             var fixer = net.minecraft.util.datafix.DataFixers.getFileFixer();
             if (fixer.requiresFileFixing(fixtureVersion)) {
-                fixer.fix(access, access.getUnfixedDataTag(false), new net.minecraft.util.worldupdate.UpgradeProgress());
+                fixer.fix(access, access.getUnfixedDataTag(false),
+                        new net.minecraft.util.worldupdate.UpgradeProgress());
             }
         }
     }

@@ -19,12 +19,15 @@ public final class LegacyWorldClocks {
 
     public static void repair(Path world, UnaryOperator<CompoundTag> nativeCodec) throws IOException {
         Path file = world.resolve("data/minecraft/world_clocks.dat");
-        if (!Files.isRegularFile(file)) return;
+        if (!Files.isRegularFile(file))
+            return;
         CompoundTag root = NbtReadSupport.readWorldData(file);
         CompoundTag data = root.getCompoundOrEmpty("data");
-        if (!data.keySet().equals(WRAPPER_FIELDS)) return;
+        if (!data.keySet().equals(WRAPPER_FIELDS))
+            return;
         CompoundTag clocks = data.getCompoundOrEmpty("clocks");
-        if (!clocks.keySet().equals(MIRROR_CLOCKS)) return;
+        if (!clocks.keySet().equals(MIRROR_CLOCKS))
+            return;
         root.put("data", nativeCodec.apply(clocks));
         WorldStructureCreator.writeVerifiedWorldData(file, root);
     }

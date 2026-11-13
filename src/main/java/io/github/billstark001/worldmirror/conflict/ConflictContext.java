@@ -18,12 +18,5 @@ import java.nio.file.Path;
  * @param dimension     The dimension this chunk belongs to.
  * @param worldFolder   Root directory of the mirror world.
  */
-public record ConflictContext(
-        ChunkPos pos,
-        boolean existsLocally,
-        CompoundTag chunkNbt,
-        ResourceKey<Level> dimension,
-        Path worldFolder
-) {
-}
-
+public record ConflictContext(ChunkPos pos, boolean existsLocally, CompoundTag chunkNbt,
+        ResourceKey<Level> dimension, Path worldFolder) {}

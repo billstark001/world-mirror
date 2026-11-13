@@ -23,9 +23,11 @@ final class LocalWorldIdentity {
 
     static String read(Path folder) throws IOException {
         Path file = folder.resolve(FILE_NAME);
-        if (Files.isSymbolicLink(file)) throw new IOException("Linked local world identity: " + file);
+        if (Files.isSymbolicLink(file))
+            throw new IOException("Linked local world identity: " + file);
         var document = JsonSupport.readDocument(file, Document.class);
-        if (document.state() == JsonSupport.ReadState.MISSING) return null;
+        if (document.state() == JsonSupport.ReadState.MISSING)
+            return null;
         if (document.value() == null || !document.value().valid()) {
             throw new IOException("Invalid local world identity: " + folder, document.failure());
         }
@@ -35,7 +37,8 @@ final class LocalWorldIdentity {
     /** Caller holds the offline or integrated server's native world lease. */
     static String ensure(Path folder) throws IOException {
         String current = read(folder);
-        if (current != null) return current;
+        if (current != null)
+            return current;
         String nodeId = "local:" + UUID.randomUUID();
         JsonSupport.compareAndWriteDocument(folder.resolve(FILE_NAME), new Document(1, nodeId), null);
         return nodeId;
@@ -44,7 +47,8 @@ final class LocalWorldIdentity {
     static void reassign(Path folder, String previous, String replacement) throws IOException {
         Path path = folder.resolve(FILE_NAME);
         FileProof.Version stamp = FileProof.version(path);
-        if (!previous.equals(read(folder))) throw new NoSuchFileException(path.toString());
+        if (!previous.equals(read(folder)))
+            throw new NoSuchFileException(path.toString());
         JsonSupport.compareAndWriteDocument(path, new Document(1, replacement), stamp);
     }
 }

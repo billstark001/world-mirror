@@ -52,7 +52,8 @@ public final class WorldWriteLock implements AutoCloseable {
         if (current != null) {
             boolean stagedMigration = world.startsWith(current.world)
                     && current.world.relativize(world).getNameCount() == 2
-                    && current.world.relativize(world).getName(0).toString().startsWith(FileTransaction.PREFIX)
+                    && current.world.relativize(world).getName(0).toString().startsWith(
+                            FileTransaction.PREFIX)
                     && world.getFileName().toString().equals("new");
             if (!current.world.equals(world) && !stagedMigration) {
                 throw new IllegalStateException("Cannot nest different world write locks");
@@ -65,10 +66,15 @@ public final class WorldWriteLock implements AutoCloseable {
         try {
             Ownership acquired = new Ownership(world, guard, acquireDirectory(world));
             OWNED.set(acquired);
-            try { WorldRecovery.begin(world); }
-            catch (IOException | RuntimeException | Error failure) {
+            try {
+                WorldRecovery.begin(world);
+            } catch (IOException | RuntimeException | Error failure) {
                 OWNED.remove();
-                try { acquired.directory.close(); } catch (IOException close) { failure.addSuppressed(close); }
+                try {
+                    acquired.directory.close();
+                } catch (IOException close) {
+                    failure.addSuppressed(close);
+                }
                 throw failure;
             }
             return new WorldWriteLock(acquired);
@@ -86,7 +92,8 @@ public final class WorldWriteLock implements AutoCloseable {
         try {
             // The probe closes its channel even on a same-JVM overlap. Vanilla's
             // create() only cleans up IOExceptions, so avoid that path when busy.
-            if (DirectoryLock.isLocked(world)) throw DirectoryLock.LockException.alreadyLocked(lock);
+            if (DirectoryLock.isLocked(world))
+                throw DirectoryLock.LockException.alreadyLocked(lock);
             // The probe is only a fast rejection; this native lock remains the
             // authority if another process opens the world between the two calls.
             return DirectoryLock.create(world);
@@ -99,16 +106,22 @@ public final class WorldWriteLock implements AutoCloseable {
 
     @Override
     public void close() throws IOException {
-        if (closed) return;
-        if (OWNED.get() != ownership) throw new IllegalStateException("World write lock closed on another thread");
+        if (closed)
+            return;
+        if (OWNED.get() != ownership)
+            throw new IllegalStateException("World write lock closed on another thread");
         closed = true;
-        if (--ownership.depth > 0) return;
+        if (--ownership.depth > 0)
+            return;
         OWNED.remove();
         try {
             WorldRecovery.end();
         } finally {
-            try { ownership.directory.close(); }
-            finally { ownership.guard.unlock(); }
+            try {
+                ownership.directory.close();
+            } finally {
+                ownership.guard.unlock();
+            }
         }
     }
 }

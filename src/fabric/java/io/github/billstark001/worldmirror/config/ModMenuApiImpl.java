@@ -16,7 +16,6 @@ import me.shedaniel.autoconfig.AutoConfigClient;
  * {@link ModConfig} are reflected automatically in the UI.
  */
 public class ModMenuApiImpl implements ModMenuApi {
-
     @Override
     public ConfigScreenFactory<?> getModConfigScreenFactory() {
         return parent -> {

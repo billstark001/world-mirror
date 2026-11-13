@@ -2,7 +2,7 @@ package io.github.billstark001.worldmirror.download;
 
 /** One tick's executable limits; unload-time capture is independent of this budget. */
 record CaptureBudget(long tickNanos, int maxChunks, int scanChecks, boolean scanOnlyWhenIdle,
-                     boolean refreshEntities, boolean preExportScan) {
+        boolean refreshEntities, boolean preExportScan) {
     boolean fitsAnotherCapture(long elapsedNanos, long estimatedCaptureNanos) {
         return elapsedNanos < tickNanos && estimatedCaptureNanos <= tickNanos - elapsedNanos;
     }

@@ -51,10 +51,11 @@ class ChunkExporterPersistenceTest {
 
     @Test
     void progressObserverFailureCannotAbortNativePersistence(@TempDir Path world) throws Exception {
-        ChunkPos pos = new ChunkPos(0,0);
+        ChunkPos pos = new ChunkPos(0, 0);
         try (ChunkDatabase db = ChunkDatabase.open(world, "server:observer")) {
-            var result = ChunkExporter.exportChunks(world, snapshot(pos, new CompoundTag()), Map.of(), Map.of(),
-                    new OverwriteResolver(), db, -1L, (part, dimension, chunks) -> { throw new IllegalStateException("observer only"); });
+            var result = ChunkExporter.exportChunks(world, snapshot(pos, new CompoundTag()), Map.of(),
+                    Map.of(), new OverwriteResolver(), db, -1L,
+                    (part, dimension, chunks) -> { throw new IllegalStateException("observer only"); });
             assertTrue(result.chunkWritesSuccessful());
             assertEquals(1, result.totalWritten());
         }
@@ -66,9 +67,11 @@ class ChunkExporterPersistenceTest {
     }
 
     @Test
-    void successiveTerrainWritesRemainDurableWhenExistingEntityDataCannotBeIndexed(@TempDir Path world) throws Exception {
+    void successiveTerrainWritesRemainDurableWhenExistingEntityDataCannotBeIndexed(@TempDir Path world)
+            throws Exception {
         ChunkPos pos = new ChunkPos(0, 0);
-        Path entityFile = WorldSaveLayout.dimensionDirectory(world, Level.OVERWORLD).resolve("entities/r.0.0.mca");
+        Path entityFile =
+                WorldSaveLayout.dimensionDirectory(world, Level.OVERWORLD).resolve("entities/r.0.0.mca");
         Files.createDirectories(entityFile.getParent());
         byte[] corrupt = {1, 2, 3, 4, 5};
         Files.write(entityFile, corrupt);
@@ -82,19 +85,22 @@ class ChunkExporterPersistenceTest {
             for (int revision = 1; revision <= 2; revision++) {
                 CompoundTag chunk = new CompoundTag();
                 chunk.putInt("marker", revision);
-                var terrain = ChunkListener.snapshotOf(Map.of(Level.OVERWORLD, Map.of(pos,
-                        new ChunkListener.CapturedChunk(chunk, revision * 100L, revision, false))));
+                var terrain = ChunkListener.snapshotOf(Map.of(Level.OVERWORLD,
+                        Map.of(pos,
+                                new ChunkListener.CapturedChunk(chunk, revision * 100L, revision, false))));
                 var result = ChunkExporter.exportChunks(world, terrain,
-                        Map.of(Level.OVERWORLD, Map.of(pos, update)), Map.of(), new OverwriteResolver(), db, -1L, io.github.billstark001.worldmirror.io.ExportProgress.NONE);
+                        Map.of(Level.OVERWORLD, Map.of(pos, update)), Map.of(), new OverwriteResolver(), db,
+                        -1L, io.github.billstark001.worldmirror.io.ExportProgress.NONE);
                 assertTrue(result.chunkWritesSuccessful());
                 assertFalse(result.entityWritesSuccessful());
                 assertEquals(1, result.totalWritten());
-                assertTrue(db.recordUpdates("minecraft:overworld", Map.of(pos, revision * 100L), "world_mirror"));
+                assertTrue(db.recordUpdates(
+                        "minecraft:overworld", Map.of(pos, revision * 100L), "world_mirror"));
                 assertArrayEquals(corrupt, Files.readAllBytes(entityFile));
             }
             Path region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
             try (RegionFile reader = new RegionFile(new RegionStorageInfo("test", Level.OVERWORLD, "chunk"),
-                    region, region.getParent(), false)) {
+                         region, region.getParent(), false)) {
                 assertEquals(2, McaWriteSupport.readChunk(reader, pos).getIntOr("marker", 0));
             }
             assertTrue(db.shouldSkipUpdate("minecraft:overworld", pos, "world_mirror", 200L));
@@ -111,16 +117,17 @@ class ChunkExporterPersistenceTest {
             chunk.putInt("xPos", 33);
             chunk.putInt("zPos", -1);
             chunk.putString("marker", "captured");
-            var snapshot = ChunkListener.snapshotOf(Map.of(Level.OVERWORLD,
-                    Map.of(pos, new ChunkListener.CapturedChunk(chunk, 100L, 1L, false))));
+            var snapshot = ChunkListener.snapshotOf(Map.of(
+                    Level.OVERWORLD, Map.of(pos, new ChunkListener.CapturedChunk(chunk, 100L, 1L, false))));
 
-            var result = ChunkExporter.exportChunks(world, snapshot, Map.of(), Map.of(),
-                    new OverwriteResolver(), db, -1L, io.github.billstark001.worldmirror.io.ExportProgress.NONE);
+            var result =
+                    ChunkExporter.exportChunks(world, snapshot, Map.of(), Map.of(), new OverwriteResolver(),
+                            db, -1L, io.github.billstark001.worldmirror.io.ExportProgress.NONE);
 
             assertTrue(result.chunkWritesSuccessful());
             assertEquals(1, result.totalWritten());
-            Path region = WorldSaveLayout.dimensionDirectory(world, Level.OVERWORLD)
-                    .resolve("region/r.1.-1.mca");
+            Path region =
+                    WorldSaveLayout.dimensionDirectory(world, Level.OVERWORLD).resolve("region/r.1.-1.mca");
             assertTrue(Files.isRegularFile(region));
         } finally {
             Locale.setDefault(previous);
@@ -132,23 +139,26 @@ class ChunkExporterPersistenceTest {
         ChunkPos pos = new ChunkPos(0, 0);
         try (ChunkDatabase db = ChunkDatabase.open(world, "server:test")) {
             assertTrue(db.recordUpdates("minecraft:overworld", Map.of(pos, 200L), "world_mirror"));
-            var result = ChunkExporter.exportChunks(world, snapshot(pos, new CompoundTag()), Map.of(), Map.of(),
-                    new OverwriteResolver(), db, -1L, io.github.billstark001.worldmirror.io.ExportProgress.NONE);
+            var result = ChunkExporter.exportChunks(world, snapshot(pos, new CompoundTag()), Map.of(),
+                    Map.of(), new OverwriteResolver(), db, -1L,
+                    io.github.billstark001.worldmirror.io.ExportProgress.NONE);
 
             assertFalse(result.chunkWritesSuccessful());
             assertEquals(0, result.totalWritten());
             assertTrue(result.settledRevisions().get(Level.OVERWORLD).isEmpty());
             assertTrue(result.unreadableChunks().get(Level.OVERWORLD).contains(pos));
-            assertTrue(db.removeUnreadableUpdates("minecraft:overworld", result.unreadableChunks().get(Level.OVERWORLD)));
+            assertTrue(db.removeUnreadableUpdates(
+                    "minecraft:overworld", result.unreadableChunks().get(Level.OVERWORLD)));
 
-            var repaired = ChunkExporter.exportChunks(world, snapshot(pos, new CompoundTag()), Map.of(), Map.of(),
-                    new OverwriteResolver(), db, -1L, io.github.billstark001.worldmirror.io.ExportProgress.NONE);
+            var repaired = ChunkExporter.exportChunks(world, snapshot(pos, new CompoundTag()), Map.of(),
+                    Map.of(), new OverwriteResolver(), db, -1L,
+                    io.github.billstark001.worldmirror.io.ExportProgress.NONE);
             assertTrue(repaired.chunkWritesSuccessful());
             assertEquals(1, repaired.totalWritten());
             assertTrue(db.recordUpdates("minecraft:overworld", Map.of(pos, 100L), "world_mirror"));
             assertFalse(db.shouldSkipUpdate("minecraft:overworld", pos, "world_mirror", 150L));
-            assertTrue(Files.isRegularFile(WorldSaveLayout.regionDirectory(world, Level.OVERWORLD)
-                    .resolve("r.0.0.mca")));
+            assertTrue(Files.isRegularFile(
+                    WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca")));
         }
     }
 
@@ -177,31 +187,34 @@ class ChunkExporterPersistenceTest {
         inventory.put("Items", items);
         try (ChunkDatabase db = ChunkDatabase.open(world, "server:test")) {
             var result = ChunkExporter.exportChunks(world, snapshot(pos, incoming), Map.of(),
-                    Map.of(Level.OVERWORLD, Map.of(new BlockPos(1, 64, 2), inventory)),
-                    new ManualResolver(), db, -1L, io.github.billstark001.worldmirror.io.ExportProgress.NONE);
+                    Map.of(Level.OVERWORLD, Map.of(new BlockPos(1, 64, 2), inventory)), new ManualResolver(),
+                    db, -1L, io.github.billstark001.worldmirror.io.ExportProgress.NONE);
 
             assertTrue(result.chunkWritesSuccessful());
             assertEquals(0, result.totalWritten());
             assertEquals(1, result.settledRevisions().get(Level.OVERWORLD).size());
             Path conflict = ConflictManager.getConflictDir(world, Level.OVERWORLD).resolve("r.0.0.mca");
             try (RegionFile reader = new RegionFile(new RegionStorageInfo("test", Level.OVERWORLD, "chunk"),
-                    conflict, conflict.getParent(), false)) {
+                         conflict, conflict.getParent(), false)) {
                 CompoundTag stored = McaWriteSupport.readChunk(reader, pos);
-                assertEquals(items, stored.getListOrEmpty("block_entities").getCompound(0).orElseThrow().get("Items"));
+                assertEquals(items,
+                        stored.getListOrEmpty("block_entities").getCompound(0).orElseThrow().get("Items"));
             }
         }
     }
 
     @Test
-    void failedManualConflictPersistenceCannotSettleOrOverwriteTheCapture(@TempDir Path world) throws Exception {
+    void failedManualConflictPersistenceCannotSettleOrOverwriteTheCapture(@TempDir Path world)
+            throws Exception {
         ChunkPos pos = new ChunkPos(0, 0);
         Path region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
         McaWriteSupport.writeChunks(region, Level.OVERWORLD, Map.of(pos, new CompoundTag()));
         byte[] original = Files.readAllBytes(region);
         Files.writeString(world.resolve("conflict_chunks"), "blocked conflict root");
         try (ChunkDatabase db = ChunkDatabase.open(world, "server:test")) {
-            var result = ChunkExporter.exportChunks(world, snapshot(pos, new CompoundTag()), Map.of(), Map.of(),
-                    new ManualResolver(), db, -1L, io.github.billstark001.worldmirror.io.ExportProgress.NONE);
+            var result = ChunkExporter.exportChunks(world, snapshot(pos, new CompoundTag()), Map.of(),
+                    Map.of(), new ManualResolver(), db, -1L,
+                    io.github.billstark001.worldmirror.io.ExportProgress.NONE);
 
             assertFalse(result.chunkWritesSuccessful());
             assertEquals(0, result.totalWritten());
@@ -227,11 +240,12 @@ class ChunkExporterPersistenceTest {
         var snapshot = ChunkListener.snapshotOf(Map.of(Level.OVERWORLD,
                 Map.of(pos, new ChunkListener.CapturedChunk(new CompoundTag(), 100L, 1L, true))));
         try (ChunkDatabase db = ChunkDatabase.open(world, "server:test")) {
-            var result = ChunkExporter.exportChunks(world, snapshot, Map.of(), Map.of(),
-                    new OverwriteResolver(), db, -1L, io.github.billstark001.worldmirror.io.ExportProgress.NONE);
+            var result =
+                    ChunkExporter.exportChunks(world, snapshot, Map.of(), Map.of(), new OverwriteResolver(),
+                            db, -1L, io.github.billstark001.worldmirror.io.ExportProgress.NONE);
             assertTrue(result.chunkWritesSuccessful());
             try (RegionFile reader = new RegionFile(new RegionStorageInfo("test", Level.OVERWORLD, "chunk"),
-                    region, region.getParent(), false)) {
+                         region, region.getParent(), false)) {
                 assertTrue(McaWriteSupport.readChunk(reader, pos).getListOrEmpty("block_entities").isEmpty());
             }
         }
@@ -249,7 +263,8 @@ class ChunkExporterPersistenceTest {
         oversized.putString("text", "x".repeat(70_000));
         try (ChunkDatabase db = ChunkDatabase.open(world, "server:test")) {
             var result = ChunkExporter.exportChunks(world, snapshot(pos, oversized), Map.of(), Map.of(),
-                    new OverwriteResolver(), db, -1L, io.github.billstark001.worldmirror.io.ExportProgress.NONE);
+                    new OverwriteResolver(), db, -1L,
+                    io.github.billstark001.worldmirror.io.ExportProgress.NONE);
             assertFalse(result.chunkWritesSuccessful());
             assertEquals(0, result.totalWritten());
             assertTrue(result.settledRevisions().get(Level.OVERWORLD).isEmpty());
@@ -258,7 +273,7 @@ class ChunkExporterPersistenceTest {
     }
 
     private static ChunkListener.DirtySnapshot snapshot(ChunkPos pos, CompoundTag nbt) {
-        return ChunkListener.snapshotOf(Map.of(Level.OVERWORLD,
-                Map.of(pos, new ChunkListener.CapturedChunk(nbt, 100L, 1L, false))));
+        return ChunkListener.snapshotOf(
+                Map.of(Level.OVERWORLD, Map.of(pos, new ChunkListener.CapturedChunk(nbt, 100L, 1L, false))));
     }
 }

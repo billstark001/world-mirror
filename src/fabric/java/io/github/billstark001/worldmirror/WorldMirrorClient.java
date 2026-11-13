@@ -63,13 +63,13 @@ import java.nio.file.Path;
 
 @Environment(EnvType.CLIENT)
 public class WorldMirrorClient implements ClientModInitializer {
-
     /**
      * Translation key for the keybinding category.
      * Using a plain string avoids the double-namespace expansion that produced
      * {@code key.category.minecraft.category.worldmirror}.
      */
-    private static final KeyMapping.Category CATEGORY = KeyMapping.Category.register(Identifier.fromNamespaceAndPath("worldmirror", "default"));
+    private static final KeyMapping.Category CATEGORY =
+            KeyMapping.Category.register(Identifier.fromNamespaceAndPath("worldmirror", "default"));
 
     private static KeyMapping toggleKey;
     private static KeyMapping exportKey;
@@ -87,91 +87,58 @@ public class WorldMirrorClient implements ClientModInitializer {
 
 #if MC_VERSION >= 260300
         toggleKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.worldmirror.toggle",
-                InputConstants.Type.KEYBOARD, InputConstants.KEY_P,
-                CATEGORY));
+                "key.worldmirror.toggle", InputConstants.Type.KEYBOARD, InputConstants.KEY_P, CATEGORY));
 
         exportKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.worldmirror.export",
-                InputConstants.Type.KEYBOARD, InputConstants.KEY_O,
-                CATEGORY));
+                "key.worldmirror.export", InputConstants.Type.KEYBOARD, InputConstants.KEY_O, CATEGORY));
 
         clearKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.worldmirror.clear",
-                InputConstants.Type.KEYBOARD, InputConstants.KEY_L,
-                CATEGORY));
+                "key.worldmirror.clear", InputConstants.Type.KEYBOARD, InputConstants.KEY_L, CATEGORY));
 
         statusKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.worldmirror.status",
-                InputConstants.Type.KEYBOARD, InputConstants.KEY_I,
-                CATEGORY));
+                "key.worldmirror.status", InputConstants.Type.KEYBOARD, InputConstants.KEY_I, CATEGORY));
 
         chunkMapKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.worldmirror.chunkMap",
-                InputConstants.Type.KEYBOARD, InputConstants.KEY_M,
-                CATEGORY));
+                "key.worldmirror.chunkMap", InputConstants.Type.KEYBOARD, InputConstants.KEY_M, CATEGORY));
 
-        worldOverlayKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.worldmirror.worldOverlay",
+        worldOverlayKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.worldmirror.worldOverlay",
                 InputConstants.Type.KEYBOARD, InputConstants.KEY_K,
 #elif MC_VERSION >= 260102
         toggleKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.worldmirror.toggle",
-                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_P,
-                CATEGORY));
+                "key.worldmirror.toggle", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_P, CATEGORY));
 
         exportKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.worldmirror.export",
-                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_O,
-                CATEGORY));
+                "key.worldmirror.export", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_O, CATEGORY));
 
         clearKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.worldmirror.clear",
-                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_L,
-                CATEGORY));
+                "key.worldmirror.clear", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_L, CATEGORY));
 
         statusKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.worldmirror.status",
-                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_I,
-                CATEGORY));
+                "key.worldmirror.status", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_I, CATEGORY));
 
         chunkMapKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.worldmirror.chunkMap",
-                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_M,
-                CATEGORY));
+                "key.worldmirror.chunkMap", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_M, CATEGORY));
 
-        worldOverlayKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.worldmirror.worldOverlay",
-                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_K,
+        worldOverlayKey = KeyMappingHelper.registerKeyMapping(
+                new KeyMapping("key.worldmirror.worldOverlay", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_K,
 #else
         toggleKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.worldmirror.toggle",
-                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_P,
-                CATEGORY));
+                "key.worldmirror.toggle", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_P, CATEGORY));
 
         exportKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.worldmirror.export",
-                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_O,
-                CATEGORY));
+                "key.worldmirror.export", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_O, CATEGORY));
 
         clearKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.worldmirror.clear",
-                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_L,
-                CATEGORY));
+                "key.worldmirror.clear", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_L, CATEGORY));
 
         statusKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.worldmirror.status",
-                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_I,
-                CATEGORY));
+                "key.worldmirror.status", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_I, CATEGORY));
 
         chunkMapKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.worldmirror.chunkMap",
-                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_M,
-                CATEGORY));
+                "key.worldmirror.chunkMap", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_M, CATEGORY));
 
-        worldOverlayKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.worldmirror.worldOverlay",
-                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_K,
+        worldOverlayKey = KeyBindingHelper.registerKeyBinding(
+                new KeyMapping("key.worldmirror.worldOverlay", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_K,
 #endif
                 CATEGORY));
 
@@ -200,42 +167,42 @@ public class WorldMirrorClient implements ClientModInitializer {
             ChunkWorldOverlay.capture(client, client.options.hideGui);
 #endif
         });
-        ClientChunkEvents.CHUNK_LOAD.register((world, chunk) ->
-                DownloadManager.queueChunkCapture(world, chunk.getPos(), "chunk-load"));
+        ClientChunkEvents.CHUNK_LOAD.register(
+                (world, chunk) -> DownloadManager.queueChunkCapture(world, chunk.getPos(), "chunk-load"));
         ClientChunkEvents.CHUNK_UNLOAD.register(DownloadManager::captureChunkBeforeUnload);
 #if MC_VERSION >= 260300
         LevelRenderEvents.END_MAIN.register(context -> DownloadManager.recordWorldFrame());
-        LevelRenderEvents.END_EXTRACTION.register(context ->
-                ChunkWorldOverlay.capture(net.minecraft.client.Minecraft.getInstance(),
+        LevelRenderEvents.END_EXTRACTION.register(context
+                -> ChunkWorldOverlay.capture(net.minecraft.client.Minecraft.getInstance(),
                         net.minecraft.client.Minecraft.getInstance().gui.hud.isHidden()));
         LevelRenderEvents.COLLECT_SUBMITS.register(context -> {
-            if (!net.minecraft.client.Minecraft.getInstance().gameRenderer.useImprovedTransparency()) return;
-            ChunkWorldOverlay.OverlaySnapshot overlay =
-                    ChunkWorldOverlay.snapshot();
+            if (!net.minecraft.client.Minecraft.getInstance().gameRenderer.useImprovedTransparency())
+                return;
+            ChunkWorldOverlay.OverlaySnapshot overlay = ChunkWorldOverlay.snapshot();
             if (overlay.isEmpty() || context.levelState().cameraRenderState == null
-                    || context.levelState().cameraRenderState.pos == null) return;
+                    || context.levelState().cameraRenderState.pos == null)
+                return;
             Vec3 camera = context.levelState().cameraRenderState.pos;
             context.submitNodeCollector().submitCustomGeometry(
-                    context.poseStack(), RenderTypes.debugFilledBox(),
-                    (pose, consumer) -> {
+                    context.poseStack(), RenderTypes.debugFilledBox(), (pose, consumer) -> {
                         ChunkWorldOverlayGeometry.renderFilled(pose, consumer, overlay, camera);
                         ChunkWorldOverlayGeometry.renderTopEdges(pose, consumer, overlay, camera);
                     });
         });
 #elif MC_VERSION >= 260200
         LevelRenderEvents.END_MAIN.register(context -> DownloadManager.recordWorldFrame());
-        LevelRenderEvents.END_EXTRACTION.register(context ->
-                ChunkWorldOverlay.capture(net.minecraft.client.Minecraft.getInstance(),
+        LevelRenderEvents.END_EXTRACTION.register(context
+                -> ChunkWorldOverlay.capture(net.minecraft.client.Minecraft.getInstance(),
                         net.minecraft.client.Minecraft.getInstance().gui.hud.isHidden()));
 
 #elif MC_VERSION >= 260102
         LevelRenderEvents.END_MAIN.register(context -> DownloadManager.recordWorldFrame());
-        LevelRenderEvents.END_EXTRACTION.register(context ->
-                ChunkWorldOverlay.capture(net.minecraft.client.Minecraft.getInstance(),
+        LevelRenderEvents.END_EXTRACTION.register(context
+                -> ChunkWorldOverlay.capture(net.minecraft.client.Minecraft.getInstance(),
                         net.minecraft.client.Minecraft.getInstance().options.hideGui));
 
 #else
-        WorldRenderEvents.END_MAIN.register(context -> DownloadManager.recordWorldFrame());
+                WorldRenderEvents.END_MAIN.register(context -> DownloadManager.recordWorldFrame());
 
 #endif
 
@@ -260,8 +227,8 @@ public class WorldMirrorClient implements ClientModInitializer {
     }
 
     private static void onJoin(net.minecraft.client.Minecraft client) {
-        MirrorWorldContext.enter(currentLocalSave(client),
-                SharedConstants.getCurrentVersion().dataVersion().version());
+        MirrorWorldContext.enter(
+                currentLocalSave(client), SharedConstants.getCurrentVersion().dataVersion().version());
         WorldGraphService.instance().enter(client);
         DownloadManager.onJoinWorld(client);
     }
@@ -277,11 +244,13 @@ public class WorldMirrorClient implements ClientModInitializer {
     }
 
     private static void installXaeroBridgeOverlay() {
-        if (!FabricLoader.getInstance().isModLoaded("xaero_world_map_bridge")) return;
+        if (!FabricLoader.getInstance().isModLoaded("xaero_world_map_bridge"))
+            return;
         try {
             XaeroBridgeOverlay.install();
         } catch (LinkageError error) {
-            WMLogger.warn("Xaero World Map Bridge is present but could not be linked; skipping overlay", error);
+            WMLogger.warn(
+                    "Xaero World Map Bridge is present but could not be linked; skipping overlay", error);
         }
     }
 }

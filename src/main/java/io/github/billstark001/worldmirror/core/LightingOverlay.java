@@ -21,7 +21,8 @@ final class LightingOverlay {
 
     /** Freezes section maps by copying their backing arrays. Light arrays are immutable and shared. */
     synchronized Snapshot snapshot() {
-        if (blockLight.isEmpty() && skyLight.isEmpty()) return EMPTY;
+        if (blockLight.isEmpty() && skyLight.isEmpty())
+            return EMPTY;
         return new Snapshot(freeze(blockLight), freeze(skyLight));
     }
 
@@ -34,7 +35,8 @@ final class LightingOverlay {
         ListTag sections = chunkNbt.getListOrEmpty(SECTIONS_KEY);
         for (int i = 0; i < sections.size(); i++) {
             CompoundTag section = sections.getCompound(i).orElse(null);
-            if (section == null) continue;
+            if (section == null)
+                continue;
             int y = section.getByteOr("Y", (byte) 0);
             absorbLayer(section, y, BLOCK_LIGHT_KEY, blockLight);
             absorbLayer(section, y, SKY_LIGHT_KEY, skyLight);
@@ -43,7 +45,8 @@ final class LightingOverlay {
 
     private static void absorbLayer(CompoundTag section, int y, String key, Int2ObjectMap<byte[]> target) {
         byte[] bytes = section.getByteArray(key).orElse(null);
-        if (bytes == null) return;
+        if (bytes == null)
+            return;
         target.put(y, bytes.clone());
         section.remove(key);
     }
@@ -70,11 +73,13 @@ final class LightingOverlay {
                 result.put(SECTIONS_KEY, created);
                 return created;
             });
-            if (this == EMPTY) return result;
+            if (this == EMPTY)
+                return result;
             Int2ObjectMap<CompoundTag> byY = new Int2ObjectOpenHashMap<>(sections.size());
             for (int i = 0; i < sections.size(); i++) {
                 CompoundTag section = sections.getCompound(i).orElse(null);
-                if (section != null) byY.put(section.getByteOr("Y", (byte) 0), section);
+                if (section != null)
+                    byY.put(section.getByteOr("Y", (byte) 0), section);
             }
             var added = applyToSections(byY, blockLight, BLOCK_LIGHT_KEY, null);
             added = applyToSections(byY, skyLight, SKY_LIGHT_KEY, added);
@@ -87,8 +92,8 @@ final class LightingOverlay {
         }
     }
 
-    private static IntArrayList applyToSections(Int2ObjectMap<CompoundTag> byY,
-                                               Int2ObjectMap<byte[]> source, String key, IntArrayList added) {
+    private static IntArrayList applyToSections(
+            Int2ObjectMap<CompoundTag> byY, Int2ObjectMap<byte[]> source, String key, IntArrayList added) {
         var entries = Int2ObjectMaps.fastIterator(source);
         while (entries.hasNext()) {
             var entry = entries.next();
@@ -98,7 +103,8 @@ final class LightingOverlay {
                 section = new CompoundTag();
                 section.putByte("Y", (byte) y);
                 byY.put(y, section);
-                if (added == null) added = new IntArrayList();
+                if (added == null)
+                    added = new IntArrayList();
                 added.add(y);
             }
             byte[] bytes = entry.getValue();

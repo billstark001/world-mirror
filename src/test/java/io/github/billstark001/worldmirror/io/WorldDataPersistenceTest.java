@@ -35,8 +35,8 @@ class WorldDataPersistenceTest {
         CompoundTag malformed = new CompoundTag();
         malformed.put("malformed", null);
 
-        assertThrows(RuntimeException.class,
-                () -> WorldStructureCreator.writeVerifiedWorldData(file, malformed));
+        assertThrows(
+                RuntimeException.class, () -> WorldStructureCreator.writeVerifiedWorldData(file, malformed));
 
         assertArrayEquals(bytes, Files.readAllBytes(file));
         assertEquals(original, NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap()));

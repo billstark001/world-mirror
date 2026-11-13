@@ -9,7 +9,8 @@ final class ExportTestTargets {
 
     static ExportWork.Source source(String indexSource) {
         return new ExportWork.Source(new WorldGraphService.Target("mirror:" + indexSource,
-                "remote:" + indexSource, indexSource, Path.of(".")), ModConfig.ConflictStrategy.OVERWRITE);
+                                             "remote:" + indexSource, indexSource, Path.of(".")),
+                ModConfig.ConflictStrategy.OVERWRITE);
     }
 
     static Path reserve(Path folder, ExportWork.Frozen work) throws java.io.IOException {

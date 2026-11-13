@@ -34,9 +34,10 @@ public final class WorldGraphConfig {
     public enum IdPolicy { AUTO, ENDPOINT_ONLY, REQUIRE_BOUND_ID }
 
     public record SourceSettings(String defaultMirrorId, ModConfig.SaveLocation saveLocation,
-                                 String preferredFolderName, ModConfig.ConflictStrategy conflictStrategy) {
+            String preferredFolderName, ModConfig.ConflictStrategy conflictStrategy) {
         public SourceSettings {
-            if (defaultMirrorId != null) requireKey(defaultMirrorId, "default mirror");
+            if (defaultMirrorId != null)
+                requireKey(defaultMirrorId, "default mirror");
             if (preferredFolderName != null && !MirrorFolders.isUsableFolderName(preferredFolderName)) {
                 throw new IllegalArgumentException("Invalid preferred folder name");
             }
@@ -45,7 +46,8 @@ public final class WorldGraphConfig {
 
     public record MirrorSettings(ModConfig.ConflictStrategy conflictStrategy) {}
 
-    public record EndpointRule(String addressGroupId, Set<String> sourceIds, String defaultSourceId, IdPolicy idPolicy) {
+    public record EndpointRule(
+            String addressGroupId, Set<String> sourceIds, String defaultSourceId, IdPolicy idPolicy) {
         public EndpointRule {
             requireKey(addressGroupId, "address group");
             sourceIds = Collections.unmodifiableSet(new TreeSet<>(sourceIds));
@@ -59,7 +61,8 @@ public final class WorldGraphConfig {
 
     private record AdvertisedKey(String provider, String addressGroupId, String advertisedId) {}
 
-    public record StableBinding(String provider, String addressGroupId, String advertisedId, String sourceId) {
+    public record
+            StableBinding(String provider, String addressGroupId, String advertisedId, String sourceId) {
         public StableBinding {
             requireKey(provider, "ID provider");
             requireKey(addressGroupId, "address group");
@@ -74,17 +77,19 @@ public final class WorldGraphConfig {
 
     public record PendingImport(LegacyRouting.Entry legacy, WorldGraph.Location location, String reason) {
         public PendingImport {
-            if (legacy == null && location == null) throw new IllegalArgumentException("Missing import evidence");
+            if (legacy == null && location == null)
+                throw new IllegalArgumentException("Missing import evidence");
             requireKey(reason, "import reason");
         }
     }
 
-    public record Snapshot(int schema, Map<String, WorldGraph.Node> nodes, Map<String, WorldGraph.Location> locations,
-                           Map<String, SourceSettings> sourceSettings,
-                           Map<String, MirrorSettings> mirrorSettings, Map<String, EndpointRule> endpointRules,
-                           List<StableBinding> stableBindings, Map<String, PendingImport> pendingImports) {
+    public record Snapshot(int schema, Map<String, WorldGraph.Node> nodes,
+            Map<String, WorldGraph.Location> locations, Map<String, SourceSettings> sourceSettings,
+            Map<String, MirrorSettings> mirrorSettings, Map<String, EndpointRule> endpointRules,
+            List<StableBinding> stableBindings, Map<String, PendingImport> pendingImports) {
         public Snapshot {
-            if (schema != SCHEMA) throw new IllegalArgumentException("Unsupported world graph schema " + schema);
+            if (schema != SCHEMA)
+                throw new IllegalArgumentException("Unsupported world graph schema " + schema);
             nodes = freeze(nodes);
             locations = freeze(locations);
             sourceSettings = freeze(sourceSettings);
@@ -92,29 +97,38 @@ public final class WorldGraphConfig {
             endpointRules = freeze(endpointRules);
             pendingImports = freeze(pendingImports);
             nodes.forEach((key, node) -> {
-                if (!key.equals(node.id())) throw new IllegalArgumentException("Graph key differs from node ID");
+                if (!key.equals(node.id()))
+                    throw new IllegalArgumentException("Graph key differs from node ID");
             });
             endpointRules.keySet().forEach(key -> {
-                if (!key.equals(normalizeEndpoint(key))) throw new IllegalArgumentException("Noncanonical endpoint " + key);
+                if (!key.equals(normalizeEndpoint(key)))
+                    throw new IllegalArgumentException("Noncanonical endpoint " + key);
             });
-            stableBindings = stableBindings.stream().sorted(Comparator.comparing(StableBinding::provider)
-                    .thenComparing(StableBinding::addressGroupId).thenComparing(StableBinding::advertisedId)).toList();
+            stableBindings = stableBindings.stream()
+                                     .sorted(Comparator.comparing(StableBinding::provider)
+                                                     .thenComparing(StableBinding::addressGroupId)
+                                                     .thenComparing(StableBinding::advertisedId))
+                                     .toList();
             Set<AdvertisedKey> seen = new HashSet<>();
             for (StableBinding binding : stableBindings) {
-                if (!seen.add(binding.key())) throw new IllegalArgumentException("Duplicate advertised world ID");
+                if (!seen.add(binding.key()))
+                    throw new IllegalArgumentException("Duplicate advertised world ID");
             }
         }
 
         public static Snapshot empty() {
-            return new Snapshot(SCHEMA, Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), List.of(), Map.of());
+            return new Snapshot(
+                    SCHEMA, Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), List.of(), Map.of());
         }
 
         public Snapshot withNodes(Map<String, WorldGraph.Node> observed) {
             Map<String, WorldGraph.Location> updated = new TreeMap<>(locations);
             observed.forEach((id, node) -> {
-                if (node.location() != null) updated.put(id, node.location());
+                if (node.location() != null)
+                    updated.put(id, node.location());
             });
-            return new Snapshot(schema, observed, updated, sourceSettings, mirrorSettings, endpointRules, stableBindings, pendingImports);
+            return new Snapshot(schema, observed, updated, sourceSettings, mirrorSettings, endpointRules,
+                    stableBindings, pendingImports);
         }
     }
 
@@ -134,11 +148,13 @@ public final class WorldGraphConfig {
         FileTransaction.recover(path.getParent());
         FileProof.Version observed = stamp(path);
         JsonSupport.Document<Snapshot> document = JsonSupport.readDocument(path, Snapshot.class);
-        if (!Objects.equals(observed, stamp(path))) throw new IOException("World graph changed while loading: " + path);
+        if (!Objects.equals(observed, stamp(path)))
+            throw new IOException("World graph changed while loading: " + path);
         return switch (document.state()) {
             case MISSING -> new WorldGraphConfig(path, new Published(Snapshot.empty(), null));
             case VALID -> new WorldGraphConfig(path, new Published(document.value(), observed));
-            case INVALID, UNAVAILABLE -> throw new IOException("Cannot load world graph: " + path, document.failure());
+            case INVALID, UNAVAILABLE ->
+                throw new IOException("Cannot load world graph: " + path, document.failure());
         };
     }
 
@@ -158,7 +174,8 @@ public final class WorldGraphConfig {
     public synchronized boolean replace(Snapshot expected, Snapshot next) throws IOException {
         Objects.requireNonNull(next, "new graph snapshot");
         Published previous = published;
-        if (previous.snapshot() != expected) return false;
+        if (previous.snapshot() != expected)
+            return false;
         if (previous.version() != null && previous.snapshot().equals(next)) {
             if (!Objects.equals(previous.version(), stamp(file))) {
                 throw new IOException("World graph changed before publication: " + file);
@@ -171,51 +188,63 @@ public final class WorldGraphConfig {
     }
 
     public static String deterministicId(String kind, String key) {
-        return kind + ":" + UUID.nameUUIDFromBytes(("worldmirror:" + kind + ":" + key).getBytes(StandardCharsets.UTF_8));
+        return kind + ":"
+                + UUID.nameUUIDFromBytes(
+                        ("worldmirror:" + kind + ":" + key).getBytes(StandardCharsets.UTF_8));
     }
 
     public static void addEndpoint(Map<String, EndpointRule> rules, String endpoint, String id) {
         EndpointRule old = rules.get(endpoint);
         Set<String> sources = new TreeSet<>(old == null ? Set.of() : old.sourceIds());
         sources.add(id);
-        rules.put(endpoint, new EndpointRule(old == null ? deterministicId("endpoint", endpoint) : old.addressGroupId(),
-                sources, old == null ? null : old.defaultSourceId(), old == null ? IdPolicy.ENDPOINT_ONLY : old.idPolicy()));
+        rules.put(endpoint,
+                new EndpointRule(old == null ? deterministicId("endpoint", endpoint) : old.addressGroupId(),
+                        sources, old == null ? null : old.defaultSourceId(),
+                        old == null ? IdPolicy.ENDPOINT_ONLY : old.idPolicy()));
     }
 
     /** Normalizes a player-entered server address without resolving DNS or SRV records. */
     public static String normalizeEndpoint(String input) {
-        if (input == null || input.isBlank()) throw new IllegalArgumentException("Missing server address");
+        if (input == null || input.isBlank())
+            throw new IllegalArgumentException("Missing server address");
         String address = input.strip();
         String host;
         int port = DEFAULT_PORT;
         int firstColon = address.indexOf(':');
         if (address.startsWith("[")) {
             int close = address.indexOf(']');
-            if (close < 0) throw new IllegalArgumentException("Unclosed IPv6 address");
+            if (close < 0)
+                throw new IllegalArgumentException("Unclosed IPv6 address");
             host = ipv6(address.substring(1, close));
             if (close < address.length() - 1) {
-                if (address.charAt(close + 1) != ':') throw new IllegalArgumentException("Invalid IPv6 port separator");
+                if (address.charAt(close + 1) != ':')
+                    throw new IllegalArgumentException("Invalid IPv6 port separator");
                 port = parsePort(address.substring(close + 2));
             }
         } else if (firstColon >= 0 && firstColon != address.lastIndexOf(':')) {
             host = ipv6(address);
         } else {
             String name = firstColon < 0 ? address : address.substring(0, firstColon);
-            if (name.isBlank() || name.equals(".")) throw new IllegalArgumentException("Missing server host");
+            if (name.isBlank() || name.equals("."))
+                throw new IllegalArgumentException("Missing server host");
             host = IDN.toASCII(name, IDN.USE_STD3_ASCII_RULES).toLowerCase(Locale.ROOT);
-            if (firstColon >= 0) port = parsePort(address.substring(firstColon + 1));
+            if (firstColon >= 0)
+                port = parsePort(address.substring(firstColon + 1));
         }
         return port == DEFAULT_PORT ? host : host + ":" + port;
     }
 
     private static String ipv6(String host) {
-        if (host.indexOf(':') < 0) throw new IllegalArgumentException("Expected an IPv6 address");
+        if (host.indexOf(':') < 0)
+            throw new IllegalArgumentException("Expected an IPv6 address");
         int zoneStart = host.indexOf('%');
         String zone = zoneStart < 0 ? "" : host.substring(zoneStart);
-        if (!zone.isEmpty() && !zone.matches("%[a-zA-Z0-9_.-]+")) throw new IllegalArgumentException("Invalid IPv6 zone");
+        if (!zone.isEmpty() && !zone.matches("%[a-zA-Z0-9_.-]+"))
+            throw new IllegalArgumentException("Invalid IPv6 zone");
         var parsed = InetAddresses.forString(zoneStart < 0 ? host : host.substring(0, zoneStart));
         String literal = InetAddresses.toAddrString(parsed);
-        if (!(parsed instanceof Inet6Address)) literal = "::ffff:" + literal;
+        if (!(parsed instanceof Inet6Address))
+            literal = "::ffff:" + literal;
         return "[" + literal + zone + "]";
     }
 
@@ -224,7 +253,8 @@ public final class WorldGraphConfig {
             throw new IllegalArgumentException("Invalid server port");
         }
         int port = Integer.parseInt(value);
-        if (port < 1 || port > 65535) throw new IllegalArgumentException("Invalid server port");
+        if (port < 1 || port > 65535)
+            throw new IllegalArgumentException("Invalid server port");
         return port;
     }
 
@@ -257,5 +287,4 @@ public final class WorldGraphConfig {
             throw new IllegalArgumentException("Expected a remote source ID");
         }
     }
-
 }

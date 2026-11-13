@@ -13,14 +13,19 @@ class LightingUpdateTest {
     @Test
     void rejectsMalformedLayersBeforeTheyCanChangeAnOverlay() {
         assertThrows(IllegalArgumentException.class, () -> update(1, mask(0), mask(), List.of()));
-        assertThrows(IllegalArgumentException.class, () -> update(1, mask(), mask(), List.of(new byte[2048])));
-        assertThrows(IllegalArgumentException.class, () -> update(1, mask(1), mask(), List.of(new byte[2048])));
+        assertThrows(
+                IllegalArgumentException.class, () -> update(1, mask(), mask(), List.of(new byte[2048])));
+        assertThrows(
+                IllegalArgumentException.class, () -> update(1, mask(1), mask(), List.of(new byte[2048])));
         assertThrows(IllegalArgumentException.class, () -> update(1, mask(), mask(1), List.of()));
-        assertThrows(IllegalArgumentException.class, () -> update(1, mask(0), mask(0), List.of(new byte[2048])));
+        assertThrows(
+                IllegalArgumentException.class, () -> update(1, mask(0), mask(0), List.of(new byte[2048])));
         assertThrows(IllegalArgumentException.class, () -> update(1, mask(0), mask(), List.of(new byte[10])));
         assertThrows(IllegalArgumentException.class, () -> update(-1, mask(), mask(), List.of()));
-        assertThrows(IllegalArgumentException.class, () -> new LightingUpdate(
-                Integer.MAX_VALUE, 2, mask(), mask(), List.of(), mask(), mask(), List.of()));
+        assertThrows(IllegalArgumentException.class,
+                ()
+                        -> new LightingUpdate(
+                                Integer.MAX_VALUE, 2, mask(), mask(), List.of(), mask(), mask(), List.of()));
     }
 
     @Test

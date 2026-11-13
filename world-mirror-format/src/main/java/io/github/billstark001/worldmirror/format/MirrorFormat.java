@@ -8,5 +8,5 @@ public final class MirrorFormat {
     public static final int METADATA_SCHEMA = 1;
     public static final int WORLDGEN_SCHEMA = 1;
 
-    private MirrorFormat() { }
+    private MirrorFormat() {}
 }

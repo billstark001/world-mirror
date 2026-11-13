@@ -28,8 +28,8 @@ class WorldMetadataPersistenceTest {
         writeLegacy(world);
         String original = Files.readString(world.resolve(WorldMetadata.FILE_NAME));
         try (ChunkDatabase database = ChunkDatabase.open(world, SOURCE)) {
-            assertTrue(database.recordUpdates(OVERWORLD, Map.of(new net.minecraft.world.level.ChunkPos(1, 2), 75L),
-                    "replay_import"));
+            assertTrue(database.recordUpdates(
+                    OVERWORLD, Map.of(new net.minecraft.world.level.ChunkPos(1, 2), 75L), "replay_import"));
         }
 
         assertTrue(LegacyWorldMetadata.hasLegacyHeader(world));
@@ -184,7 +184,9 @@ class WorldMetadataPersistenceTest {
 
     private static Path onlyBackup(Path world) throws IOException {
         try (var paths = Files.list(world.resolve("backups"))) {
-            var backups = paths.filter(file -> file.getFileName().toString().startsWith("worldmirror-meta-v1-")).toList();
+            var backups =
+                    paths.filter(file -> file.getFileName().toString().startsWith("worldmirror-meta-v1-"))
+                            .toList();
             assertEquals(1, backups.size());
             return backups.getFirst();
         }

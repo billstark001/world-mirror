@@ -42,11 +42,8 @@ import io.github.billstark001.worldmirror.download.ExportScheduler.Dispatch;
 /** Coordinates export work between the client thread and the native save writer. */
 final class DownloadExportCoordinator {
     record DiagnosticSnapshot(long lastExportMillis, int written, int settled, int unreadable, long failures,
-                              ChunkExporter.ExportTimings timings,
-                              long durabilityIndexMillis,
-                              long workerWallMillis,
-                              long automaticSuppressed,
-                              long deferredCoalesced) { }
+            ChunkExporter.ExportTimings timings, long durabilityIndexMillis, long workerWallMillis,
+            long automaticSuppressed, long deferredCoalesced) {}
 
     private final DownloadCaptureQueue captureQueue;
     private final ExportScheduler scheduler;
@@ -61,9 +58,10 @@ final class DownloadExportCoordinator {
     private volatile int lastWritten, lastSettled, lastUnreadable;
     private long lastDurabilityIndexMillis;
     private ChunkExporter.ExportTimings lastTimings = MirrorExportTransaction.EMPTY_TIMINGS;
-    private record Completion(ExportJob job, ExportOutcome outcome, long elapsedMs, long cpuMs) { }
+    private record Completion(ExportJob job, ExportOutcome outcome, long elapsedMs, long cpuMs) {}
 
-    DownloadExportCoordinator(DownloadCaptureQueue captureQueue, ExportScheduler scheduler, ThreadPoolExecutor executor, Function<Frozen, ExportJob> jobs) {
+    DownloadExportCoordinator(DownloadCaptureQueue captureQueue, ExportScheduler scheduler,
+            ThreadPoolExecutor executor, Function<Frozen, ExportJob> jobs) {
         this.captureQueue = captureQueue;
         this.scheduler = scheduler;
         this.executor = executor;
@@ -78,22 +76,30 @@ final class DownloadExportCoordinator {
         });
     }
 
-    boolean isInProgress() { return inFlight != null; }
+    boolean isInProgress() {
+        return inFlight != null;
+    }
     boolean hasManualExport() {
         ExportJob active = inFlight;
         return scheduler.pending.hasManualRequest()
                 || active != null && active.work().context().trigger() == Trigger.MANUAL;
     }
-    void markEntitiesDirty() { entityRevision++; }
-    boolean hasEntityWork() { return entityRevision > durableEntityRevision || EntityTracker.hasDirtyUpdates(); }
+    void markEntitiesDirty() {
+        entityRevision++;
+    }
+    boolean hasEntityWork() {
+        return entityRevision > durableEntityRevision || EntityTracker.hasDirtyUpdates();
+    }
     DiagnosticSnapshot snapshotDiagnostics() {
-        var result = new DiagnosticSnapshot(lastExportMillis, lastWritten, lastSettled, lastUnreadable, failures,
-                lastTimings, lastDurabilityIndexMillis, workerWallMillis, automaticSuppressed, deferredCoalesced);
+        var result = new DiagnosticSnapshot(lastExportMillis, lastWritten, lastSettled, lastUnreadable,
+                failures, lastTimings, lastDurabilityIndexMillis, workerWallMillis, automaticSuppressed,
+                deferredCoalesced);
         workerWallMillis = automaticSuppressed = deferredCoalesced = 0;
         return result;
     }
     void resetDiagnostics() {
-        failures = automaticSuppressed = deferredCoalesced = workerWallMillis = lastExportMillis = lastDurabilityIndexMillis = 0;
+        failures = automaticSuppressed = deferredCoalesced = workerWallMillis = lastExportMillis =
+                lastDurabilityIndexMillis = 0;
         lastWritten = lastSettled = lastUnreadable = 0;
         lastTimings = MirrorExportTransaction.EMPTY_TIMINGS;
     }
@@ -103,7 +109,8 @@ final class DownloadExportCoordinator {
         var entities = new LongOpenHashSet();
         ChunkListener.forEachDirtyRevision(terrain::add);
         EntityTracker.forEachDirtyRevision(entities::add);
-        if (!closed) scheduler.pending.collectRetained(terrain::add, entities::add);
+        if (!closed)
+            scheduler.pending.collectRetained(terrain::add, entities::add);
         int active = 0;
         if (inFlight != null) {
             Frozen work = inFlight.work();
@@ -112,61 +119,85 @@ final class DownloadExportCoordinator {
         }
         Runtime runtime = Runtime.getRuntime();
         return new CapturePolicy.Sample(runtime.totalMemory() - runtime.freeMemory(), runtime.maxMemory(),
-                ChunkListener.getDirtyCount(), (long) terrain.size() + entities.size(), (closed ? 0 : scheduler.pending.frozenCount()), active);
+                ChunkListener.getDirtyCount(), (long) terrain.size() + entities.size(),
+                (closed ? 0 : scheduler.pending.frozenCount()), active);
     }
 
     void cancelRequest() {
-        if (!closed) scheduler.pending.clearLive();
+        if (!closed)
+            scheduler.pending.clearLive();
     }
 
     void request(Intent intent) {
-        if (closed) return;
-        if (!intent.context().trigger().automatic()) scheduler.pending.retryNow(intent.context().source());
-        if (scheduler.pending.request(intent)) deferredCoalesced++;
+        if (closed)
+            return;
+        if (!intent.context().trigger().automatic())
+            scheduler.pending.retryNow(intent.context().source());
+        if (scheduler.pending.request(intent))
+            deferredCoalesced++;
     }
     void enqueue(Frozen work) {
-        if (closed) return;
+        if (closed)
+            return;
         scheduler.pending.retryNow(work.context().source());
         observe(() -> ExportStatusStore.global().queued(work));
         scheduler.pending.enqueue(work);
     }
 
     Dispatch dispatch(Minecraft client, CaptureBudget budget, boolean automaticEnabled, long now,
-                      ModConfig config, Function<Trigger, Intent> requests) {
-        if (closed) return Dispatch.CLOSED;
-        if (inFlight != null) return Dispatch.BUSY;
+            ModConfig config, Function<Trigger, Intent> requests) {
+        if (closed)
+            return Dispatch.CLOSED;
+        if (inFlight != null)
+            return Dispatch.BUSY;
         scheduler.configure(config);
-        ExportWork work = scheduler.pending.poll(budget.preExportScan() && captureQueue.hasPendingCaptures(), now);
+        ExportWork work =
+                scheduler.pending.poll(budget.preExportScan() && captureQueue.hasPendingCaptures(), now);
         if (work == null && automaticEnabled && client.level != null) {
             boolean hasWork = ChunkListener.getDirtyCount() > 0 || EntityTracker.hasDirtyUpdates()
                     || (budget.refreshEntities() && hasEntityWork());
-            Trigger trigger = scheduler.automatic(now, ChunkListener.getDirtyCount(), hasWork, !budget.refreshEntities());
-            if (trigger != null) work = requests.apply(trigger);
+            Trigger trigger = scheduler.automatic(
+                    now, ChunkListener.getDirtyCount(), hasWork, !budget.refreshEntities());
+            if (trigger != null)
+                work = requests.apply(trigger);
         }
-        if (work == null) return Dispatch.IDLE;
+        if (work == null)
+            return Dispatch.IDLE;
         Dispatch result = dispatchWork(client, work, budget, now);
         scheduler.attempted(work.context().trigger(), result, now);
-        if (work.context().trigger().automatic() && result != Dispatch.STARTED) automaticSuppressed++;
+        if (work.context().trigger().automatic() && result != Dispatch.STARTED)
+            automaticSuppressed++;
         return result;
     }
 
     private Dispatch dispatchWork(Minecraft client, ExportWork work, CaptureBudget budget, long now) {
-        if (work.context().trigger() == Trigger.MANUAL) io.github.billstark001.worldmirror.io.FileReadFailures.invalidate();
+        if (work.context().trigger() == Trigger.MANUAL)
+            io.github.billstark001.worldmirror.io.FileReadFailures.invalidate();
         Frozen frozen;
         if (work instanceof Intent intent) {
-            if (client.level == null) { request(intent); return Dispatch.WAITING_WORLD; }
-            if (scheduler.pending.hasTerrainForSource(intent.context().source())) return Dispatch.WAITING_SOURCE;
-            if (intent.capture() == CapturePhase.REQUIRED && intent.captureNearby() && budget.preExportScan() && client.player != null) {
-                captureQueue.queueLoaded(client.level, client.player.getBlockX() >> 4, client.player.getBlockZ() >> 4, 8, "pre-export");
+            if (client.level == null) {
+                request(intent);
+                return Dispatch.WAITING_WORLD;
+            }
+            if (scheduler.pending.hasTerrainForSource(intent.context().source()))
+                return Dispatch.WAITING_SOURCE;
+            if (intent.capture() == CapturePhase.REQUIRED && intent.captureNearby() && budget.preExportScan()
+                    && client.player != null) {
+                captureQueue.queueLoaded(client.level, client.player.getBlockX() >> 4,
+                        client.player.getBlockZ() >> 4, 8, "pre-export");
                 request(intent.ready());
                 return Dispatch.WAITING_CAPTURE;
             }
-            if (scheduler.pending.hasEntitiesForSource(intent.context().source())) intent = intent.terrainOnly();
+            if (scheduler.pending.hasEntitiesForSource(intent.context().source()))
+                intent = intent.terrainOnly();
             frozen = freeze(client, intent, budget);
-            if (intent.entityScope() == EntityScope.NONE && !frozen.hasTerrain()) return Dispatch.IDLE;
-        } else frozen = (Frozen) work;
+            if (intent.entityScope() == EntityScope.NONE && !frozen.hasTerrain())
+                return Dispatch.IDLE;
+        } else
+            frozen = (Frozen) work;
         Optional<ExportJob> job = prepareJob(frozen, now);
-        if (job.isEmpty()) return Dispatch.PREPARATION_FAILED;
+        if (job.isEmpty())
+            return Dispatch.PREPARATION_FAILED;
         submit(job.get(), now);
         return Dispatch.STARTED;
     }
@@ -177,7 +208,8 @@ final class DownloadExportCoordinator {
         long revision = entityRevision;
         boolean entities = intent.entityScope() == EntityScope.LIVE;
         boolean refresh = entities && budget.refreshEntities() && client.level != null;
-        if (refresh && revision > durableEntityRevision) EntityTracker.captureEntitiesForWorld(client.level);
+        if (refresh && revision > durableEntityRevision)
+            EntityTracker.captureEntitiesForWorld(client.level);
         Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> entitySnapshot =
                 entities ? EntityTracker.snapshot() : Map.of();
         long entitiesFinished = diagnostic ? System.nanoTime() : 0L;
@@ -188,16 +220,16 @@ final class DownloadExportCoordinator {
                 refresh ? OptionalLong.of(revision) : OptionalLong.empty());
         if (diagnostic) {
             long finished = System.nanoTime();
-            WMLogger.info("[perf] exportFreeze trigger=" + intent.context().trigger()
-                    + " chunks=" + frozen.terrainCount()
-                    + " entitiesUs=" + (entitiesFinished - started) / 1_000L
+            WMLogger.info("[perf] exportFreeze trigger=" + intent.context().trigger() + " chunks="
+                    + frozen.terrainCount() + " entitiesUs=" + (entitiesFinished - started) / 1_000L
                     + " terrainUs=" + (terrainFinished - entitiesFinished) / 1_000L
                     + " bundleUs=" + (finished - terrainFinished) / 1_000L);
         }
         return frozen;
     }
     ChunkListener.DirtySnapshot snapshotReadyTerrain() {
-        return ChunkListener.snapshotDirtyState((dimension, pos) -> !captureQueue.isLightingPending(dimension, pos));
+        return ChunkListener.snapshotDirtyState(
+                (dimension, pos) -> !captureQueue.isLightingPending(dimension, pos));
     }
 
     private Optional<ExportJob> prepareJob(Frozen work, long now) {
@@ -207,7 +239,9 @@ final class DownloadExportCoordinator {
         } catch (Exception failure) {
             WMLogger.warn("Export output preparation failed source=" + work.context().source().id(), failure);
             failures++;
-            observe(() -> ExportNotifications.global().observe(ExportStatusStore.global().finish(work, ExportOutcome.failed(work))));
+            observe(()
+                            -> ExportNotifications.global().observe(
+                                    ExportStatusStore.global().finish(work, ExportOutcome.failed(work))));
             scheduler.completed(work, false, now);
             return Optional.empty();
         }
@@ -215,16 +249,24 @@ final class DownloadExportCoordinator {
 
     static ExportJob createJob(Frozen work, ModConfig.DownloadPipelineMode mode) {
         ModConfig config = ModConfig.get();
-        return new ExportJob(work, () -> WorldGraphService.instance().currentTarget(work.context().source().target()).folder(),
+        return new ExportJob(work,
+                ()
+                        -> WorldGraphService.instance()
+                                .currentTarget(work.context().source().target())
+                                .folder(),
                 mode, config.performance.diagnosticPerformanceLogging, config.cache.invalidateAfterExport,
-                buildResolver(work.context().source().strategy()), config.performance.diagnosticPerformanceLogging
-                ? Math.max(0L, config.performance.slowRegionMillis) : -1L,
-                (part, dimension, chunks) -> ExportStatusStore.global().writing(work, part, dimension, chunks));
+                buildResolver(work.context().source().strategy()),
+                config.performance.diagnosticPerformanceLogging
+                        ? Math.max(0L, config.performance.slowRegionMillis)
+                        : -1L,
+                (part, dimension,
+                        chunks) -> ExportStatusStore.global().writing(work, part, dimension, chunks));
     }
 
     /** The only worker submission path. Live cache acknowledgements wait for drainCompletions(). */
     void submit(ExportJob job, long now) {
-        if (closed || inFlight != null) throw new IllegalStateException("Export worker is unavailable");
+        if (closed || inFlight != null)
+            throw new IllegalStateException("Export worker is unavailable");
         inFlight = job;
         scheduler.accepted(now, job.work().terrainCount());
         executor.execute(() -> completions.add(perform(job)));
@@ -233,11 +275,12 @@ final class DownloadExportCoordinator {
         long started = System.nanoTime(), cpuStart = currentThreadCpuTimeNs();
         ExportOutcome outcome;
         try {
-            outcome = MirrorExportTransaction.write(job.work(), job.target(), job.resolver(), job.slowRegionThresholdMs(),
-                    job.progress());
+            outcome = MirrorExportTransaction.write(
+                    job.work(), job.target(), job.resolver(), job.slowRegionThresholdMs(), job.progress());
             if (outcome.changedSavedData() != null) {
                 var target = job.work().context().source().target();
-                ChunkStatusCache.invalidateSaved(outcome.changedSavedData(), target.nodeId(), target.sourceId());
+                ChunkStatusCache.invalidateSaved(
+                        outcome.changedSavedData(), target.nodeId(), target.sourceId());
             }
         } catch (Exception failure) {
             WMLogger.warn("Export worker failed source=" + job.work().context().source().id(), failure);
@@ -248,14 +291,17 @@ final class DownloadExportCoordinator {
                 cpuStart < 0 || cpuEnd < cpuStart ? -1 : (cpuEnd - cpuStart) / 1_000_000);
     }
     void drainCompletions(Source currentSession) {
-        if (closed) return;
+        if (closed)
+            return;
         Completion completion;
         while ((completion = completions.poll()) != null) {
             var work = completion.job().work();
             boolean live = work.context().source() == currentSession;
-            try { settle(completion, live); }
-            finally {
-                if (live) applyReceipts(work, completion.outcome(), completion.job().invalidate());
+            try {
+                settle(completion, live);
+            } finally {
+                if (live)
+                    applyReceipts(work, completion.outcome(), completion.job().invalidate());
             }
         }
     }
@@ -272,26 +318,37 @@ final class DownloadExportCoordinator {
         lastExportMillis = completion.elapsedMs();
         if (job.diagnostic()) {
             workerWallMillis += lastExportMillis;
-            observe(() -> logPerformance(work.context(), job.mode(), work.terrainCount(), lastWritten, lastUnreadable,
-                    lastExportMillis, completion.cpuMs(), outcome.indexMillis(), result.timings()));
+            observe(()
+                            -> logPerformance(work.context(), job.mode(), work.terrainCount(), lastWritten,
+                                    lastUnreadable, lastExportMillis, completion.cpuMs(),
+                                    outcome.indexMillis(), result.timings()));
         }
-        if (!outcome.successful()) failures++;
+        if (!outcome.successful())
+            failures++;
         scheduler.completed(outcome.remaining(), outcome.successful(), System.nanoTime() / 1_000_000);
         inFlight = null;
-        boolean successful = outcome.successful() && !scheduler.pending.hasEntitiesForSource(work.context().source());
-        String summary = "Export pass complete: status=" + (successful ? "success" : "partial") + " pipeline=" + job.mode()
-                + " trigger=" + work.context().trigger() + " dirtySnapshot=" + work.terrainCount() + " written=" + lastWritten
-                + " unreadable=" + lastUnreadable + " settled=" + lastSettled + " elapsedMs=" + lastExportMillis;
-        if (successful) WMLogger.info(summary); else WMLogger.debug(summary);
+        boolean successful =
+                outcome.successful() && !scheduler.pending.hasEntitiesForSource(work.context().source());
+        String summary = "Export pass complete: status=" + (successful ? "success" : "partial")
+                + " pipeline=" + job.mode() + " trigger=" + work.context().trigger() + " dirtySnapshot="
+                + work.terrainCount() + " written=" + lastWritten + " unreadable=" + lastUnreadable
+                + " settled=" + lastSettled + " elapsedMs=" + lastExportMillis;
+        if (successful)
+            WMLogger.info(summary);
+        else
+            WMLogger.debug(summary);
         observe(() -> ExportNotifications.global().observe(ExportStatusStore.global().finish(work, outcome)));
         if (live && successful && work.context().notifyPlayer()) {
-            observe(() -> WMPlayerMessages.sendSystemMessage(Minecraft.getInstance().player, Component.translatable("msg.worldmirror.exportDone")));
+            observe(()
+                            -> WMPlayerMessages.sendSystemMessage(Minecraft.getInstance().player,
+                                    Component.translatable("msg.worldmirror.exportDone")));
         }
     }
 
     /** Queue ownership transfers after the last client-thread request; native writes are never interrupted. */
     void shutdown() {
-        if (closed) return;
+        if (closed)
+            return;
         closed = true;
         executor.execute(() -> {
             Completion completed;
@@ -302,15 +359,16 @@ final class DownloadExportCoordinator {
             while ((work = (Frozen) scheduler.pending.poll(true, now)) != null) {
                 prepareJob(work, now).ifPresent(job -> settle(perform(job), false));
             }
-            if (scheduler.pending.frozenCount() > 0) WMLogger.warn("Export shutdown finished with "
-                    + scheduler.pending.frozenCount() + " unsaved frozen bundle(s); failed writes were not acknowledged.");
+            if (scheduler.pending.frozenCount() > 0)
+                WMLogger.warn("Export shutdown finished with " + scheduler.pending.frozenCount()
+                        + " unsaved frozen bundle(s); failed writes were not acknowledged.");
         });
         executor.shutdown();
     }
 
     record ExportJob(Frozen work, OutputTarget target, ModConfig.DownloadPipelineMode mode,
-                     boolean diagnostic, boolean invalidate, ConflictResolver resolver, long slowRegionThresholdMs,
-                     ExportProgress progress) {
+            boolean diagnostic, boolean invalidate, ConflictResolver resolver, long slowRegionThresholdMs,
+            ExportProgress progress) {
         ExportJob {
             Objects.requireNonNull(work);
             Objects.requireNonNull(target);
@@ -324,22 +382,31 @@ final class DownloadExportCoordinator {
         var written = outcome.durableWritten();
         var result = outcome.result();
         Map<ResourceKey<Level>, Set<ChunkPos>> invalidated = new HashMap<>();
-        ChunkListener.acknowledge(result.settledRevisions(), invalidate).forEach((dimension, chunks) ->
-                invalidated.computeIfAbsent(dimension, ignored -> new HashSet<>()).addAll(chunks));
-        ChunkListener.acknowledge(written, invalidate).forEach((dimension, chunks) ->
-                invalidated.computeIfAbsent(dimension, ignored -> new HashSet<>()).addAll(chunks));
-        invalidated.forEach((dimension, chunks) -> chunks.removeIf(pos -> captureQueue.hasPendingChunkWork(dimension, pos)));
+        ChunkListener.acknowledge(result.settledRevisions(), invalidate)
+                .forEach((dimension, chunks)
+                                 -> invalidated.computeIfAbsent(dimension, ignored -> new HashSet<>())
+                                         .addAll(chunks));
+        ChunkListener.acknowledge(written, invalidate)
+                .forEach((dimension, chunks)
+                                 -> invalidated.computeIfAbsent(dimension, ignored -> new HashSet<>())
+                                         .addAll(chunks));
+        invalidated.forEach(
+                (dimension,
+                        chunks) -> chunks.removeIf(pos -> captureQueue.hasPendingChunkWork(dimension, pos)));
         ContainerTracker.evictForChunks(invalidated, work.containers());
         EntityTracker.acknowledge(result.entityRevisions());
         acknowledgeEntityWork(work.liveEntitySignal(), result.entityWritesSuccessful());
     }
     void acknowledgeEntityWork(OptionalLong captured, boolean successful) {
-        if (successful) captured.ifPresent(revision -> durableEntityRevision = Math.max(durableEntityRevision, revision));
+        if (successful)
+            captured.ifPresent(revision -> durableEntityRevision = Math.max(durableEntityRevision, revision));
     }
     private static void observe(Runnable update) {
-        try { update.run(); }
-        catch (RuntimeException failure) {
-            WMLogger.warnRateLimited("export-status-observer", 30_000, "Export status observation failed; processing continues", failure);
+        try {
+            update.run();
+        } catch (RuntimeException failure) {
+            WMLogger.warnRateLimited("export-status-observer", 30_000,
+                    "Export status observation failed; processing continues", failure);
         }
     }
 
@@ -352,25 +419,21 @@ final class DownloadExportCoordinator {
     }
 
     private static void logPerformance(Context context, ModConfig.DownloadPipelineMode pipelineMode,
-                                int totalChunks, int written, int unreadable, long elapsedMs,
-                                long cpuMs, long indexMillis, ChunkExporter.ExportTimings timings) {
-        WMLogger.info("[perf] export trigger=" + context.trigger()
-                + " pipeline=" + pipelineMode + " dirtySnapshot=" + totalChunks
-                + " written=" + written + " unreadable=" + unreadable
-                + " dbLookupMs=" + timings.databaseLookupMs()
-                + " materializeMs=" + timings.materializeMs()
-                + " regionReadMs=" + timings.chunkReadMs()
-                + " resolveMergeWriteMs=" + timings.resolveMergeWriteMs()
-                + " regionFlushMs=" + timings.flushMs()
-                + " regionVerifyMs=" + timings.verificationMs()
-                + " entityWriteMs=" + timings.entityMs()
-                + " dbCommitMs=" + indexMillis
-                + " workerCpuMs=" + cpuMs + " elapsedMs=" + elapsedMs);
+            int totalChunks, int written, int unreadable, long elapsedMs, long cpuMs, long indexMillis,
+            ChunkExporter.ExportTimings timings) {
+        WMLogger.info("[perf] export trigger=" + context.trigger() + " pipeline=" + pipelineMode
+                + " dirtySnapshot=" + totalChunks + " written=" + written + " unreadable=" + unreadable
+                + " dbLookupMs=" + timings.databaseLookupMs() + " materializeMs=" + timings.materializeMs()
+                + " regionReadMs=" + timings.chunkReadMs() + " resolveMergeWriteMs="
+                + timings.resolveMergeWriteMs() + " regionFlushMs=" + timings.flushMs()
+                + " regionVerifyMs=" + timings.verificationMs() + " entityWriteMs=" + timings.entityMs()
+                + " dbCommitMs=" + indexMillis + " workerCpuMs=" + cpuMs + " elapsedMs=" + elapsedMs);
     }
 
     private static long currentThreadCpuTimeNs() {
         ThreadMXBean bean = ManagementFactory.getThreadMXBean();
         return bean.isCurrentThreadCpuTimeSupported() && bean.isThreadCpuTimeEnabled()
-                ? bean.getCurrentThreadCpuTime() : -1L;
+                ? bean.getCurrentThreadCpuTime()
+                : -1L;
     }
 }

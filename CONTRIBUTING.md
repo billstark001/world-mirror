@@ -1,5 +1,11 @@
 # Contributing to World Mirror
 
+## Formatting
+
+Install the pinned development tools with Node.js 22.17 or newer and `npm ci`. Run `npm run format` from the repository root to apply formatting, or `npm run format:check` to check it without writing files. CI runs the same check. The Gradle build does not require Node.js.
+
+ClangFormat applies the same Java style to the mod, tests, and `world-mirror-format`, including sources with Manifold directives. Prettier formats JSON, workflow YAML, and Markdown while preserving prose wrapping. Gradle and PowerShell files get whitespace cleanup. Changelogs are excluded to preserve the release scripts' heading and separator conventions. Generated output, bundled binaries, and Gradle Wrapper files are also outside the formatter's scope.
+
 ## Source layout and boundaries
 
 Loom compiles `src/main/java` against common Minecraft classes. Put shared models, filesystem operations, and native save paths there. Keep code that uses Minecraft's client in `src/client/java`. The client source set also includes `src/fabric/java` and Fabric resources for entrypoints, mod metadata, and Mixin configuration. Common assets stay in `src/main/resources`. Both source sets are packaged together and tested against every target in `gradle/targets.gradle`.
@@ -111,13 +117,13 @@ World Mirror has one operational logging API: the shared `WMLogger`. Minecraft's
 
 Choose the lowest level that still makes the event actionable:
 
-| Level | Use it for | Do not use it for |
-| --- | --- | --- |
-| `debug` | Normal state transitions, cache maintenance, coalescing, and detailed counts useful during development | Per-tick success messages or expected failures |
-| `info` | A session or export milestone that explains what World Mirror did | Packet-, chunk-, entity-, or container-level activity |
-| `warn` | A recoverable failure, lost operation, disabled integration, or durability risk requiring investigation | Expected lifecycle states such as a world being absent during disconnect |
-| `warnRateLimited` | A warning that can recur for packets, chunks, regions, codecs, or database lookups | Unique failures that should always be visible |
-| `errorRateLimited` | A blocked export or failed index/metadata commit, including automatic exports | Successful or merely queued work |
+| Level              | Use it for                                                                                              | Do not use it for                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `debug`            | Normal state transitions, cache maintenance, coalescing, and detailed counts useful during development  | Per-tick success messages or expected failures                           |
+| `info`             | A session or export milestone that explains what World Mirror did                                       | Packet-, chunk-, entity-, or container-level activity                    |
+| `warn`             | A recoverable failure, lost operation, disabled integration, or durability risk requiring investigation | Expected lifecycle states such as a world being absent during disconnect |
+| `warnRateLimited`  | A warning that can recur for packets, chunks, regions, codecs, or database lookups                      | Unique failures that should always be visible                            |
+| `errorRateLimited` | A blocked export or failed index/metadata commit, including automatic exports                           | Successful or merely queued work                                         |
 
 Use a stable, low-cardinality rate-limit key and normally a 30-second interval. The next emitted warning includes `suppressed=<count>`. Pass the `Throwable` to the overload whenever an exception exists; appending only `getMessage()` loses the stack and frequently loses the cause. Lower layers should either throw a contextual exception or log it, not both.
 

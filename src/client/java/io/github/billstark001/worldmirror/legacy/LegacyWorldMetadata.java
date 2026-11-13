@@ -13,10 +13,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /** Reads released metadata formats solely for migration to the current document. */
-public record LegacyWorldMetadata(int schemaVersion, String modVersion, String sourceId, String sourceType, String mirrorKind,
-                                  String mirrorId, String parentMirrorId, long lastSyncTime,
-                                  WorldMetadata.Generation generation, Map<String, Long> chunkUpdateTimes,
-                                  FileProof.Version version) {
+public record LegacyWorldMetadata(int schemaVersion, String modVersion, String sourceId, String sourceType,
+        String mirrorKind, String mirrorId, String parentMirrorId, long lastSyncTime,
+        WorldMetadata.Generation generation, Map<String, Long> chunkUpdateTimes, FileProof.Version version) {
     public static final int UNVERSIONED_SCHEMA = 0;
     public static final int FIRST_VERSIONED_SCHEMA = 1;
 
@@ -27,7 +26,8 @@ public record LegacyWorldMetadata(int schemaVersion, String modVersion, String s
     /** Detects released legacy headers at a migration entry point without decoding payload fields. */
     public static boolean hasLegacyHeader(Path worldFolder) {
         var document = readDocument(worldFolder);
-        if (document.state() != JsonSupport.ReadState.VALID) return false;
+        if (document.state() != JsonSupport.ReadState.VALID)
+            return false;
         try {
             return legacySchema(document.value()) != null;
         } catch (IllegalArgumentException invalid) {
@@ -42,7 +42,8 @@ public record LegacyWorldMetadata(int schemaVersion, String modVersion, String s
         try {
             before = FileProof.version(metadataFile);
         } catch (java.nio.file.NoSuchFileException missing) {
-            if (readDocument(worldFolder).state() == JsonSupport.ReadState.MISSING) return null;
+            if (readDocument(worldFolder).state() == JsonSupport.ReadState.MISSING)
+                return null;
             throw missing;
         }
         var document = readDocument(worldFolder);
@@ -54,8 +55,10 @@ public record LegacyWorldMetadata(int schemaVersion, String modVersion, String s
         }
         try {
             Integer schema = legacySchema(document.value());
-            if (schema != null) return decode(document.value(), schema, before);
-            if (WorldMetadata.inspectSchema(worldFolder) == WorldMetadata.Schema.CURRENT) return null;
+            if (schema != null)
+                return decode(document.value(), schema, before);
+            if (WorldMetadata.inspectSchema(worldFolder) == WorldMetadata.Schema.CURRENT)
+                return null;
             throw new IllegalArgumentException("Unsupported mirror metadata schema");
         } catch (IllegalArgumentException invalid) {
             throw new IOException("Cannot upgrade mirror metadata: " + metadataFile, invalid);
@@ -71,7 +74,8 @@ public record LegacyWorldMetadata(int schemaVersion, String modVersion, String s
         if (marker == null) {
             return !json.has("metadataSchema") && hasUnversionedSignature(json) ? UNVERSIONED_SCHEMA : null;
         }
-        if (!WorldMetadata.FORMAT.equals(marker)) return null;
+        if (!WorldMetadata.FORMAT.equals(marker))
+            return null;
         int version = integer(json, "metadataSchema", UNVERSIONED_SCHEMA);
         return version == UNVERSIONED_SCHEMA || version == FIRST_VERSIONED_SCHEMA ? version : null;
     }
@@ -79,7 +83,8 @@ public record LegacyWorldMetadata(int schemaVersion, String modVersion, String s
     private static boolean hasUnversionedSignature(JsonObject json) {
         String source = string(json, "sourceId", false);
         String type = string(json, "sourceType", false);
-        if (source == null || type == null) return false;
+        if (source == null || type == null)
+            return false;
         String prefix = switch (type) {
             case "server" -> "server:";
             case "singleplayer" -> "local:";
@@ -96,13 +101,13 @@ public record LegacyWorldMetadata(int schemaVersion, String modVersion, String s
             throw new IllegalArgumentException("Unknown legacy mirror kind: " + kind);
         }
         long lastSyncTime = number(json, "lastSyncTime", 0);
-        if (lastSyncTime < 0) throw new IllegalArgumentException("Invalid legacy capture time");
+        if (lastSyncTime < 0)
+            throw new IllegalArgumentException("Invalid legacy capture time");
         return new LegacyWorldMetadata(schema, string(json, "modVersion", false),
-                string(json, "sourceId", true), string(json, "sourceType", false),
-                kind, optionalLegacyId(json, "mirrorId"), optionalLegacyId(json, "parentMirrorId"),
-                lastSyncTime, new WorldMetadata.Generation(WorldMetadata.GenerationMode.VOID,
-                        integer(json, "worldgenSchema", 0),
-                        integer(json, "worldgenAssetRevision", 0),
+                string(json, "sourceId", true), string(json, "sourceType", false), kind,
+                optionalLegacyId(json, "mirrorId"), optionalLegacyId(json, "parentMirrorId"), lastSyncTime,
+                new WorldMetadata.Generation(WorldMetadata.GenerationMode.VOID,
+                        integer(json, "worldgenSchema", 0), integer(json, "worldgenAssetRevision", 0),
                         integer(json, "worldgenAssetDataVersion", 0),
                         integer(json, "legacyVoidChunkCleanupRevision", 0)),
                 readChunkTimes(json), version);
@@ -119,23 +124,27 @@ public record LegacyWorldMetadata(int schemaVersion, String modVersion, String s
 
     private static Map<String, Long> readChunkTimes(JsonObject json) {
         var element = json.get("chunkUpdateTimes");
-        if (element == null || element.isJsonNull()) return Map.of();
+        if (element == null || element.isJsonNull())
+            return Map.of();
         if (!(element instanceof JsonObject times)) {
             throw new IllegalArgumentException("Invalid legacy chunk timestamp map");
         }
         Map<String, Long> result = new LinkedHashMap<>();
         for (String key : times.keySet()) {
-            if (times.get(key).isJsonNull()) continue;
+            if (times.get(key).isJsonNull())
+                continue;
             int separator = key.lastIndexOf('|');
             if (separator <= 0 || !validKey(key.substring(0, separator))) {
                 throw new IllegalArgumentException("Invalid legacy chunk dimension: " + key);
             }
             String[] coordinates = key.substring(separator + 1).split(",", 2);
-            if (coordinates.length != 2) throw new IllegalArgumentException("Invalid legacy chunk coordinate: " + key);
+            if (coordinates.length != 2)
+                throw new IllegalArgumentException("Invalid legacy chunk coordinate: " + key);
             Integer.parseInt(coordinates[0].trim());
             Integer.parseInt(coordinates[1].trim());
             long time = number(times, key, 0);
-            if (time < 0) throw new IllegalArgumentException("Invalid legacy chunk timestamp: " + key);
+            if (time < 0)
+                throw new IllegalArgumentException("Invalid legacy chunk timestamp: " + key);
             result.put(key, time);
         }
         return result;
@@ -143,7 +152,8 @@ public record LegacyWorldMetadata(int schemaVersion, String modVersion, String s
 
     private static String string(JsonObject json, String name, boolean required) {
         JsonElement element = json.get(name);
-        if (!required && (element == null || element.isJsonNull())) return null;
+        if (!required && (element == null || element.isJsonNull()))
+            return null;
         if (element == null || !element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()
                 || !validKey(element.getAsString())) {
             throw new IllegalArgumentException("Invalid legacy metadata string: " + name);
@@ -161,7 +171,8 @@ public record LegacyWorldMetadata(int schemaVersion, String modVersion, String s
 
     private static long number(JsonObject json, String name, long defaultValue) {
         JsonElement element = json.get(name);
-        if (element == null) return defaultValue;
+        if (element == null)
+            return defaultValue;
         if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isNumber()) {
             throw new IllegalArgumentException("Invalid legacy metadata number: " + name);
         }
@@ -173,19 +184,23 @@ public record LegacyWorldMetadata(int schemaVersion, String modVersion, String s
     }
 
     public WorldGraph.Kind kind() {
-        return role() == WorldGraph.Role.SNAPSHOT && sourceId.startsWith("snapshot:") && parentMirrorId == null
-                ? WorldGraph.Kind.SNAPSHOT : WorldGraph.Kind.MIRROR;
+        return role() == WorldGraph.Role.SNAPSHOT && sourceId.startsWith("snapshot:")
+                        && parentMirrorId == null
+                ? WorldGraph.Kind.SNAPSHOT
+                : WorldGraph.Kind.MIRROR;
     }
 
     public WorldGraph.Role role() {
         return "nearby_export".equals(mirrorKind) || "nearby_export".equals(sourceType)
-                ? WorldGraph.Role.SNAPSHOT : WorldGraph.Role.SYNC;
+                ? WorldGraph.Role.SNAPSHOT
+                : WorldGraph.Role.SYNC;
     }
 
     /** Resolves graph relationships supplied by the graph migration, retaining the original index key. */
     public WorldMetadata upgrade(String nodeId, String parentNodeId) {
         WorldMetadata metadata = WorldMetadata.create(nodeId, kind(), parentNodeId, role(), sourceId);
-        if (modVersion != null) metadata.modVersion = modVersion;
+        if (modVersion != null)
+            metadata.modVersion = modVersion;
         metadata.lastSyncTime = lastSyncTime;
         metadata.generation = generation;
         return metadata;

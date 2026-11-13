@@ -29,13 +29,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Environment(EnvType.CLIENT)
 @Mixin({ClientPacketListener.class})
 public abstract class ChunkDataMixin {
+    @Shadow public abstract ClientLevel getLevel();
 
-    @Shadow
-    public abstract ClientLevel getLevel();
-
-    @Inject(method = {"handleLevelChunkWithLight"}, at = {@At("TAIL")})
+    @Inject(method = {"handleLevelChunkWithLight"}, at = { @At("TAIL") })
     private void onChunkData(ClientboundLevelChunkWithLightPacket packet, CallbackInfo ci) {
-        if (!DownloadManager.isCaptureEnabled()) return;
+        if (!DownloadManager.isCaptureEnabled())
+            return;
 
         ClientLevel world = this.getLevel();
         if (world == null) {
@@ -55,35 +54,39 @@ public abstract class ChunkDataMixin {
     @Inject(method = "handleBlockUpdate", at = @At("TAIL"))
     private void onBlockUpdate(ClientboundBlockUpdatePacket packet, CallbackInfo ci) {
         ClientLevel world = this.getLevel();
-        if (world != null) DownloadManager.queueBlockChange(world,
-                new ChunkPos(packet.getPos().getX() >> 4, packet.getPos().getZ() >> 4),
-                "block-update");
+        if (world != null)
+            DownloadManager.queueBlockChange(world,
+                    new ChunkPos(packet.getPos().getX() >> 4, packet.getPos().getZ() >> 4), "block-update");
     }
 
     @Inject(method = "handleChunkBlocksUpdate", at = @At("TAIL"))
     private void onSectionBlocksUpdate(ClientboundSectionBlocksUpdatePacket packet, CallbackInfo ci) {
         ClientLevel world = this.getLevel();
-        if (world == null || !DownloadManager.isCaptureEnabled()) return;
+        if (world == null || !DownloadManager.isCaptureEnabled())
+            return;
         SectionBlocksUpdatePacketAccessor update = (SectionBlocksUpdatePacketAccessor) packet;
         if (update.worldmirror$getPositions().length > 0) {
-            DownloadManager.queueBlockChange(world, update.worldmirror$getSectionPos().chunk(), "section-block-update");
+            DownloadManager.queueBlockChange(
+                    world, update.worldmirror$getSectionPos().chunk(), "section-block-update");
         }
     }
 
     @Inject(method = "handleBlockEntityData", at = @At("TAIL"))
     private void onBlockEntityData(ClientboundBlockEntityDataPacket packet, CallbackInfo ci) {
         ClientLevel world = this.getLevel();
-        if (world != null) DownloadManager.queueChunkCapture(world,
-                new ChunkPos(packet.getPos().getX() >> 4, packet.getPos().getZ() >> 4),
-                "block-entity-update");
+        if (world != null)
+            DownloadManager.queueChunkCapture(world,
+                    new ChunkPos(packet.getPos().getX() >> 4, packet.getPos().getZ() >> 4),
+                    "block-entity-update");
     }
 
     @Inject(method = "handleChunksBiomes", at = @At("TAIL"))
     private void onChunksBiomes(ClientboundChunksBiomesPacket packet, CallbackInfo ci) {
         ClientLevel world = this.getLevel();
-        if (world == null || !DownloadManager.isCaptureEnabled()) return;
-        packet.chunkBiomeData().forEach(data ->
-                DownloadManager.queueChunkCapture(world, data.pos(), "biome-update"));
+        if (world == null || !DownloadManager.isCaptureEnabled())
+            return;
+        packet.chunkBiomeData().forEach(
+                data -> DownloadManager.queueChunkCapture(world, data.pos(), "biome-update"));
     }
 
     @Inject(method = "handleAddEntity", at = @At("TAIL"))
@@ -117,31 +120,24 @@ public abstract class ChunkDataMixin {
      * the exact masks after the client light engine has accepted them.
      */
     @Inject(method = "applyLightData", at = @At("TAIL"))
-    private void onLightDataApplied(
-            int chunkX,
-            int chunkZ,
-            ClientboundLightUpdatePacketData lightData,
-            boolean markDirty,
-            CallbackInfo ci) {
+    private void onLightDataApplied(int chunkX, int chunkZ, ClientboundLightUpdatePacketData lightData,
+            boolean markDirty, CallbackInfo ci) {
         ClientLevel world = this.getLevel();
-        if (!DownloadManager.canCapture(world)) return;
+        if (!DownloadManager.canCapture(world))
+            return;
 
         ChunkPos pos = new ChunkPos(chunkX, chunkZ);
         try {
             var lightEngine = world.getChunkSource().getLightEngine();
-            boolean applied = ChunkListener.applyLightUpdate(
-                    world.dimension(), pos, new LightingUpdate(
-                            lightEngine.getMinLightSection(), lightEngine.getLightSectionCount(),
+            boolean applied = ChunkListener.applyLightUpdate(world.dimension(), pos,
+                    new LightingUpdate(lightEngine.getMinLightSection(), lightEngine.getLightSectionCount(),
 #if MC_VERSION >= 260300
-                            lightData.blockYMask(), lightData.emptyBlockYMask(),
-                            lightData.blockUpdates(),
-                            lightData.skyYMask(), lightData.emptySkyYMask(),
-                            lightData.skyUpdates()));
+                            lightData.blockYMask(), lightData.emptyBlockYMask(), lightData.blockUpdates(),
+                            lightData.skyYMask(), lightData.emptySkyYMask(), lightData.skyUpdates()));
 #else
                             lightData.getBlockYMask(), lightData.getEmptyBlockYMask(),
-                            lightData.getBlockUpdates(),
-                            lightData.getSkyYMask(), lightData.getEmptySkyYMask(),
-                            lightData.getSkyUpdates()));
+                            lightData.getBlockUpdates(), lightData.getSkyYMask(),
+                            lightData.getEmptySkyYMask(), lightData.getSkyUpdates()));
 #endif
             if (applied) {
                 DownloadManager.markLightUpdateDirty(world, pos);
@@ -149,8 +145,8 @@ public abstract class ChunkDataMixin {
                 DownloadManager.queueLightUpdateCapture(world, pos);
             }
         } catch (Exception e) {
-            WMLogger.warnRateLimited("light-update-capture", 30_000L,
-                    "Applied light update capture failed chunk=" + pos, e);
+            WMLogger.warnRateLimited(
+                    "light-update-capture", 30_000L, "Applied light update capture failed chunk=" + pos, e);
         }
     }
 }
