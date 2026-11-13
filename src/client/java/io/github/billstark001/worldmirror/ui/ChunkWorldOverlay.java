@@ -12,7 +12,6 @@ import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Extracts bounded, immutable geometry data before the world drawing phase.
@@ -114,7 +113,7 @@ public final class ChunkWorldOverlay {
     static OverlaySnapshot build(ChunkStatusSnapshot persistent, LiveChunkStatusSnapshot live,
                                  ChunkBounds range, Settings settings, long now) {
         ChunkBucketLayout layout = ChunkBucketLayout.withinBudget(range, MAX_BUCKET_CELLS);
-        Map<Long, ChunkTileGeometry.Cell> cells = new Long2ObjectOpenHashMap<>();
+        var cells = new Long2ObjectOpenHashMap<ChunkTileGeometry.Cell>();
         ChunkBucketIndex.combine(persistent.index(), live.index(), layout).forEach((key, summary) -> {
             int color = ChunkMapStyle.world(summary, settings.mode(), settings.sessionStartedAtMs(), now);
             if (color != 0) cells.put(key, ChunkTileGeometry.Cell.world(ChunkBounds.x(key), ChunkBounds.z(key), color));

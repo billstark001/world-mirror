@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.ArrayList;
 import java.util.Set;
@@ -82,11 +83,32 @@ class ChunkMapProjectionTest {
 
         assertSame(first, projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, 600_000L, layout, false));
         long visits = snapshot.index().visits();
-        var refreshed = projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, 600_001L, layout, false);
+        assertSame(first, projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, 600_001L, layout, false));
+        var refreshed = projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, 601_001L, layout, false);
         assertNotSame(first, refreshed);
-        assertSame(refreshed, projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, 601_000L, layout, false));
+        assertSame(refreshed, projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, 602_000L, layout, false));
         assertEquals(visits, snapshot.index().visits());
         assertNotSame(refreshed, projection.get(snapshot, LiveChunkStatusSnapshot.EMPTY, range, 500L, layout, false));
+    }
+
+    @Test
+    void refreshesFillColorsWithoutRebuildingUnchangedBoundariesOrStatusMarks() {
+        var saved = new ChunkStatusSnapshot(List.of(new ChunkDatabase.ChunkRecord(0, 0, 0, "world_mirror")),
+                List.of(new ChunkPos(1, 0)));
+        var live = new LiveChunkStatusSnapshot(Map.of(0L,
+                new LiveChunkStatusSnapshot.Record(0, 0, 0, LiveChunkStatusSnapshot.State.PENDING_CAPTURE, true)), Map.of());
+        var range = new ChunkBounds(0, 1, 0, 1);
+        var layout = new ChunkBucketLayout(range.expand(1), 1);
+        var first = projection.get(saved, live, range, 600_000L, layout, true);
+
+        var refreshed = projection.get(saved, live, range, 601_000L, layout, true);
+        var fresh = new ChunkMapProjection().get(saved, live, range, 601_000L, layout, true);
+
+        assertFalse(first.runs().equals(refreshed.runs()));
+        assertSame(first.boundaries(), refreshed.boundaries());
+        assertSame(first.live(), refreshed.live());
+        assertSame(first.marks(), refreshed.marks());
+        assertEquals(fresh, refreshed);
     }
 
     @Test

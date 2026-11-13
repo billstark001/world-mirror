@@ -1,7 +1,5 @@
 package io.github.billstark001.worldmirror.ui;
 
-import io.github.billstark001.worldmirror.util.ChunkRegionIndex;
-
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.download.DownloadManager;
 import io.github.billstark001.worldmirror.download.ExportStatus;
@@ -10,39 +8,54 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMaps;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import java.util.ArrayList;
 import java.util.Map;
 
 /** Small, viewport-scoped copy of live chunk status, with no chunk NBT. */
 public final class LiveChunkStatusSnapshot {
-    public static final LiveChunkStatusSnapshot EMPTY = new LiveChunkStatusSnapshot(Map.of(), Map.of());
+    public static final LiveChunkStatusSnapshot EMPTY = new LiveChunkStatusSnapshot(
+            new Long2ObjectOpenHashMap<>(), new Long2ObjectOpenHashMap<>());
 
     public enum State { CACHED, PENDING_WRITE, PENDING_CAPTURE }
 
     public record Record(int x, int z, long capturedAtMs, State state,
                          boolean hasSavedRecord) { }
 
-    private final Map<Long, Record> records;
+    private final Long2ObjectMap<Record> records;
     private final ChunkBucketIndex index;
-    private final Map<Long, ExportStatus.Chunk> exports;
+    private final Long2ObjectMap<ExportStatus.Chunk> exports;
 
     LiveChunkStatusSnapshot(Map<Long, Record> records, Map<Long, ExportStatus.Chunk> exports) {
-        this.records = ChunkRegionIndex.copyCoordinates(records);
-        this.exports = ChunkRegionIndex.copyCoordinates(exports);
-        Map<Long, ChunkBucketIndex.Fact> facts = new Long2ObjectOpenHashMap<>();
-        exports.forEach((key, status) -> facts.put(key,
-                new ChunkBucketIndex.Fact(status.x(), status.z(), null, false, records.get(key), status)));
-        records.forEach((key, record) -> facts.put(key,
-                new ChunkBucketIndex.Fact(record.x(), record.z(), null, false, record, exports.get(key))));
-        this.index = new ChunkBucketIndex(facts.values());
+        this(new Long2ObjectOpenHashMap<>(records), new Long2ObjectOpenHashMap<>(exports));
+    }
+
+    /** Takes ownership of the maps, which are retained privately for point lookups. */
+    private LiveChunkStatusSnapshot(Long2ObjectOpenHashMap<Record> records,
+                                    Long2ObjectOpenHashMap<ExportStatus.Chunk> exports) {
+        this.records = records;
+        this.exports = exports;
+        var facts = new ArrayList<ChunkBucketIndex.Fact>(Math.max(records.size(), exports.size()));
+        for (var entry : Long2ObjectMaps.fastIterable(exports)) {
+            if (records.containsKey(entry.getLongKey())) continue;
+            var status = entry.getValue();
+            facts.add(new ChunkBucketIndex.Fact(status.x(), status.z(), null, false, null, status));
+        }
+        for (var entry : Long2ObjectMaps.fastIterable(records)) {
+            var record = entry.getValue();
+            facts.add(new ChunkBucketIndex.Fact(record.x(), record.z(), null, false, record, exports.get(entry.getLongKey())));
+        }
+        this.index = new ChunkBucketIndex(facts);
     }
 
     public static LiveChunkStatusSnapshot capture(ResourceKey<Level> dimension,
                                                    ChunkBounds range,
                                                    ChunkStatusSnapshot persistent, String source) {
         if (dimension == null) return EMPTY;
-        Map<Long, Record> records = new Long2ObjectOpenHashMap<>();
-        Map<Long, ExportStatus.Chunk> exports = new Long2ObjectOpenHashMap<>();
+        var records = new Long2ObjectOpenHashMap<Record>();
+        var exports = new Long2ObjectOpenHashMap<ExportStatus.Chunk>();
         ExportStatusStore.global().inRange(source, dimension, range.minX(), range.maxX(), range.minZ(), range.maxZ())
                 .forEach(status -> exports.put(ChunkBounds.key(status.x(), status.z()), status));
         for (ChunkListener.MapChunkStatus chunk : ChunkListener.snapshotMapStatusInRange(
@@ -65,7 +78,7 @@ public final class LiveChunkStatusSnapshot {
                     new Record(x, z, 0L, State.PENDING_CAPTURE,
                             persistent.getRecord(x, z) != null));
         }
-        return new LiveChunkStatusSnapshot(records, exports);
+        return records.isEmpty() && exports.isEmpty() ? EMPTY : new LiveChunkStatusSnapshot(records, exports);
     }
 
     public Record getRecord(int x, int z) {

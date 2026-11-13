@@ -2,7 +2,9 @@ package io.github.billstark001.worldmirror.ui;
 
 import io.github.billstark001.worldmirror.util.ChunkRegionIndex;
 
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -13,9 +15,11 @@ public final class ChunkMapProjection {
     record Frame(int bucketSize, long projectedBuckets, int occupiedBuckets, boolean dense,
                  List<ChunkTileGeometry.Run> runs, List<ChunkTileGeometry.Boundary> boundaries,
                  Map<Long, LiveChunkStatusSnapshot.Record> live, Map<Long, ChunkBucketIndex.Summary> marks) { }
+    private record AgingCell(long coordinate, ChunkBucketIndex.Summary summary) { }
     private Key key;
     private Frame frame;
-    private Map<Long, ChunkBucketIndex.Summary> summaries;
+    private Long2ObjectMap<ChunkTileGeometry.Cell> cells;
+    private List<AgingCell> agingCells;
     private long createdAt;
     private long validUntil;
 
@@ -32,37 +36,69 @@ public final class ChunkMapProjection {
     Frame get(ChunkStatusSnapshot saved, LiveChunkStatusSnapshot live, ChunkBounds range, long now,
               ChunkBucketLayout layout, boolean dense) {
         Key next = new Key(saved, live, layout, dense);
-        if (next.equals(key)) {
-            if (now >= createdAt && now < validUntil) return frame;
+        if (!next.equals(key)) {
+            frame = buildFrame(ChunkBucketIndex.combine(saved.index(), live.index(), layout), range, layout, dense, now);
+            key = next;
+        } else if (now < createdAt || now >= validUntil) {
+            refreshColors(range, now);
         } else {
-            summaries = ChunkBucketIndex.combine(saved.index(), live.index(), layout);
+            return frame;
         }
-        Map<Long, ChunkTileGeometry.Cell> cells = new Long2ObjectOpenHashMap<>();
+        createdAt = now;
+        return frame;
+    }
+
+    private Frame buildFrame(Map<Long, ChunkBucketIndex.Summary> summaries, ChunkBounds range,
+                             ChunkBucketLayout layout, boolean dense, long now) {
+        cells = new Long2ObjectOpenHashMap<>(summaries.size());
+        agingCells = new ArrayList<>();
         Map<Long, LiveChunkStatusSnapshot.Record> selectedLive = new Long2ObjectOpenHashMap<>();
-        long deadline = Long.MAX_VALUE;
+        Map<Long, ChunkBucketIndex.Summary> marks = new Long2ObjectOpenHashMap<>();
+        validUntil = Long.MAX_VALUE;
         int occupied = dense ? 0 : summaries.size();
         for (var entry : summaries.entrySet()) {
             long coordinate = entry.getKey();
             int x = ChunkBounds.x(coordinate), z = ChunkBounds.z(coordinate);
             var summary = entry.getValue();
-            var cell = ChunkMapStyle.mapCell(x, z, summary, now, dense);
+            var cell = ChunkMapStyle.mapCell(x, z, summary, now, dense, null);
             if (cell != null) cells.put(coordinate, cell);
             if (summary.live() != null) selectedLive.put(coordinate, summary.live());
             if (dense && range.contains(x, z)) occupied++;
-            deadline = Math.min(deadline, ChunkMapStyle.nextFillRefresh(summary.newest(), now, COLOR_REFRESH_MS));
-        }
-        List<ChunkTileGeometry.Boundary> boundaries = ChunkTileGeometry.boundaries(cells, false, false);
-        if (dense) boundaries = boundaries.stream().filter(boundary -> boundary.intersects(range)).toList();
-        Map<Long, ChunkBucketIndex.Summary> marks = new Long2ObjectOpenHashMap<>();
-        summaries.forEach((coordinate, summary) -> {
             if (ExportStatusMarkers.compact(summary.exports()) != 0 || summary.conflict()) marks.put(coordinate, summary);
-        });
-        frame = new Frame(layout.size(), layout.cellCount(), occupied, dense, ChunkTileGeometry.runs(cells), boundaries,
+            if (summary.newest() != null && ChunkMapStyle.usesCaptureTimeGradient(summary.newest().updateSource())) {
+                agingCells.add(new AgingCell(coordinate, summary));
+                validUntil = Math.min(validUntil, ChunkMapStyle.nextFillRefresh(summary.newest(), now, COLOR_REFRESH_MS));
+            }
+        }
+        return new Frame(layout.size(), layout.cellCount(), occupied, dense, ChunkTileGeometry.runs(cells), boundaries(range, dense),
                 ChunkRegionIndex.copyCoordinates(selectedLive), ChunkRegionIndex.copyCoordinates(marks));
-        key = next;
-        createdAt = now;
-        validUntil = deadline;
-        return frame;
     }
 
+    private void refreshColors(ChunkBounds range, long now) {
+        validUntil = Long.MAX_VALUE;
+        boolean fillsChanged = false, boundariesChanged = false;
+        boolean dense = frame.dense();
+        for (var entry : agingCells) {
+            var summary = entry.summary();
+            long coordinate = entry.coordinate();
+            var old = cells.get(coordinate);
+            var updated = ChunkMapStyle.mapCell(old.x(), old.z(), summary, now, dense, old);
+            if (updated != old) {
+                cells.put(coordinate, updated);
+                fillsChanged |= updated.color() != old.color();
+                boundariesChanged |= updated.border() != old.border();
+            }
+            validUntil = Math.min(validUntil, ChunkMapStyle.nextFillRefresh(summary.newest(), now, COLOR_REFRESH_MS));
+        }
+        if (fillsChanged || boundariesChanged) {
+            frame = new Frame(frame.bucketSize(), frame.projectedBuckets(), frame.occupiedBuckets(), dense,
+                    fillsChanged ? ChunkTileGeometry.runs(cells) : frame.runs(),
+                    boundariesChanged ? boundaries(range, dense) : frame.boundaries(), frame.live(), frame.marks());
+        }
+    }
+
+    private List<ChunkTileGeometry.Boundary> boundaries(ChunkBounds range, boolean dense) {
+        var boundaries = ChunkTileGeometry.boundaries(cells, false, false);
+        return dense ? boundaries.stream().filter(boundary -> boundary.intersects(range)).toList() : boundaries;
+    }
 }

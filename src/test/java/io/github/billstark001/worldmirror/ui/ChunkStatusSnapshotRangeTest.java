@@ -1,7 +1,10 @@
 package io.github.billstark001.worldmirror.ui;
 
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
+import net.minecraft.SharedConstants;
+import net.minecraft.server.Bootstrap;
 import net.minecraft.world.level.ChunkPos;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -15,6 +18,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ChunkStatusSnapshotRangeTest {
+    @BeforeAll
+    static void bootstrap() {
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+    }
+
     @Test
     void sparseWorldScaleViewportVisitsOnlyIndexedRegions() {
         ChunkDatabase.ChunkRecord west = new ChunkDatabase.ChunkRecord(

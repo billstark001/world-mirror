@@ -47,7 +47,8 @@ public final class ChunkMapStyle {
         return summary.historicalCoverage() || summary.live() != null ? 0xFF2878E0 : 0;
     }
 
-    static ChunkTileGeometry.Cell mapCell(int x, int z, ChunkBucketIndex.Summary summary, long now, boolean denseBoundary) {
+    static ChunkTileGeometry.Cell mapCell(int x, int z, ChunkBucketIndex.Summary summary, long now,
+                                           boolean denseBoundary, ChunkTileGeometry.Cell previous) {
         ChunkRecord newest = summary.newest();
         if (newest == null && !summary.conflict()) return null;
         double ageProgress = newest != null && usesCaptureTimeGradient(newest.updateSource())
@@ -64,6 +65,13 @@ public final class ChunkMapStyle {
                 key = 2 + bucket;
                 borderColor = 0xFF000000 | ((int) Math.round(200 * (1 - bucket / 7.0)) << 8) | (int) Math.round(200 * bucket / 7.0);
                 priority = (borderColor >> 8) & 255;
+            }
+        }
+        if (previous != null) {
+            var border = previous.border();
+            if (border.key() == key && border.color() == borderColor && border.priority() == priority) {
+                if (previous.color() == color) return previous;
+                return new ChunkTileGeometry.Cell(x, z, color, summary.conflict(), border);
             }
         }
         return new ChunkTileGeometry.Cell(x, z, color, summary.conflict(), new ChunkTileGeometry.Border(key, borderColor, priority));

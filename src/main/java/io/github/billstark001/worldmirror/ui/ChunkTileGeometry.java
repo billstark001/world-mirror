@@ -1,5 +1,7 @@
 package io.github.billstark001.worldmirror.ui;
 
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -29,7 +31,7 @@ final class ChunkTileGeometry {
     record Rectangle(int minX, int maxX, int minZ, int maxZ, int color) { }
     private record Span(int minX, int maxX, int color) { }
 
-    static List<Run> runs(Map<Long, Cell> cells) {
+    static List<Run> runs(Long2ObjectMap<Cell> cells) {
         if (cells.isEmpty()) return List.of();
         List<Cell> sorted = new ArrayList<>(cells.values());
         sorted.sort(CELL_ORDER);
@@ -49,7 +51,7 @@ final class ChunkTileGeometry {
         return List.copyOf(runs);
     }
 
-    static List<Rectangle> rectangles(Map<Long, Cell> cells) {
+    static List<Rectangle> rectangles(Long2ObjectMap<Cell> cells) {
         List<Rectangle> result = new ArrayList<>();
         Map<Span, Integer> previousBySpan = new HashMap<>();
         for (Run run : runs(cells)) {
@@ -69,7 +71,7 @@ final class ChunkTileGeometry {
     }
 
     /** Map outlines choose a border owner by style; world edges keep interior and facing flags. */
-    static List<Boundary> boundaries(Map<Long, Cell> cells, boolean world, boolean innerGrid) {
+    static List<Boundary> boundaries(Long2ObjectMap<Cell> cells, boolean world, boolean innerGrid) {
         List<Boundary> units = new ArrayList<>();
         for (Cell cell : cells.values()) {
             add(units, cells, cell, true, false, world, innerGrid);
@@ -100,12 +102,12 @@ final class ChunkTileGeometry {
                 edge.color, edge.interior, edge.outwardPositive);
     }
 
-    private static Cell neighbor(Map<Long, Cell> cells, long x, long z) {
+    private static Cell neighbor(Long2ObjectMap<Cell> cells, long x, long z) {
         return x < Integer.MIN_VALUE || x > Integer.MAX_VALUE || z < Integer.MIN_VALUE || z > Integer.MAX_VALUE
                 ? null : cells.get(ChunkBounds.key((int) x, (int) z));
     }
 
-    private static void add(List<Boundary> edges, Map<Long, Cell> cells, Cell cell, boolean vertical,
+    private static void add(List<Boundary> edges, Long2ObjectMap<Cell> cells, Cell cell, boolean vertical,
                             boolean positive, boolean world, boolean innerGrid) {
         Cell other = positive ? null : neighbor(cells, (long) cell.x - (vertical ? 1 : 0), (long) cell.z - (vertical ? 0 : 1));
         boolean interior = other != null && other.color == cell.color;
