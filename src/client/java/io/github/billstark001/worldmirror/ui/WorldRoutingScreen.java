@@ -14,12 +14,14 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -34,9 +36,10 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
     private static final List<Component> TABS =
             List.of(label("worlds"), label("endpoints"), label("stableIds"));
 
-    private record Row(Component label, Component detail, Runnable action, List<SelectionOption> options) {
+    private record Row(Component label, Component detail, Runnable action, List<SelectionOption> options,
+            Row right, boolean text) {
         private Row(Component label, Component detail, Runnable action) {
-            this(label, detail, action, List.of());
+            this(label, detail, action, List.of(), null, false);
         }
     }
     private record WorkResult(WorldGraphService.RoutingView view, Exception failure) {}
@@ -61,10 +64,6 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
 
     public static void open(Screen parent) {
         showScreen(new WorldRoutingScreen(parent));
-    }
-
-    public static Screen modMenu(Screen parent) {
-        return new WorldRoutingScreen(parent);
     }
 
     @Override
@@ -92,20 +91,15 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
         int panelWidth = Math.min(424, width - 24);
         int x = (width - panelWidth) / 2;
         int firstRow = tabContentTop() + (hasSectionHeading() ? 27 : 8);
-        int perPage = Math.max(1, (footerTop() - 36 - firstRow) / ROW);
+        int available = footerTop() - 15 - firstRow;
+        int perPage = Math.max(1, available / ROW);
+        if (rows.size() > perPage)
+            perPage = Math.max(1, (available - ROW) / ROW);
         int pageCount = Math.max(1, (rows.size() + perPage - 1) / perPage);
         listPage = Math.min(listPage, pageCount - 1);
         int first = listPage * perPage;
         int limit = Math.min(rows.size(), first + perPage);
-        for (int i = first; i < limit; i++) {
-            Row row = rows.get(i);
-            int y = firstRow + (i - first) * ROW;
-            if (row.options().isEmpty())
-                button(row.label(), row.detail(), x, y, panelWidth, row.action());
-            else
-                addButton(row.label(), row.detail(), x, y, panelWidth,
-                        opener -> openSelectionPopup(opener, row.options()));
-        }
+        for (int i = first; i < limit; i++) addRow(rows.get(i), x, firstRow + (i - first) * ROW, panelWidth);
         if (pageCount > 1) {
             int navigation = footerTop() - 35;
             int step = Math.min(100, (panelWidth - 4) / 2);
@@ -113,6 +107,24 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
                     listPage > 0 ? () -> changePage(-1) : null);
             button(label("next"), null, width / 2 + 2, navigation, step,
                     listPage + 1 < pageCount ? () -> changePage(1) : null);
+        }
+    }
+
+    private void addRow(Row row, int x, int y, int width) {
+        if (row.text()) {
+            var text = new net.minecraft.client.gui.components.StringWidget(row.label(), font)
+                               .setMaxWidth(width);
+            text.setPosition(x, y + (20 - font.lineHeight) / 2);
+            addRenderableOnly(text);
+        } else if (row.right() != null) {
+            int half = (width - 4) / 2;
+            addRow(new Row(row.label(), row.detail(), row.action()), x, y, half);
+            addRow(row.right(), x + half + 4, y, width - half - 4);
+        } else if (row.options().isEmpty()) {
+            button(row.label(), row.detail(), x, y, width, row.action());
+        } else {
+            addButton(row.label(), row.detail(), x, y, width,
+                    opener -> openSelectionPopup(opener, row.options()));
         }
     }
 
@@ -224,6 +236,13 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
     private void showWorld(String id) {
         WorldGraph.Node node = view.graph().nodes().get(id);
         if (node == null) {
+            for (var location : view.orphanedMirrors()) {
+                if (WorldRelationshipLayout.untrackedKey(location).equals(id)) {
+                    showScreen(new MirrorSeedScreen(
+                            this, null, service.path(location), () -> refresh(this::showWorlds)));
+                    return;
+                }
+            }
             showWorlds();
             return;
         }
@@ -234,44 +253,69 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
             String root = node.location().root() == WorldGraph.Root.SAVES ? "saves" : "downloaded_worlds";
             entries.add(info(label("location", root + "/" + node.location().folder())));
         }
-        if (node.parentId() != null) {
-            entries.add(info(label("upstream", node.parentId())));
+        boolean unambiguous = view.graph().isUnambiguous(id);
+        boolean managed = node.kind() == WorldGraph.Kind.MIRROR || node.kind() == WorldGraph.Kind.SNAPSHOT;
+        boolean editable = managed && view.graph().hasUniqueLocation(id);
+        if (managed) {
+            entries.add(info(label("upstream",
+                    node.parentId() == null ? label("upstreamNone") : displayName(node.parentId()))));
         }
-        if (!view.graph().isUnambiguous(id))
+        if (!unambiguous)
             entries.add(info(label("ambiguous")));
-        if (node.kind() == WorldGraph.Kind.MIRROR && view.graph().isUnambiguous(id) && node.parentId() != null
-                && (node.parentId().startsWith("unresolved:")
-                        || view.graph().missingParents().contains(node.parentId()))) {
-            entries.add(selection(label("repair"), parentOptions(node)));
+        if (editable) {
+            entries.add(pair(label("chooseUpstream"),
+                    ()
+                            -> chooseUpstream(node),
+                    label("removeUpstream"),
+                    node.parentId() == null
+                            ? null
+                            : () -> worldEdit(() -> service.removeUpstream(id), () -> showWorld(id))));
         }
         var settings = view.config().sourceSettings().get(id);
         String selected = settings == null           ? null
                 : settings.defaultMirrorId() == null ? settings.inheritedMirrorId()
                                                      : settings.defaultMirrorId();
         if (selected != null || !view.graph().childrenOf(id).isEmpty()) {
-            entries.add(selection(
-                    label("targetDefault", selected == null ? label("automatic") : displayName(selected)),
-                    defaultMirrorOptions(id, settings == null ? null : settings.defaultMirrorId())));
+            String defaultId = settings == null ? null : settings.defaultMirrorId();
+            entries.add(
+                    row(label("targetDefault", selected == null ? label("automatic") : displayName(selected)),
+                            unambiguous ? () -> chooseDefaultMirror(id, defaultId) : null));
         }
         if (node.kind() == WorldGraph.Kind.MIRROR) {
             var mirror = view.config().mirrorSettings().get(id);
             ModConfig.ConflictStrategy conflict = mirror == null ? null : mirror.conflictStrategy();
-            entries.add(selection(label("conflict", conflictLabel(conflict)), conflictOptions(id, conflict)));
+            if (unambiguous)
+                entries.add(
+                        selection(label("conflict", conflictLabel(conflict)), conflictOptions(id, conflict)));
+        }
+        if (editable) {
+            var folder = service.path(node.location());
+            entries.add(row(Component.translatable("screen.worldmirror.seed.title"),
+                    () -> showScreen(new MirrorSeedScreen(this, id, folder))));
+            entries.add(pair(label("worldStorage"),
+                    ()
+                            -> chooseWorldStorage(node),
+                    Component.translatable("selectWorld.delete"), () -> confirmDelete(node)));
+        } else if (node.kind() == WorldGraph.Kind.LOCAL && view.graph().hasUniqueLocation(id)) {
+            entries.add(row(Component.translatable("selectWorld.delete"), () -> confirmDelete(node)));
         }
         show(Component.literal(displayName(node)), entries, this::showWorlds);
     }
 
-    private List<SelectionOption> defaultMirrorOptions(String id, String current) {
-        List<SelectionOption> entries = new ArrayList<>();
-        entries.add(new SelectionOption(
-                label("automatic"), current == null, () -> updateDefaultMirror(id, null)));
+    private void chooseDefaultMirror(String id, String current) {
+        List<WorldSelectionScreen.Choice> entries = new ArrayList<>();
+        String automatic = "\0automatic";
+        entries.add(WorldSelectionScreen.Choice.action(automatic, label("automatic")));
         for (WorldGraph.Node target : view.graph().childrenOf(id)) {
             if (target.role() == WorldGraph.Role.SYNC && view.graph().isUnambiguous(target.id())) {
-                entries.add(new SelectionOption(Component.literal(displayName(target)),
-                        target.id().equals(current), () -> updateDefaultMirror(id, target.id())));
+                entries.add(choice(target));
             }
         }
-        return List.copyOf(entries);
+        showScreen(new WorldSelectionScreen(this, label("chooseTarget"), entries,
+                current == null ? automatic : current, Component.translatable("gui.done"), choice -> {
+                    updateDefaultMirror(id, choice.id().equals(automatic) ? null : choice.id());
+                    return null;
+                }));
     }
 
     private void updateDefaultMirror(String id, String target) {
@@ -300,8 +344,8 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
                 () -> showWorld(id));
     }
 
-    private List<SelectionOption> parentOptions(WorldGraph.Node child) {
-        List<SelectionOption> entries = new ArrayList<>(view.graph()
+    private void chooseUpstream(WorldGraph.Node child) {
+        var entries = new ArrayList<>(view.graph()
                         .nodes()
                         .values()
                         .stream()
@@ -310,24 +354,77 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
                                         && view.graph().isUnambiguous(node.id())
                                         && !view.graph().wouldCreateCycle(child.id(), node.id()))
                         .sorted(nodeOrder())
-                        .map(node
-                                -> new SelectionOption(Component.literal(displayName(node)), false,
-                                        ()
-                                                -> run(
-                                                        ()
-                                                                -> {
-                                                            service.repairParent(child.id(), node.id());
-                                                            return service.routingView();
-                                                        },
-                                                        () -> showWorld(child.id()), true)))
+                        .map(this::choice)
                         .toList());
+        var untracked = new HashMap<String, WorldGraph.Location>();
         for (WorldGraph.Location location : view.untrackedLocalWorlds()) {
-            entries.add(new SelectionOption(Component.literal(location.folder()), false, () -> run(() -> {
-                service.repairParent(child.id(), location);
-                return service.routingView();
-            }, () -> showWorld(child.id()), true)));
+            String key = WorldRelationshipLayout.untrackedKey(location);
+            untracked.put(key, location);
+            entries.add(
+                    WorldSelectionScreen.Choice.world(key, Component.literal(location.folder()), location));
         }
-        return List.copyOf(entries);
+        showScreen(new WorldSelectionScreen(
+                this, label("chooseUpstream"), entries, child.parentId(), label("chooseUpstream"), choice -> {
+                    var local = untracked.get(choice.id());
+                    worldEdit(() -> {
+                        if (local == null)
+                            service.setUpstream(child.id(), choice.id());
+                        else
+                            service.setUpstream(child.id(), local);
+                    }, () -> showWorld(child.id()));
+                    return null;
+                }));
+    }
+
+    private WorldSelectionScreen.Choice choice(WorldGraph.Node node) {
+        var name = Component.literal(displayName(node));
+        if (node.location() != null)
+            return WorldSelectionScreen.Choice.world(node.id(), name, node.location());
+        var aliases = endpoints(node.id());
+        String address = aliases.isEmpty() ? null : aliases.getFirst();
+        var detail =
+                address == null ? label("kind.remote") : label("serverLocation", String.join(", ", aliases));
+        return WorldSelectionScreen.Choice.server(node.id(), name, detail, address);
+    }
+
+    private void chooseWorldStorage(WorldGraph.Node node) {
+        show(label("worldStorage"),
+                List.of(info(label("location", storageLabel(node.location().root()))),
+                        node.location().root() == WorldGraph.Root.SAVES
+                                ? row(storageLabel(WorldGraph.Root.DOWNLOADED),
+                                          () -> move(node, ModConfig.SaveLocation.DOWNLOADED))
+                                : row(storageLabel(WorldGraph.Root.SAVES),
+                                          () -> move(node, ModConfig.SaveLocation.SAVES))),
+                () -> showWorld(node.id()));
+    }
+
+    private void move(WorldGraph.Node node, ModConfig.SaveLocation location) {
+        worldEdit(() -> service.moveWorld(node.id(), location), () -> showWorld(node.id()));
+    }
+
+    private void confirmDelete(WorldGraph.Node node) {
+        showScreen(new ConfirmScreen(
+                confirmed
+                -> {
+                    showScreen(this);
+                    if (confirmed)
+                        worldEdit(() -> service.deleteWorld(node.id(), node.location()), this::showWorlds);
+                },
+                Component.translatable("selectWorld.deleteQuestion"),
+                Component.translatable("selectWorld.deleteWarning", displayName(node)),
+                Component.translatable("selectWorld.deleteButton"), Component.translatable("gui.cancel")));
+    }
+
+    @FunctionalInterface
+    private interface WorldEdit {
+        void apply() throws Exception;
+    }
+
+    private void worldEdit(WorldEdit operation, Runnable completed) {
+        run(() -> {
+            operation.apply();
+            return service.routingView();
+        }, completed, true);
     }
 
     private void showEndpoints() {
@@ -561,19 +658,22 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
         if (node.location() != null)
             return node.location().folder();
         if (node.kind() == WorldGraph.Kind.REMOTE) {
-            List<String> endpoints =
-                    view.config()
-                            .endpointRules()
-                            .entrySet()
-                            .stream()
-                            .filter(entry -> entry.getValue().sourceIds().contains(node.id()))
-                            .map(java.util.Map.Entry::getKey)
-                            .sorted()
-                            .toList();
+            List<String> endpoints = endpoints(node.id());
             if (!endpoints.isEmpty())
                 return endpoints.getFirst() + " · " + node.id();
         }
         return node.id();
+    }
+
+    private List<String> endpoints(String id) {
+        return view.config()
+                .endpointRules()
+                .entrySet()
+                .stream()
+                .filter(entry -> entry.getValue().sourceIds().contains(id))
+                .map(java.util.Map.Entry::getKey)
+                .sorted()
+                .toList();
     }
 
     private void input(Component title, Component hint, String value, Consumer<String> accept) {
@@ -680,11 +780,19 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
     }
 
     private static Row selection(Component title, List<SelectionOption> options) {
-        return new Row(title.copy().append("  ▼"), title, null, options);
+        return new Row(title.copy().append("  ▼"), title, null, options, null, false);
     }
 
     private static Row info(Component title) {
-        return new Row(title, title, null);
+        return new Row(title, null, null, List.of(), null, true);
+    }
+
+    private static Row pair(Component left, Runnable action, Component right, Runnable other) {
+        return new Row(left, null, action, List.of(), row(right, other), false);
+    }
+
+    private static Component storageLabel(WorldGraph.Root root) {
+        return label(root == WorldGraph.Root.SAVES ? "storageSaves" : "storageDownloads");
     }
 
     private static Component label(String key, Object... values) {

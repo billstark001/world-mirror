@@ -67,7 +67,7 @@ final class WorldRelationshipLayout {
                 id -> worlds.putIfAbsent(id, new World(id, id, null, null, Warning.MISSING)));
         untracked.forEach(location -> {
             // IDs in a saved graph cannot contain control characters.
-            String key = "\0" + location.folder();
+            String key = untrackedKey(location);
             worlds.put(key, new World(key, location.folder(), null, location, Warning.NONE));
         });
         Comparator<World> order = Comparator.comparing((World world) -> world.untracked() != null)
@@ -135,6 +135,10 @@ final class WorldRelationshipLayout {
         return new Result(Map.copyOf(placed), cards, List.copyOf(edges), Map.copyOf(downstream),
                 depth * COLUMN_STEP + CARD_WIDTH, Math.max(0, row - 1.5) * ROW_STEP + CARD_HEIGHT,
                 trackedRows == 0 ? 0 : (trackedRows - 1) * ROW_STEP + CARD_HEIGHT);
+    }
+
+    static String untrackedKey(WorldGraph.Location location) {
+        return "\0" + location.root().name() + "/" + location.folder();
     }
 
     /** Keeps a displayable tree per cyclic component while retaining every actual edge for rendering. */

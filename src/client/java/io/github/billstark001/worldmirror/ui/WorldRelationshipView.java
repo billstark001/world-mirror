@@ -77,10 +77,13 @@ public final class WorldRelationshipView extends AbstractWidget {
             Consumer<String> openNode) {
         this.openNode = Objects.requireNonNull(openNode);
         if (this.view != null && this.view.graph() == view.graph() && this.view.config().equals(view.config())
-                && this.view.untrackedLocalWorlds().equals(view.untrackedLocalWorlds()))
+                && this.view.untrackedLocalWorlds().equals(view.untrackedLocalWorlds())
+                && this.view.orphanedMirrors().equals(view.orphanedMirrors()))
             return;
         this.view = view;
-        layout = WorldRelationshipLayout.create(view.graph(), view.untrackedLocalWorlds(), displayName);
+        var local = new java.util.ArrayList<>(view.untrackedLocalWorlds());
+        local.addAll(view.orphanedMirrors());
+        layout = WorldRelationshipLayout.create(view.graph(), local, displayName);
         if (!layout.byKey().containsKey(Objects.requireNonNullElse(selection, "")))
             selection = null;
         if (fitViewport)
@@ -117,7 +120,9 @@ public final class WorldRelationshipView extends AbstractWidget {
 
     public boolean canOpenSelected() {
         Card card = selected();
-        return card != null && card.node() != null;
+        return card != null
+                && (card.node() != null
+                        || card.untracked() != null && view.orphanedMirrors().contains(card.untracked()));
     }
 
     public void openSelected() {
@@ -177,11 +182,10 @@ public final class WorldRelationshipView extends AbstractWidget {
             }
         };
         Bounds map = mapBounds();
-        canvas.fill(getX(), getY(), getRight(), getBottom(), 0xFF172131);
+        canvas.fill(getX(), getY(), getRight(), getBottom(), 0xBE172131);
         if (map.bottom() <= map.top() || width <= 0)
             return;
-        if (isFocused())
-            canvas.fill(map.left(), map.top(), map.right(), map.top() + 1, SYNC);
+        canvas.fill(map.left(), map.top(), map.right(), map.top() + 1, SYNC);
         clip.enable(map.left(), map.top() + 1, map.right(), map.bottom());
         try {
             if (layout == null || layout.cards().isEmpty()) {
@@ -197,7 +201,7 @@ public final class WorldRelationshipView extends AbstractWidget {
         } finally {
             restoreClip.run();
         }
-        canvas.fill(getX(), map.bottom(), getRight(), getBottom(), 0xFF202A3A);
+        canvas.fill(getX(), map.bottom(), getRight(), getBottom(), 0xE8202A3A);
         canvas.fill(getX(), map.bottom(), getRight(), map.bottom() + 1, 0xFF35425B);
         drawDetails(canvas, selected(), map.bottom() + 3);
     }
@@ -322,13 +326,15 @@ public final class WorldRelationshipView extends AbstractWidget {
         return details;
     }
 
-    private static Component category(Card card) {
+    private Component category(Card card) {
         return switch (card.warning()) {
             case MISSING -> label("graphMissing");
             case CYCLE -> label("graphCycle");
             case AMBIGUOUS -> label("ambiguous");
             case NONE ->
-                card.untracked() != null ? label("graphUntracked")
+                card.untracked() != null
+                        ? label(view.orphanedMirrors().contains(card.untracked()) ? "graphRecoverableMirror"
+                                                                                  : "graphUntracked")
                         : card.node().kind() == WorldGraph.Kind.MIRROR&& card.node().role()
                                 == WorldGraph.Role.SNAPSHOT
                         ? label("graphLinkedSnapshot")

@@ -2,7 +2,7 @@ package io.github.billstark001.worldmirror.config;
 
 import com.terraformersmc.modmenu.api.ConfigScreenFactory;
 import com.terraformersmc.modmenu.api.ModMenuApi;
-import io.github.billstark001.worldmirror.ui.WorldRoutingScreen;
+import me.shedaniel.autoconfig.AutoConfigClient;
 
 /**
  * Registers the World Mirror settings screen with Mod Menu.
@@ -10,11 +10,14 @@ import io.github.billstark001.worldmirror.ui.WorldRoutingScreen;
  * This class is only loaded when Mod Menu is present; it is listed as a
  * {@code modmenu} entrypoint in {@code fabric.mod.json}.
  * <p>
- * Opens the shared World Mirror routing screen.
+ * Opens the global World Mirror configuration.
  */
 public class ModMenuApiImpl implements ModMenuApi {
     @Override
     public ConfigScreenFactory<?> getModConfigScreenFactory() {
-        return WorldRoutingScreen::modMenu;
+        return parent -> {
+            EnumDropdownGui.register();
+            return AutoConfigClient.getConfigScreen(ModConfig.class, parent).get();
+        };
     }
 }

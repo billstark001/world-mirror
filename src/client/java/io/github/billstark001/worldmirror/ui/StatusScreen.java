@@ -239,7 +239,7 @@ public final class StatusScreen extends WorldMirrorTabbedScreen {
                 Button.builder(Component.translatable("screen.worldmirror.status.chooseMirror"), button -> {
                           String source = mirrorSource();
                           if (source != null && canChooseMirror())
-                              showScreen(new DownloadMirrorSelectionScreen(this, source));
+                              DownloadMirrorSelectionScreen.open(this, source);
                       }).bounds(left + settingWidth + 4, contentY(124), settingWidth, BUTTON_HEIGHT).build());
         chooseMirrorButton.active = mirrorSource() != null && canChooseMirror();
         addRenderableWidget(

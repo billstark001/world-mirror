@@ -49,7 +49,8 @@ final class WorldGraphInventory {
     private record
             Candidate(Location location, Path path, WorldMetadata metadata, LegacyWorldMetadata legacy) {}
     private record RemoteEvidence(String indexSource, String parentId) {}
-    record Result(Snapshot graph, Map<String, String> indexSources, List<Location> untrackedLocalWorlds) {}
+    record Result(Snapshot graph, Map<String, String> indexSources, List<Location> untrackedLocalWorlds,
+            List<Location> orphanedMirrors) {}
 
     private final Path game;
     private final Path configDirectory;
@@ -84,6 +85,9 @@ final class WorldGraphInventory {
         requirePlainRoot(saves);
         requirePlainRoot(folder);
         requireLocalOriginalFiles(folder);
+        if (SeedConversion.hasOrphanVoidGenerator(folder))
+            throw new IOException(
+                    "Recover the mirror metadata before using this save as an upstream: " + folder);
         return folder;
     }
 
@@ -194,8 +198,9 @@ final class WorldGraphInventory {
                         "World metadata upgrade deferred: " + candidate.path(), failure);
             }
         }
+        List<Location> orphanedMirrors = new ArrayList<>();
         List<Location> untrackedLocalWorlds = scanLocalWorldsAndClaims(folders, deferred, legacy,
-                legacyClaims, remoteIds, knownLegacyIds, observed, byLocation, pending);
+                legacyClaims, remoteIds, knownLegacyIds, observed, byLocation, pending, orphanedMirrors);
         rules.values()
                 .stream()
                 .flatMap(rule -> rule.sourceIds().stream())
@@ -234,7 +239,8 @@ final class WorldGraphInventory {
 
         Map<String, String> indexSources = new HashMap<>();
         for (Node node : graph.nodes().values()) {
-            if (node.kind() != Kind.MIRROR || node.role() != Role.SYNC || !graph.isUnambiguous(node.id()))
+            if (node.kind() != Kind.MIRROR || node.role() != Role.SYNC || node.parentId() == null
+                    || !graph.isUnambiguous(node.id()))
                 continue;
             Path folder = root(node.location().root()).resolve(node.location().folder());
             Candidate candidate = byLocation.get(node.location());
@@ -244,7 +250,8 @@ final class WorldGraphInventory {
                 indexSources.put(node.id(), indexSource);
             }
         }
-        publish.accept(new Result(graph, Map.copyOf(indexSources), untrackedLocalWorlds));
+        publish.accept(new Result(
+                graph, Map.copyOf(indexSources), untrackedLocalWorlds, List.copyOf(orphanedMirrors)));
         migration.complete(allocations, pending.keySet());
     }
 
@@ -296,7 +303,7 @@ final class WorldGraphInventory {
     private List<Location> scanLocalWorldsAndClaims(List<Path> folders, Set<Path> deferred,
             LegacyRouting legacy, Map<Path, String> legacyClaims, Map<String, String> remoteIds,
             Map<String, String> knownLegacyIds, List<Node> observed, Map<Location, Candidate> byLocation,
-            Map<String, PendingImport> pending) {
+            Map<String, PendingImport> pending, List<Location> orphanedMirrors) {
         List<Location> untracked = new ArrayList<>();
         Map<String, List<WorldMetadata>> completed = new HashMap<>();
         for (Candidate candidate : byLocation.values()) {
@@ -344,9 +351,8 @@ final class WorldGraphInventory {
                     List<WorldMetadata> owners = completed.getOrDefault(claim.nodeId(), List.of());
                     String parent = claim.parentNodeId();
                     String indexSource = claim.sourceId();
-                    boolean completedElsewhere = owners.stream().anyMatch(owner
-                            -> Objects.equals(owner.parentNodeId, parent)
-                                    && owner.sourceId.equals(indexSource));
+                    boolean completedElsewhere =
+                            owners.stream().anyMatch(owner -> owner.sourceId.equals(indexSource));
                     if (completedElsewhere && WorldRelocation.isEmptyReservation(folder, claim.nodeId())) {
                         pending.remove(key);
                         continue;
@@ -354,13 +360,21 @@ final class WorldGraphInventory {
                     pending.remove(key);
                     observed.add(
                             new Node(claim.nodeId(), claim.parentNodeId(), location, Kind.MIRROR, Role.SYNC));
-                    if (claim.parentNodeId().startsWith("remote:")) {
+                    if (parent != null && parent.startsWith("remote:")) {
                         observed.add(new Node(claim.parentNodeId(), null, null, Kind.REMOTE, null));
                     }
                     continue;
                 }
-                if (location.root() != Root.SAVES
-                        || !Files.isRegularFile(folder.resolve("level.dat"), LinkOption.NOFOLLOW_LINKS))
+                if (!Files.isRegularFile(folder.resolve("level.dat"), LinkOption.NOFOLLOW_LINKS))
+                    continue;
+                if (SeedConversion.hasOrphanVoidGenerator(folder)) {
+                    if (SeedConversion.isAdoptableVoid(folder)) {
+                        orphanedMirrors.add(location);
+                        pending.remove(key);
+                    }
+                    continue;
+                }
+                if (location.root() != Root.SAVES)
                     continue;
                 requireLocalOriginalFiles(folder);
                 String id = LocalWorldIdentity.read(folder);

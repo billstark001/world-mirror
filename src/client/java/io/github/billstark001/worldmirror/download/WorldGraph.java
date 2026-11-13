@@ -49,11 +49,13 @@ public final class WorldGraph {
                 throw new IllegalArgumentException("World location does not match node kind: " + id);
             }
             if (kind == Kind.MIRROR) {
-                requireId(parentId);
                 Objects.requireNonNull(role);
-            } else if (parentId != null || role != (kind == Kind.SNAPSHOT ? Role.SNAPSHOT : null)) {
+            } else if ((parentId != null && kind != Kind.SNAPSHOT)
+                    || role != (kind == Kind.SNAPSHOT ? Role.SNAPSHOT : null)) {
                 throw new IllegalArgumentException("Invalid parent or role for root node: " + id);
             }
+            if (parentId != null)
+                requireId(parentId);
         }
     }
 
@@ -116,6 +118,12 @@ public final class WorldGraph {
 
         public boolean isUnambiguous(String id) {
             return !ambiguousIds.contains(id);
+        }
+
+        public boolean hasUniqueLocation(String id) {
+            Node node = nodes.get(id);
+            return node != null && node.location() != null
+                    && duplicates.stream().noneMatch(copy -> copy.original().id().equals(id));
         }
 
         public Optional<Node> findRoot(String id) {

@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.UUID;
 
 /** Durable ownership of an unfinished mirror before its metadata is published. */
@@ -16,8 +17,8 @@ public final class MirrorClaim {
     public record Claim(UUID operationId, String nodeId, String parentNodeId, String sourceId) {
         public Claim {
             if (operationId == null || !WorldGraph.isNodeId(nodeId) || !nodeId.startsWith("mirror:")
-                    || !WorldGraph.isNodeId(parentNodeId) || sourceId == null || sourceId.isBlank()
-                    || sourceId.chars().anyMatch(Character::isISOControl)) {
+                    || (parentNodeId != null && !WorldGraph.isNodeId(parentNodeId)) || sourceId == null
+                    || sourceId.isBlank() || sourceId.chars().anyMatch(Character::isISOControl)) {
                 throw new IllegalArgumentException("Invalid mirror reservation");
             }
         }
@@ -47,20 +48,20 @@ public final class MirrorClaim {
         FileProof.Version stamp = FileProof.version(file);
         Claim current = read(folder);
         if (current == null || !previousId.equals(current.nodeId())
-                || !parentId.equals(current.parentNodeId())) {
+                || !Objects.equals(parentId, current.parentNodeId())) {
             throw new IOException("Mirror reservation changed: " + folder);
         }
         JsonSupport.compareAndWriteDocument(
                 file, new Claim(UUID.randomUUID(), replacementId, parentId, current.sourceId()), stamp);
     }
 
-    static void repairParent(Path folder, String nodeId, String previousParent, String parentId)
+    static void changeParent(Path folder, String nodeId, String previousParent, String parentId)
             throws IOException {
         Path file = folder.resolve(FILE_NAME);
         FileProof.Version stamp = FileProof.version(file);
         Claim current = read(folder);
         if (current == null || !nodeId.equals(current.nodeId())
-                || !previousParent.equals(current.parentNodeId()))
+                || !Objects.equals(previousParent, current.parentNodeId()))
             throw new IOException("Mirror reservation changed: " + folder);
         JsonSupport.compareAndWriteDocument(
                 file, new Claim(current.operationId(), nodeId, parentId, current.sourceId()), stamp);

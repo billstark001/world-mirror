@@ -50,7 +50,9 @@ public final class WorldRelocation {
 
         @Override
         public void finishCommitted(Path source, Path target) throws IOException {
-            if (parentNodeId == null) {
+            if (entries.contains(MirrorClaim.FILE_NAME))
+                return;
+            if (!retainsSourceReservation()) {
                 Files.deleteIfExists(source.resolve(MirrorClaim.FILE_NAME));
                 Files.deleteIfExists(target.resolve(MirrorClaim.FILE_NAME));
                 return;
@@ -63,7 +65,8 @@ public final class WorldRelocation {
 
         @Override
         public boolean retainsSourceReservation() {
-            return parentNodeId != null;
+            return parentNodeId != null && nodeId.startsWith("mirror:")
+                    && !entries.contains(MirrorClaim.FILE_NAME);
         }
 
         @Override
@@ -108,33 +111,32 @@ public final class WorldRelocation {
         }
     }
 
-    static void move(Path source, Path target, WorldGraphService.Target expected,
+    static void move(Path source, Path target, String nodeId, String parentId, String indexSource,
             BooleanSupplier persistRouting) throws IOException {
         source = source.toAbsolutePath().normalize();
         target = target.toAbsolutePath().normalize();
         if (source.startsWith(target) || target.startsWith(source))
             throw new IOException("Overlapping relocation roots");
-        if (!expected.folder().equals(source))
-            throw new IOException("Relocation source does not match its binding");
-        String nodeId = expected.nodeId();
         requirePlainDirectory(source);
         FileProof.requirePlainDirectory(target.getParent());
         FileProof.requirePlainDirectory(target);
         boolean routed = false;
         boolean created = false;
         try (WorldWriteLock ignored = WorldWriteLock.acquire(source)) {
-            WorldMetadata metadata =
-                    WorldMetadata.loadIfPresent(source)
-                            .filter(value
-                                    -> nodeId.equals(value.nodeId)
-                                            && expected.sourceId().equals(value.sourceId)
-                                            && expected.parentNodeId().equals(value.parentNodeId))
-                            .orElseThrow(() -> new IOException("Source identity changed before move"));
+            WorldMetadata metadata = WorldMetadata.loadIfPresent(source).orElse(null);
+            boolean movingClaim = metadata == null && isEmptyReservation(source, nodeId);
+            var claim = movingClaim ? MirrorClaim.read(source) : null;
+            if (movingClaim ? claim == null || !indexSource.equals(claim.sourceId())
+                                    || !Objects.equals(parentId, claim.parentNodeId())
+                            : metadata == null || !nodeId.equals(metadata.nodeId)
+                                    || !indexSource.equals(metadata.sourceId)
+                                    || !Objects.equals(parentId, metadata.parentNodeId))
+                throw new IOException("Source identity changed before move");
             Files.createDirectories(target.getParent());
             if (Files.notExists(target, LinkOption.NOFOLLOW_LINKS)) {
                 Files.createDirectory(target);
                 created = true;
-            } else if (!isEmptyReservation(target, nodeId))
+            } else if (movingClaim || !isEmptyReservation(target, nodeId))
                 throw new IOException("Relocation target is occupied");
             if (!Files.getFileStore(source).equals(Files.getFileStore(target))) {
                 throw new IOException("Relocation requires the same filesystem; no copy-and-delete fallback");
@@ -147,12 +149,14 @@ public final class WorldRelocation {
                 List<String> entries;
                 try (var files = Files.list(source)) {
                     entries = files.map(path -> path.getFileName().toString())
-                                      .filter(name -> !operational(name))
+                                      .filter(name
+                                              -> !operational(name)
+                                                      || movingClaim && name.equals(MirrorClaim.FILE_NAME))
                                       .sorted()
                                       .toList();
                 }
-                Plan plan = new Plan(CURRENT_SCHEMA, UUID.randomUUID(), nodeId, metadata.parentNodeId,
-                        metadata.sourceId, source.toString(), target.toString(), entries);
+                Plan plan = new Plan(CURRENT_SCHEMA, UUID.randomUUID(), nodeId, parentId, indexSource,
+                        source.toString(), target.toString(), entries);
                 preflight(plan, source, target);
                 JsonSupport.writeDocument(source.resolve(JOURNAL), plan);
                 JsonSupport.writeDocument(target.resolve(JOURNAL), plan);
@@ -180,6 +184,8 @@ public final class WorldRelocation {
             if (!routed && created)
                 removeUnusedTarget(target);
         }
+        if (routed && Files.notExists(source.resolve(MirrorClaim.FILE_NAME)))
+            removeUnusedTarget(source);
     }
 
     /** Routing is the commit decision; preflight validates both identities and the whole move set. */
@@ -274,7 +280,10 @@ public final class WorldRelocation {
     }
 
     private static void preflight(RecoveryPlan plan, Path source, Path target) throws IOException {
-        if (plan.entries() == null || !plan.entries().contains(WorldMetadata.FILE_NAME))
+        if (plan.entries() == null)
+            throw new IOException("Missing relocation entries");
+        boolean movingClaim = plan.entries().contains(MirrorClaim.FILE_NAME);
+        if (movingClaim == plan.entries().contains(WorldMetadata.FILE_NAME))
             throw new IOException("Missing relocation entries");
         Set<String> names = new HashSet<>();
         for (String name : plan.entries()) {
@@ -282,7 +291,7 @@ public final class WorldRelocation {
                 throw new IOException("Null relocation entry");
             Path entry = Path.of(name);
             if (entry.isAbsolute() || entry.getNameCount() != 1 || name.equals(".") || name.equals("..")
-                    || operational(name) || !names.add(name))
+                    || (operational(name) && !name.equals(MirrorClaim.FILE_NAME)) || !names.add(name))
                 throw new IOException("Invalid relocation entry: " + name);
         }
         int identities = 0;
@@ -295,7 +304,7 @@ public final class WorldRelocation {
             Path metadataFile = root.resolve(WorldMetadata.FILE_NAME);
             if (!Files.notExists(metadataFile, LinkOption.NOFOLLOW_LINKS)) {
                 FileProof.requirePlainFile(metadataFile);
-                if (!plan.matchesMetadata(root)) {
+                if (movingClaim || !plan.matchesMetadata(root)) {
                     throw new IOException("Foreign mirror at relocation root: " + root);
                 }
                 identities++;
@@ -303,8 +312,12 @@ public final class WorldRelocation {
             Path claimFile = root.resolve(MirrorClaim.FILE_NAME);
             if (!Files.notExists(claimFile, LinkOption.NOFOLLOW_LINKS)) {
                 FileProof.requirePlainFile(claimFile);
-                if (!plan.matchesClaim(root))
+                if (!plan.matchesClaim(root)
+                        && (movingClaim || !(plan instanceof Plan current)
+                                || !matchesReservation(root, current)))
                     throw new IOException("Foreign relocation reservation: " + root);
+                if (movingClaim)
+                    identities++;
             }
             try (var files = Files.list(root)) {
                 for (Path file : (Iterable<Path>) files::iterator) {
@@ -329,6 +342,12 @@ public final class WorldRelocation {
                 throw new IOException("Unsupported relocation entry: " + name);
             }
         }
+    }
+
+    private static boolean matchesReservation(Path root, Plan plan) {
+        var claim = MirrorClaim.read(root);
+        return claim != null && plan.nodeId().equals(claim.nodeId())
+                && plan.sourceId().equals(claim.sourceId());
     }
 
     private static void requirePlainDirectory(Path root) throws IOException {

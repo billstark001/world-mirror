@@ -51,6 +51,12 @@ public final class WorldGraphConfig {
             return new SourceSettings(
                     mirrorId, saveLocation, preferredFolderName, conflictStrategy, inheritedMirrorId);
         }
+
+        SourceSettings withoutTarget(String mirrorId) {
+            return new SourceSettings(mirrorId.equals(defaultMirrorId) ? null : defaultMirrorId, saveLocation,
+                    preferredFolderName, conflictStrategy,
+                    mirrorId.equals(inheritedMirrorId) ? null : inheritedMirrorId);
+        }
     }
 
     public record MirrorSettings(ModConfig.ConflictStrategy conflictStrategy) {}

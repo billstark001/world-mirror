@@ -221,9 +221,9 @@ public final class WorldMetadata {
 
     private void validate() {
         boolean mirror = kind == WorldGraph.Kind.MIRROR && isNodeId(nodeId, "mirror:")
-                && isParentNodeId(parentNodeId) && role != null;
+                && (parentNodeId == null || isParentNodeId(parentNodeId)) && role != null;
         boolean snapshot = kind == WorldGraph.Kind.SNAPSHOT && isNodeId(nodeId, "snapshot:")
-                && parentNodeId == null && role == WorldGraph.Role.SNAPSHOT;
+                && (parentNodeId == null || isParentNodeId(parentNodeId)) && role == WorldGraph.Role.SNAPSHOT;
         if (!(mirror || snapshot) || !validKey(sourceId) || lastSyncTime < 0 || generation == null) {
             throw new IllegalArgumentException("Invalid mirror metadata");
         }

@@ -77,7 +77,7 @@ Drag to pan, use the mouse wheel to zoom, and hover a cell to inspect its chunk 
 
 ![World Mirror settings screen](assets/config-screen.png)
 
-Click **Global Settings** on the in-game Settings tab. From Mod Menu or the title screen, open **World Mirror Routes** and choose the gear icon. The routing editor also shows each mirror's upstream and lets you configure server addresses, stable IDs, and default mirrors. [World routing guide](docs/world-routing.md)
+Click **Global Settings** on the in-game Settings tab or open the World Mirror configuration from Mod Menu. The title-screen gear in **World Mirror Routes** also opens global settings. The routing editor shows each mirror's upstream and lets you configure server addresses, stable IDs, and default mirrors. [World routing guide](docs/world-routing.md)
 
 | Setting                                             | Values                                      | Default                  |
 | --------------------------------------------------- | ------------------------------------------- | ------------------------ |

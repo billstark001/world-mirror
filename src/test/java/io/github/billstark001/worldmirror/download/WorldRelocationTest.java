@@ -132,8 +132,10 @@ class WorldRelocationTest {
                         .save(source));
         MirrorClaim.create(target, "mirror:" + UUID.randomUUID(), PARENT, SOURCE);
 
-        assertThrows(
-                IOException.class, () -> WorldRelocation.move(source, target, binding(source), () -> true));
+        assertThrows(IOException.class,
+                ()
+                        -> WorldRelocation.move(source, target, binding(source).nodeId(),
+                                binding(source).parentNodeId(), binding(source).sourceId(), () -> true));
         assertTrue(Files.isRegularFile(source.resolve(WorldMetadata.FILE_NAME)));
         assertFalse(Files.exists(target.resolve(WorldMetadata.FILE_NAME)));
     }
@@ -146,8 +148,10 @@ class WorldRelocationTest {
                         .save(source));
         Files.writeString(source.resolve("entry"), "original data");
 
-        assertThrows(
-                IOException.class, () -> WorldRelocation.move(source, target, binding(source), () -> false));
+        assertThrows(IOException.class,
+                ()
+                        -> WorldRelocation.move(source, target, binding(source).nodeId(),
+                                binding(source).parentNodeId(), binding(source).sourceId(), () -> false));
 
         assertEquals("original data", Files.readString(source.resolve("entry")));
         assertEquals(NODE, WorldMetadata.loadIfPresent(source).orElseThrow().nodeId);
@@ -163,8 +167,10 @@ class WorldRelocationTest {
                         .create(NODE, WorldGraph.Kind.MIRROR, "remote:different-parent", WorldGraph.Role.SYNC,
                                 SOURCE)
                         .save(source));
-        assertThrows(
-                IOException.class, () -> WorldRelocation.move(source, target, binding(source), () -> true));
+        assertThrows(IOException.class,
+                ()
+                        -> WorldRelocation.move(source, target, binding(source).nodeId(),
+                                binding(source).parentNodeId(), binding(source).sourceId(), () -> true));
         assertFalse(Files.exists(target));
         assertEquals(
                 "remote:different-parent", WorldMetadata.loadIfPresent(source).orElseThrow().parentNodeId);
