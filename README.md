@@ -18,7 +18,7 @@ A client-side Fabric mod that mirrors the world you are playing on a multiplayer
 | **Container tracking**                 | The mod intercepts inventory packets when you open a chest, barrel, hopper, furnace, or any other container and saves the item stacks. They are merged into the block entity NBT on export. Double chests are handled correctly (each half is saved to its own position).                                                                                                |
 | **Block entity data**                  | Signs (text), beacons (effects), banners (patterns), player heads (owner), lecterns (stored book), and all other block entities whose data the server sends to the client are persisted through Minecraft's chunk serialization path.                                                                                                                                    |
 | **World–mirror mapping**               | Each mirror save records one upstream world. World Mirror scans both save roots and keeps the graph, default download targets, and endpoint rules in `config/worldmirror/world-graph.json`.                                                                                                                                                                              |
-| **Per-world settings**                 | Save location and conflict strategy can be overridden per world. Time, weather, and difficulty can also be copied manually from the current source world.                                                                                                                                                                                                                |
+| **Per-world settings**                 | World Location and conflict strategy can be overridden per world. Time, weather, and difficulty can also be copied manually from the current source world.                                                                                                                                                                                                               |
 | **Conflict resolution**                | Three built-in strategies for chunks that already exist on disk: _Overwrite_ (default), _Ignore_ (keep local), and _Manual_ (save the server chunk to `conflict_chunks/` in MCA format for later review).                                                                                                                                                                |
 | **Built-in Chunk Map**                 | Full-screen draggable and zoomable map of recorded chunks. Shared spatial buckets keep large views responsive. Base colors show freshness/source; markers highlight failed or partial exports and unresolved conflicts. Hover for full export details.                                                                                                                   |
 | **In-world Chunk Overlay**             | Toggleable in-world chunk boxes make coverage easy to follow while exploring. Choose Session colors (yellow for queued captures, green for this session, blue for historical chunks and replay imports) or Map colors matching the built-in and Xaero maps. Adjustable render distance and fixed Y height (default 96) help find missed areas and confirm full coverage. |
@@ -79,42 +79,42 @@ Drag to pan, use the mouse wheel to zoom, and hover a cell to inspect its chunk 
 
 Click **Global Settings** on the in-game Settings tab or open the World Mirror configuration from Mod Menu. The title-screen gear in **World Mirror Routes** also opens global settings. The routing editor shows each mirror's upstream and lets you configure server addresses, stable IDs, and default mirrors. [World routing guide](docs/world-routing.md)
 
-| Setting                                             | Values                                      | Default                  |
-| --------------------------------------------------- | ------------------------------------------- | ------------------------ |
-| Save location                                       | `Downloaded Folder` / `Saves Folder`        | `Downloaded Folder`      |
-| New mirror time                                     | `Follow Current World` / `Morning`          | `Follow Current World`   |
-| New mirror weather                                  | `Follow Current World` / `Clear`            | `Follow Current World`   |
-| New mirror difficulty                               | `Follow Current World` / `Peaceful`         | `Follow Current World`   |
-| Sync interval / adaptive maximum durability latency | 5–600 s                                     | 30 s                     |
-| Download pipeline                                   | `Stable Periodic` / `Experimental Adaptive` | `Stable Periodic`        |
-| Conflict strategy                                   | `Overwrite` / `Ignore` / `Manual`           | `Overwrite`              |
-| Maximum cached chunks                               | 0–12800; 0 disables the limit               | 0                        |
-| Maximum cache distance                              | 0–64 chunks; 0 disables the limit           | 32                       |
-| Maximum cache age                                   | 0–14400 s; 0 disables the limit             | 1800 s                   |
-| Invalidate cache after export                       | `true` / `false`                            | `true`                   |
-| Main-thread capture budget                          | 250–5000 µs/tick                            | 1500 µs/tick             |
-| Adaptive dirty high watermark                       | 32–8192 chunks                              | 512 chunks               |
-| Adaptive high-watermark export cooldown             | 1–60 s                                      | 10 s                     |
-| Maximum pending capture hints                       | 512–32768                                   | 8192                     |
-| Performance diagnostic logging                      | `true` / `false`                            | `false`                  |
-| Slow-region diagnostic threshold                    | 50–10000 ms                                 | 500 ms                   |
-| Sparse-map cell threshold                           | 1–16 px                                     | 1 px                     |
-| Chunk-map background                                | `Black` / `Transparent`                     | `Black`                  |
-| Xaero overlay enabled                               | `true` / `false`                            | `true`                   |
-| Xaero overlay refresh                               | 1–60 s                                      | 10 s                     |
-| Xaero overlay max cells                             | 1000–50000                                  | 6000                     |
-| In-world chunk overlay (source worlds)              | `true` / `false`                            | `false`                  |
-| In-world chunk overlay (mirror worlds)              | `true` / `false`                            | `false`                  |
-| Show in-world overlay while F1 hides the GUI        | `true` / `false`                            | `false`                  |
-| In-world overlay distance                           | 8–16384 chunks, direct input                | 128 chunks               |
-| In-world overlay height                             | -64–319                                     | 96                       |
-| In-world overlay colors                             | `Session` / `Map`                           | `Session`                |
-| Show same-status grid lines                         | `true` / `false`                            | `true`                   |
-| In-world overlay opacity                            | 0–100% of original                          | 60%                      |
-| On join / dimension change / server-world change    | `Start` / `Stop` / `Keep`                   | `Stop` / `Keep` / `Stop` |
-| Capture nearby before export                        | `true` / `false`                            | `true`                   |
-| Capture nearby on stop                              | `true` / `false`                            | `false`                  |
-| Export cached chunks on stop                        | `true` / `false`                            | `false`                  |
+| Setting                                             | Values                                      | Default                    |
+| --------------------------------------------------- | ------------------------------------------- | -------------------------- |
+| World Location                                      | `Downloaded Worlds Folder` / `Saves Folder` | `Downloaded Worlds Folder` |
+| New mirror time                                     | `Follow Current World` / `Morning`          | `Follow Current World`     |
+| New mirror weather                                  | `Follow Current World` / `Clear`            | `Follow Current World`     |
+| New mirror difficulty                               | `Follow Current World` / `Peaceful`         | `Follow Current World`     |
+| Sync interval / adaptive maximum durability latency | 5–600 s                                     | 30 s                       |
+| Download pipeline                                   | `Periodic` / `Adaptive`                     | `Periodic`                 |
+| Conflict strategy                                   | `Overwrite` / `Ignore` / `Manual`           | `Overwrite`                |
+| Maximum cached chunks                               | 0–12800; 0 disables the limit               | 0                          |
+| Maximum cache distance                              | 0–64 chunks; 0 disables the limit           | 32                         |
+| Maximum cache age                                   | 0–14400 s; 0 disables the limit             | 1800 s                     |
+| Invalidate cache after export                       | `true` / `false`                            | `true`                     |
+| Main-thread capture budget                          | 250–5000 µs/tick                            | 1500 µs/tick               |
+| Adaptive dirty high watermark                       | 32–8192 chunks                              | 512 chunks                 |
+| Adaptive high-watermark export cooldown             | 1–60 s                                      | 10 s                       |
+| Maximum pending capture hints                       | 512–32768                                   | 8192                       |
+| Performance diagnostic logging                      | `true` / `false`                            | `false`                    |
+| Slow-region diagnostic threshold                    | 50–10000 ms                                 | 500 ms                     |
+| Sparse-map cell threshold                           | 1–16 px                                     | 1 px                       |
+| Chunk-map background                                | `Black` / `Transparent`                     | `Black`                    |
+| Xaero overlay enabled                               | `true` / `false`                            | `true`                     |
+| Xaero overlay refresh                               | 1–60 s                                      | 10 s                       |
+| Xaero overlay max cells                             | 1000–50000                                  | 6000                       |
+| In-world chunk overlay (source worlds)              | `true` / `false`                            | `false`                    |
+| In-world chunk overlay (mirror worlds)              | `true` / `false`                            | `false`                    |
+| Show in-world overlay while F1 hides the GUI        | `true` / `false`                            | `false`                    |
+| In-world overlay distance                           | 8–16384 chunks, direct input                | 128 chunks                 |
+| In-world overlay height                             | -64–319                                     | 96                         |
+| In-world overlay colors                             | `Session` / `Map`                           | `Session`                  |
+| Show same-status grid lines                         | `true` / `false`                            | `true`                     |
+| In-world overlay opacity                            | 0–100% of original                          | 60%                        |
+| On join / dimension change / server-world change    | `Start` / `Stop` / `Keep`                   | `Stop` / `Keep` / `Stop`   |
+| Capture nearby before export                        | `true` / `false`                            | `true`                     |
+| Capture nearby on stop                              | `true` / `false`                            | `false`                    |
+| Export cached chunks on stop                        | `true` / `false`                            | `false`                    |
 
 Configuration is persisted in `<.minecraft>/config/worldmirror.json`.
 
@@ -168,16 +168,16 @@ Choose **Map** colors to use the capture-age gradient, source colors, and live c
 
 Both world types have separate overlay switches, disabled by default. Press **K** while playing to toggle the switch for the current world type, or change either switch in the settings menu. The choices are saved across sessions. The overlay's render distance (8–16384 chunks, entered directly) and fixed Y height (default 96) are adjustable in the same settings group, so the boxes can be placed where they are easiest to see without obscuring gameplay. F1 hides the overlay with the rest of the GUI unless the separate F1 setting is enabled. Terrain above the selected Y height hides the overlay at that spot. At larger distances, adjacent chunks are grouped into larger tiles to keep the overlay responsive; use a shorter distance when checking individual chunks. The same-status grid switch shows boundaries within a single-colour area by default; turn it off to keep only the outer perimeter and changes in chunk status. At larger distances, grid lines follow the aggregated tiles. Opacity defaults to 60% of the original fill and outline strength and can be adjusted in the same settings group.
 
-### Save locations
+### World locations
 
 Generated mirror names use one safe folder segment. A new output is reserved by mirror node ID before capture starts. The graph retains a configured default while its save is unavailable. Moving a mirror keeps its ID and uses the graph position to recover an interrupted move. If two folders carry the same ID, the last confirmed path keeps it. With no confirmed path, the order is `saves` first, then `downloaded_worlds`, with ties resolved by folder name. Other copies receive new IDs and keep their upstream edges.
 
 The graph is rebuilt from the two save roots. Use **World Mirror Routes** to configure a server's default source and a world's default mirror. For a single connection, use **Choose Download Source** when prompted and **Choose mirror** in the Settings tab. The next start or one-shot export uses the saved defaults and conflict policy unless you selected a different target for that connection. [World routing guide](docs/world-routing.md)
 
-| Mode                          | Path                                                                         |
-| ----------------------------- | ---------------------------------------------------------------------------- |
-| `Downloaded Folder` (default) | `<.minecraft>/downloaded_worlds/<mirror-name>/`                              |
-| `Saves Folder`                | `<.minecraft>/saves/<mirror-name>/` — immediately playable in the world list |
+| Mode                                 | Path                                                                         |
+| ------------------------------------ | ---------------------------------------------------------------------------- |
+| `Downloaded Worlds Folder` (default) | `<.minecraft>/downloaded_worlds/<mirror-name>/`                              |
+| `Saves Folder`                       | `<.minecraft>/saves/<mirror-name>/` — immediately playable in the world list |
 
 ### Conflict strategies
 
@@ -327,7 +327,7 @@ Continuous recording requires an active download session, started with **U** or 
 
 1. Join the source world and press **U once**. Confirm that the action bar says World Mirror is active.
 2. Explore the areas you want to retain. Open each container whose inventory matters; unopened inventories are not sent to the client.
-3. Leave the session active while exploring. Stable Periodic writes changed chunks on the configured interval; pressing **V** is optional and requests an immediate final pass. Automatic periodic passes do not rescan a 17×17 area.
+3. Leave the session active while exploring. Periodic writes changed chunks on the configured interval; pressing **V** is optional and requests an immediate final pass. Automatic periodic passes do not rescan a 17×17 area.
 4. Press **U** to stop. If “Export cached chunks on stop” is disabled (the default), use **V before stopping** when you want a final pass immediately.
 5. The default output is `<.minecraft>/downloaded_worlds/`, which Minecraft does not list as a singleplayer save. Select **Saves Folder** before downloading if it should appear directly in the world list.
 

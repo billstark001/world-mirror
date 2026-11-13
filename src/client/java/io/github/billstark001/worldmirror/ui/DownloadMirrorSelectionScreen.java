@@ -26,8 +26,8 @@ final class DownloadMirrorSelectionScreen {
         for (var target : graph.targetsForSource(sourceId)) {
             var node = snapshot.nodes().get(target.nodeId());
             if (node != null && node.location() != null) {
-                choices.add(WorldSelectionScreen.Choice.world(
-                        target.nodeId(), Component.literal(node.location().folder()), node.location()));
+                choices.add(WorldSelectionScreen.Choice.world(target.nodeId(),
+                        Component.literal(node.location().folder()), node.location(), node.kind()));
             }
         }
         boolean newSelected = DownloadManager.isNewMirrorSelected();

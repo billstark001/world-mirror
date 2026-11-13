@@ -302,8 +302,7 @@ public final class WorldRelationshipView extends AbstractWidget {
             details.add(label("upstream", layout.byKey().get(node.parentId()).name()));
         } else if (card.untracked() != null || node != null && node.location() != null) {
             WorldGraph.Location location = node == null ? card.untracked() : node.location();
-            String root = location.root() == WorldGraph.Root.SAVES ? "saves" : "downloaded_worlds";
-            details.add(label("location", root + "/" + location.folder()));
+            details.add(label("location", WorldLabels.path(location)));
         }
         var count = label("graphChildren", direct.size());
         var settings = view.config().sourceSettings().get(card.key());
@@ -327,7 +326,7 @@ public final class WorldRelationshipView extends AbstractWidget {
     }
 
     private Component category(Card card) {
-        return switch (card.warning()) {
+        Component category = switch (card.warning()) {
             case MISSING -> label("graphMissing");
             case CYCLE -> label("graphCycle");
             case AMBIGUOUS -> label("ambiguous");
@@ -338,8 +337,12 @@ public final class WorldRelationshipView extends AbstractWidget {
                         : card.node().kind() == WorldGraph.Kind.MIRROR&& card.node().role()
                                 == WorldGraph.Role.SNAPSHOT
                         ? label("graphLinkedSnapshot")
-                        : label("kind." + card.node().kind().name().toLowerCase(Locale.ROOT));
+                        : WorldLabels.kind(card.node().kind());
         };
+        var location = card.node() == null ? card.untracked() : card.node().location();
+        return location != null && location.root() == WorldGraph.Root.DOWNLOADED
+                ? label("graphDownloaded", category)
+                : category;
     }
 
     private static void line(Canvas canvas, Component text, int x, int y, int color, int available) {

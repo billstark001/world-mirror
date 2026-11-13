@@ -41,6 +41,14 @@ abstract class WorldMirrorTabbedScreen extends StatusScreenApi {
 
     protected record SelectionOption(Component label, boolean selected, Runnable action) {}
 
+    protected static Component selectionLabel(Component label) {
+        return label.copy().append("  ▼");
+    }
+
+    protected static Component selectionValue(String key, Component current) {
+        return Component.translatable(key).append(": ").append(current);
+    }
+
     private final class SelectionPopup {
         final Button opener;
         final List<Button> rows = new ArrayList<>();

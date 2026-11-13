@@ -83,9 +83,8 @@ public final class SaveLocationMoveScreen extends Screen {
         int y = height / 2;
         graphics.centeredText(font, title, x, y - 50, 0xFFFFFFFF);
         graphics.centeredText(font,
-                Component.translatable("screen.worldmirror.move.message",
-                        Component.translatable(
-                                "config.worldmirror.saveLoc." + targetLocation.name().toLowerCase())),
+                Component.translatable(
+                        "screen.worldmirror.move.message", WorldLabels.location(targetLocation)),
                 x, y - 28, 0xFFE0E0E0);
         graphics.centeredText(
                 font, Component.translatable("screen.worldmirror.move.warning"), x, y - 14, 0xFFFFAA55);
@@ -98,9 +97,8 @@ public final class SaveLocationMoveScreen extends Screen {
         int y = height / 2;
         graphics.drawCenteredString(font, title, x, y - 50, 0xFFFFFFFF);
         graphics.drawCenteredString(font,
-                Component.translatable("screen.worldmirror.move.message",
-                        Component.translatable(
-                                "config.worldmirror.saveLoc." + targetLocation.name().toLowerCase())),
+                Component.translatable(
+                        "screen.worldmirror.move.message", WorldLabels.location(targetLocation)),
                 x, y - 28, 0xFFE0E0E0);
         graphics.drawCenteredString(
                 font, Component.translatable("screen.worldmirror.move.warning"), x, y - 14, 0xFFFFAA55);

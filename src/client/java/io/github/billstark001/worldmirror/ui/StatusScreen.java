@@ -198,9 +198,8 @@ public final class StatusScreen extends WorldMirrorTabbedScreen {
         ModConfig.SaveLocation saveLocation = resolveSaveLocation();
         ModConfig.ConflictStrategy strategy =
                 service.conflictStrategy(statusContext.mirrorNodeId(), statusContext.sourceNodeId());
-        Button location = addEnumDropdown(left, contentY(58), "screen.worldmirror.status.saveLoc",
-                saveLocation, ModConfig.SaveLocation.values(),
-                value -> enumLabel("config.worldmirror.saveLoc", value), this::selectSaveLocation);
+        Button location = addEnumDropdown(left, contentY(58), WorldLabels.LOCATION, saveLocation,
+                ModConfig.SaveLocation.values(), WorldLabels::location, this::selectSaveLocation);
         location.active = service.available() && statusContext.sourceNodeId() != null
                 && !statusContext.currentWorldIsMirror();
         Button conflict = addEnumDropdown(left, contentY(80), "screen.worldmirror.status.conflictStrategy",
@@ -270,10 +269,7 @@ public final class StatusScreen extends WorldMirrorTabbedScreen {
                                               () -> onSelect.accept(value)))
                               .toList();
         return addRenderableWidget(
-                Button.builder(Component.translatable(labelKey)
-                                       .append(": ")
-                                       .append(valueLabel.apply(current))
-                                       .append("  ▼"),
+                Button.builder(selectionLabel(selectionValue(labelKey, valueLabel.apply(current))),
                               button -> openSelectionPopup(button, options))
                         .bounds(x, y, panelWidth(), BUTTON_HEIGHT)
                         .build());

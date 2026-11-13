@@ -6,7 +6,9 @@ The **Worlds** tab shows each upstream world and the mirrors that descend from i
 
 In world details, **Choose Upstream** opens the same searchable world list used to choose a download mirror. The list shows which entries are in the saves folder, which are in downloaded worlds, and which are remote servers. Choosing or removing an upstream keeps the world ID and its SQLite namespace. A mirror with no upstream can still be opened, edited, and used as the upstream of another mirror.
 
-**World Storage** changes where a managed world is kept. **Delete** uses Minecraft's world deletion confirmation. Downstream links to a deleted world remain visible as missing.
+Selecting a remote world for an address or a stable ID uses the same searchable picker. Address and alias entry accept text, and the stable ID policy uses a dropdown.
+
+**World Location** selects where a managed world is kept. **Delete** uses Minecraft's world deletion confirmation. Downstream links to a deleted world remain visible as missing.
 
 The **World Seed** action opens offline generator settings. A fresh World Mirror reservation or a recognized void mirror whose metadata is missing can be initialized when you apply the seed. See [mirror seeds](world-seeds.md).
 

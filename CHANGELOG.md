@@ -28,7 +28,7 @@ Use Added, Changed, and Fixed categories where applicable. Combine related chang
 - Track upstream worlds and multiple mirrors in a graph built from `saves` and `downloaded_worlds`. Remember a default download target for each source.
 - Give extra copies new world IDs while retaining their upstream edges. Preserve IDs when moving saves and retain edges to unavailable worlds.
 - Open the world relationship graph from the title screen or in-game settings. Edit upstream links, default mirrors, endpoint aliases, and Xaero stable ID bindings.
-- Choose mirrors and upstream worlds in lists that show their icons and locations. Move mirrors between save folders, detach their upstream, or delete a save after confirmation.
+- Choose mirrors, upstream worlds, and remote sources in searchable lists with native icons and save details. Move mirrors with the World Location dropdown, detach their upstream, or delete a save after confirmation.
 - Set, change, or remove a mirror's seed offline. Preview terrain differences, void cleanup, and optional removal of unchanged generated chunks with a progress bar and cancellation.
 - Enable experimental Overworld blending and regenerate eligible generated chunks along captured terrain boundaries.
 

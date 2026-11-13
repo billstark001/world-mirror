@@ -2,10 +2,9 @@ package io.github.billstark001.worldmirror.ui;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import io.github.billstark001.worldmirror.download.WorldGraph;
-import io.github.billstark001.worldmirror.download.WorldGraphConfig;
 import io.github.billstark001.worldmirror.ui.input.MouseInput;
-import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.OfflineTasks;
+import io.github.billstark001.worldmirror.util.WMLogger;
 import net.minecraft.client.Minecraft;
 #if MC_VERSION >= 260102
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -22,50 +21,75 @@ import net.minecraft.client.gui.screens.FaviconTexture;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.client.multiplayer.ServerList;
 import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.locale.Language;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /** A native selection list for offline worlds and saved servers without joining them. */
 final class WorldSelectionScreen extends StatusScreenApi {
     private static final int ROW_HEIGHT = 36;
     private static final int HEADER_HEIGHT = 56;
     private static final int FOOTER_HEIGHT = 38;
-    private static final int MAX_ICON_BYTES = 256 * 1024;
+    private static final int ICON_SIZE = 32;
+    private static final int ICON_BATCH_SIZE = 8;
+    private static final int ICON_CACHE_SIZE = 128;
+    private static final int DETAIL_COLOR = 0xFF808080;
     private static final Identifier UNKNOWN_ICON =
             Identifier.withDefaultNamespace("textures/misc/unknown_server.png");
 
-    record Choice(String id, Component name, Component detail, WorldGraph.Location location, String address) {
-        static Choice world(String id, Component name, WorldGraph.Location location) {
-            String root = location.root() == WorldGraph.Root.SAVES ? "saves" : "downloaded_worlds";
-            return new Choice(id, name, Component.literal(root + "/" + location.folder()), location, null);
+    record Choice(String id, Component name, Component detail, WorldGraph.Location location, String address,
+            WorldGraph.Kind kind) {
+        static Choice world(String id, Component name, WorldGraph.Location location, WorldGraph.Kind kind) {
+            return new Choice(id, name, Component.literal(WorldLabels.path(location)), location, null, kind);
         }
 
         static Choice server(String id, Component name, String address) {
-            return server(id, name, Component.literal(address), address);
+            return new Choice(id, name,
+                    Component.translatable("screen.worldmirror.routing.serverLocation", address), null,
+                    address, null);
         }
 
         static Choice server(String id, Component name, Component detail, String address) {
-            return new Choice(id, name, detail, null, address);
+            return new Choice(id, name, detail, null, address, WorldGraph.Kind.REMOTE);
         }
 
         static Choice action(String id, Component name) {
-            return new Choice(id, name, Component.empty(), null, null);
+            return new Choice(id, name, Component.empty(), null, null, null);
         }
 
-        private boolean matches(String query) {
-            return query.isEmpty() || name.getString().toLowerCase(Locale.ROOT).contains(query)
-                    || detail.getString().toLowerCase(Locale.ROOT).contains(query);
+        boolean isAction() {
+            return kind == null && address == null;
+        }
+    }
+
+    private record Details(
+            Map<String, SelectionRowData.World> worlds, Map<String, SelectionRowData.Server> servers) {
+        static final Details EMPTY = new Details(Map.of(), Map.of());
+    }
+
+    private record Presentation(Component title, Component detail, Component info) {
+        boolean matches(String query) {
+            return contains(title, query) || contains(detail, query) || contains(info, query);
+        }
+
+        private static boolean contains(Component text, String query) {
+            return text.getString().toLowerCase(Locale.ROOT).contains(query);
         }
     }
 
@@ -73,14 +97,19 @@ final class WorldSelectionScreen extends StatusScreenApi {
     private final List<Choice> choices;
     private final Component confirmLabel;
     private final Function<Choice, Component> onConfirm;
-    private final Map<String, FaviconTexture> icons = new HashMap<>();
+    private final Map<String, FaviconTexture> icons = new LinkedHashMap<>(16, 0.75f, true);
+    private final Set<String> absentIcons = new HashSet<>();
+    private final Map<String, Choice> pendingIcons = new LinkedHashMap<>();
+    private final Map<String, Presentation> presentations = new HashMap<>();
     private ChoiceList list;
+    private Set<String> requestedIcons = Set.of();
+    private Details details = Details.EMPTY;
     private Button confirm;
     private String selectedId;
     private String search = "";
     private Component error;
-    private int iconRequest;
-    private boolean iconsRequested;
+    private AtomicBoolean loading;
+    private Path game;
 
     WorldSelectionScreen(Screen parent, Component title, List<Choice> choices, String selectedId,
             Component confirmLabel, Function<Choice, Component> onConfirm) {
@@ -119,8 +148,8 @@ final class WorldSelectionScreen extends StatusScreenApi {
         list.populate();
         layout.visitWidgets(this::addRenderableWidget);
         setInitialFocus(field);
-        if (!iconsRequested)
-            loadIcons();
+        if (loading == null)
+            loadDetails();
     }
 
     @Override
@@ -145,10 +174,16 @@ final class WorldSelectionScreen extends StatusScreenApi {
     @Override
     public void removed() {
         super.removed();
-        iconRequest++;
-        iconsRequested = false;
+        if (loading != null)
+            loading.set(true);
+        loading = null;
         icons.values().forEach(FaviconTexture::close);
         icons.clear();
+        absentIcons.clear();
+        pendingIcons.clear();
+        requestedIcons = Set.of();
+        presentations.clear();
+        details = Details.EMPTY;
     }
 
     private void confirm() {
@@ -161,68 +196,155 @@ final class WorldSelectionScreen extends StatusScreenApi {
             showScreen(this);
     }
 
-    private void loadIcons() {
-        iconsRequested = true;
-        int request = ++iconRequest;
-        Path game = minecraft.gameDirectory.toPath().toAbsolutePath().normalize();
-        OfflineTasks.<Map<String, byte[]>>start("WM-ReadSelectionIcons",
-                () -> iconBytes(game), ignored -> Map.of(), minecraft::execute, loaded -> {
-                    if (iconRequest != request)
+    private void loadDetails() {
+        var cancelled = new AtomicBoolean();
+        loading = cancelled;
+        game = minecraft.gameDirectory.toPath().toAbsolutePath().normalize();
+        Path root = game;
+        OfflineTasks.start("WM-ReadSelectionDetails",
+                () -> readDetails(root, cancelled), ignored -> Details.EMPTY, minecraft::execute, loaded -> {
+                    if (cancelled.get())
                         return;
-                    loaded.forEach((id, bytes) -> {
-                        var icon = FaviconTexture.forWorld(
-                                minecraft.getTextureManager(), "worldmirror-picker/" + id);
-                        try {
-                            icon.upload(NativeImage.read(bytes));
-                            icons.put(id, icon);
-                        } catch (IOException | RuntimeException invalid) {
-                            icon.close();
-                        }
-                    });
+                    details = loaded;
+                    presentations.clear();
+                    if (!search.isBlank())
+                        list.populate();
                 }, () -> {});
     }
 
-    private Map<String, byte[]> iconBytes(Path game) {
-        var found = new HashMap<String, byte[]>();
-        var servers = new HashMap<String, byte[]>();
-        if (choices.stream().anyMatch(choice -> choice.address() != null)) {
-            var savedServers = new ServerList(minecraft);
-            savedServers.load();
-            for (int i = 0; i < savedServers.size(); i++) {
-                var server = savedServers.get(i);
-                byte[] data = server.getIconBytes();
-                if (data != null && data.length <= MAX_ICON_BYTES) {
-                    try {
-                        servers.putIfAbsent(WorldGraphConfig.normalizeEndpoint(server.ip), data);
-                    } catch (IllegalArgumentException invalid) {
-                        // An invalid saved endpoint cannot identify one of the choices.
-                    }
-                }
+    private Details readDetails(Path game, AtomicBoolean cancelled) {
+        var worlds = new HashMap<String, SelectionRowData.World>();
+        var addresses =
+                choices.stream().map(Choice::address).filter(Objects::nonNull).collect(Collectors.toSet());
+        var servers = SelectionRowData.servers(game, addresses);
+        for (Choice choice : choices) {
+            if (cancelled.get())
+                return Details.EMPTY;
+            if (choice.location() != null) {
+                String path = WorldLabels.path(choice.location());
+                var world = SelectionRowData.world(game, game.resolve(path), path);
+                if (world != null)
+                    worlds.put(choice.id(), world);
             }
         }
-        for (Choice choice : choices) {
-            byte[] bytes = choice.location() == null ? servers.get(choice.address())
-                                                     : worldIcon(game, choice.location());
+        return new Details(worlds, servers);
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (loading == null || !requestedIcons.isEmpty() || pendingIcons.isEmpty())
+            return;
+
+        // The rendered rows request icons lazily. Keep one small batch in flight and bound the GPU cache.
+        var worlds = new ArrayList<Choice>(ICON_BATCH_SIZE);
+        for (Choice choice : pendingIcons.values()) {
+            if (choice.location() != null) {
+                worlds.add(choice);
+            } else {
+                var server = details.servers().get(choice.address());
+                installIcon(choice.id(), server == null ? null : server.icon());
+            }
+        }
+        pendingIcons.clear();
+        if (worlds.isEmpty())
+            return;
+        requestedIcons = worlds.stream().map(Choice::id).collect(Collectors.toUnmodifiableSet());
+        var cancelled = loading;
+        Path root = game;
+        OfflineTasks.start("WM-ReadSelectionIcons",
+                ()
+                        -> readIcons(root, worlds, cancelled),
+                ignored
+                -> Map.<String, byte[]>of(),
+                minecraft::execute,
+                loaded
+                -> {
+                    if (cancelled.get())
+                        return;
+                    for (Choice choice : worlds) installIcon(choice.id(), loaded.get(choice.id()));
+                    requestedIcons = Set.of();
+                },
+                ()
+                        -> {},
+                () -> {
+                    if (!cancelled.get())
+                        requestedIcons = Set.of();
+                });
+    }
+
+    private static Map<String, byte[]> readIcons(Path game, List<Choice> batch, AtomicBoolean cancelled) {
+        var found = new HashMap<String, byte[]>();
+        for (Choice choice : batch) {
+            if (cancelled.get())
+                return Map.of();
+            Path folder = game.resolve(WorldLabels.path(choice.location()));
+            byte[] bytes = SelectionRowData.worldIcon(game, folder);
             if (bytes != null)
                 found.put(choice.id(), bytes);
         }
         return found;
     }
 
-    private static byte[] worldIcon(Path game, WorldGraph.Location location) {
-        String root = location.root() == WorldGraph.Root.SAVES ? "saves" : "downloaded_worlds";
-        Path icon = game.resolve(root).resolve(location.folder()).resolve("icon.png");
+    private Identifier icon(Choice choice) {
+        String id = choice.id();
+        var icon = icons.get(id);
+        if (icon == null && !absentIcons.contains(id) && !requestedIcons.contains(id)
+                && pendingIcons.size() < ICON_BATCH_SIZE
+                && (choice.location() != null || hasSavedServerIcon(choice)))
+            pendingIcons.putIfAbsent(id, choice);
+        return icon == null ? UNKNOWN_ICON : icon.textureLocation();
+    }
+
+    private boolean hasSavedServerIcon(Choice choice) {
+        var server = choice.address() == null ? null : details.servers().get(choice.address());
+        return server != null && server.icon() != null;
+    }
+
+    private void installIcon(String id, byte[] bytes) {
+        if (bytes == null) {
+            absentIcons.add(id);
+            return;
+        }
+        var icon = FaviconTexture.forWorld(minecraft.getTextureManager(), "worldmirror-picker/" + id);
         try {
-            FileProof.requirePlainPath(game, icon);
-            if (!Files.isRegularFile(icon))
-                return null;
-            try (var input = Files.newInputStream(icon)) {
-                byte[] bytes = input.readNBytes(MAX_ICON_BYTES + 1);
-                return bytes.length <= MAX_ICON_BYTES ? bytes : null;
+            icon.upload(NativeImage.read(bytes));
+            icons.put(id, icon);
+            if (icons.size() > ICON_CACHE_SIZE) {
+                var oldest = icons.entrySet().iterator();
+                oldest.next().getValue().close();
+                oldest.remove();
             }
         } catch (IOException | RuntimeException unavailable) {
-            return null;
+            icon.close();
+            absentIcons.add(id);
+            WMLogger.warnRateLimited(
+                    "picker.icon-upload", 30_000, "Cannot display world picker icon", unavailable);
         }
+    }
+
+    private Presentation presentation(Choice choice) {
+        return presentations.computeIfAbsent(choice.id(), ignored -> createPresentation(choice));
+    }
+
+    private Presentation createPresentation(Choice choice) {
+        if (choice.isAction())
+            return new Presentation(choice.name(), choice.detail(), Component.empty());
+        Component kind = choice.kind() == null ? Component.empty() : WorldLabels.kind(choice.kind());
+        var world = details.worlds().get(choice.id());
+        if (world != null) {
+            return new Presentation(
+                    world.name(), world.pathAndDate(), kind.copy().append(" · ").append(world.info()));
+        }
+        var server = choice.address() == null ? null : details.servers().get(choice.address());
+        if (server != null && !server.name().getString().equals(choice.name().getString())) {
+            // The configured logical name can differ between worlds behind one saved server address.
+            if (choice.name().getString().equals(choice.address()))
+                return new Presentation(server.name(), choice.detail(), kind);
+            return new Presentation(
+                    choice.name(), choice.detail(), kind.copy().append(" · ").append(server.name()));
+        }
+        return new Presentation(choice.name(), choice.detail(), kind);
     }
 
     private final class ChoiceList extends ObjectSelectionList<Row> {
@@ -244,7 +366,8 @@ final class WorldSelectionScreen extends StatusScreenApi {
             String query = search.strip().toLowerCase(Locale.ROOT);
             Row matching = null;
             for (Choice choice : choices) {
-                if (choice.matches(query)) {
+                if (query.isEmpty() || Presentation.contains(choice.name(), query)
+                        || presentation(choice).matches(query)) {
                     var row = new Row(choice);
                     addEntry(row);
                     if (choice.id().equals(selectedId))
@@ -276,7 +399,13 @@ final class WorldSelectionScreen extends StatusScreenApi {
 
         @Override
         public Component getNarration() {
-            return Component.empty().append(choice.name()).append(" ").append(choice.detail());
+            var content = presentation(choice);
+            return Component.empty()
+                    .append(content.title())
+                    .append(" ")
+                    .append(content.detail())
+                    .append(" ")
+                    .append(content.info());
         }
 
         @Override
@@ -309,22 +438,38 @@ final class WorldSelectionScreen extends StatusScreenApi {
             int x = getContentX();
             int y = getContentY();
             int textWidth = getContentWidth();
-            if (choice.location() != null || choice.address() != null) {
-                var icon = icons.get(choice.id());
-                graphics.blit(RenderPipelines.GUI_TEXTURED,
-                        icon == null ? UNKNOWN_ICON : icon.textureLocation(), x, y, 0, 0, 32, 32, 64, 64);
-                x += 36;
-                textWidth -= 36;
+            var content = presentation(choice);
+            if (!choice.isAction()) {
+                graphics.blit(RenderPipelines.GUI_TEXTURED, icon(choice), x, y, 0, 0, ICON_SIZE, ICON_SIZE,
+                        ICON_SIZE, ICON_SIZE);
+                x += ICON_SIZE + 3;
+                textWidth -= ICON_SIZE + 3;
             }
-            String name = font.plainSubstrByWidth(choice.name().getString(), textWidth);
-            String detail = font.plainSubstrByWidth(choice.detail().getString(), textWidth);
-            int nameY = y + (detail.isEmpty() ? 11 : 4);
+            int nameY = choice.isAction() ? y + 11 : y + 1;
+            drawLine(graphics, content.title(), x, nameY, textWidth, 0xFFFFFFFF);
+            drawLine(graphics, content.detail(), x, y + 12, textWidth, DETAIL_COLOR);
+            drawLine(graphics, content.info(), x, y + 22, textWidth, DETAIL_COLOR);
+            if (hovered
+                    && (font.width(content.title()) > textWidth || font.width(content.detail()) > textWidth
+                            || font.width(content.info()) > textWidth)) {
+                graphics.setComponentTooltipForNextFrame(
+                        font, List.of(content.title(), content.detail(), content.info()), mouseX, mouseY);
+            }
+        }
+
 #if MC_VERSION >= 260102
-            graphics.text(font, name, x, nameY, 0xFFFFFFFF);
-            graphics.text(font, detail, x, y + 17, 0xFFA0A0A0);
+        private void drawLine(
+                GuiGraphicsExtractor graphics, Component line, int x, int y, int width, int color) {
 #else
-            graphics.drawString(font, name, x, nameY, 0xFFFFFFFF);
-            graphics.drawString(font, detail, x, y + 17, 0xFFA0A0A0);
+        private void drawLine(GuiGraphics graphics, Component line, int x, int y, int width, int color) {
+#endif
+            var clipped = font.width(line) <= width
+                    ? line.getVisualOrderText()
+                    : Language.getInstance().getVisualOrder(font.substrByWidth(line, Math.max(0, width)));
+#if MC_VERSION >= 260102
+            graphics.text(font, clipped, x, y, color);
+#else
+            graphics.drawString(font, clipped, x, y, color);
 #endif
         }
     }

@@ -66,13 +66,13 @@ On upgrade, World Mirror scans both save folders, backs up older mirror metadata
 
 When opening or downloading to a mirror, recognized obsolete generators require a confirmed backup and repair, including when the metadata already says it is current. Unknown or unreadable generator edits are preserved for manual review. Minecraft's data-pack safe mode does not convert old inline generators.
 
-## Save locations and conflicts
+## World locations and conflicts
 
 Press **I**, open **Settings**, then choose **Global Settings**. Optional Mod Menu provides another shortcut to the same screen.
 
-Enum settings are selection-only lists: open the control to see every translated choice, then select one item. Per-world Save Location and Conflict Strategy use the same interaction.
+Enum settings are selection-only lists: open the control to see every translated choice, then select one item. Per-world World Location and Conflict Strategy use the same interaction.
 
-- **Downloaded Folder** (default): saves to `<.minecraft>/downloaded_worlds/`; useful for keeping mirrors separate, but not listed in Singleplayer.
+- **Downloaded Worlds Folder** (default): saves to `<.minecraft>/downloaded_worlds/`; useful for keeping mirrors separate, but not listed in Singleplayer.
 - **Saves Folder**: saves to `<.minecraft>/saves/`; immediately visible in Singleplayer.
 
 When an incoming chunk meets an existing local chunk, choose one of these strategies:
