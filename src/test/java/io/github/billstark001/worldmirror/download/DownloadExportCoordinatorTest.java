@@ -135,6 +135,52 @@ class DownloadExportCoordinatorTest {
     }
 
     @Test
+    void refreshingSettingsStillAcknowledgesOnlyExactRevisionsForTheSameCache(@TempDir Path world)
+            throws Exception {
+        var scheduler = new ExportScheduler();
+        var executor = DownloadExportCoordinator.createExportExecutor();
+        java.util.function.Function<ExportWork.Frozen, DownloadExportCoordinator.ExportJob> jobs = work
+                -> new DownloadExportCoordinator.ExportJob(work,
+                        ()
+                                -> ExportTestTargets.reserve(world, work),
+                        io.github.billstark001.worldmirror.config.ModConfig.DownloadPipelineMode
+                                .STABLE_PERIODIC,
+                        false, true, new io.github.billstark001.worldmirror.conflict.OverwriteResolver(), -1,
+                        io.github.billstark001.worldmirror.io.ExportProgress.NONE);
+        var coordinator = new DownloadExportCoordinator(
+                new DownloadCaptureQueue(() -> false, 1, () -> 8), scheduler, executor, jobs);
+        var previous = ExportTestTargets.session("server:settings-refresh");
+        var next = new CaptureSession(previous.connectionEpoch(), previous.sourceEpoch(),
+                previous.sourceNodeId(), previous.target(),
+                new CaptureSession.Settings(
+                        io.github.billstark001.worldmirror.config.ModConfig.ConflictStrategy.MANUAL,
+                        previous.settings().worldSettings(), false));
+        var unchanged = new ChunkPos(0, 0);
+        var changed = new ChunkPos(1, 0);
+        ChunkListener.addChunkNbt(Level.OVERWORLD, unchanged, new CompoundTag());
+        ChunkListener.addChunkNbt(Level.OVERWORLD, changed, new CompoundTag());
+        try {
+            var work = new ExportWork.Frozen(new ExportWork.Context(ExportWork.Trigger.STOP, false, previous),
+                    ChunkListener.snapshotDirtyState(), Map.of(), Map.of(), 0L, OptionalLong.empty());
+            coordinator.submit(jobs.apply(work), 0);
+            var newer = new CompoundTag();
+            newer.putString("fixture", "new revision");
+            ChunkListener.addChunkNbt(Level.OVERWORLD, changed, newer);
+            executor.submit(() -> {}).get(15, TimeUnit.SECONDS);
+            coordinator.drainCompletions(next);
+
+            assertEquals(Set.of(changed),
+                    ChunkListener.snapshotDirtyState().chunks().get(Level.OVERWORLD).keySet());
+            assertEquals(2, ChunkDatabase.countAllReadOnly(world, previous.target().sourceId()));
+            assertEquals(io.github.billstark001.worldmirror.config.ModConfig.ConflictStrategy.OVERWRITE,
+                    work.context().session().settings().strategy());
+        } finally {
+            coordinator.shutdown();
+            assertTrue(executor.awaitTermination(15, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     void continuousLightUpdatesExcludeOnlyTheirOwnChunkAndNeverAcknowledgeIt(@TempDir Path world) {
         var queue = new DownloadCaptureQueue(() -> false, 1, () -> 8);
         var coordinator = new DownloadExportCoordinator(queue, new ExportScheduler(),

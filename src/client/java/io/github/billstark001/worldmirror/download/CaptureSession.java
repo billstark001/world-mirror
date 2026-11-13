@@ -26,4 +26,15 @@ record CaptureSession(long connectionEpoch, long sourceEpoch, String sourceNodeI
     String id() {
         return target.nodeId();
     }
+
+    boolean targets(WorldGraphService.Target other) {
+        return id().equals(other.nodeId()) && sourceNodeId.equals(other.parentNodeId())
+                && target.sourceId().equals(other.sourceId());
+    }
+
+    /** Settings and the folder can change while this logical target still owns the same live cache. */
+    boolean ownsSameCache(CaptureSession other) {
+        return other != null && connectionEpoch == other.connectionEpoch && sourceEpoch == other.sourceEpoch
+                && targets(other.target);
+    }
 }

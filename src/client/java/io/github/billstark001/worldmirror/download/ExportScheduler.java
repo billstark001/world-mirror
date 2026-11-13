@@ -122,7 +122,8 @@ final class ExportScheduler {
             hasWork = true;
         }
         boolean request(Intent intent) {
-            boolean coalesced = live != null && live.context().session() == intent.context().session();
+            boolean coalesced =
+                    live != null && live.context().session().ownsSameCache(intent.context().session());
             live = coalesced ? mergeIntents(live, intent) : intent;
             hasWork = true;
             return coalesced;

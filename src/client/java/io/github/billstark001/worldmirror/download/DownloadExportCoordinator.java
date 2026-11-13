@@ -183,7 +183,7 @@ final class DownloadExportCoordinator {
                 request(intent);
                 return Dispatch.WAITING_WORLD;
             }
-            if (intent.context().session() != session)
+            if (!intent.context().session().ownsSameCache(session))
                 return Dispatch.WAITING_SOURCE;
             if (client.level == null) {
                 request(intent);
@@ -308,7 +308,7 @@ final class DownloadExportCoordinator {
         Completion completion;
         while ((completion = completions.poll()) != null) {
             var work = completion.job().work();
-            boolean live = work.context().session() == currentSession;
+            boolean live = work.context().session().ownsSameCache(currentSession);
             try {
                 settle(completion, live);
             } finally {

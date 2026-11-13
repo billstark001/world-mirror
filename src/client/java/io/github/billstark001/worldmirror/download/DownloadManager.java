@@ -852,7 +852,7 @@ public final class DownloadManager {
             return;
         var graph = WorldGraphService.instance();
         var observation = origin.source();
-        var preparedSession = captureSession;
+        var preparedSession = captureEnabled ? captureSession : null;
         var chosen = selectedMirror;
         var makeMirror = createMirror;
         preparingRoute = true;
@@ -893,7 +893,15 @@ public final class DownloadManager {
                     Runnable accept = () -> {
                         if (!origin.matches(client))
                             return;
-                        if (captureSession == null) {
+                        if (preparedSession == null) {
+                            var previous = captureSession;
+                            if (previous != null && !previous.targets(target)) {
+                                boolean sameSource = previous.sourceNodeId().equals(target.parentNodeId())
+                                        && sessionIsCurrent(client, previous);
+                                if (sameSource)
+                                    finishPendingBlockChanges(client);
+                                endCaptureSession(sameSource);
+                            }
                             var config = ModConfig.get();
                             var settings = new CaptureSession.Settings(
                                     graph.conflictStrategy(target.nodeId(), target.parentNodeId()),
