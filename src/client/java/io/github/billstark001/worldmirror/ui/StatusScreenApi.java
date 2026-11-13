@@ -28,13 +28,19 @@ abstract class StatusScreenApi extends Screen {
 
     protected abstract void renderContent(Canvas canvas);
 
+    protected boolean hasModalOverlay() {
+        return false;
+    }
+
     @Override
 #if MC_VERSION >= 260102
     public final void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
-        super.extractRenderState(graphics, mouseX, mouseY, delta);
+        boolean modal = hasModalOverlay();
+        super.extractRenderState(graphics, modal ? -1 : mouseX, modal ? -1 : mouseY, delta);
 #else
     public final void render(GuiGraphics graphics, int mouseX, int mouseY, float delta) {
-        super.render(graphics, mouseX, mouseY, delta);
+        boolean modal = hasModalOverlay();
+        super.render(graphics, modal ? -1 : mouseX, modal ? -1 : mouseY, delta);
 #endif
         renderContent(new Canvas() {
             @Override
@@ -55,7 +61,14 @@ abstract class StatusScreenApi extends Screen {
 #endif
             }
         });
+        renderOverlay(graphics, mouseX, mouseY, delta);
     }
+
+#if MC_VERSION >= 260102
+    protected void renderOverlay(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {}
+#else
+    protected void renderOverlay(GuiGraphics graphics, int mouseX, int mouseY, float delta) {}
+#endif
 
     protected static void showScreen(Screen screen) {
 #if MC_VERSION >= 260200

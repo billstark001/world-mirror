@@ -1,21 +1,18 @@
 package io.github.billstark001.worldmirror.ui.map;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import io.github.billstark001.worldmirror.ui.viewport.MapViewport;
 import net.minecraft.client.input.MouseButtonEvent;
 
 /** Map center and the pointer anchor for a primary-button drag. */
 final class ChunkMapPan {
-    private record Anchor(double mouseX, double mouseY, double centerX, double centerZ) {}
-
-    private double x;
-    private double z;
-    private Anchor anchor;
+    private final MapViewport viewport = new MapViewport();
 
     double x() {
-        return x;
+        return viewport.x();
     }
     double z() {
-        return z;
+        return viewport.y();
     }
 
     static boolean isPrimary(MouseButtonEvent event) {
@@ -23,28 +20,19 @@ final class ChunkMapPan {
     }
 
     void centerOn(double x, double z) {
-        this.x = x;
-        this.z = z;
-        anchor = null;
+        viewport.centerOn(x, z);
     }
 
     void begin(MouseButtonEvent event) {
         if (isPrimary(event))
-            anchor = new Anchor(event.x(), event.y(), x, z);
+            viewport.beginDrag(event.x(), event.y());
     }
 
     boolean move(MouseButtonEvent event, int cellSize) {
-        if (anchor == null || !isPrimary(event))
-            return false;
-        x = anchor.centerX() + (anchor.mouseX() - event.x()) / cellSize;
-        z = anchor.centerZ() + (anchor.mouseY() - event.y()) / cellSize;
-        return true;
+        return isPrimary(event) && viewport.dragTo(event.x(), event.y(), cellSize);
     }
 
     boolean release(MouseButtonEvent event) {
-        if (anchor == null || !isPrimary(event))
-            return false;
-        anchor = null;
-        return true;
+        return isPrimary(event) && viewport.endDrag();
     }
 }

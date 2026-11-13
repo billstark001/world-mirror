@@ -56,6 +56,7 @@ import org.lwjgl.glfw.GLFW;
 
 import io.github.billstark001.worldmirror.download.WorldGraphService;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
 import net.minecraft.client.gui.screens.worldselection.SelectWorldScreen;
 
@@ -211,6 +212,9 @@ public class WorldMirrorClient implements ClientModInitializer {
         // which is exactly when we need it.
         ClientLifecycleEvents.CLIENT_STARTED.register(client -> WorldGraphService.instance().refreshAsync());
         ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
+            if (screen instanceof TitleScreen title) {
+                TitleScreenRoutingButton.add(title, width);
+            }
             if (screen instanceof SelectWorldScreen || screen instanceof JoinMultiplayerScreen) {
                 WorldGraphService.instance().refreshAsync();
             }
