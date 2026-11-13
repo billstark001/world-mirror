@@ -7,6 +7,7 @@ import io.github.billstark001.worldmirror.ui.ClientScreens;
 #endif
 import io.github.billstark001.worldmirror.ui.ConflictActions;
 import io.github.billstark001.worldmirror.ui.ExportStatusText;
+import io.github.billstark001.worldmirror.ui.input.MouseInput;
 import io.github.billstark001.worldmirror.ui.map.ChunkStatusCache.StatusTarget;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
@@ -407,7 +408,7 @@ public class ChunkMapScreen extends Screen {
             return true;
         }
 
-        if (ChunkMapPan.isPrimary(event) && hoveredChunk != null && statusTarget != null
+        if (MouseInput.isPrimary(event) && hoveredChunk != null && statusTarget != null
                 && ConflictActions.canResolve(statusTarget.mirror())
                 && statusSnapshot.hasConflict(
                         hoveredChunk.getMinBlockX() >> 4, hoveredChunk.getMinBlockZ() >> 4)) {

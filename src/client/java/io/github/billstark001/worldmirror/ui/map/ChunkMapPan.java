@@ -1,6 +1,6 @@
 package io.github.billstark001.worldmirror.ui.map;
 
-import com.mojang.blaze3d.platform.InputConstants;
+import io.github.billstark001.worldmirror.ui.input.MouseInput;
 import io.github.billstark001.worldmirror.ui.viewport.MapViewport;
 import net.minecraft.client.input.MouseButtonEvent;
 
@@ -15,24 +15,20 @@ final class ChunkMapPan {
         return viewport.y();
     }
 
-    static boolean isPrimary(MouseButtonEvent event) {
-        return event.button() == InputConstants.MOUSE_BUTTON_LEFT;
-    }
-
     void centerOn(double x, double z) {
         viewport.centerOn(x, z);
     }
 
     void begin(MouseButtonEvent event) {
-        if (isPrimary(event))
+        if (MouseInput.isPrimary(event))
             viewport.beginDrag(event.x(), event.y());
     }
 
     boolean move(MouseButtonEvent event, int cellSize) {
-        return isPrimary(event) && viewport.dragTo(event.x(), event.y(), cellSize);
+        return MouseInput.isPrimary(event) && viewport.dragTo(event.x(), event.y(), cellSize);
     }
 
     boolean release(MouseButtonEvent event) {
-        return isPrimary(event) && viewport.endDrag();
+        return MouseInput.isPrimary(event) && viewport.endDrag();
     }
 }

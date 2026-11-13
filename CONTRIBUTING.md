@@ -54,6 +54,8 @@ Unit tests check display semantics, clipped and sparse views, cache bounds, and 
 
 Use `WorldSaveLayout` to resolve vanilla dimension and region paths, including the namespaced paths used by the conflict store. Use `FileProof` for scoped filesystem checks and file identity before opening transaction inputs. Where an operation mutates a save, hold its native lease through verification and publication.
 
+Use vanilla widget handlers for standard mouse input. Custom handlers that inspect `MouseButtonEvent` can use `MouseInput.isPrimary`. Minecraft's `InputConstants` supplies the correct button codes for each supported runtime.
+
 Graph reconciliation and relocation take the graph lock before any save lock. Hold the graph lock through publication so another client cannot recover an in-progress move or race a target reservation. Missing parents retain their edges. Cycles and unresolved duplicate IDs make the affected branches unavailable for writes.
 
 Legacy World Mirror formats live in `io.github.billstark001.worldmirror.legacy`. Call the package directly from the graph scan, save migration, recovery, or stored-data reader that owns the operation. Keep format detection, decoding, and conversion together with the reader for that format. Current metadata and config writers use their own schemas. The Format library's published JVM method calls the same timestamp importer as the mod.
