@@ -35,7 +35,6 @@ abstract class StatusScreenApi extends Screen {
         super.extractRenderState(graphics, mouseX, mouseY, delta);
 #else
     public final void render(GuiGraphics graphics, int mouseX, int mouseY, float delta) {
-        renderBackground(graphics, mouseX, mouseY, delta);
         super.render(graphics, mouseX, mouseY, delta);
 #endif
         renderContent(new Canvas() {
