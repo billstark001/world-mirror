@@ -2,6 +2,8 @@ package io.github.billstark001.worldmirror.download;
 
 import io.github.billstark001.worldmirror.io.MirrorWorldgenAssets;
 import io.github.billstark001.worldmirror.util.JsonSupport;
+import io.github.billstark001.worldmirror.legacy.LegacyWorldMetadata;
+import io.github.billstark001.worldmirror.legacy.WorldMetadataUpgrade;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -33,7 +35,8 @@ class MirrorWorldContextTest {
                 JsonSupport.toPrettyJson(new LegacyMetadata(
                         "server:example.test", "server")));
 
-        assertEquals(WorldMetadata.Schema.LEGACY, WorldMetadata.inspectSchema(world));
+        assertTrue(LegacyWorldMetadata.hasLegacyHeader(world));
+        assertEquals(WorldMetadata.Schema.UNMANAGED, WorldMetadata.inspectSchema(world));
         assertFalse(MirrorMigrationPlan.inspect(world, 100).mayCreateOrWriteWithoutMigration());
         WorldMetadataUpgrade.upgrade(world, "mirror:test", "remote:test");
         assertEquals(MirrorWorldContext.State.OUTDATED, MirrorWorldContext.inspect(world, 100).state());

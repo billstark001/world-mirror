@@ -10,8 +10,6 @@ import io.github.billstark001.worldmirror.download.WorldGraph.Root;
 import io.github.billstark001.worldmirror.download.WorldGraph.Snapshot;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.EndpointRule;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.IdPolicy;
-import io.github.billstark001.worldmirror.download.WorldGraphConfig.LegacyEntry;
-import io.github.billstark001.worldmirror.download.WorldGraphConfig.LegacyImport;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.MirrorSettings;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.PendingImport;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.SourceSettings;
@@ -21,12 +19,18 @@ import io.github.billstark001.worldmirror.util.FileTransaction;
 import io.github.billstark001.worldmirror.util.JsonSupport;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.util.WorldRecovery;
+import io.github.billstark001.worldmirror.legacy.LegacyGraphImport;
+import io.github.billstark001.worldmirror.legacy.LegacyMirrorClaim;
+import io.github.billstark001.worldmirror.legacy.LegacyRouting;
+import io.github.billstark001.worldmirror.legacy.LegacySourceIds;
+import io.github.billstark001.worldmirror.legacy.LegacyWorldMetadata;
+import io.github.billstark001.worldmirror.legacy.LegacyWorldRecovery;
+import io.github.billstark001.worldmirror.legacy.WorldMetadataUpgrade;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.level.storage.LevelResource;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.channels.FileChannel;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Files;
@@ -34,7 +38,6 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -42,8 +45,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.TreeMap;
-import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -51,18 +52,14 @@ import java.util.function.BooleanSupplier;
 
 /** Disk inventory, graph publication, and selection of the current source's direct download target. */
 public final class WorldGraphService {
-    private static final String LEGACY_MAPPING = "mirrors.json";
-    private static final String IMPORT_JOURNAL = ".world-graph-import.json";
     private static final String GRAPH_LOCK = ".world-graph.lock";
     private static final String BLOCKED_SOURCE = "blocked-source:";
-    private static final String LEGACY_ROUTING = "legacy-routing:";
 
     private static final class ClientService {
         static final WorldGraphService INSTANCE = new WorldGraphService(FabricLoader.getInstance().getGameDir(),
                 FabricLoader.getInstance().getConfigDir().resolve("worldmirror"));
     }
 
-    private record ImportPlan(String legacyDigest, Map<String, String> allocatedIds) {}
     private record Candidate(Location location, Path path, WorldMetadata metadata, LegacyWorldMetadata legacy) {}
     private record RemoteEvidence(String indexSource, String parentId) {}
     public record Source(String nodeId, String label, String endpoint) {}
@@ -192,7 +189,7 @@ public final class WorldGraphService {
         if (observation == null) return null;
         if (observation.nodeId() != null) return observation.nodeId();
         EndpointRule rule = config.endpointRules().get(observation.endpoint());
-        if (rule == null) return deterministicId("remote", observation.endpoint());
+        if (rule == null) return WorldGraphConfig.deterministicId("remote", observation.endpoint());
         if (rule.idPolicy() == IdPolicy.REQUIRE_BOUND_ID) return null;
         if (rule.defaultSourceId() != null) return rule.defaultSourceId();
         return rule.sourceIds().size() == 1 ? rule.sourceIds().iterator().next() : null;
@@ -329,7 +326,7 @@ public final class WorldGraphService {
         SourceSettings old = settings(sources, parent);
         sources.put(parent, new SourceSettings(target, old.saveLocation(), old.preferredFolderName(), old.conflictStrategy()));
         Map<String, EndpointRule> rules = new HashMap<>(before.endpointRules());
-        if (endpoint != null) addEndpoint(rules, endpoint, parent);
+        if (endpoint != null) WorldGraphConfig.addEndpoint(rules, endpoint, parent);
         publishConfig(before, before.nodes(), sources, before.mirrorSettings(), rules, before.pendingImports());
     }
 
@@ -462,26 +459,6 @@ public final class WorldGraphService {
                 folder.getFileName().toString());
     }
 
-    static String deterministicId(String kind, String key) {
-        return kind + ":" + UUID.nameUUIDFromBytes(("worldmirror:" + kind + ":" + key).getBytes(StandardCharsets.UTF_8));
-    }
-
-    private static void addEndpoint(Map<String, EndpointRule> rules, String endpoint, String id) {
-        EndpointRule old = rules.get(endpoint);
-        Set<String> sources = new TreeSet<>(old == null ? Set.of() : old.sourceIds());
-        sources.add(id);
-        rules.put(endpoint, new EndpointRule(old == null ? deterministicId("endpoint", endpoint) : old.addressGroupId(),
-                sources, old == null ? null : old.defaultSourceId(), old == null ? IdPolicy.ENDPOINT_ONLY : old.idPolicy()));
-    }
-
-    private static boolean endpointMatches(String endpoint, String legacySource) {
-        try {
-            return endpoint.equals(WorldGraphConfig.normalizeEndpoint(legacySource.substring("server:".length())));
-        } catch (IllegalArgumentException invalid) {
-            return false;
-        }
-    }
-
     private static void requirePlainRoot(Path path) throws IOException {
         FileProof.requirePlainDirectory(path);
         if (!path.toRealPath().equals(path.toAbsolutePath().normalize())) {
@@ -489,64 +466,48 @@ public final class WorldGraphService {
         }
     }
     private void refreshFromDisk() throws IOException {
-        Path legacyFile = configDirectory.resolve(LEGACY_MAPPING);
-        Path planFile = configDirectory.resolve(IMPORT_JOURNAL);
         FileTransaction.recover(configDirectory);
         WorldGraphConfig.Snapshot before = open().snapshot();
-        boolean importing = !Files.notExists(legacyFile, LinkOption.NOFOLLOW_LINKS);
-        if (importing && !Files.isRegularFile(legacyFile, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("Legacy mirror mapping is not a regular file: " + legacyFile);
-        }
-        String digest = importing ? FileProof.sha256(legacyFile) : null;
-        Map<String, LegacyEntry> oldEntries = new HashMap<>();
-        before.pendingImports().forEach((key, value) -> {
-            if (key.startsWith(LEGACY_ROUTING) && value.legacy() != null) {
-                oldEntries.put(value.legacy().sourceId(), value.legacy());
-            }
-        });
-        if (importing) oldEntries.putAll(WorldGraphConfig.readLegacy(legacyFile).entries());
-        LegacyImport legacy = new LegacyImport(oldEntries);
-        var saved = JsonSupport.readDocument(planFile, ImportPlan.class);
-        if (saved.state() != JsonSupport.ReadState.MISSING && saved.value() == null) {
-            throw new IOException("Invalid world graph import journal", saved.failure());
-        }
-        ImportPlan plan = saved.value();
-        if (plan != null && plan.allocatedIds() == null) throw new IOException("Invalid world graph import allocations");
-        if (plan != null && !Objects.equals(plan.legacyDigest(), digest)) {
-            if (!importing && open().exists()) {
-                plan = new ImportPlan(null, plan.allocatedIds());
-            } else throw new IOException("Legacy mapping changed during import");
-        }
+        LegacyGraphImport migration = LegacyGraphImport.open(configDirectory, before.pendingImports(), open().exists());
+        LegacyRouting legacy = migration.routing();
         List<Path> folders = folders();
         Set<Path> deferred = recoverRelocations(folders, before, legacy);
-        if (!deferred.isEmpty() && importing) {
+        if (!deferred.isEmpty() && migration.hasLegacyFile()) {
             throw new IOException("Pending relocation must recover before archiving the legacy configuration");
         }
         folders = folders();
 
         Map<String, PendingImport> pending = new HashMap<>(before.pendingImports());
         pending.keySet().removeIf(key -> key.startsWith(BLOCKED_SOURCE));
-        Map<String, String> allocations = new HashMap<>(plan == null ? Map.of() : plan.allocatedIds());
+        Map<String, String> allocations = migration.allocations();
         List<Candidate> candidates = scanMetadata(folders, deferred, allocations, pending);
-        if (importing || !allocations.isEmpty()) {
-            var nextPlan = new ImportPlan(digest, allocations);
-            if (!nextPlan.equals(plan)) JsonSupport.writeDocument(planFile, nextPlan);
-        }
+        migration.pin(allocations);
 
         Map<String, EndpointRule> rules = new HashMap<>(before.endpointRules());
         Map<Path, String> legacyClaims = new HashMap<>();
         for (Path folder : folders) {
             if (deferred.contains(folder) || !Files.isRegularFile(folder.resolve(MirrorClaim.FILE_NAME), LinkOption.NOFOLLOW_LINKS)) continue;
-            String oldSource = MirrorClaim.readLegacySource(folder);
+            String oldSource = LegacyMirrorClaim.readSource(folder);
             if (oldSource != null) legacyClaims.put(folder, oldSource);
         }
-        Map<String, String> remoteIds = importedRemoteIds(legacy, candidates, legacyClaims.values(), rules);
+        Set<String> oldSourceIds = new HashSet<>(legacy.entries().keySet());
+        oldSourceIds.addAll(legacyClaims.values());
+        Map<String, String> importedParents = new HashMap<>();
+        for (Candidate candidate : candidates) {
+            if (candidate.legacy() != null) oldSourceIds.add(candidate.legacy().sourceId());
+            WorldMetadata metadata = candidate.metadata();
+            if (metadata != null && metadata.sourceId.startsWith("server:") && metadata.parentNodeId != null
+                    && metadata.parentNodeId.startsWith("remote:")) {
+                importedParents.putIfAbsent(metadata.sourceId, metadata.parentNodeId);
+            }
+        }
+        Map<String, String> remoteIds = LegacySourceIds.importRemoteIds(oldSourceIds, importedParents, rules);
         if (!open().exists()) restoreRemoteRules(candidates, folders, deferred, rules);
         Map<String, String> knownLegacyIds = new HashMap<>();
         for (Candidate candidate : candidates) {
             LegacyWorldMetadata metadata = candidate.legacy();
             if (metadata != null && metadata.mirrorId() != null && !metadata.mirrorId().isBlank()) {
-                knownLegacyIds.putIfAbsent(metadata.mirrorId(), legacyNodeId(metadata));
+                knownLegacyIds.putIfAbsent(metadata.mirrorId(), LegacySourceIds.legacyNodeId(metadata));
             } else if (candidate.metadata() != null) {
                 String id = candidate.metadata().nodeId;
                 knownLegacyIds.putIfAbsent(id.substring(id.indexOf(':') + 1), id);
@@ -561,12 +522,12 @@ public final class WorldGraphService {
             try {
                 if (old != null) {
                     String nodeId = old.mirrorId() == null || old.mirrorId().isBlank()
-                            ? allocations.get(key) : legacyNodeId(old);
-                    String parentId = legacyParent(old, remoteIds, knownLegacyIds);
+                            ? allocations.get(key) : LegacySourceIds.legacyNodeId(old);
+                    String parentId = LegacySourceIds.legacyParent(old, remoteIds, knownLegacyIds);
                     metadata = WorldMetadataUpgrade.upgrade(candidate.path(), nodeId, parentId, old);
                     pending.remove(key);
                     if (parentId != null && parentId.startsWith("unresolved:")) {
-                        pending.put("upstream:" + nodeId, new PendingImport(legacyEntry(old.sourceId(), legacy),
+                        pending.put("upstream:" + nodeId, new PendingImport(legacy.entryFor(old.sourceId()),
                                 candidate.location(), "upstream_unresolved"));
                     }
                 }
@@ -575,11 +536,11 @@ public final class WorldGraphService {
                     observed.add(new Node(metadata.parentNodeId, null, null, Kind.REMOTE, null));
                 }
             } catch (IOException | RuntimeException failure) {
-                var evidence = new PendingImport(old == null ? null : legacyEntry(old.sourceId(), legacy),
+                var evidence = new PendingImport(old == null ? null : legacy.entryFor(old.sourceId()),
                         candidate.location(), "metadata_upgrade_deferred");
                 pending.put(key, evidence);
                 if (old != null && old.kind() == Kind.MIRROR && old.role() == Role.SYNC) {
-                    pending.put(BLOCKED_SOURCE + legacyParent(old, remoteIds, knownLegacyIds), evidence);
+                    pending.put(BLOCKED_SOURCE + LegacySourceIds.legacyParent(old, remoteIds, knownLegacyIds), evidence);
                 }
                 WMLogger.warnRateLimited("graph-migrate:" + candidate.path(), 30_000, "World metadata upgrade deferred: " + candidate.path(), failure);
             }
@@ -589,12 +550,22 @@ public final class WorldGraphService {
         rules.values().stream().flatMap(rule -> rule.sourceIds().stream()).distinct()
                 .forEach(id -> observed.add(new Node(id, null, null, Kind.REMOTE, null)));
         Map<String, Location> affinity = new HashMap<>(before.locations());
-        useLegacyAffinity(legacy, candidates, observed, affinity);
+        Map<Location, String> oldOwners = new HashMap<>();
+        for (Candidate candidate : candidates) {
+            oldOwners.put(candidate.location(), candidate.legacy() == null
+                    ? candidate.metadata().sourceId : candidate.legacy().sourceId());
+        }
+        migration.applyAffinity(oldOwners, observed, affinity, () -> ModConfig.get().defaultSaveLocation);
         Snapshot graph = repairDuplicates(observed, affinity, byLocation, pending);
         Map<String, SourceSettings> sources = new HashMap<>(before.sourceSettings());
         Map<String, MirrorSettings> mirrors = new HashMap<>(before.mirrorSettings());
-        applyLegacySettings(legacy, remoteIds, graph, byLocation, sources, mirrors, pending);
-        if (importing && !digest.equals(FileProof.sha256(legacyFile))) throw new IOException("Legacy config changed during upgrade");
+        migration.applySettings(remoteIds, graph, location -> {
+            Candidate candidate = byLocation.get(location);
+            if (candidate != null) return candidate.metadata().sourceId;
+            MirrorClaim.Claim claim = MirrorClaim.read(root(location.root()).resolve(location.folder()));
+            return claim == null ? null : claim.sourceId();
+        }, WorldGraphService::locationKey, sources, mirrors, pending, () -> ModConfig.get().defaultSaveLocation);
+        migration.verifyUnchanged();
         Map<String, Node> cache = new HashMap<>(graph.nodes());
         cache.keySet().removeIf(id -> !graph.isUnambiguous(id));
         Map<String, Location> locations = new HashMap<>(before.locations());
@@ -615,19 +586,7 @@ public final class WorldGraphService {
             }
         }
         published = new Published(graph, open().snapshot(), Map.copyOf(targets));
-        if (importing) {
-            Path archive = configDirectory.resolve("mirrors.v1-" + digest.substring(0, 12) + ".json");
-            if (Files.notExists(archive)) Files.move(legacyFile, archive, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
-            else if (digest.equals(FileProof.sha256(archive))) Files.delete(legacyFile);
-            else throw new IOException("Legacy config archive does not match the input");
-        }
-        Map<String, String> pendingAllocations = new HashMap<>(allocations);
-        pendingAllocations.keySet().removeIf(key -> !pending.containsKey(key));
-        if (pendingAllocations.isEmpty()) Files.deleteIfExists(planFile);
-        else {
-            var remaining = new ImportPlan(null, pendingAllocations);
-            if (!remaining.equals(plan)) JsonSupport.writeDocument(planFile, remaining);
-        }
+        migration.complete(allocations, pending.keySet());
     }
 
     private List<Candidate> scanMetadata(List<Path> folders, Set<Path> deferred, Map<String, String> allocations,
@@ -641,7 +600,7 @@ public final class WorldGraphService {
                 continue;
             }
             try {
-                if (WorldRecovery.required(folder) || FileTransaction.hasPending(folder)) {
+                if (WorldRecovery.required(folder) || LegacyWorldRecovery.hasPending(folder)) {
                     try (WorldWriteLock ignored = WorldWriteLock.acquire(folder)) { }
                 }
                 var schema = WorldMetadata.inspectSchema(folder);
@@ -649,7 +608,7 @@ public final class WorldGraphService {
                     WorldMetadata metadata = WorldMetadata.loadIfPresent(folder).orElseThrow();
                     candidates.add(new Candidate(location, folder, metadata, null));
                     pending.remove(key);
-                } else if (schema == WorldMetadata.Schema.LEGACY) {
+                } else if (LegacyWorldMetadata.hasLegacyHeader(folder)) {
                     LegacyWorldMetadata metadata = LegacyWorldMetadata.read(folder);
                     if (metadata == null) throw new IOException("Legacy metadata changed: " + folder);
                     candidates.add(new Candidate(location, folder, null, metadata));
@@ -668,7 +627,7 @@ public final class WorldGraphService {
     }
 
     private void scanLocalWorldsAndClaims(List<Path> folders, Set<Path> deferred,
-                                         LegacyImport legacy, Map<Path, String> legacyClaims, Map<String, String> remoteIds,
+                                         LegacyRouting legacy, Map<Path, String> legacyClaims, Map<String, String> remoteIds,
                                          Map<String, String> knownLegacyIds, List<Node> observed,
                                          Map<Location, Candidate> byLocation, Map<String, PendingImport> pending) {
         Map<String, List<WorldMetadata>> completed = new HashMap<>();
@@ -690,11 +649,11 @@ public final class WorldGraphService {
                 if (claim == null) {
                     String oldSource = legacyClaims.get(folder);
                     if (oldSource != null) {
+                        String parent = LegacySourceIds.legacyParent(oldSource, remoteIds, knownLegacyIds);
                         try {
-                            claim = upgradeClaim(folder, oldSource, remoteIds, knownLegacyIds);
+                            claim = LegacyMirrorClaim.upgrade(folder, oldSource, parent);
                         } catch (IOException failure) {
-                            String parent = legacyParent(oldSource, remoteIds, knownLegacyIds);
-                            var evidence = new PendingImport(legacyEntry(oldSource, legacy), location, "claim_upgrade_deferred");
+                            var evidence = new PendingImport(legacy.entryFor(oldSource), location, "claim_upgrade_deferred");
                             pending.put(key, evidence);
                             pending.put(BLOCKED_SOURCE + parent, evidence);
                             continue;
@@ -776,89 +735,10 @@ public final class WorldGraphService {
 
     private static String locationKey(Location location) { return location.root().name() + "/" + location.folder(); }
 
-    private static LegacyEntry legacyEntry(String id, LegacyImport legacy) {
-        return legacy.entries().getOrDefault(id, new LegacyEntry(id, null, Map.of(), null, null));
-    }
-
-    private static String legacyNodeId(LegacyWorldMetadata old) {
-        return (old.kind() == Kind.SNAPSHOT ? "snapshot:" : "mirror:") + old.mirrorId();
-    }
-
-    private static String legacyParent(LegacyWorldMetadata old, Map<String, String> remotes, Map<String, String> knownIds) {
-        if (old.kind() == Kind.SNAPSHOT) return null;
-        return legacyParent(old.sourceId(), remotes, knownIds);
-    }
-
-    private static String legacyParent(String source, Map<String, String> remotes, Map<String, String> knownIds) {
-        if (source.startsWith("mirror:")) {
-            return knownIds.getOrDefault(source.substring("mirror:".length()), source);
-        }
-        return remotes.getOrDefault(source, deterministicId("unresolved", source));
-    }
-
-    private MirrorClaim.Claim upgradeClaim(Path folder, String source, Map<String, String> remotes,
-                                           Map<String, String> knownIds) throws IOException {
-        try (WorldWriteLock ignored = WorldWriteLock.acquire(folder)) {
-            Path file = folder.resolve(MirrorClaim.FILE_NAME);
-            FileProof.Version stamp = FileProof.version(file);
-            if (!source.equals(MirrorClaim.readLegacySource(folder))) throw new IOException("Legacy reservation changed");
-            String parent = legacyParent(source, remotes, knownIds);
-            var claim = new MirrorClaim.Claim(UUID.randomUUID(), "mirror:" + UUID.randomUUID(), parent, source);
-            JsonSupport.compareAndWriteDocument(file, claim, stamp);
-            return claim;
-        }
-    }
-
     private static void addMirror(List<Node> nodes, Map<Location, Candidate> byLocation, Candidate candidate) {
         WorldMetadata metadata = candidate.metadata();
         nodes.add(new Node(metadata.nodeId, metadata.parentNodeId, candidate.location(), metadata.kind, metadata.role));
         byLocation.put(candidate.location(), candidate);
-    }
-
-    private Map<String, String> importedRemoteIds(LegacyImport legacy, List<Candidate> candidates,
-                                                  Collection<String> legacyClaims, Map<String, EndpointRule> rules) {
-        Set<String> keys = new TreeSet<>(legacy.entries().keySet());
-        for (Candidate candidate : candidates) if (candidate.legacy() != null) keys.add(candidate.legacy().sourceId());
-        keys.addAll(legacyClaims);
-        Map<String, String> persisted = new HashMap<>();
-        for (Candidate candidate : candidates) {
-            WorldMetadata metadata = candidate.metadata();
-            if (metadata != null && metadata.sourceId.startsWith("server:") && metadata.parentNodeId != null
-                    && metadata.parentNodeId.startsWith("remote:")) {
-                persisted.putIfAbsent(metadata.sourceId, metadata.parentNodeId);
-            }
-        }
-        Map<String, List<String>> grouped = new TreeMap<>();
-        for (String key : keys) {
-            if (!key.startsWith("server:")) continue;
-            try {
-                String endpoint = WorldGraphConfig.normalizeEndpoint(key.substring("server:".length()));
-                grouped.computeIfAbsent(endpoint, ignored -> new ArrayList<>()).add(key);
-            } catch (IllegalArgumentException invalid) {
-                // Invalid endpoint text survives as unresolved import evidence.
-            }
-        }
-        Map<String, String> ids = new HashMap<>();
-        for (var entry : grouped.entrySet()) {
-            String endpoint = entry.getKey();
-            for (String key : entry.getValue()) {
-                EndpointRule rule = rules.get(endpoint);
-                boolean newEndpoint = rule == null || rule.sourceIds().isEmpty();
-                String canonical = deterministicId("remote", endpoint);
-                String split = deterministicId("remote", key);
-                String id = persisted.get(key);
-                if (id == null) {
-                    boolean otherPersistedKey = persisted.entrySet().stream().anyMatch(existing ->
-                            !key.equals(existing.getKey()) && endpointMatches(endpoint, existing.getKey()));
-                    boolean useCanonical = entry.getValue().size() == 1 && !otherPersistedKey
-                            && (newEndpoint || rule.sourceIds().equals(Set.of(canonical)));
-                    id = useCanonical ? canonical : split;
-                }
-                ids.put(key, id);
-                addEndpoint(rules, endpoint, id);
-            }
-        }
-        return ids;
     }
 
     private static void restoreRemoteRules(List<Candidate> candidates, List<Path> folders, Set<Path> deferred,
@@ -878,74 +758,15 @@ public final class WorldGraphService {
                     || !source.parentId().startsWith("remote:")) continue;
             try {
                 String endpoint = WorldGraphConfig.normalizeEndpoint(source.indexSource().substring("server:".length()));
-                addEndpoint(rules, endpoint, source.parentId());
+                WorldGraphConfig.addEndpoint(rules, endpoint, source.parentId());
             } catch (IllegalArgumentException invalid) {
                 // Existing metadata edges remain in the graph even if the old address cannot be used to connect.
             }
         }
     }
 
-    private void useLegacyAffinity(LegacyImport legacy, List<Candidate> candidates, List<Node> observed,
-                                   Map<String, Location> affinity) {
-        Map<Location, String> owners = new HashMap<>();
-        for (Candidate candidate : candidates) {
-            owners.put(candidate.location(), candidate.legacy() != null ? candidate.legacy().sourceId() : candidate.metadata().sourceId);
-        }
-        for (Node node : observed) {
-            if (node.location() == null) continue;
-            String owner = owners.get(node.location());
-            LegacyEntry entry = owner == null ? null : legacy.entries().get(owner);
-            if (entry != null && node.location().equals(legacyLocation(entry))) affinity.putIfAbsent(node.id(), node.location());
-        }
-    }
-
-    private Location legacyLocation(LegacyEntry entry) {
-        ModConfig.SaveLocation save = entry.saveLocation() == null ? ModConfig.get().defaultSaveLocation : entry.saveLocation();
-        String name = entry.resolvedFolderNames().getOrDefault(save, entry.preferredFolderName());
-        return MirrorFolders.isUsableFolderName(name) ? new Location(Root.valueOf(save.name()), name) : null;
-    }
-
-    private void applyLegacySettings(LegacyImport legacy, Map<String, String> remotes, Snapshot graph,
-                                     Map<Location, Candidate> candidates, Map<String, SourceSettings> sources,
-                                     Map<String, MirrorSettings> mirrors, Map<String, PendingImport> pending) {
-        for (LegacyEntry entry : legacy.entries().values()) {
-            String parent = legacyParent(entry.sourceId(), remotes, Map.of());
-            Location expected = legacyLocation(entry);
-            Node node = graph.nodes().values().stream().filter(value -> value.kind() == Kind.MIRROR
-                    && value.role() == Role.SYNC && Objects.equals(value.location(), expected)
-                    && parent.equals(value.parentId())).findFirst().orElse(null);
-            Candidate candidate = node == null ? null : candidates.get(node.location());
-            if (node != null) {
-                Path folderPath = root(node.location().root()).resolve(node.location().folder());
-                var claim = candidate == null ? MirrorClaim.read(folderPath) : null;
-                String owner = candidate != null ? candidate.metadata().sourceId : claim == null ? null : claim.sourceId();
-                if (!entry.sourceId().equals(owner)) node = null;
-            }
-            if (parent.startsWith("unresolved:")) {
-                pending.put("legacy:" + entry.sourceId(), new PendingImport(entry, expected, "source_unresolved"));
-                continue;
-            }
-            String pendingKey = LEGACY_ROUTING + entry.sourceId();
-            if (node == null && expected != null && pending.containsKey(locationKey(expected))) {
-                pending.put(pendingKey, new PendingImport(entry, expected, "target_upgrade_deferred"));
-                continue;
-            }
-            pending.remove(pendingKey);
-            String targetId = node == null ? null : node.id();
-            String folder = MirrorFolders.isUsableFolderName(entry.preferredFolderName()) ? entry.preferredFolderName() : null;
-            SourceSettings previous = settings(sources, parent);
-            if (previous.defaultMirrorId() == null) {
-                sources.put(parent, new SourceSettings(targetId, entry.saveLocation(), folder,
-                        node == null ? entry.conflictStrategy() : null));
-            }
-            if (node != null && entry.conflictStrategy() != null) {
-                mirrors.putIfAbsent(node.id(), new MirrorSettings(entry.conflictStrategy()));
-            }
-        }
-    }
-
     private Set<Path> recoverRelocations(List<Path> folders, WorldGraphConfig.Snapshot config,
-                                         LegacyImport legacy) throws IOException {
+                                         LegacyRouting legacy) throws IOException {
         Set<Path> deferred = new HashSet<>();
         Set<Path> handled = new HashSet<>();
         Set<Path> allowed = Set.of(root(Root.SAVES), root(Root.DOWNLOADED));
@@ -962,18 +783,8 @@ public final class WorldGraphService {
             handled.add(journal.source());
             handled.add(journal.target());
             try {
-                Location location;
-                if (journal.legacySourceId() != null) {
-                    LegacyEntry entry = legacyEntry(journal.legacySourceId(), legacy);
-                    location = legacyLocation(entry);
-                    if (location == null) {
-                        ModConfig.SaveLocation save = entry.saveLocation() == null ? ModConfig.get().defaultSaveLocation : entry.saveLocation();
-                        String label = journal.legacySourceId().replaceFirst("^(server|local):", "");
-                        location = new Location(Root.valueOf(save.name()), MirrorFolders.generate(label));
-                    }
-                } else {
-                    location = config.locations().get(journal.nodeId());
-                }
+                Location location = journal.routingWitness().find(config.locations(),
+                        oldSource -> legacy.relocationWitness(oldSource, () -> ModConfig.get().defaultSaveLocation));
                 if (location == null) throw new IOException("Relocation commit location unavailable");
                 WorldRelocation.recover(folder, root(location.root()).resolve(location.folder()), allowed);
             } catch (IOException | RuntimeException failure) {

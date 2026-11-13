@@ -3,7 +3,7 @@ package io.github.billstark001.worldmirror.download;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import io.github.billstark001.worldmirror.format.MirrorFormat;
-import io.github.billstark001.worldmirror.util.FileProof;
+import io.github.billstark001.worldmirror.legacy.LegacyVoidChunkCleanup;
 import io.github.billstark001.worldmirror.util.JsonSupport;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.loader.api.FabricLoader;
@@ -19,9 +19,8 @@ public final class WorldMetadata {
     public static final String FORMAT = MirrorFormat.FORMAT;
     public static final int CURRENT_METADATA_SCHEMA = 2;
     public static final int CURRENT_WORLDGEN_SCHEMA = MirrorFormat.WORLDGEN_SCHEMA;
-    public static final int CURRENT_VOID_CHUNK_CLEANUP_REVISION = 1;
 
-    public enum Schema { MISSING, LEGACY, CURRENT, FUTURE, UNMANAGED, UNREADABLE }
+    public enum Schema { MISSING, CURRENT, FUTURE, UNMANAGED, UNREADABLE }
     public enum GenerationMode { VOID }
 
     public record Generation(GenerationMode mode, int revision, int assetRevision, int dataVersion,
@@ -61,7 +60,7 @@ public final class WorldMetadata {
         return metadata;
     }
 
-    /** Inspects the persisted format without adopting or writing legacy metadata. */
+    /** Inspects current metadata without adopting a document of an unsupported format. */
     public static Schema inspectSchema(Path worldFolder) {
         var read = readDocument(worldFolder);
         if (read.state() == JsonSupport.ReadState.MISSING) return Schema.MISSING;
@@ -72,7 +71,6 @@ public final class WorldMetadata {
                     fromCurrent(read.value());
                     yield Schema.CURRENT;
                 }
-                case LEGACY -> Schema.LEGACY;
                 case FUTURE -> Schema.FUTURE;
                 case UNMANAGED -> Schema.UNMANAGED;
                 case MISSING, UNREADABLE -> Schema.UNREADABLE;
@@ -100,7 +98,7 @@ public final class WorldMetadata {
         return Optional.empty();
     }
 
-    static JsonSupport.Document<JsonObject> readDocument(Path worldFolder) {
+    private static JsonSupport.Document<JsonObject> readDocument(Path worldFolder) {
         Path file = worldFolder.resolve(FILE_NAME);
         if (Files.isSymbolicLink(file)) {
             return new JsonSupport.Document<>(JsonSupport.ReadState.UNAVAILABLE, null,
@@ -109,23 +107,16 @@ public final class WorldMetadata {
         return JsonSupport.readDocument(file, JsonObject.class);
     }
 
-    static Schema schema(JsonObject json) {
+    private static Schema schema(JsonObject json) {
         String marker = string(json, "format", false);
-        if (marker != null && !FORMAT.equals(marker)) return Schema.UNMANAGED;
-        if (!json.has("metadataSchema") && marker == null) {
-            return LegacyWorldMetadata.hasUnversionedSignature(json) ? Schema.LEGACY : Schema.UNMANAGED;
-        }
-        if (marker == null) throw new IllegalArgumentException("Missing mirror format");
-        int version = integer(json, "metadataSchema", 0);
+        if (marker == null && json.has("metadataSchema")) return Schema.UNREADABLE;
+        if (!FORMAT.equals(marker)) return Schema.UNMANAGED;
+        int version = integer(json, "metadataSchema", -1);
         if (version > CURRENT_METADATA_SCHEMA) return Schema.FUTURE;
-        return switch (version) {
-            case 0, 1 -> Schema.LEGACY;
-            case CURRENT_METADATA_SCHEMA -> Schema.CURRENT;
-            default -> throw new IllegalArgumentException("Invalid mirror metadata schema");
-        };
+        return version == CURRENT_METADATA_SCHEMA ? Schema.CURRENT : Schema.UNREADABLE;
     }
 
-    static WorldMetadata fromCurrent(JsonObject json) {
+    private static WorldMetadata fromCurrent(JsonObject json) {
         WorldMetadata metadata = new WorldMetadata();
         metadata.modVersion = string(json, "modVersion", false);
         metadata.nodeId = string(json, "nodeId", true);
@@ -144,7 +135,7 @@ public final class WorldMetadata {
         return metadata;
     }
 
-    static String string(JsonObject json, String name, boolean required) {
+    private static String string(JsonObject json, String name, boolean required) {
         JsonElement element = json.get(name);
         if (!required && (element == null || element.isJsonNull())) return null;
         if (element == null || !element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()
@@ -154,7 +145,7 @@ public final class WorldMetadata {
         return element.getAsString();
     }
 
-    static int integer(JsonObject json, String name, int defaultValue) {
+    private static int integer(JsonObject json, String name, int defaultValue) {
         long value = number(json, name, defaultValue);
         if (value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
             throw new IllegalArgumentException("Invalid metadata integer: " + name);
@@ -162,7 +153,7 @@ public final class WorldMetadata {
         return (int) value;
     }
 
-    static long number(JsonObject json, String name, long defaultValue) {
+    private static long number(JsonObject json, String name, long defaultValue) {
         JsonElement element = json.get(name);
         if (element == null) return defaultValue;
         if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isNumber()) {
@@ -175,7 +166,7 @@ public final class WorldMetadata {
         }
     }
 
-    static boolean validKey(String key) {
+    private static boolean validKey(String key) {
         return key != null && !key.isBlank() && key.chars().noneMatch(Character::isISOControl);
     }
 
@@ -210,11 +201,6 @@ public final class WorldMetadata {
         }
     }
 
-    void publishUpgrade(Path worldFolder, FileProof.Version expected) throws IOException {
-        validate();
-        JsonSupport.compareAndWriteDocument(worldFolder.resolve(FILE_NAME), this, expected);
-    }
-
     public boolean needsWorldgenMigration() {
         return generation.revision() < CURRENT_WORLDGEN_SCHEMA;
     }
@@ -231,14 +217,10 @@ public final class WorldMetadata {
         return generation.dataVersion() > dataVersion || generation.assetRevision() > assetRevision;
     }
 
-    public boolean needsLegacyVoidChunkCleanup() {
-        return generation.cleanupRevision() < CURRENT_VOID_CHUNK_CLEANUP_REVISION;
-    }
-
     /** Marks both layers of world-generation migration as complete after a successful write. */
     public void markWorldgenCurrent(int dataVersion, int assetRevision) {
         generation = new Generation(GenerationMode.VOID, CURRENT_WORLDGEN_SCHEMA, assetRevision,
-                dataVersion, CURRENT_VOID_CHUNK_CLEANUP_REVISION);
+                dataVersion, LegacyVoidChunkCleanup.COMPLETED_REVISION);
         modVersion = currentModVersion();
     }
 

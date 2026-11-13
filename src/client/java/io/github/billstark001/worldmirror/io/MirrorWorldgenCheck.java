@@ -1,8 +1,8 @@
 package io.github.billstark001.worldmirror.io;
 
+import io.github.billstark001.worldmirror.legacy.LegacyWorldgen;
 import io.github.billstark001.worldmirror.util.FileProof;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.world.level.levelgen.NoiseGeneratorSettings;
 
@@ -85,9 +85,6 @@ public final class MirrorWorldgenCheck {
         if (!(settings.get("dimensions") instanceof CompoundTag dimensions)) {
             return new Result(State.UNREADABLE, "worldgen_dimensions_missing");
         }
-        CompoundTag legacy = WorldStructureCreator.createMirrorWorldGenSettings(false)
-                .getCompoundOrEmpty("dimensions");
-        CompoundTag flat = legacyFlatGenerator();
         boolean outdated = false;
         for (var definition : MirrorWorldgenDefinition.DIMENSIONS) {
             String id = definition.dimensionType();
@@ -96,12 +93,10 @@ public final class MirrorWorldgenCheck {
                     || !(dimension.get("generator") instanceof CompoundTag generator)) {
                 return new Result(State.UNRECOGNIZED, "worldgen_unrecognized_dimension:" + id);
             }
-            boolean knownLegacy = generator.equals(legacy.getCompoundOrEmpty(id).get("generator"))
-                    || generator.equals(flat);
-            boolean readable = decodes(generator, definition.biome());
-            if (knownLegacy && !readable) {
+            if (decodes(generator, definition.biome())) continue;
+            if (LegacyWorldgen.recognizes(generator, definition)) {
                 outdated = true;
-            } else if (!readable) {
+            } else {
                 return new Result(State.UNRECOGNIZED, "worldgen_unrecognized_generator:" + id);
             }
         }
@@ -125,35 +120,9 @@ public final class MirrorWorldgenCheck {
             throw new IOException("Refusing to replace unknown world generation: " + result.problem());
         }
         if (result.state() == State.CURRENT) return settings;
-        CompoundTag dimensions = settings.getCompoundOrEmpty("dimensions");
-        CompoundTag current = WorldStructureCreator.createMirrorWorldGenSettings()
-                .getCompoundOrEmpty("dimensions");
-        for (var definition : MirrorWorldgenDefinition.DIMENSIONS) {
-            CompoundTag dimension = dimensions.getCompoundOrEmpty(definition.dimensionType());
-            CompoundTag generator = dimension.getCompoundOrEmpty("generator");
-            if (!decodes(generator, definition.biome())) {
-                dimension.put("generator", current.getCompoundOrEmpty(definition.dimensionType())
-                        .getCompoundOrEmpty("generator"));
-            }
-        }
+        LegacyWorldgen.upgrade(settings, WorldStructureCreator.createMirrorWorldGenSettings(), MirrorWorldgenCheck::decodes);
         if (classify(settings).state() != State.CURRENT) throw new IOException("Invalid replacement world generation");
         return settings;
     }
 
-    /** Exact data compatibility for the released one-air-layer generator, not arbitrary flat worlds. */
-    private static CompoundTag legacyFlatGenerator() {
-        CompoundTag layer = new CompoundTag();
-        layer.putString("block", "minecraft:air");
-        layer.putInt("height", 1);
-        ListTag layers = new ListTag();
-        layers.add(layer);
-        CompoundTag settings = new CompoundTag();
-        settings.put("layers", layers);
-        settings.put("structure_overrides", new ListTag());
-        settings.putString("biome", "minecraft:the_void");
-        CompoundTag generator = new CompoundTag();
-        generator.putString("type", "minecraft:flat");
-        generator.put("settings", settings);
-        return generator;
-    }
 }

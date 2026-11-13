@@ -1,6 +1,7 @@
 package io.github.billstark001.worldmirror.download;
 
 import io.github.billstark001.worldmirror.config.ModConfig;
+import io.github.billstark001.worldmirror.legacy.LegacyWorldMetadata;
 import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.JsonSupport;
 import org.junit.jupiter.api.Test;
@@ -26,7 +27,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class WorldGraphServiceTest {
     private static final String SOURCE = "server:Example.org:25565";
     private static final String ENDPOINT = "example.org";
-    private static final String REMOTE = WorldGraphService.deterministicId("remote", ENDPOINT);
+    private static final String REMOTE = WorldGraphConfig.deterministicId("remote", ENDPOINT);
     private static final String MIRROR_UUID = "a0866b26-53bd-42f1-97be-753132b30794";
     private static final String MIRROR = "mirror:" + MIRROR_UUID;
     @TempDir Path game;
@@ -214,7 +215,7 @@ class WorldGraphServiceTest {
             service.refresh();
             assertNull(service.target(remote()));
             assertThrows(IOException.class, () -> service.prepare(remote()));
-            assertEquals(WorldMetadata.Schema.LEGACY, WorldMetadata.inspectSchema(output));
+            assertTrue(LegacyWorldMetadata.hasLegacyHeader(output));
         }
 
         var reopened = service();

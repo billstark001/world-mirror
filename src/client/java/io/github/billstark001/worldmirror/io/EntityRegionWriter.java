@@ -1,12 +1,13 @@
 package io.github.billstark001.worldmirror.io;
 
 import io.github.billstark001.worldmirror.core.EntityTracker;
+import io.github.billstark001.worldmirror.legacy.LegacyEntityRecords;
 import io.github.billstark001.worldmirror.util.WMLogger;
+import net.minecraft.core.UUIDUtil;
 import net.minecraft.nbt.IntArrayTag;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
-import net.minecraft.core.UUIDUtil;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
@@ -173,7 +174,7 @@ final class EntityRegionWriter {
                     AnvilReader.visitRegion(file, key.x(), key.z(), (pos, chunk) -> {
                         validateStoredChunk(file, pos, chunk);
                         for (Tag value : entityList(chunk)) {
-                            Set<UUID> contained = collectUuids(requireCompound(value));
+                            Set<UUID> contained = LegacyEntityRecords.collectUuids(requireCompound(value));
                             for (UUID uuid : contained) {
                                 ChunkPos destination = destinations.get(uuid);
                                 if (destination == null) continue;
@@ -234,7 +235,7 @@ final class EntityRegionWriter {
 
     /** A moved passenger is removed from its branch without deleting its unobserved vehicle. */
     private static boolean pruneReplacedEntities(CompoundTag root, Set<UUID> replaced) {
-        if (replaced.contains(storedUuid(root))) return true;
+        if (replaced.contains(LegacyEntityRecords.storedUuid(root))) return true;
         ArrayDeque<CompoundTag> parents = new ArrayDeque<>();
         parents.push(root);
         while (!parents.isEmpty()) {
@@ -243,7 +244,7 @@ final class EntityRegionWriter {
             var iterator = passengers.iterator();
             while (iterator.hasNext()) {
                 CompoundTag child = requireCompound(iterator.next());
-                if (replaced.contains(storedUuid(child))) iterator.remove();
+                if (replaced.contains(LegacyEntityRecords.storedUuid(child))) iterator.remove();
                 else parents.push(child);
             }
         }
@@ -279,39 +280,11 @@ final class EntityRegionWriter {
         return compound;
     }
 
-    private static UUID storedUuid(CompoundTag entity) {
-        int[] raw = entity.getIntArray("UUID").orElseThrow(
-                () -> new IllegalArgumentException("Missing stored UUID"));
-        if (raw.length != 4) throw new IllegalArgumentException("Invalid stored UUID");
-        return UUIDUtil.uuidFromIntArray(raw);
-    }
-
     private static void validateStoredChunk(Path file, ChunkPos pos, CompoundTag chunk) throws IOException {
         int[] position = chunk.getIntArray("Position").orElseThrow(() -> new IOException("Missing entity Position: " + file));
         if (position.length != 2 || !new ChunkPos(position[0], position[1]).equals(pos) || entityList(chunk) == null) {
             throw new IOException("Missing or misplaced entity chunk: " + file + " " + pos);
         }
-    }
-
-    /**
-     * Indexes stored identities without requiring a type id. Older mirrors may
-     * contain UUID-bearing nodes without id; preserve these opaque records until
-     * a fresh vanilla observation can replace them. Incoming records are validated
-     * separately by EntityTracker.serializedUuids before any write is attempted.
-     */
-    static Set<UUID> collectUuids(CompoundTag entity) {
-        Set<UUID> result = new HashSet<>();
-        ArrayDeque<CompoundTag> pending = new ArrayDeque<>();
-        pending.push(entity);
-        while (!pending.isEmpty()) {
-            CompoundTag current = pending.pop();
-            if (!result.add(storedUuid(current))) {
-                throw new IllegalArgumentException("Duplicate UUID within an entity passenger tree");
-            }
-            ListTag passengers = compoundList(current, "Passengers");
-            if (passengers != null) passengers.forEach(value -> pending.push(requireCompound(value)));
-        }
-        return result;
     }
 
     /** Business validation runs while staging, before a recovery transaction can touch live files. */
@@ -347,7 +320,7 @@ final class EntityRegionWriter {
             Set<UUID> selected) {
         for (Tag value : roots) {
             CompoundTag root = requireCompound(value);
-            for (UUID uuid : collectUuids(root)) {
+            for (UUID uuid : LegacyEntityRecords.collectUuids(root)) {
                 if (selected.contains(uuid)) counts.merge(uuid, 1, Integer::sum);
             }
         }

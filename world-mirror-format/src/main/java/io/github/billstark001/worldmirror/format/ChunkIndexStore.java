@@ -1,6 +1,8 @@
 package io.github.billstark001.worldmirror.format;
 
 import io.github.billstark001.worldmirror.format.ChunkUpdatePolicy.IndexStatus;
+import io.github.billstark001.worldmirror.format.internal.JdbcTransaction;
+import io.github.billstark001.worldmirror.legacy.LegacyChunkTimes;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -151,7 +153,7 @@ public final class ChunkIndexStore {
             throw new IllegalArgumentException("Cannot replace an index claim without a verified write");
         }
         if (times.isEmpty()) return;
-        inTransaction(() -> {
+        JdbcTransaction.run(connection, () -> {
             try (PreparedStatement statement = connection.prepareStatement(UPSERT)) {
                 for (Map.Entry<ChunkCoordinate, Long> entry : times.entrySet()) {
                     bindKey(statement, dimension, entry.getKey());
@@ -169,7 +171,7 @@ public final class ChunkIndexStore {
     public void removeUnreadableUpdates(String dimension, Set<ChunkCoordinate> chunks)
             throws SQLException {
         if (chunks.isEmpty()) return;
-        inTransaction(() -> {
+        JdbcTransaction.run(connection, () -> {
             try (PreparedStatement statement = connection.prepareStatement(
                     "DELETE FROM chunks WHERE source=? AND dimension=? AND x=? AND y=? AND update_source='world_mirror'")) {
                 for (ChunkCoordinate chunk : chunks) {
@@ -181,38 +183,9 @@ public final class ChunkIndexStore {
         });
     }
 
-    /** Import pre-SQLite timestamps without replacing records already written by another source. */
+    /** Imports pre-SQLite timestamps through the versioned format reader. */
     public int migrateLegacyTimes(Map<String, Long> legacyTimes) throws SQLException {
-        if (legacyTimes == null || legacyTimes.isEmpty()) return 0;
-        int[] count = {0};
-        inTransaction(() -> {
-            try (PreparedStatement statement = connection.prepareStatement(
-                    "INSERT OR IGNORE INTO chunks "
-                            + "(source, dimension, x, y, update_time, update_source) "
-                            + "VALUES (?, ?, ?, ?, ?, 'world_mirror')")) {
-                for (Map.Entry<String, Long> entry : legacyTimes.entrySet()) {
-                    String key = entry.getKey();
-                    if (key == null || entry.getValue() == null) continue;
-                    int separator = key.lastIndexOf('|');
-                    if (separator < 0) continue;
-                    String[] coords = key.substring(separator + 1).split(",", 2);
-                    if (coords.length != 2) continue;
-                    try {
-                        ChunkCoordinate chunk = new ChunkCoordinate(
-                                Integer.parseInt(coords[0].trim()),
-                                Integer.parseInt(coords[1].trim()));
-                        bindKey(statement, key.substring(0, separator), chunk);
-                        statement.setLong(5, entry.getValue());
-                        statement.addBatch();
-                        count[0]++;
-                    } catch (NumberFormatException ignored) {
-                        // Ignore malformed legacy keys, as World Mirror has always done.
-                    }
-                }
-                statement.executeBatch();
-            }
-        });
-        return count[0];
+        return LegacyChunkTimes.importInto(connection, sourceId, legacyTimes);
     }
 
     public List<ChunkRecord> queryAll(String dimension) throws SQLException {
@@ -266,42 +239,5 @@ public final class ChunkIndexStore {
         statement.setString(2, dimension);
         statement.setInt(3, chunk.x());
         statement.setInt(4, chunk.z());
-    }
-
-    @FunctionalInterface
-    private interface SqlAction { void run() throws SQLException; }
-
-    private void inTransaction(SqlAction action) throws SQLException {
-        boolean originalAutoCommit = connection.getAutoCommit();
-        if (!originalAutoCommit) {
-            throw new SQLException("ChunkIndexStore requires a connection outside another transaction");
-        }
-        connection.setAutoCommit(false);
-        Throwable failure = null;
-        boolean safeToRestore = true;
-        try {
-            action.run();
-            connection.commit();
-        } catch (SQLException | RuntimeException | Error writeFailure) {
-            failure = writeFailure;
-            try {
-                connection.rollback();
-            } catch (SQLException | RuntimeException | Error rollback) {
-                writeFailure.addSuppressed(rollback);
-                // JDBC commits the current transaction when auto-commit is
-                // enabled. An unsuccessful rollback must never take that path.
-                safeToRestore = false;
-            }
-            throw writeFailure;
-        } finally {
-            if (safeToRestore) {
-                try {
-                    connection.setAutoCommit(true);
-                } catch (SQLException | RuntimeException | Error restore) {
-                    if (failure == null) throw restore;
-                    failure.addSuppressed(restore);
-                }
-            }
-        }
     }
 }

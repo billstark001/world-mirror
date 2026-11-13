@@ -158,7 +158,7 @@ public final class BlockEntityNbtSupport {
 
     private static void copyCustomNameIfPresent(CompoundTag source, CompoundTag target) {
         Tag value = source.get("CustomName");
-        if (value != null && !isDefaultContainerName(value)) {
+        if (value != null && !ContainerNameSupport.isDefaultChestName(value)) {
             target.put("CustomName", value.copy());
         }
     }
@@ -194,7 +194,7 @@ public final class BlockEntityNbtSupport {
 
     private static void sanitizeBlockEntity(CompoundTag blockEntity) {
         Tag customName = blockEntity.get("CustomName");
-        if (customName != null && isDefaultContainerName(customName)) {
+        if (customName != null && ContainerNameSupport.isDefaultChestName(customName)) {
             blockEntity.remove("CustomName");
         }
     }
@@ -207,7 +207,7 @@ public final class BlockEntityNbtSupport {
             }
 
             if ("CustomName".equals(key)) {
-                if (!target.contains(key) && !isDefaultContainerName(value)) {
+                if (!target.contains(key) && !ContainerNameSupport.isDefaultChestName(value)) {
                     target.put(key, value.copy());
                 }
                 continue;
@@ -228,9 +228,5 @@ public final class BlockEntityNbtSupport {
 
     private static boolean hasItems(Tag tag) {
         return tag instanceof ListTag list && !list.isEmpty();
-    }
-
-    private static boolean isDefaultContainerName(Tag tag) {
-        return ContainerNameSupport.isDefaultChestName(tag);
     }
 }

@@ -22,13 +22,13 @@ final class MirrorWorldgenJson {
         return new AssetManifest(revision);
     }
 
-    static LegacyBiome legacyBiome(float temperature, float downfall,
-                                   int fogColor, int skyColor) {
-        return new LegacyBiome(
+    static BiomeBeforeEnvironmentAttributes biomeBeforeEnvironmentAttributes(float temperature, float downfall,
+                                                                             int fogColor, int skyColor) {
+        return new BiomeBeforeEnvironmentAttributes(
                 true,
                 temperature,
                 downfall,
-                new LegacyEffects(fogColor, skyColor, 4159204, 329011),
+                new ColorEffects(fogColor, skyColor, 4159204, 329011),
                 List.of(),
                 List.of(),
                 EMPTY,
@@ -65,17 +65,17 @@ final class MirrorWorldgenJson {
 
     record AssetManifest(int assetRevision) { }
 
-    record LegacyBiome(
+    record BiomeBeforeEnvironmentAttributes(
             @SerializedName("has_precipitation") boolean hasPrecipitation,
             float temperature,
             float downfall,
-            LegacyEffects effects,
+            ColorEffects effects,
             List<String> carvers,
             List<List<String>> features,
             EmptyObject spawners,
             @SerializedName("spawn_costs") EmptyObject spawnCosts) { }
 
-    record LegacyEffects(
+    record ColorEffects(
             @SerializedName("fog_color") int fogColor,
             @SerializedName("sky_color") int skyColor,
             @SerializedName("water_color") int waterColor,

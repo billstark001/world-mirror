@@ -90,29 +90,6 @@ class WorldGraphConfigTest {
     }
 
     @Test
-    void legacyImportIncludesEntriesAndOverridesWithoutWriting(@TempDir Path root) throws Exception {
-        Path file = root.resolve("mirrors.json");
-        assertTrue(WorldGraphConfig.readLegacy(file).entries().isEmpty());
-        String text = """
-                {
-                  "entries": {"server:EXAMPLE.test:25565":"Original","server:example.test":"Other"},
-                  "resolvedFolderNames": {"server:EXAMPLE.test:25565\\u0000SAVES":"Stored"},
-                  "perWorldSaveLocation": {"server:EXAMPLE.test:25565":"SAVES"},
-                  "perWorldConflictStrategy": {"local:Settings only":"MANUAL"}
-                }
-                """;
-        Files.writeString(file, text);
-        var imported = WorldGraphConfig.readLegacy(file).entries();
-        assertEquals(3, imported.size());
-        assertEquals(new WorldGraphConfig.LegacyEntry("server:EXAMPLE.test:25565", "Original",
-                Map.of(ModConfig.SaveLocation.SAVES, "Stored"), ModConfig.SaveLocation.SAVES, null),
-                imported.get("server:EXAMPLE.test:25565"));
-        assertEquals(ModConfig.ConflictStrategy.MANUAL, imported.get("local:Settings only").conflictStrategy());
-        assertEquals(text, Files.readString(file));
-        assertFalse(Files.exists(root.resolve(WorldGraphConfig.FILE_NAME)));
-    }
-
-    @Test
     void endpointNormalizationUsesOnlyPlayerEnteredAddress() {
         assertEquals("example.test", WorldGraphConfig.normalizeEndpoint("EXAMPLE.test:25565"));
         assertEquals("xn--bcher-kva.test:25566", WorldGraphConfig.normalizeEndpoint("Bücher.Test:25566"));

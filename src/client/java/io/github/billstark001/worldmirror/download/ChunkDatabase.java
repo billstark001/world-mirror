@@ -50,14 +50,7 @@ public class ChunkDatabase implements Closeable {
     public static ChunkDatabase open(Path worldFolder, String sourceId) throws SQLException {
         Objects.requireNonNull(worldFolder, "worldFolder");
         Objects.requireNonNull(sourceId, "sourceId");
-        Path database = worldFolder.resolve(MirrorFormat.DATABASE_FILE);
-        try {
-            requireSafeFiles(worldFolder);
-            Files.createDirectories(database.getParent());
-        } catch (Exception e) {
-            throw new SQLException("Cannot create data directory: " + e.getMessage(), e);
-        }
-        Connection connection = openConnection("jdbc:sqlite:" + database.toAbsolutePath());
+        Connection connection = openWritableConnection(worldFolder);
         try {
             ChunkIndexStore.initialize(connection);
             return new ChunkDatabase(connection, sourceId);
@@ -65,6 +58,18 @@ public class ChunkDatabase implements Closeable {
             try { connection.close(); } catch (SQLException close) { failure.addSuppressed(close); }
             throw failure;
         }
+    }
+
+    /** Opens a checked save-local connection. The caller owns initialization and closure. */
+    public static Connection openWritableConnection(Path worldFolder) throws SQLException {
+        Path database = worldFolder.resolve(MirrorFormat.DATABASE_FILE);
+        try {
+            requireSafeFiles(worldFolder);
+            Files.createDirectories(database.getParent());
+        } catch (IOException failure) {
+            throw new SQLException("Cannot open chunk index: " + database, failure);
+        }
+        return openConnection("jdbc:sqlite:" + database.toAbsolutePath());
     }
 
     private static void requireSafeFiles(Path worldFolder) throws IOException {
@@ -120,14 +125,6 @@ public class ChunkDatabase implements Closeable {
                     + dimension + " chunks=" + chunks.size(), e);
             return false;
         }
-    }
-
-    /** Commits durably before the upgrader can remove the only JSON copy of the timestamps. */
-    void migrateFromChunkUpdateTimes(Map<String, Long> chunkUpdateTimes) throws SQLException {
-        try (Statement statement = connection.createStatement()) {
-            statement.execute("PRAGMA synchronous=FULL");
-        }
-        store.migrateLegacyTimes(chunkUpdateTimes);
     }
 
     private static ChunkCoordinate coordinate(ChunkPos chunk) {

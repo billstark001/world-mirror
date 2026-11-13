@@ -102,7 +102,10 @@ class WorldRelocationTest {
                 "source", source.toString(), "target", target.toString(), "entries", List.of(WorldMetadata.FILE_NAME));
         JsonSupport.writeDocument(source.resolve(WorldRelocation.JOURNAL), plan);
         JsonSupport.writeDocument(target.resolve(WorldRelocation.JOURNAL), plan);
-        assertEquals(new WorldRelocation.Journal(NODE, SOURCE, source, target), WorldRelocation.journal(source));
+        var journal = WorldRelocation.journal(source);
+        assertEquals(NODE, journal.nodeId());
+        assertEquals(source, journal.source());
+        assertEquals(target, journal.target());
 
         WorldRelocation.recover(source, target, allowed());
 

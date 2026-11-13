@@ -54,10 +54,10 @@ public final class SaveLocationMoveScreen extends Screen {
             moving = false;
 #if MC_VERSION >= 260200
             if (client.gui.screen() != this) return;
-            if (result.success()) ClientScreens.set(new StatusClientScreen());
+            if (result.success()) ClientScreens.set(new StatusScreen());
 #else
             if (client.screen != this) return;
-            if (result.success()) client.setScreen(new StatusClientScreen());
+            if (result.success()) client.setScreen(new StatusScreen());
 #endif
             else failure = Component.translatable("screen.worldmirror.move.failure." + result.failureCode());
         });

@@ -1,5 +1,6 @@
 package io.github.billstark001.worldmirror.io;
 
+import io.github.billstark001.worldmirror.legacy.LegacyWorldClocks;
 #if MC_VERSION >= 260300
 import com.mojang.serialization.Lifecycle;
 import net.minecraft.SharedConstants;
@@ -38,7 +39,6 @@ import net.minecraft.world.clock.WorldClocks;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
-import java.util.Set;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -114,7 +114,6 @@ import net.minecraft.world.clock.WorldClocks;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
-import java.util.Set;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -170,7 +169,7 @@ import net.minecraft.world.level.Level;
 import java.nio.file.Path;
 import java.util.UUID;
 
-/** Minecraft 1.21.11 translation for legacy level.dat and save layout. */
+/** Minecraft 1.21.11 translation for its native level.dat and save layout. */
 final class WorldStructureApi {
 #endif
     private WorldStructureApi() { }
@@ -279,18 +278,8 @@ final class WorldStructureApi {
         WorldStructureCreator.writeVerifiedWorldData(file, root);
     }
 
-    /** Repairs only the extra {@code data.clocks} wrapper emitted by World Mirror 0.4.0. */
     static void repairOwnedSavedData(Path worldFolder) throws Exception {
-        Path file = worldFolder.resolve("data/minecraft/world_clocks.dat");
-        if (!Files.isRegularFile(file)) return;
-        CompoundTag root = NbtReadSupport.readWorldData(file);
-        CompoundTag data = root.getCompoundOrEmpty("data");
-        if (!data.keySet().equals(Set.of("clocks"))) return;
-        CompoundTag nested = data.getCompoundOrEmpty("clocks");
-        if (!nested.keySet().equals(
-                Set.of("minecraft:overworld", "minecraft:the_end"))) return;
-        root.put("data", roundTripWorldClocksData(nested));
-        WorldStructureCreator.writeVerifiedWorldData(file, root);
+        LegacyWorldClocks.repair(worldFolder, WorldStructureApi::roundTripWorldClocksData);
 #else
         Path levelDat = worldFolder.resolve("level.dat");
         CompoundTag root = NbtReadSupport.readWorldData(levelDat);

@@ -1,5 +1,6 @@
 package io.github.billstark001.worldmirror.io;
 
+import io.github.billstark001.worldmirror.legacy.LegacyEntityRecords;
 import io.github.billstark001.worldmirror.core.EntityTracker;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.nbt.CompoundTag;
@@ -41,9 +42,9 @@ class EntityRegionWriterTest {
                         Map.of(first, record("minecraft:pig", first, Set.of(first))), Set.of()));
         var written = EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, updates), ExportProgress.NONE);
         assertEquals(2, written.get(Level.OVERWORLD).size());
-        assertEquals(Set.of(second), EntityRegionWriter.collectUuids(
+        assertEquals(Set.of(second), LegacyEntityRecords.collectUuids(
                 AnvilReader.readChunk(entitiesDir().resolve("r.0.0.mca"), west).getListOrEmpty("Entities").getCompoundOrEmpty(0)));
-        assertEquals(Set.of(first), EntityRegionWriter.collectUuids(
+        assertEquals(Set.of(first), LegacyEntityRecords.collectUuids(
                 AnvilReader.readChunk(entitiesDir().resolve("r.1.0.mca"), east).getListOrEmpty("Entities").getCompoundOrEmpty(0)));
     }
 
@@ -64,9 +65,9 @@ class EntityRegionWriterTest {
                         Map.of(first, new EntityTracker.EntityRecord(first, Set.of(first), large)), Set.of()));
         assertTrue(EntityRegionWriter.write(tempDir, Map.of(Level.OVERWORLD, updates), ExportProgress.NONE).isEmpty());
         assertTrue(AnvilReader.readChunk(entitiesDir().resolve("r.0.0.mca"), west).getListOrEmpty("Entities").stream()
-                .map(tag -> EntityRegionWriter.collectUuids((CompoundTag) tag)).anyMatch(ids -> ids.contains(first)));
+                .map(tag -> LegacyEntityRecords.collectUuids((CompoundTag) tag)).anyMatch(ids -> ids.contains(first)));
         assertTrue(AnvilReader.readChunk(entitiesDir().resolve("r.2.0.mca"), east).getListOrEmpty("Entities").stream()
-                .map(tag -> EntityRegionWriter.collectUuids((CompoundTag) tag)).anyMatch(ids -> ids.contains(second)));
+                .map(tag -> LegacyEntityRecords.collectUuids((CompoundTag) tag)).anyMatch(ids -> ids.contains(second)));
         assertEquals("unrelated contents", Files.readString(blocked.resolve("keep")));
     }
 
@@ -141,7 +142,7 @@ class EntityRegionWriterTest {
         assertTrue(Files.size(destination) >= 8_192L);
         ListTag written = readRegion(destination).get(new ChunkPos(0, 0)).getListOrEmpty("Entities");
         assertEquals(1, written.size());
-        assertEquals(Set.of(uuid), EntityRegionWriter.collectUuids(written.getCompoundOrEmpty(0)));
+        assertEquals(Set.of(uuid), LegacyEntityRecords.collectUuids(written.getCompoundOrEmpty(0)));
     }
 
     @Test
@@ -166,7 +167,7 @@ class EntityRegionWriterTest {
 
         assertEquals(71L, written.get(Level.OVERWORLD).get(destination));
         assertArrayEquals(original, Files.readAllBytes(entitiesDir().resolve("r.0.0.mca")));
-        assertEquals(Set.of(vehicle, rider), EntityRegionWriter.collectUuids(legacy));
+        assertEquals(Set.of(vehicle, rider), LegacyEntityRecords.collectUuids(legacy));
     }
 
     @Test
@@ -208,7 +209,7 @@ class EntityRegionWriterTest {
         Map<ChunkPos, CompoundTag> newRegion = readRegion(entitiesDir().resolve("r.1.0.mca"));
         ListTag atB = newRegion.get(new ChunkPos(32, 0)).getListOrEmpty("Entities");
         assertEquals(1, atB.size());
-        assertEquals(Set.of(uuid), EntityRegionWriter.collectUuids(atB.getCompoundOrEmpty(0)));
+        assertEquals(Set.of(uuid), LegacyEntityRecords.collectUuids(atB.getCompoundOrEmpty(0)));
     }
 
     @Test
@@ -220,7 +221,7 @@ class EntityRegionWriterTest {
         passengers.add(storedEntity("minecraft:pig", passenger));
         root.put("Passengers", passengers);
 
-        assertEquals(Set.of(vehicle, passenger), EntityRegionWriter.collectUuids((CompoundTag) root));
+        assertEquals(Set.of(vehicle, passenger), LegacyEntityRecords.collectUuids((CompoundTag) root));
     }
 
     @Test
@@ -241,7 +242,7 @@ class EntityRegionWriterTest {
                 entitiesDir().resolve("r.0.0.mca")).get(new ChunkPos(0, 0)).getListOrEmpty("Entities");
         assertEquals(2, written.size());
         Set<UUID> uuids = new java.util.HashSet<>();
-        written.forEach(root -> uuids.addAll(EntityRegionWriter.collectUuids((CompoundTag) root)));
+        written.forEach(root -> uuids.addAll(LegacyEntityRecords.collectUuids((CompoundTag) root)));
         assertEquals(Set.of(existingUuid, incomingUuid), uuids);
     }
 
@@ -422,7 +423,7 @@ class EntityRegionWriterTest {
             current.put("Passengers", passengers);
             current = child;
         }
-        assertEquals(10_000, EntityRegionWriter.collectUuids((CompoundTag) root).size());
+        assertEquals(10_000, LegacyEntityRecords.collectUuids((CompoundTag) root).size());
     }
 
     @Test
@@ -441,7 +442,7 @@ class EntityRegionWriterTest {
         assertEquals(2L, written.get(Level.OVERWORLD).get(source));
         var roots = readRegion(entitiesDir().resolve("r.1.0.mca")).get(new ChunkPos(32, 0)).getListOrEmpty("Entities");
         assertEquals(1, roots.size());
-        assertEquals(Set.of(uuid), EntityRegionWriter.collectUuids(roots.getCompoundOrEmpty(0)));
+        assertEquals(Set.of(uuid), LegacyEntityRecords.collectUuids(roots.getCompoundOrEmpty(0)));
     }
 
     @Test
@@ -462,7 +463,7 @@ class EntityRegionWriterTest {
 
         var remaining = readRegion(entitiesDir().resolve("r.0.0.mca")).get(new ChunkPos(0, 0)).getListOrEmpty("Entities");
         assertEquals(1, remaining.size(), "moving a rider must not erase the parked vehicle");
-        assertEquals(Set.of(vehicle), EntityRegionWriter.collectUuids(remaining.getCompoundOrEmpty(0)));
+        assertEquals(Set.of(vehicle), LegacyEntityRecords.collectUuids(remaining.getCompoundOrEmpty(0)));
     }
 
     private static EntityTracker.EntityRecord record(

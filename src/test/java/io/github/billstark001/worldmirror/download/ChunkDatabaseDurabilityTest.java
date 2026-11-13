@@ -80,8 +80,11 @@ class ChunkDatabaseDurabilityTest {
         entries.put("minecraft:overworld|1,2", 100L);
         entries.put("minecraft:overworld|3,4", null);
         entries.put("minecraft:overworld|5,6,7", 200L);
+        try (var connection = ChunkDatabase.openWritableConnection(world)) {
+            io.github.billstark001.worldmirror.format.ChunkIndexStore.initialize(connection);
+            io.github.billstark001.worldmirror.legacy.LegacyChunkTimes.importInto(connection, "server:test", entries);
+        }
         try (ChunkDatabase db = ChunkDatabase.open(world, "server:test")) {
-            db.migrateFromChunkUpdateTimes(entries);
             assertEquals(1, db.queryAll("minecraft:overworld").size());
             assertTrue(db.shouldSkipUpdate("minecraft:overworld", 1, 2, "world_mirror", 50L));
         }

@@ -1,5 +1,7 @@
-package io.github.billstark001.worldmirror.io;
+package io.github.billstark001.worldmirror.legacy;
 
+import io.github.billstark001.worldmirror.io.AnvilReader;
+import io.github.billstark001.worldmirror.io.RegionWriteTransaction;
 
 import java.io.IOException;
 import net.minecraft.nbt.CompoundTag;
@@ -15,17 +17,19 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * Removes only chunks produced by the pre-schema all-air void generator.
+ * Removes only chunks produced by the unversioned (v0) all-air void generator.
  *
  * <p>A chunk is eligible only when every saved biome palette is exclusively
  * {@code minecraft:the_void} and every saved block-state palette is air.
  * This deliberately preserves any chunk containing blocks, while letting
- * Minecraft regenerate the blank legacy chunks with the schema-1 generator.
+ * Minecraft regenerate the blank chunks with the current schema-1 generator.
  * The same legacy generator affected all three vanilla dimensions, so each
  * dimension's region directory is inspected. Saved block entities, legacy
  * entities, scheduled ticks, and malformed terrain sections are preserved.</p>
  */
 public final class LegacyVoidChunkCleanup {
+    /** Generation metadata records this revision after v0 placeholder cleanup. */
+    public static final int COMPLETED_REVISION = 1;
     private static final List<Path> REGION_DIRECTORIES = List.of(
             // Minecraft 1.21.11's vanilla dimension layout.
             Path.of("region"),
@@ -68,6 +72,10 @@ public final class LegacyVoidChunkCleanup {
     }
 
     private LegacyVoidChunkCleanup() {}
+
+    public static boolean isNeeded(int cleanupRevision) {
+        return cleanupRevision < COMPLETED_REVISION;
+    }
 
     /** Read-only scan used before backup creation. */
     public static Plan plan(Path worldFolder) throws IOException {
@@ -122,19 +130,17 @@ public final class LegacyVoidChunkCleanup {
     private static int removeChunks(RegionPlan plan) throws IOException {
         Path file = plan.regionFile();
         if (Files.size(file) == 0) return 0;
-        synchronized (McaWriteSupport.lockFor(file)) {
-            AnvilReader.RegionCoordinates region = AnvilReader.coordinates(file);
-            java.util.Set<ChunkPos> removed = new java.util.HashSet<>();
-            for (int index : plan.chunkIndices()) {
-                removed.add(new ChunkPos(region.x() * 32 + index % 32, region.z() * 32 + index / 32));
-            }
-            RegionWriteTransaction.rewrite(file, Level.OVERWORLD, region.x(), region.z(), removed, (pos, chunk) -> {
-                if (!removed.contains(pos)) return chunk;
-                if (!isLegacyVoidChunk(chunk)) throw new IOException("Legacy void chunk changed during migration: " + file + " " + pos);
-                return null;
-            });
-            return plan.chunkIndices().size();
+        AnvilReader.RegionCoordinates region = AnvilReader.coordinates(file);
+        java.util.Set<ChunkPos> removed = new java.util.HashSet<>();
+        for (int index : plan.chunkIndices()) {
+            removed.add(new ChunkPos(region.x() * 32 + index % 32, region.z() * 32 + index / 32));
         }
+        RegionWriteTransaction.rewrite(file, Level.OVERWORLD, region.x(), region.z(), removed, (pos, chunk) -> {
+            if (!removed.contains(pos)) return chunk;
+            if (!isLegacyVoidChunk(chunk)) throw new IOException("Legacy void chunk changed during migration: " + file + " " + pos);
+            return null;
+        });
+        return plan.chunkIndices().size();
     }
 
     static boolean isLegacyVoidChunk(CompoundTag chunk) {

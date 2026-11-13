@@ -2,6 +2,12 @@
 
 Releases are listed newest first by release date, after unreleased changes. Use Added, Changed, and Fixed categories where applicable. Keep the root `world-mirror-format` sections synchronized with this file; changes that belong only to one consumer remain in that consumer's changelog.
 
+## [Unreleased]
+
+### Changed
+
+- Move the unversioned chunk timestamp importer into the legacy package and preserve the published JVM entry point.
+
 ## [0.1.3] — 2026-11-13
 
 ### Added

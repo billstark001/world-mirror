@@ -27,6 +27,7 @@ import java.util.UUID;
 @Environment(EnvType.CLIENT)
 public final class WorldStructureCreator {
     public enum Setting { TIME, WEATHER, DIFFICULTY }
+    public enum GeneratorEncoding { BEFORE_26_3, FROM_26_3 }
 
     private WorldStructureCreator() { }
 
@@ -59,19 +60,20 @@ public final class WorldStructureCreator {
     }
 
     public static CompoundTag createMirrorWorldGenSettings() {
-        return createMirrorWorldGenSettings(WorldStructureApi.dataPackFormat()
-                >= MirrorWorldgenAssets.ENVIRONMENT_ATTRIBUTE_BIOME_FORMAT);
+        GeneratorEncoding encoding = WorldStructureApi.dataPackFormat() >= MirrorWorldgenAssets.ENVIRONMENT_ATTRIBUTE_BIOME_FORMAT
+                ? GeneratorEncoding.FROM_26_3 : GeneratorEncoding.BEFORE_26_3;
+        return createMirrorWorldGenSettings(encoding);
     }
 
-    /** Also describes the released pre-26.3 format for conservative data recognition. */
-    static CompoundTag createMirrorWorldGenSettings(boolean modern) {
+    /** Encodes the same generator for the selected native Minecraft settings format. */
+    public static CompoundTag createMirrorWorldGenSettings(GeneratorEncoding encoding) {
         CompoundTag worldGenSettings = new CompoundTag();
         CompoundTag dimensions = new CompoundTag();
         for (MirrorWorldgenDefinition.Dimension definition : MirrorWorldgenDefinition.DIMENSIONS) {
             CompoundTag dimension = new CompoundTag();
             dimension.put("generator", createVoidNoiseGenerator(definition.biome(),
                     definition.minY(), definition.height(), definition.seaLevel(),
-                    definition.horizontalSize(), definition.verticalSize(), modern));
+                    definition.horizontalSize(), definition.verticalSize(), encoding == GeneratorEncoding.FROM_26_3));
             dimension.putString("type", definition.dimensionType());
             dimensions.put(definition.dimensionType(), dimension);
         }
@@ -178,7 +180,7 @@ public final class WorldStructureCreator {
     }
 
     /** Replaces a world-data file only after its compressed NBT round-trips without loss. */
-    static void writeVerifiedWorldData(Path file, CompoundTag tag) throws Exception {
+    public static void writeVerifiedWorldData(Path file, CompoundTag tag) throws IOException {
         file = file.toAbsolutePath().normalize();
         try (var transaction = new io.github.billstark001.worldmirror.util.FileTransaction(file.getParent())) {
             Path staged = transaction.stagingDirectory().resolve(file.getFileName());

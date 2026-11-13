@@ -16,12 +16,12 @@ import java.util.Map;
 import java.util.Set;
 
 /** Streams a region rewrite, retaining content proofs instead of a second region of NBT trees. */
-final class RegionWriteTransaction {
+public final class RegionWriteTransaction {
     @FunctionalInterface
-    interface Transform { CompoundTag apply(ChunkPos pos, CompoundTag previous) throws IOException; }
+    public interface Transform { CompoundTag apply(ChunkPos pos, CompoundTag previous) throws IOException; }
     private RegionWriteTransaction() {}
 
-    static void rewrite(Path target, ResourceKey<Level> dimension, int regionX, int regionZ,
+    public static void rewrite(Path target, ResourceKey<Level> dimension, int regionX, int regionZ,
                         Set<ChunkPos> requested, Transform transform) throws IOException {
         synchronized (McaWriteSupport.lockFor(target)) {
             try (FileTransaction transaction = new FileTransaction(target.getParent())) {

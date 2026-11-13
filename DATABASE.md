@@ -112,4 +112,4 @@ World Mirror will then respect your tool's priority when deciding whether to ove
 
 ## Legacy JSON timestamp migration
 
-During the offline graph migration for an older mirror, `worldmirror_meta.json.chunkUpdateTimes` is imported in a SQLite transaction with `INSERT OR IGNORE`, preserving rows already written by other sources. World Mirror removes the JSON field only after that transaction commits and the cleaned metadata can be saved. A database or metadata failure stops the export and preserves the legacy data for an idempotent retry. Keep the JSON field intact when diagnosing a failed migration.
+During offline graph migration, `io.github.billstark001.worldmirror.legacy` imports the unversioned (v0) `worldmirror_meta.json.chunkUpdateTimes` map in a SQLite transaction with `INSERT OR IGNORE`, preserving existing rows. World Mirror publishes current metadata after the transaction commits. A database or metadata failure preserves the original data for an idempotent retry. Keep the JSON field intact when diagnosing a failed migration.

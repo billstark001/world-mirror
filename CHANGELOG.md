@@ -8,6 +8,14 @@ Use Added, Changed, and Fixed categories where applicable. Combine related chang
 
 ---
 
+## world-mirror-format [Unreleased]
+
+### Changed
+
+- Move the unversioned chunk timestamp importer into the legacy package and preserve the published JVM entry point.
+
+---
+
 ## [0.6.0] — Unreleased
 
 ### Added

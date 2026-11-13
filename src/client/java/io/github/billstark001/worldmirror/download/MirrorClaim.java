@@ -10,20 +10,18 @@ import java.nio.file.Path;
 import java.util.UUID;
 
 /** Durable ownership of an unfinished mirror before its metadata is published. */
-final class MirrorClaim {
-    static final String FILE_NAME = ".worldmirror-claim.json";
+public final class MirrorClaim {
+    public static final String FILE_NAME = ".worldmirror-claim.json";
 
-    record Claim(UUID operationId, String nodeId, String parentNodeId, String sourceId) {
-        Claim {
-            if (operationId == null || !WorldMetadata.validKey(nodeId) || !nodeId.startsWith("mirror:")
-                    || nodeId.substring("mirror:".length()).isBlank() || !WorldGraph.isNodeId(parentNodeId)
-                    || !WorldMetadata.validKey(sourceId)) {
+    public record Claim(UUID operationId, String nodeId, String parentNodeId, String sourceId) {
+        public Claim {
+            if (operationId == null || !WorldGraph.isNodeId(nodeId) || !nodeId.startsWith("mirror:")
+                    || !WorldGraph.isNodeId(parentNodeId) || sourceId == null || sourceId.isBlank()
+                    || sourceId.chars().anyMatch(Character::isISOControl)) {
                 throw new IllegalArgumentException("Invalid mirror reservation");
             }
         }
     }
-    private record LegacyClaim(String sourceId, UUID token) {}
-
     private MirrorClaim() {}
 
     static void create(Path folder, String nodeId, String parentNodeId, String sourceId) throws IOException {
@@ -60,12 +58,4 @@ final class MirrorClaim {
         }
     }
 
-    /** Only recovery of a previously persisted reservation uses the old claim shape. */
-    static String readLegacySource(Path folder) {
-        Path file = folder.resolve(FILE_NAME);
-        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) return null;
-        LegacyClaim claim = JsonSupport.readDocument(file, LegacyClaim.class).value();
-        return claim != null && claim.token() != null && claim.sourceId() != null
-                && !claim.sourceId().isBlank() ? claim.sourceId() : null;
-    }
 }

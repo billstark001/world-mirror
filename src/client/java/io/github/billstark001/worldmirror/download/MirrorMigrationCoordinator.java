@@ -1,6 +1,7 @@
 package io.github.billstark001.worldmirror.download;
 
-import io.github.billstark001.worldmirror.io.LegacyVoidChunkCleanup;
+import io.github.billstark001.worldmirror.legacy.LegacyVoidChunkCleanup;
+import io.github.billstark001.worldmirror.legacy.LegacyWorldRecovery;
 import io.github.billstark001.worldmirror.io.MirrorWorldgenAssets;
 import io.github.billstark001.worldmirror.io.MirrorTarget;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
@@ -70,7 +71,7 @@ public final class MirrorMigrationCoordinator {
     }
 
     static boolean needsRecovery(Path worldFolder) throws IOException {
-        return WorldRecovery.required(worldFolder) || FileTransaction.hasPending(worldFolder);
+        return WorldRecovery.required(worldFolder) || LegacyWorldRecovery.hasPending(worldFolder);
     }
 
     /**

@@ -46,9 +46,9 @@ class MirrorWorldgenAssetsTest {
                 pack.resolve("worldmirror_manifest.json"),
                 MirrorWorldgenJson.AssetManifest.class).assetRevision());
         for (String biome : new String[] {"mirror_overworld", "mirror_nether", "mirror_end"}) {
-            MirrorWorldgenJson.LegacyBiome document = readModel(
+            MirrorWorldgenJson.BiomeBeforeEnvironmentAttributes document = readModel(
                     pack.resolve("data/worldmirror/worldgen/biome/" + biome + ".json"),
-                    MirrorWorldgenJson.LegacyBiome.class);
+                    MirrorWorldgenJson.BiomeBeforeEnvironmentAttributes.class);
             assertTrue(document.features().isEmpty());
             assertTrue(document.carvers().isEmpty());
             assertNotNull(document.spawners());

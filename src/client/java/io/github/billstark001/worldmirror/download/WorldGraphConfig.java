@@ -5,15 +5,16 @@ import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.FileTransaction;
 import io.github.billstark001.worldmirror.util.JsonSupport;
+import io.github.billstark001.worldmirror.legacy.LegacyRouting;
 
 import java.io.IOException;
 import java.net.IDN;
+import java.nio.charset.StandardCharsets;
 import java.net.Inet6Address;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -22,6 +23,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.UUID;
 
 /** Durable graph index and user routing choices. Save metadata owns the observed graph. */
 public final class WorldGraphConfig {
@@ -70,7 +72,7 @@ public final class WorldGraphConfig {
         }
     }
 
-    public record PendingImport(LegacyEntry legacy, WorldGraph.Location location, String reason) {
+    public record PendingImport(LegacyRouting.Entry legacy, WorldGraph.Location location, String reason) {
         public PendingImport {
             if (legacy == null && location == null) throw new IllegalArgumentException("Missing import evidence");
             requireKey(reason, "import reason");
@@ -168,6 +170,18 @@ public final class WorldGraphConfig {
         return true;
     }
 
+    public static String deterministicId(String kind, String key) {
+        return kind + ":" + UUID.nameUUIDFromBytes(("worldmirror:" + kind + ":" + key).getBytes(StandardCharsets.UTF_8));
+    }
+
+    public static void addEndpoint(Map<String, EndpointRule> rules, String endpoint, String id) {
+        EndpointRule old = rules.get(endpoint);
+        Set<String> sources = new TreeSet<>(old == null ? Set.of() : old.sourceIds());
+        sources.add(id);
+        rules.put(endpoint, new EndpointRule(old == null ? deterministicId("endpoint", endpoint) : old.addressGroupId(),
+                sources, old == null ? null : old.defaultSourceId(), old == null ? IdPolicy.ENDPOINT_ONLY : old.idPolicy()));
+    }
+
     /** Normalizes a player-entered server address without resolving DNS or SRV records. */
     public static String normalizeEndpoint(String input) {
         if (input == null || input.isBlank()) throw new IllegalArgumentException("Missing server address");
@@ -244,92 +258,4 @@ public final class WorldGraphConfig {
         }
     }
 
-    public record LegacyImport(Map<String, LegacyEntry> entries) {
-        public LegacyImport {
-            entries = freeze(entries);
-        }
-    }
-
-    public record LegacyEntry(String sourceId, String preferredFolderName,
-                              Map<ModConfig.SaveLocation, String> resolvedFolderNames,
-                              ModConfig.SaveLocation saveLocation, ModConfig.ConflictStrategy conflictStrategy) {
-        public LegacyEntry {
-            requireKey(sourceId, "legacy source");
-            Map<ModConfig.SaveLocation, String> resolved = new EnumMap<>(ModConfig.SaveLocation.class);
-            resolvedFolderNames.forEach((root, name) -> {
-                if (!MirrorFolders.isUsableFolderName(name)) throw new IllegalArgumentException("Invalid legacy folder name");
-                resolved.put(root, name);
-            });
-            if (preferredFolderName != null && !MirrorFolders.isUsableFolderName(preferredFolderName)) {
-                throw new IllegalArgumentException("Invalid legacy preferred folder name");
-            }
-            resolvedFolderNames = Collections.unmodifiableMap(resolved);
-        }
-    }
-
-    /** Reads the previous routing file only for the explicit migration. */
-    public static LegacyImport readLegacy(Path file) throws IOException {
-        Path path = file.toAbsolutePath().normalize();
-        FileProof.Version observed = stamp(path);
-        JsonSupport.Document<LegacyDocument> document = JsonSupport.readDocument(path, LegacyDocument.class);
-        if (!Objects.equals(observed, stamp(path))) throw new IOException("Legacy mirror routing changed while loading: " + path);
-        return switch (document.state()) {
-            case MISSING -> new LegacyImport(Map.of());
-            case VALID -> {
-                try {
-                    yield document.value().toImport();
-                } catch (IllegalArgumentException invalid) {
-                    throw new IOException("Cannot import legacy mirror routing: " + path, invalid);
-                }
-            }
-            case INVALID, UNAVAILABLE -> throw new IOException("Cannot import legacy mirror routing: " + path, document.failure());
-        };
-    }
-
-    private record LegacyDocument(Map<String, String> entries, Map<String, String> resolvedFolderNames,
-                                  Map<String, String> perWorldSaveLocation, Map<String, String> perWorldConflictStrategy) {
-        private LegacyDocument {
-            entries = orEmpty(entries);
-            resolvedFolderNames = orEmpty(resolvedFolderNames);
-            perWorldSaveLocation = orEmpty(perWorldSaveLocation);
-            perWorldConflictStrategy = orEmpty(perWorldConflictStrategy);
-        }
-
-        private LegacyImport toImport() {
-            Set<String> sources = new TreeSet<>(entries.keySet());
-            sources.addAll(perWorldSaveLocation.keySet());
-            sources.addAll(perWorldConflictStrategy.keySet());
-            Map<String, Map<ModConfig.SaveLocation, String>> locations = new TreeMap<>();
-            resolvedFolderNames.forEach((key, name) -> {
-                int delimiter = key.indexOf('\0');
-                if (delimiter <= 0 || key.indexOf('\0', delimiter + 1) >= 0) {
-                    throw new IllegalArgumentException("Invalid legacy folder locator");
-                }
-                String source = key.substring(0, delimiter);
-                ModConfig.SaveLocation root = ModConfig.SaveLocation.valueOf(key.substring(delimiter + 1));
-                sources.add(source);
-                if (MirrorFolders.isUsableFolderName(name)) {
-                    locations.computeIfAbsent(source, ignored -> new EnumMap<>(ModConfig.SaveLocation.class)).put(root, name);
-                }
-            });
-            Map<String, LegacyEntry> result = new TreeMap<>();
-            for (String source : sources) {
-                String preferred = entries.get(source);
-                result.put(source, new LegacyEntry(source,
-                        MirrorFolders.isUsableFolderName(preferred) ? preferred : null,
-                        locations.getOrDefault(source, Map.of()),
-                        parseOverride(ModConfig.SaveLocation.class, perWorldSaveLocation.get(source)),
-                        parseOverride(ModConfig.ConflictStrategy.class, perWorldConflictStrategy.get(source))));
-            }
-            return new LegacyImport(result);
-        }
-
-        private static <K, V> Map<K, V> orEmpty(Map<K, V> entries) {
-            return entries == null ? Map.of() : entries;
-        }
-
-        private static <E extends Enum<E>> E parseOverride(Class<E> type, String name) {
-            return name == null || name.isBlank() ? null : Enum.valueOf(type, name);
-        }
-    }
 }

@@ -36,7 +36,7 @@ import java.util.function.Function;
 
 /** Native status UI; rendering and screen-installation differences live in StatusScreenApi. */
 @Environment(EnvType.CLIENT)
-public class StatusScreen extends StatusScreenApi {
+public final class StatusScreen extends StatusScreenApi {
     private static final int PANEL_WIDTH = 360;
     private static final int BUTTON_HEIGHT = 20;
     private static final int DROPDOWN_WIDTH = 220;
@@ -592,17 +592,17 @@ public class StatusScreen extends StatusScreenApi {
     }
 
     protected void refresh() {
-        showScreen(new StatusClientScreen());
+        showScreen(new StatusScreen());
     }
 
     private void refreshWithSettingsResult(Component message, boolean succeeded) {
-        StatusScreen screen = new StatusClientScreen();
+        StatusScreen screen = new StatusScreen();
         screen.settingsFailure = message;
         screen.settingsSucceeded = succeeded;
         showScreen(screen);
     }
 
     public static void open() {
-        showScreen(new StatusClientScreen());
+        showScreen(new StatusScreen());
     }
 }

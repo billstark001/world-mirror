@@ -1,5 +1,7 @@
 package io.github.billstark001.worldmirror.util;
 
+import io.github.billstark001.worldmirror.legacy.LegacyWorldRecovery;
+
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.file.FileVisitResult;
@@ -84,8 +86,7 @@ public final class WorldRecovery {
 
     private static void recover(Path root) throws IOException {
         if (!required(root)) {
-            // Also supports old root-level journals created before a marker was durable.
-            FileTransaction.recover(root);
+            LegacyWorldRecovery.recover(root);
             return;
         }
         if (!Files.isRegularFile(root.resolve(MARKER), LinkOption.NOFOLLOW_LINKS)) {

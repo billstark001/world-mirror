@@ -25,7 +25,7 @@ Capture-cache mutations, including durable acknowledgements, belong to the game 
 
 Entity dirtiness is independent from terrain-cache retention. Never prune entity updates because a terrain entry was evicted. A successfully reopened and UUID-verified entity-region replacement acknowledges only the exact captured revisions it represents. Stop-time exports deferred behind an active worker must carry immutable terrain, entity, and container snapshots so disconnect or a new source cannot change their meaning. Terrain and entity retries preserve their own order within a destination mirror. A final metadata failure retains the verified capture-time floor. On shutdown the frozen queue gets a finite final pass without interrupting an accepted region transaction or waiting for a game-thread acknowledgement.
 
-Version-specific saved-data repairs belong in `WorldStructureApi`. Match only a known World Mirror-owned malformed shape, preserve unrelated or extended payloads, replace the file atomically, and exercise the target Minecraft codec in a round-trip test. A target that does not use that saved-data file should provide only the no-op adapter required by the shared orchestrator.
+Legacy saved-data repairs belong in the legacy package. Keep native codecs in the target's `WorldStructureApi` adapter and pass them to the repair. Match the known World Mirror-owned malformed shape, preserve unrelated or extended payloads, replace the file atomically, and exercise the target Minecraft codec in a round-trip test.
 
 ## Map data and rendering ownership
 
@@ -42,7 +42,11 @@ Unit tests check display semantics, clipped and sparse views, cache bounds, and 
 
 Graph reconciliation and relocation take the graph lock before any save lock. Hold the graph lock through publication so another client cannot recover an in-progress move or race a target reservation. Missing parents retain their edges. Cycles and unresolved duplicate IDs make the affected branches unavailable for writes.
 
-Runtime readers require the current metadata schema. Legacy readers belong at import and recovery entry points. Preserve the SQLite namespace when rewriting a node ID. Back up legacy metadata and commit its timestamp import before publishing the new document. Test interrupted writes at the boundary that publishes the next durable state.
+Legacy World Mirror formats live in `io.github.billstark001.worldmirror.legacy`. Call the package directly from the graph scan, save migration, recovery, or stored-data reader that owns the operation. Keep format detection, decoding, and conversion together with the reader for that format. Current metadata and config writers use their own schemas. The Format library's published JVM method calls the same timestamp importer as the mod.
+
+Treat a format without a version field as v0 unless it already defines a different default. Recognize v0 by its specific file or payload shape. Keep version numbers scoped to their format. Unversioned routing, old reservations, JSON chunk timestamps, and zero-byte MCA placeholders are v0. Mirror metadata accepts known v0 and v1 records through the upgrader, and old relocation journals retain their explicit v1. Historical backup filenames and existing worldgen revisions retain their original meanings. Each reader validates the evidence required by its format.
+
+Preserve the SQLite namespace when rewriting a node ID. Back up legacy metadata and commit its timestamp import before publishing the new document. Test interrupted writes at the boundary that publishes the next durable state. Keep Minecraft-version adapters with their current consumers when they encode the native format for a supported target.
 
 ## Mirror worldgen revision policy
 

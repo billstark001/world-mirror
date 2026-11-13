@@ -1,4 +1,4 @@
-package io.github.billstark001.worldmirror.io;
+package io.github.billstark001.worldmirror.legacy;
 
 import org.junit.jupiter.api.Test;
 import net.minecraft.nbt.CompoundTag;

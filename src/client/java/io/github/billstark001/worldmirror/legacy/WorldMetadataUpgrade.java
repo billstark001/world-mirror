@@ -1,8 +1,12 @@
-package io.github.billstark001.worldmirror.download;
+package io.github.billstark001.worldmirror.legacy;
 
+import io.github.billstark001.worldmirror.download.ChunkDatabase;
+import io.github.billstark001.worldmirror.download.WorldMetadata;
+import io.github.billstark001.worldmirror.format.ChunkIndexStore;
 import io.github.billstark001.worldmirror.io.WorldWriteLock;
 import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.FileTransaction;
+import io.github.billstark001.worldmirror.util.JsonSupport;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -42,13 +46,18 @@ public final class WorldMetadataUpgrade {
             WorldMetadata metadata = legacy.upgrade(nodeId, parentNodeId);
             backupLegacyDocument(worldFolder, legacy);
             if (!legacy.chunkUpdateTimes().isEmpty()) {
-                try (ChunkDatabase database = ChunkDatabase.open(worldFolder, legacy.sourceId())) {
-                    database.migrateFromChunkUpdateTimes(legacy.chunkUpdateTimes());
+                try (var connection = ChunkDatabase.openWritableConnection(worldFolder)) {
+                    ChunkIndexStore.initialize(connection);
+                    // Commit durably before publishing metadata without its original timestamps.
+                    try (var statement = connection.createStatement()) {
+                        statement.execute("PRAGMA synchronous=FULL");
+                    }
+                    LegacyChunkTimes.importInto(connection, legacy.sourceId(), legacy.chunkUpdateTimes());
                 } catch (SQLException failure) {
                     throw new IOException("Cannot migrate legacy chunk timestamps: " + worldFolder, failure);
                 }
             }
-            metadata.publishUpgrade(worldFolder, legacy.version());
+            JsonSupport.compareAndWriteDocument(worldFolder.resolve(WorldMetadata.FILE_NAME), metadata, legacy.version());
             return metadata;
         }
     }

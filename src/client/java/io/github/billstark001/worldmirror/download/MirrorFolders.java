@@ -7,7 +7,7 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.regex.Pattern;
 
-final class MirrorFolders {
+public final class MirrorFolders {
     private MirrorFolders() {}
 
     /** Characters that are NOT safe for folder names and will be replaced with underscores. */
@@ -20,7 +20,7 @@ final class MirrorFolders {
             "(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\\..*)?", Pattern.CASE_INSENSITIVE);
     private static final int MAX_GENERATED_FOLDER_LENGTH = 64;
 
-    static String generate(String label) {
+    public static String generate(String label) {
         String clean = UNSAFE.matcher(label).replaceAll("_");
         clean = EDGE_UNDERSCORES.matcher(REPEATED_UNDERSCORES.matcher(clean).replaceAll("_")).replaceAll("");
         return sanitiseFolderName(clean, "unnamed");
@@ -56,7 +56,7 @@ final class MirrorFolders {
         return RESERVED_FOLDER_NAME.matcher(name).matches() ? '_' + name : name;
     }
 
-    static boolean isUsableFolderName(String name) {
+    public static boolean isUsableFolderName(String name) {
         return name != null && !name.isBlank() && name.length() <= 255
                 && !name.equals(".") && !name.equals("..")
                 && !name.endsWith(".") && !name.endsWith(" ")

@@ -7,6 +7,7 @@ import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.FileTransaction;
 import io.github.billstark001.worldmirror.util.JsonSupport;
 import io.github.billstark001.worldmirror.util.WorldRecovery;
+import io.github.billstark001.worldmirror.legacy.LegacyRelocation;
 import net.minecraft.util.DirectoryLock;
 
 import java.io.IOException;
@@ -17,21 +18,68 @@ import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
+import java.util.function.Function;
 
 /** Recoverable same-filesystem moves; both native session lock files remain stationary on Windows. */
-final class WorldRelocation {
+public final class WorldRelocation {
     static final String JOURNAL = ".worldmirror-relocation.json";
     private static final int CURRENT_SCHEMA = 2;
     private static final Gson JSON = new Gson();
     private record Plan(int schema, UUID operation, String nodeId, String parentNodeId, String sourceId,
-                        String source, String target, List<String> entries) {}
-    private record LegacyPlan(int schema, UUID operation, String sourceId, String mirrorId,
-                              String source, String target, List<String> entries) {}
-    record Journal(String nodeId, String legacySourceId, Path source, Path target) {}
+                        String source, String target, List<String> entries) implements RecoveryPlan {
+        @Override public boolean matchesMetadata(Path root) {
+            return WorldMetadata.loadIfPresent(root).filter(metadata -> nodeId.equals(metadata.nodeId)
+                    && sourceId.equals(metadata.sourceId) && Objects.equals(parentNodeId, metadata.parentNodeId)).isPresent();
+        }
+
+        @Override public boolean matchesClaim(Path root) {
+            MirrorClaim.Claim claim = MirrorClaim.read(root);
+            return claim != null && nodeId.equals(claim.nodeId()) && sourceId.equals(claim.sourceId())
+                    && Objects.equals(parentNodeId, claim.parentNodeId());
+        }
+
+        @Override public void finishCommitted(Path source, Path target) throws IOException {
+            if (parentNodeId == null) {
+                Files.deleteIfExists(source.resolve(MirrorClaim.FILE_NAME));
+                Files.deleteIfExists(target.resolve(MirrorClaim.FILE_NAME));
+                return;
+            }
+            if (Files.notExists(source.resolve(MirrorClaim.FILE_NAME), LinkOption.NOFOLLOW_LINKS)) {
+                MirrorClaim.create(source, nodeId, parentNodeId, sourceId);
+            }
+            MirrorClaim.finish(target, nodeId);
+        }
+
+        @Override public boolean retainsSourceReservation() { return parentNodeId != null; }
+
+        @Override public LocationWitness routingWitness() { return (locations, oldSource) -> locations.get(nodeId); }
+    }
+
+    public interface RecoveryPlan {
+        UUID operation();
+        String nodeId();
+        String sourceId();
+        String source();
+        String target();
+        List<String> entries();
+        boolean matchesMetadata(Path root) throws IOException;
+        boolean matchesClaim(Path root) throws IOException;
+        void finishCommitted(Path source, Path target) throws IOException;
+        boolean retainsSourceReservation();
+        LocationWitness routingWitness();
+    }
+
+    @FunctionalInterface
+    public interface LocationWitness {
+        WorldGraph.Location find(Map<String, WorldGraph.Location> locations, Function<String, WorldGraph.Location> oldSource);
+    }
+
+    record Journal(String nodeId, Path source, Path target, LocationWitness routingWitness) {}
     private WorldRelocation() {}
 
     static boolean isEmptyReservation(Path folder, String nodeId) throws IOException {
@@ -56,13 +104,11 @@ final class WorldRelocation {
         FileProof.requirePlainDirectory(target);
         boolean routed = false;
         boolean created = false;
-        boolean standalone = false;
         try (WorldWriteLock ignored = WorldWriteLock.acquire(source)) {
             WorldMetadata metadata = WorldMetadata.loadIfPresent(source)
                     .filter(value -> nodeId.equals(value.nodeId) && expected.sourceId().equals(value.sourceId)
                             && expected.parentNodeId().equals(value.parentNodeId))
                     .orElseThrow(() -> new IOException("Source identity changed before move"));
-            standalone = metadata.parentNodeId == null;
             Files.createDirectories(target.getParent());
             if (Files.notExists(target, LinkOption.NOFOLLOW_LINKS)) { Files.createDirectory(target); created = true; }
             else if (!isEmptyReservation(target, nodeId)) throw new IOException("Relocation target is occupied");
@@ -102,7 +148,6 @@ final class WorldRelocation {
         } finally {
             if (!routed && created) removeUnusedTarget(target);
         }
-        if (routed && standalone) removeUnusedTarget(source);
     }
 
     /** Routing is the commit decision; preflight validates both identities and the whole move set. */
@@ -111,7 +156,7 @@ final class WorldRelocation {
         Path journal = journalRoot.resolve(JOURNAL);
         if (Files.notExists(journal, LinkOption.NOFOLLOW_LINKS)) return;
         requirePlainDirectory(journalRoot);
-        Plan plan = readPlan(journal);
+        RecoveryPlan plan = readPlan(journal);
         Journal info = journalFor(plan);
         Path source = info.source(), target = info.target();
         if (!allowedRoots.contains(source.getParent()) || !allowedRoots.contains(target.getParent())
@@ -132,7 +177,7 @@ final class WorldRelocation {
             finish(plan, source, target, committed);
         }
         if (!committed) removeUnusedTarget(target);
-        else if (plan.schema() == 1 || plan.parentNodeId() == null) removeUnusedTarget(source);
+        else if (!plan.retainsSourceReservation()) removeUnusedTarget(source);
     }
 
     static Journal journal(Path folder) throws IOException {
@@ -142,23 +187,23 @@ final class WorldRelocation {
         return journalFor(readPlan(file));
     }
 
-    private static Journal journalFor(Plan plan) throws IOException {
+    private static Journal journalFor(RecoveryPlan plan) throws IOException {
         try {
             Path source = Path.of(plan.source()), target = Path.of(plan.target());
             if (!source.isAbsolute() || !target.isAbsolute()) throw new IOException("Relative relocation paths");
-            return new Journal(plan.nodeId(), plan.schema() == 1 ? plan.sourceId() : null, source.normalize(), target.normalize());
+            return new Journal(plan.nodeId(), source.normalize(), target.normalize(), plan.routingWitness());
         } catch (RuntimeException invalid) {
             throw new IOException("Invalid relocation paths", invalid);
         }
     }
 
-    private static Plan readPlan(Path file) throws IOException {
+    private static RecoveryPlan readPlan(Path file) throws IOException {
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Unreadable relocation journal: " + file);
         var document = JsonSupport.readDocument(file, JsonObject.class);
         if (document.state() != JsonSupport.ReadState.VALID) {
             throw new IOException("Unreadable relocation journal: " + file, document.failure());
         }
-        Plan plan;
+        RecoveryPlan plan;
         try {
             JsonObject object = document.value();
             var version = object.get("schema");
@@ -166,11 +211,8 @@ final class WorldRelocation {
                 throw new IOException("Missing numeric relocation journal schema");
             }
             int schema = new BigDecimal(version.getAsString()).intValueExact();
-            if (schema == 1) {
-                LegacyPlan old = JSON.fromJson(object, LegacyPlan.class);
-                if (old.mirrorId() == null || old.mirrorId().isBlank()) throw new IOException("Missing legacy mirror ID");
-                plan = new Plan(schema, old.operation(), "mirror:" + old.mirrorId(), null, old.sourceId(),
-                        old.source(), old.target(), old.entries());
+            if (schema == LegacyRelocation.SCHEMA) {
+                plan = LegacyRelocation.decode(object);
             } else if (schema == CURRENT_SCHEMA) {
                 plan = JSON.fromJson(object, Plan.class);
             } else {
@@ -190,7 +232,7 @@ final class WorldRelocation {
                 || name.startsWith(FileTransaction.CLEANUP_PREFIX);
     }
 
-    private static void preflight(Plan plan, Path source, Path target) throws IOException {
+    private static void preflight(RecoveryPlan plan, Path source, Path target) throws IOException {
         if (plan.entries() == null || !plan.entries().contains(WorldMetadata.FILE_NAME)) throw new IOException("Missing relocation entries");
         Set<String> names = new HashSet<>();
         for (String name : plan.entries()) {
@@ -208,10 +250,14 @@ final class WorldRelocation {
             }
             Path metadataFile = root.resolve(WorldMetadata.FILE_NAME);
             if (!Files.notExists(metadataFile, LinkOption.NOFOLLOW_LINKS)) {
-                if (!matchesMetadata(plan, root)) throw new IOException("Foreign mirror at relocation root: " + root);
+                if (!Files.isRegularFile(metadataFile, LinkOption.NOFOLLOW_LINKS) || !plan.matchesMetadata(root)) {
+                    throw new IOException("Foreign mirror at relocation root: " + root);
+                }
                 identities++;
             }
-            if (!Files.notExists(root.resolve(MirrorClaim.FILE_NAME), LinkOption.NOFOLLOW_LINKS) && !matchesClaim(plan, root)) {
+            Path claimFile = root.resolve(MirrorClaim.FILE_NAME);
+            if (!Files.notExists(claimFile, LinkOption.NOFOLLOW_LINKS)
+                    && (!Files.isRegularFile(claimFile, LinkOption.NOFOLLOW_LINKS) || !plan.matchesClaim(root))) {
                 throw new IOException("Foreign relocation reservation: " + root);
             }
             try (var files = Files.list(root)) {
@@ -242,27 +288,7 @@ final class WorldRelocation {
         }
     }
 
-    private static boolean matchesMetadata(Plan plan, Path root) throws IOException {
-        if (!Files.isRegularFile(root.resolve(WorldMetadata.FILE_NAME), LinkOption.NOFOLLOW_LINKS)) return false;
-        if (plan.schema() == 1) {
-            LegacyWorldMetadata metadata = LegacyWorldMetadata.read(root);
-            return metadata != null && plan.sourceId().equals(metadata.sourceId())
-                    && plan.nodeId().equals("mirror:" + metadata.mirrorId());
-        }
-        return WorldMetadata.loadIfPresent(root).filter(metadata -> plan.nodeId().equals(metadata.nodeId)
-                && plan.sourceId().equals(metadata.sourceId)
-                && Objects.equals(plan.parentNodeId(), metadata.parentNodeId)).isPresent();
-    }
-
-    private static boolean matchesClaim(Plan plan, Path root) throws IOException {
-        if (!Files.isRegularFile(root.resolve(MirrorClaim.FILE_NAME), LinkOption.NOFOLLOW_LINKS)) return false;
-        if (plan.schema() == 1) return plan.sourceId().equals(MirrorClaim.readLegacySource(root));
-        MirrorClaim.Claim claim = MirrorClaim.read(root);
-        return claim != null && plan.nodeId().equals(claim.nodeId()) && plan.sourceId().equals(claim.sourceId())
-                && Objects.equals(plan.parentNodeId(), claim.parentNodeId());
-    }
-
-    private static void transfer(Plan plan, Path from, Path to) throws IOException {
+    private static void transfer(RecoveryPlan plan, Path from, Path to) throws IOException {
         preflight(plan, from, to);
         for (String name : plan.entries()) {
             Path original = from.resolve(name);
@@ -270,18 +296,8 @@ final class WorldRelocation {
         }
     }
 
-    private static void finish(Plan plan, Path source, Path target, boolean committed) throws IOException {
-        if (committed) {
-            if (plan.schema() == 1 || plan.parentNodeId() == null) {
-                Files.deleteIfExists(source.resolve(MirrorClaim.FILE_NAME));
-                Files.deleteIfExists(target.resolve(MirrorClaim.FILE_NAME));
-            } else {
-                if (Files.notExists(source.resolve(MirrorClaim.FILE_NAME), LinkOption.NOFOLLOW_LINKS)) {
-                    MirrorClaim.create(source, plan.nodeId(), plan.parentNodeId(), plan.sourceId());
-                }
-                MirrorClaim.finish(target, plan.nodeId());
-            }
-        }
+    private static void finish(RecoveryPlan plan, Path source, Path target, boolean committed) throws IOException {
+        if (committed) plan.finishCommitted(source, target);
         Files.deleteIfExists(source.resolve(JOURNAL));
         Files.deleteIfExists(target.resolve(JOURNAL));
     }

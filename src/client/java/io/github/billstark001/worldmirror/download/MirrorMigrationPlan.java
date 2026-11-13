@@ -2,6 +2,7 @@ package io.github.billstark001.worldmirror.download;
 
 import io.github.billstark001.worldmirror.io.MirrorWorldgenAssets;
 import io.github.billstark001.worldmirror.io.MirrorWorldgenCheck;
+import io.github.billstark001.worldmirror.legacy.LegacyVoidChunkCleanup;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,7 +50,6 @@ public final class MirrorMigrationPlan {
             }
             case UNMANAGED -> { return unavailable(normalized, State.UNMANAGED, null); }
             case FUTURE -> { return unavailable(normalized, State.FUTURE, "metadata_schema_future"); }
-            case LEGACY -> { return unavailable(normalized, State.UNREADABLE, "metadata_upgrade_required"); }
             case UNREADABLE -> { return unavailable(normalized, State.UNREADABLE, "metadata_unreadable"); }
             case CURRENT -> { }
         }
@@ -66,7 +66,7 @@ public final class MirrorMigrationPlan {
         boolean migrateWorldgen = metadata.needsWorldgenMigration();
         boolean refreshAssets = metadata.needsWorldgenAssetRefresh(
                 dataVersion, MirrorWorldgenAssets.ASSET_REVISION);
-        boolean cleanupLegacyVoidChunks = metadata.needsLegacyVoidChunkCleanup();
+        boolean cleanupLegacyVoidChunks = LegacyVoidChunkCleanup.isNeeded(metadata.generation.cleanupRevision());
         MirrorWorldgenCheck.Result content = fresh ? MirrorWorldgenCheck.inspectFresh(normalized)
                 : MirrorWorldgenCheck.inspect(normalized);
         if (content.state() == MirrorWorldgenCheck.State.UNREADABLE

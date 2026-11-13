@@ -46,7 +46,7 @@ public final class MirrorWorldgenAssets {
             return;
         }
         write(pack.resolve("data/worldmirror/worldgen/biome/" + name + ".json"),
-                MirrorWorldgenJson.legacyBiome(
+                MirrorWorldgenJson.biomeBeforeEnvironmentAttributes(
                         temperature, downfall, fogColor, skyColor));
     }
 

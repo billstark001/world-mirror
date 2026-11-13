@@ -3,6 +3,7 @@ package io.github.billstark001.worldmirror.download;
 import io.github.billstark001.worldmirror.io.MirrorTarget;
 import io.github.billstark001.worldmirror.ui.ClientDialogs;
 import io.github.billstark001.worldmirror.ui.MirrorPrompt;
+import io.github.billstark001.worldmirror.legacy.LegacyWorldMetadata;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.worldselection.WorldOpenFlows;
@@ -40,7 +41,7 @@ public final class WorldOpenMigrationController {
                 () -> {
                     var service = WorldGraphService.instance();
                     MirrorMigrationPlan.Inspection inspection = MirrorMigrationCoordinator.recoverAndInspect(worldFolder);
-                    if (WorldMetadata.inspectSchema(worldFolder) == WorldMetadata.Schema.LEGACY
+                    if (LegacyWorldMetadata.hasLegacyHeader(worldFolder)
                             || hasRelocationJournal(worldFolder)) {
                         service.refresh();
                         inspection = MirrorMigrationCoordinator.recoverAndInspect(worldFolder);

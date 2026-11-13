@@ -1,5 +1,6 @@
 package io.github.billstark001.worldmirror.io;
 
+import io.github.billstark001.worldmirror.legacy.LegacyRegionPlaceholder;
 import net.minecraft.world.level.ChunkPos;
 
 import java.io.EOFException;
@@ -57,8 +58,7 @@ final class RegionFileIntegrity {
     /** Uses the reader's channel, retaining the validated table instead of rereading each location. */
     static Inspection inspect(FileChannel channel, int regionX, int regionZ) throws IOException {
         long fileSize = channel.size();
-        // Legacy writers can leave a placeholder with no location table or payloads.
-        if (fileSize == 0) return Inspection.empty();
+        if (LegacyRegionPlaceholder.isEmpty(fileSize)) return Inspection.empty();
         if (fileSize < HEADER_BYTES) {
             return Inspection.unusable("truncated header bytes=" + fileSize);
         }

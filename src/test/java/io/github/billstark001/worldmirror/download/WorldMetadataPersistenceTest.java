@@ -1,6 +1,8 @@
 package io.github.billstark001.worldmirror.download;
 
 import io.github.billstark001.worldmirror.format.MirrorFormat;
+import io.github.billstark001.worldmirror.legacy.LegacyWorldMetadata;
+import io.github.billstark001.worldmirror.legacy.WorldMetadataUpgrade;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -30,9 +32,11 @@ class WorldMetadataPersistenceTest {
                     "replay_import"));
         }
 
-        assertEquals(WorldMetadata.Schema.LEGACY, WorldMetadata.inspectSchema(world));
+        assertTrue(LegacyWorldMetadata.hasLegacyHeader(world));
+        assertEquals(WorldMetadata.Schema.UNREADABLE, WorldMetadata.inspectSchema(world));
         assertTrue(WorldMetadata.loadIfPresent(world).isEmpty());
         LegacyWorldMetadata legacy = LegacyWorldMetadata.read(world);
+        assertEquals(LegacyWorldMetadata.FIRST_VERSIONED_SCHEMA, legacy.schemaVersion());
         WorldMetadata upgraded = WorldMetadataUpgrade.upgrade(world, MIRROR, PARENT, legacy);
 
         assertEquals(MIRROR, upgraded.nodeId);
@@ -74,7 +78,7 @@ class WorldMetadataPersistenceTest {
 
         assertThrows(IOException.class, () -> WorldMetadataUpgrade.upgrade(world, MIRROR, PARENT));
         assertEquals(original, Files.readString(metadata));
-        assertEquals(WorldMetadata.Schema.LEGACY, WorldMetadata.inspectSchema(world));
+        assertTrue(LegacyWorldMetadata.hasLegacyHeader(world));
         Path backup = onlyBackup(world);
         assertEquals(original, Files.readString(backup));
 
@@ -104,7 +108,9 @@ class WorldMetadataPersistenceTest {
         Files.writeString(metadata, """
                 {"sourceId":"server:example.test","sourceType":"server"}
                 """);
-        assertEquals(WorldMetadata.Schema.LEGACY, WorldMetadata.inspectSchema(world));
+        assertTrue(LegacyWorldMetadata.hasLegacyHeader(world));
+        assertEquals(WorldMetadata.Schema.UNMANAGED, WorldMetadata.inspectSchema(world));
+        assertEquals(LegacyWorldMetadata.UNVERSIONED_SCHEMA, LegacyWorldMetadata.read(world).schemaVersion());
         WorldMetadata upgraded = WorldMetadataUpgrade.upgrade(world, MIRROR, PARENT);
         assertEquals("server:example.test", upgraded.sourceId);
         assertTrue(upgraded.needsWorldgenMigration());
@@ -113,6 +119,7 @@ class WorldMetadataPersistenceTest {
                 {"sourceId":"server:example.test"}
                 """);
         assertEquals(WorldMetadata.Schema.UNMANAGED, WorldMetadata.inspectSchema(world));
+        assertFalse(LegacyWorldMetadata.hasLegacyHeader(world));
         assertThrows(IOException.class, () -> WorldMetadataUpgrade.upgrade(world, MIRROR, PARENT));
     }
 
@@ -168,7 +175,7 @@ class WorldMetadataPersistenceTest {
                 """;
         Files.writeString(metadata, original);
 
-        assertEquals(WorldMetadata.Schema.LEGACY, WorldMetadata.inspectSchema(world));
+        assertTrue(LegacyWorldMetadata.hasLegacyHeader(world));
         assertThrows(IOException.class, () -> LegacyWorldMetadata.read(world));
         assertThrows(IOException.class, () -> WorldMetadataUpgrade.upgrade(world, MIRROR, PARENT));
         assertEquals(original, Files.readString(metadata));
