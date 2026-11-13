@@ -81,7 +81,7 @@ class ChunkDatabaseDurabilityTest {
         entries.put("minecraft:overworld|3,4", null);
         entries.put("minecraft:overworld|5,6,7", 200L);
         try (ChunkDatabase db = ChunkDatabase.open(world, "server:test")) {
-            assertTrue(db.migrateFromChunkUpdateTimes(entries));
+            db.migrateFromChunkUpdateTimes(entries);
             assertEquals(1, db.queryAll("minecraft:overworld").size());
             assertTrue(db.shouldSkipUpdate("minecraft:overworld", 1, 2, "world_mirror", 50L));
         }

@@ -47,26 +47,22 @@ public final class NearbyExporter {
 
     public enum Choice { INHERIT_ORIGINAL, CURRENT_MIRROR, INDEPENDENT }
 
-    public record Lineage(String sourceId, String sourceType, String parentMirrorId) { }
+    record Lineage(String nodeId, String parentNodeId, String sourceId) {}
 
     private NearbyExporter() { }
 
-    public static Lineage resolveLineage(Choice choice, WorldMetadata currentMirror,
-                                         String fallbackSourceId, String fallbackSourceType) {
-        Objects.requireNonNull(choice, "choice");
-        if (choice != Choice.INDEPENDENT) {
-            if (currentMirror == null) return new Lineage(fallbackSourceId, fallbackSourceType, null);
-            if (currentMirror.mirrorId == null || currentMirror.mirrorId.isBlank()) {
-                throw new IllegalArgumentException("current mirror must have a persistent mirrorId");
-            }
+    static Lineage resolveLineage(Choice choice, WorldGraph.Snapshot graph, String currentNode, String indexSource) {
+        if (choice == Choice.INDEPENDENT) {
+            String id = "snapshot:" + UUID.randomUUID();
+            return new Lineage(id, null, id);
         }
-        return switch (choice) {
-            case INHERIT_ORIGINAL -> new Lineage(currentMirror.sourceId,
-                    currentMirror.sourceType, currentMirror.mirrorId);
-            case CURRENT_MIRROR -> new Lineage("mirror:" + currentMirror.mirrorId,
-                    "mirror", currentMirror.mirrorId);
-            case INDEPENDENT -> new Lineage("snapshot:" + UUID.randomUUID(), "nearby_export", null);
-        };
+        if (currentNode == null || !graph.isUnambiguous(currentNode)) {
+            throw new IllegalArgumentException("Current world identity is unavailable");
+        }
+        String parent = choice == Choice.INHERIT_ORIGINAL && graph.nodes().containsKey(currentNode)
+                ? graph.findRoot(currentNode).orElseThrow(() -> new IllegalArgumentException("Original world unavailable")).id()
+                : currentNode;
+        return new Lineage("mirror:" + UUID.randomUUID(), parent, indexSource == null ? parent : indexSource);
     }
 
     /** Captures on the game thread, then writes the new save in a dedicated worker. */
@@ -78,6 +74,20 @@ public final class NearbyExporter {
             WMPlayerMessages.sendSystemMessage(client.player,
                     Component.translatable("msg.worldmirror.nearbyNoWorld")
                             .withStyle(ChatFormatting.RED));
+            return;
+        }
+        var graph = WorldGraphService.instance();
+        var observation = graph.source();
+        Lineage lineage;
+        try {
+            if (lineageChoice != Choice.INDEPENDENT && !graph.observationIsCurrent(client)) {
+                throw new IllegalArgumentException("Current world identity is unavailable");
+            }
+            String source = graph.sourceNode(observation);
+            String indexSource = observation != null && observation.endpoint() != null ? "server:" + observation.endpoint() : null;
+            lineage = resolveLineage(lineageChoice, graph.graph(), source, indexSource);
+        } catch (IllegalArgumentException invalid) {
+            notifyFailure(client);
             return;
         }
         radiusChunks = Math.clamp(radiusChunks, MIN_RADIUS_CHUNKS, MAX_RADIUS_CHUNKS);
@@ -122,20 +132,12 @@ public final class NearbyExporter {
 
         String safeName = worldName == null || worldName.isBlank() ? "NearbyExport" : worldName;
         Path base = FabricLoader.getInstance().getGameDir().resolve("saves");
-        MirrorWorldContext.Snapshot currentMirror = MirrorWorldContext.current();
-        if (lineageChoice != Choice.INDEPENDENT && !ensureCurrentMirrorIdentity(currentMirror)) {
-            notifyFailure(client);
-            return;
-        }
-        Lineage lineage = resolveLineage(lineageChoice,
-                currentMirror.isMirror() ? currentMirror.metadata() : null,
-                WorldMetadata.detectSourceId(client), WorldMetadata.detectSourceType(client));
         WorldSettingsSnapshot worldSettings = WorldStructureCreator.resolveNewWorldSettings(
                 WorldStructureCreator.captureWorldSettings(world));
 
         Path outFolder;
         try {
-            outFolder = claimOutputFolder(base, MirrorMapping.sanitiseFolderName(safeName, "NearbyExport"));
+            outFolder = claimOutputFolder(base, MirrorFolders.sanitiseFolderName(safeName, "NearbyExport"));
         } catch (IOException error) {
             WMLogger.warn("Nearby export directory claim failed base=" + base, error);
             notifyFailure(client);
@@ -180,9 +182,9 @@ public final class NearbyExporter {
                     output, worldName, spawnDimension, spawnX, spawnY, spawnZ, worldSettings)) {
                 throw new IllegalStateException("Could not create nearby-export world structure");
             }
-            WorldMetadata metadata = WorldMetadata.create(
-                    lineage.sourceId(), lineage.sourceType(), "nearby_export");
-            metadata.parentMirrorId = lineage.parentMirrorId();
+            WorldMetadata metadata = WorldMetadata.create(lineage.nodeId(), lineage.parentNodeId() == null
+                    ? WorldGraph.Kind.SNAPSHOT : WorldGraph.Kind.MIRROR,
+                    lineage.parentNodeId(), WorldGraph.Role.SNAPSHOT, lineage.sourceId());
             metadata.markWorldgenCurrent(
                     SharedConstants.getCurrentVersion().dataVersion().version(),
                     MirrorWorldgenAssets.ASSET_REVISION);
@@ -190,6 +192,7 @@ public final class NearbyExporter {
                 notifyFailure(client);
                 return;
             }
+            WorldGraphService.instance().refreshAsync();
             WMLogger.info("Nearby export complete: " + output.toAbsolutePath());
             client.execute(() -> WMPlayerMessages.sendSystemMessage(client.player,
                     Component.translatable("msg.worldmirror.nearbyDone", output.getFileName())
@@ -229,7 +232,7 @@ public final class NearbyExporter {
 
     /** Claims a fresh save directory atomically, even when exports use the same name concurrently. */
     static Path claimOutputFolder(Path base, String folderName) throws IOException {
-        MirrorMapping.requireFolderName(folderName);
+        MirrorFolders.requireFolderName(folderName);
         Files.createDirectories(base);
         for (int suffix = 0; suffix < Integer.MAX_VALUE; suffix++) {
             Path candidate = base.resolve(suffix == 0 ? folderName : folderName + '_' + suffix);
@@ -241,22 +244,4 @@ public final class NearbyExporter {
         }
         throw new IOException("No unused nearby-export folder is available");
     }
-
-    static boolean ensureCurrentMirrorIdentity(MirrorWorldContext.Snapshot currentMirror) {
-        if (!currentMirror.isMirror() || currentMirror.metadata() == null
-                || currentMirror.worldFolder() == null) return true;
-        WorldMetadata metadata = currentMirror.metadata();
-        if (metadata.mirrorId != null && !metadata.mirrorId.isBlank()) return true;
-        if (currentMirror.state() == MirrorWorldContext.State.FUTURE) {
-            WMLogger.warn("Nearby export cannot assign lineage to future mirror metadata path="
-                    + currentMirror.worldFolder());
-            return false;
-        }
-        String previousId = metadata.mirrorId;
-        metadata.ensureMirrorId();
-        if (metadata.save(currentMirror.worldFolder())) return true;
-        metadata.mirrorId = previousId;
-        return false;
-    }
-
 }

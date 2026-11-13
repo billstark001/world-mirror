@@ -8,7 +8,9 @@ import net.minecraft.world.level.ChunkPos;
 import org.sqlite.SQLiteConfig;
 
 import java.io.Closeable;
+import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
@@ -49,6 +51,7 @@ public class ChunkDatabase implements Closeable {
         Objects.requireNonNull(sourceId, "sourceId");
         Path database = worldFolder.resolve(MirrorFormat.DATABASE_FILE);
         try {
+            requireSafeFiles(worldFolder);
             Files.createDirectories(database.getParent());
         } catch (Exception e) {
             throw new SQLException("Cannot create data directory: " + e.getMessage(), e);
@@ -60,6 +63,22 @@ public class ChunkDatabase implements Closeable {
         } catch (SQLException failure) {
             try { connection.close(); } catch (SQLException close) { failure.addSuppressed(close); }
             throw failure;
+        }
+    }
+
+    private static void requireSafeFiles(Path worldFolder) throws IOException {
+        Path database = worldFolder.resolve(MirrorFormat.DATABASE_FILE);
+        Path data = database.getParent();
+        if (!Files.notExists(data, LinkOption.NOFOLLOW_LINKS)
+                && !Files.isDirectory(data, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("Not a plain chunk index directory: " + data);
+        }
+        for (String suffix : List.of("", "-wal", "-shm", "-journal")) {
+            Path file = database.resolveSibling(database.getFileName() + suffix);
+            if (!Files.notExists(file, LinkOption.NOFOLLOW_LINKS)
+                    && !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException("Not a regular chunk index file: " + file);
+            }
         }
     }
 
@@ -105,18 +124,12 @@ public class ChunkDatabase implements Closeable {
         }
     }
 
-    /** Returns true only after the legacy timestamps have committed to SQLite. */
-    public boolean migrateFromChunkUpdateTimes(Map<String, Long> chunkUpdateTimes) {
-        try {
-            int migrated = store.migrateLegacyTimes(chunkUpdateTimes);
-            if (migrated > 0) {
-                WMLogger.debug("Migrated " + migrated + " chunk timestamps from JSON to SQLite.");
-            }
-            return true;
-        } catch (SQLException e) {
-            WMLogger.warn("Legacy chunk timestamp migration failed", e);
-            return false;
+    /** Commits durably before the upgrader can remove the only JSON copy of the timestamps. */
+    void migrateFromChunkUpdateTimes(Map<String, Long> chunkUpdateTimes) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("PRAGMA synchronous=FULL");
         }
+        store.migrateLegacyTimes(chunkUpdateTimes);
     }
 
     private static ChunkCoordinate coordinate(ChunkPos chunk) {

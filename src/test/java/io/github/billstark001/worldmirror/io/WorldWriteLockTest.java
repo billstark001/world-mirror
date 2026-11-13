@@ -1,5 +1,7 @@
 package io.github.billstark001.worldmirror.io;
 
+import io.github.billstark001.worldmirror.download.WorldGraph;
+import io.github.billstark001.worldmirror.download.WorldMetadata;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.util.DirectoryLock;
@@ -51,6 +53,21 @@ class WorldWriteLockTest {
     }
 
     @Test
+    void symbolicSessionLockDoesNotChangeItsTarget(@TempDir Path root) throws Exception {
+        Path world = Files.createDirectory(root.resolve("world"));
+        byte[] original = {1, 2, 3, 4};
+        Path outside = Files.write(root.resolve("outside.lock"), original);
+        try {
+            Files.createSymbolicLink(world.resolve(DirectoryLock.LOCK_FILE), outside);
+        } catch (IOException | UnsupportedOperationException unavailable) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false, "Symbolic links unavailable: " + unavailable);
+        }
+
+        assertThrows(IOException.class, () -> WorldWriteLock.acquire(world));
+        assertArrayEquals(original, Files.readAllBytes(outside));
+    }
+
+    @Test
     void parallelWritersSerializeBeforeTryingTheOperatingSystemLock(@TempDir Path world) throws Exception {
         var executor = Executors.newSingleThreadExecutor();
         try {
@@ -79,16 +96,17 @@ class WorldWriteLockTest {
     void worldSettingsCannotBePatchedWhileVanillaHasTheSaveOpen(@TempDir Path world) throws Exception {
         assertTrue(WorldStructureCreator.createLoadableWorld(world, "test", true, true,
                 WorldSettingsSnapshot.defaults()));
-        var metadata = io.github.billstark001.worldmirror.download.WorldMetadata.create("local:settings", "singleplayer", "synchronized");
+        var metadata = WorldMetadata.create("mirror:settings", WorldGraph.Kind.MIRROR, "local:settings",
+                WorldGraph.Role.SYNC, "local:settings");
         metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), MirrorWorldgenAssets.ASSET_REVISION);
         assertTrue(metadata.save(world));
         byte[] original = Files.readAllBytes(world.resolve("level.dat"));
         WorldSettingsSnapshot changed = new WorldSettingsSnapshot(12_345, 12_345, false, false, 2);
         try (DirectoryLock vanilla = DirectoryLock.create(world)) {
-            assertFalse(WorldStructureCreator.syncWorldSetting(new MirrorTarget(world, "local:settings"), changed, WorldStructureCreator.Setting.TIME));
+            assertFalse(WorldStructureCreator.syncWorldSetting(new MirrorTarget(world, "mirror:settings", "local:settings"), changed, WorldStructureCreator.Setting.TIME));
             assertArrayEquals(original, Files.readAllBytes(world.resolve("level.dat")));
         }
-        assertTrue(WorldStructureCreator.syncWorldSetting(new MirrorTarget(world, "local:settings"), changed, WorldStructureCreator.Setting.TIME));
+        assertTrue(WorldStructureCreator.syncWorldSetting(new MirrorTarget(world, "mirror:settings", "local:settings"), changed, WorldStructureCreator.Setting.TIME));
     }
 
     private static void assertVanillaCannotOpen(Path world) {

@@ -1,5 +1,7 @@
 package io.github.billstark001.worldmirror.conflict;
 
+import io.github.billstark001.worldmirror.download.WorldGraph;
+import io.github.billstark001.worldmirror.download.WorldMetadata;
 import io.github.billstark001.worldmirror.io.ChunkExporter;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.registries.Registries;
@@ -283,7 +285,7 @@ class ConflictManagerPersistenceTest {
         }
     }
     private static io.github.billstark001.worldmirror.io.MirrorTarget target(Path world) {
-        return new io.github.billstark001.worldmirror.io.MirrorTarget(world, "server:conflict-test");
+        return new io.github.billstark001.worldmirror.io.MirrorTarget(world, "mirror:conflict-test", "server:conflict-test");
     }
 
     private static boolean savePending(Path world, ChunkPos pos, CompoundTag chunk, ResourceKey<Level> dimension) {
@@ -292,11 +294,12 @@ class ConflictManagerPersistenceTest {
     }
     private static void seedMetadata(Path world) {
         if (Files.exists(world) && !Files.isDirectory(world)) return;
-        if (Files.notExists(world.resolve(io.github.billstark001.worldmirror.download.WorldMetadata.FILE_NAME))) {
+        if (Files.notExists(world.resolve(WorldMetadata.FILE_NAME))) {
             assertTrue(io.github.billstark001.worldmirror.io.WorldStructureCreator.createLoadableWorld(
                     world, "conflict fixture", true, true,
                     io.github.billstark001.worldmirror.io.WorldSettingsSnapshot.defaults()));
-            var metadata = io.github.billstark001.worldmirror.download.WorldMetadata.create("server:conflict-test", "server", "synchronized");
+            var metadata = WorldMetadata.create("mirror:conflict-test", WorldGraph.Kind.MIRROR, "remote:conflict-test",
+                    WorldGraph.Role.SYNC, "server:conflict-test");
             metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(),
                     io.github.billstark001.worldmirror.io.MirrorWorldgenAssets.ASSET_REVISION);
             metadata.save(world);
@@ -307,7 +310,7 @@ class ConflictManagerPersistenceTest {
     void unknownTargetIdentityKeepsPendingConflicts(@TempDir Path world) throws Exception {
         ChunkPos pos = new ChunkPos(0, 0);
         assertTrue(savePending(world, pos, chunk(pos, 1), Level.OVERWORLD));
-        var foreign = new io.github.billstark001.worldmirror.io.MirrorTarget(world, "server:other");
+        var foreign = new io.github.billstark001.worldmirror.io.MirrorTarget(world, "mirror:other", "server:conflict-test");
         assertFalse(ConflictManager.resolveConflict(foreign, pos, Level.OVERWORLD, true));
         assertTrue(ConflictManager.hasConflict(world, pos, Level.OVERWORLD));
         org.junit.jupiter.api.Assertions.assertThrows(IOException.class,

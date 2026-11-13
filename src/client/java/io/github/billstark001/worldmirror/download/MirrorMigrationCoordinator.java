@@ -2,16 +2,21 @@ package io.github.billstark001.worldmirror.download;
 
 import io.github.billstark001.worldmirror.io.LegacyVoidChunkCleanup;
 import io.github.billstark001.worldmirror.io.MirrorWorldgenAssets;
+import io.github.billstark001.worldmirror.io.MirrorTarget;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
 import io.github.billstark001.worldmirror.io.WorldSettingsSnapshot;
 import io.github.billstark001.worldmirror.io.WorldWriteLock;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.util.FileTransaction;
+import io.github.billstark001.worldmirror.util.FileProof;
+import io.github.billstark001.worldmirror.util.WorldRecovery;
 import net.minecraft.SharedConstants;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.Locale;
 import java.util.zip.ZipEntry;
@@ -56,12 +61,16 @@ public final class MirrorMigrationCoordinator {
 
     /** Background entry checks recover interrupted transactions before classifying their files. */
     public static MirrorMigrationPlan.Inspection recoverAndInspect(Path worldFolder) throws IOException {
-        if (io.github.billstark001.worldmirror.util.WorldRecovery.required(worldFolder)) {
+        if (needsRecovery(worldFolder)) {
             try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
                 return inspect(worldFolder);
             }
         }
         return inspect(worldFolder);
+    }
+
+    static boolean needsRecovery(Path worldFolder) throws IOException {
+        return WorldRecovery.required(worldFolder) || FileTransaction.hasPending(worldFolder);
     }
 
     /**
@@ -73,6 +82,14 @@ public final class MirrorMigrationCoordinator {
     }
 
     public static Result migrateApproved(Path worldFolder, ProgressListener progress) {
+        return migrateApproved(worldFolder, null, progress);
+    }
+
+    static Result migrateApproved(MirrorTarget target, ProgressListener progress) {
+        return migrateApproved(target.folder(), target, progress);
+    }
+
+    private static Result migrateApproved(Path worldFolder, MirrorTarget target, ProgressListener progress) {
         ProgressListener observer = progress;
         ProgressListener safeProgress = (phase, completed, total) -> {
             try { observer.update(phase, completed, total); }
@@ -82,8 +99,12 @@ public final class MirrorMigrationCoordinator {
         };
         Path normalized = worldFolder.toAbsolutePath().normalize();
         try (WorldWriteLock ignored = WorldWriteLock.acquire(normalized)) {
+            Path metadataFile = normalized.resolve(WorldMetadata.FILE_NAME);
+            String inspectedMetadata = Files.isRegularFile(metadataFile, LinkOption.NOFOLLOW_LINKS)
+                    ? FileProof.sha256(metadataFile) : null;
             MirrorMigrationPlan.Inspection plan = MirrorMigrationPlan.inspect(normalized,
                     SharedConstants.getCurrentVersion().dataVersion().version(), true);
+            if (target != null && !target.matches(plan.metadata())) return Result.failure("mirror_identity_changed");
             if (plan.state() == MirrorMigrationPlan.State.CURRENT) {
                 return Result.success(false, null);
             }
@@ -107,10 +128,14 @@ public final class MirrorMigrationCoordinator {
             try (FileTransaction transaction = new FileTransaction(normalized)) {
                 Path stagedWorld = transaction.stagingDirectory();
                 Path backup;
+                java.util.Map<Path, String> snapshot;
                 try {
                     safeProgress.update(Phase.BACKING_UP, 0, 1);
                     // Snapshot each source once; the verified ZIP and edits share those exact bytes.
-                    var snapshot = copyTouchedFiles(normalized, stagedWorld, touchedFiles(normalized, voidCleanup));
+                    snapshot = copyTouchedFiles(normalized, stagedWorld, touchedFiles(normalized, voidCleanup));
+                    if (inspectedMetadata == null || !inspectedMetadata.equals(snapshot.get(Path.of(WorldMetadata.FILE_NAME)))) {
+                        throw new IOException("Mirror metadata changed before backup: " + metadataFile);
+                    }
                     backup = backupTouchedFiles(normalized, stagedWorld, snapshot);
                     safeProgress.update(Phase.BACKING_UP, 1, 1);
                 } catch (Exception error) {
@@ -129,7 +154,6 @@ public final class MirrorMigrationCoordinator {
                 LegacyVoidChunkCleanup.apply(new LegacyVoidChunkCleanup.Plan(stagedRegions),
                         (completed, total) -> safeProgress.update(Phase.REMOVING_VOID_CHUNKS, completed, total));
                 WorldMetadata metadata = plan.metadata();
-                metadata.ensureMirrorId();
                 metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(),
                         MirrorWorldgenAssets.ASSET_REVISION);
                 if (!metadata.save(stagedWorld)) return Result.failure("metadata_write_failed");
@@ -144,6 +168,7 @@ public final class MirrorMigrationCoordinator {
                 if (verified.state() != io.github.billstark001.worldmirror.io.MirrorWorldgenCheck.State.CURRENT) {
                     return Result.failure("worldgen_verification_failed");
                 }
+                verifyOriginals(normalized, replacements.keySet(), snapshot);
                 transaction.commit(replacements);
                 return Result.success(true, backup);
             }
@@ -174,10 +199,13 @@ public final class MirrorMigrationCoordinator {
     private static Path backupTouchedFiles(Path worldFolder, Path snapshot,
                                            java.util.Map<Path, String> expected) throws IOException {
         Path backupRoot = worldFolder.resolve("backups");
-        Files.createDirectories(backupRoot);
+        if (Files.notExists(backupRoot, LinkOption.NOFOLLOW_LINKS)) Files.createDirectory(backupRoot);
+        if (!Files.isDirectory(backupRoot, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("Migration backup directory is not a plain directory: " + backupRoot);
+        }
         String timestamp = Instant.now().toString().replace(':', '-');
         Path archive = backupRoot.resolve("worldmirror-schema-backup-" + timestamp + ".zip");
-        try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(archive))) {
+        try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(archive, StandardOpenOption.CREATE_NEW))) {
             for (Path relative : expected.keySet()) {
                 zip.putNextEntry(new ZipEntry(relative.toString().replace('\\', '/')));
                 Files.copy(snapshot.resolve(relative), zip);
@@ -206,35 +234,37 @@ public final class MirrorMigrationCoordinator {
         java.util.Set<Path> files = new java.util.LinkedHashSet<>();
         for (String name : java.util.List.of("level.dat", WorldMetadata.FILE_NAME,
                 "data/minecraft/world_gen_settings.dat", "data/minecraft/world_clocks.dat")) {
-            addExistingFile(files, root.resolve(name));
+            addExistingFile(files, root, root.resolve(name));
         }
         Path pack = root.resolve("datapacks").resolve(MirrorWorldgenAssets.PACK_DIRECTORY);
-        if (!Files.notExists(pack)) {
+        requirePlainAncestors(root, pack);
+        if (!Files.notExists(pack, LinkOption.NOFOLLOW_LINKS)) {
             try (var paths = Files.walk(pack)) {
                 for (Path path : paths.toList()) {
                     if (Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) continue;
-                    addExistingFile(files, path);
+                    addExistingFile(files, root, path);
                 }
             }
         }
         for (var region : cleanup.regions()) {
-            addExistingFile(files, region.regionFile());
+            addExistingFile(files, root, region.regionFile());
             var coordinates = io.github.billstark001.worldmirror.io.AnvilReader.coordinates(region.regionFile());
             for (var pos : io.github.billstark001.worldmirror.io.McaWriteSupport.listChunkPositions(
                     region.regionFile(), coordinates.x(), coordinates.z())) {
                 Path payload = region.regionFile().getParent().resolve("c."
                         + (pos.getRegionX() * 32 + pos.getRegionLocalX()) + "."
                         + (pos.getRegionZ() * 32 + pos.getRegionLocalZ()) + ".mcc");
-                addExistingFile(files, payload);
+                addExistingFile(files, root, payload);
             }
         }
         return java.util.List.copyOf(files);
     }
 
-    private static void addExistingFile(java.util.Set<Path> files, Path file) throws IOException {
-        if (Files.notExists(file)) return;
+    private static void addExistingFile(java.util.Set<Path> files, Path root, Path file) throws IOException {
+        requirePlainAncestors(root, file.getParent());
+        if (Files.notExists(file, LinkOption.NOFOLLOW_LINKS)) return;
         var attributes = Files.readAttributes(file, java.nio.file.attribute.BasicFileAttributes.class,
-                java.nio.file.LinkOption.NOFOLLOW_LINKS);
+                LinkOption.NOFOLLOW_LINKS);
         if (!attributes.isRegularFile()) throw new IOException("Migration input is not a regular file: " + file);
         files.add(file);
     }
@@ -246,9 +276,31 @@ public final class MirrorMigrationCoordinator {
             Path relative = source.relativize(file);
             Path target = destination.resolve(relative);
             Files.createDirectories(target.getParent());
-            hashes.put(relative, io.github.billstark001.worldmirror.util.FileProof.copyVerified(file, target));
+            hashes.put(relative, FileProof.copyVerified(file, target));
         }
         return hashes;
+    }
+
+    private static void verifyOriginals(Path root, java.util.Set<Path> replacements,
+                                        java.util.Map<Path, String> snapshot) throws IOException {
+        for (Path relative : replacements) {
+            Path file = root.resolve(relative);
+            requirePlainAncestors(root, file.getParent());
+            String expected = snapshot.get(relative);
+            boolean matches = expected == null ? Files.notExists(file, LinkOption.NOFOLLOW_LINKS)
+                    : Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)
+                    && expected.equals(FileProof.sha256(file));
+            if (!matches) throw new IOException("Migration input changed after backup: " + file);
+        }
+    }
+
+    private static void requirePlainAncestors(Path root, Path directory) throws IOException {
+        for (Path part = directory; !part.equals(root); part = part.getParent()) {
+            if (!Files.notExists(part, LinkOption.NOFOLLOW_LINKS)
+                    && !Files.isDirectory(part, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException("Migration directory is not a plain directory: " + part);
+            }
+        }
     }
 
 }

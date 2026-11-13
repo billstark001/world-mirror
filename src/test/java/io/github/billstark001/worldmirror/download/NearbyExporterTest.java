@@ -39,40 +39,37 @@ class NearbyExporterTest {
     @Test
     void independentLineageDoesNotRequireAnExistingMirror() {
         var first = NearbyExporter.resolveLineage(NearbyExporter.Choice.INDEPENDENT,
-                null, "server:test", "server");
+                WorldGraph.reconcile(java.util.List.of(), java.util.Map.of()), null, null);
         var second = NearbyExporter.resolveLineage(NearbyExporter.Choice.INDEPENDENT,
-                null, "server:test", "server");
+                WorldGraph.reconcile(java.util.List.of(), java.util.Map.of()), null, null);
 
         assertTrue(first.sourceId().startsWith("snapshot:"));
         assertNotEquals(first.sourceId(), second.sourceId());
-        assertEquals("nearby_export", first.sourceType());
-        assertNull(first.parentMirrorId());
+        assertEquals(first.nodeId(), first.sourceId());
+        assertNull(first.parentNodeId());
     }
 
     @Test
     void exportNamesKeepUnicodeAndDoNotSplitSurrogatePairs(@TempDir Path root) throws Exception {
         String unicode = "镜像ワールド";
-        assertEquals(unicode, MirrorMapping.sanitiseFolderName(unicode, "NearbyExport"));
-        assertEquals("NearbyExport", MirrorMapping.sanitiseFolderName("...", "NearbyExport"));
-        assertEquals("_CON", MirrorMapping.sanitiseFolderName("CON", "NearbyExport"));
-        String truncated = MirrorMapping.sanitiseFolderName("a".repeat(63) + "🌍", "NearbyExport");
+        assertEquals(unicode, MirrorFolders.sanitiseFolderName(unicode, "NearbyExport"));
+        assertEquals("NearbyExport", MirrorFolders.sanitiseFolderName("...", "NearbyExport"));
+        assertEquals("_CON", MirrorFolders.sanitiseFolderName("CON", "NearbyExport"));
+        String truncated = MirrorFolders.sanitiseFolderName("a".repeat(63) + "🌍", "NearbyExport");
         assertEquals("a".repeat(63), truncated);
         assertTrue(Files.isDirectory(NearbyExporter.claimOutputFolder(root, truncated)));
     }
 
     @Test
-    void futureMetadataWithoutIdentityIsNeverRewrittenForLineage(@TempDir Path world) throws Exception {
-        String original = "{\"sourceId\":\"server:test\",\"worldgenSchema\":999,\"futureField\":123}";
-        Path file = world.resolve(WorldMetadata.FILE_NAME);
-        Files.writeString(file, original);
-        WorldMetadata metadata = WorldMetadata.loadIfPresent(world).orElseThrow();
-        var current = new MirrorWorldContext.Snapshot(world, MirrorWorldContext.State.FUTURE, metadata);
-
-        org.junit.jupiter.api.Assertions.assertFalse(NearbyExporter.ensureCurrentMirrorIdentity(current));
-        assertEquals(original, Files.readString(file));
-        var independent = NearbyExporter.resolveLineage(NearbyExporter.Choice.INDEPENDENT,
-                metadata, "fallback", "server");
-        assertTrue(independent.sourceId().startsWith("snapshot:"));
-        assertNull(metadata.mirrorId);
+    void linkedExportsCanUseCurrentOrOriginalWorld() {
+        var source = new WorldGraph.Node("remote:origin", null, null, WorldGraph.Kind.REMOTE, null);
+        var mirror = new WorldGraph.Node("mirror:current", source.id(),
+                new WorldGraph.Location(WorldGraph.Root.SAVES, "current"), WorldGraph.Kind.MIRROR, WorldGraph.Role.SYNC);
+        var graph = WorldGraph.reconcile(java.util.List.of(source, mirror), java.util.Map.of());
+        var inherited = NearbyExporter.resolveLineage(NearbyExporter.Choice.INHERIT_ORIGINAL, graph, mirror.id(), null);
+        var derived = NearbyExporter.resolveLineage(NearbyExporter.Choice.CURRENT_MIRROR, graph, mirror.id(), null);
+        assertEquals(source.id(), inherited.parentNodeId());
+        assertEquals(mirror.id(), derived.parentNodeId());
+        assertNotEquals(inherited.nodeId(), derived.nodeId());
     }
 }

@@ -2,6 +2,7 @@ package io.github.billstark001.worldmirror.ui;
 
 import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.download.DownloadManager;
+import io.github.billstark001.worldmirror.io.MirrorTarget;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.Minecraft;
@@ -18,12 +19,14 @@ import net.minecraft.network.chat.Component;
 @Environment(EnvType.CLIENT)
 public final class SaveLocationMoveScreen extends Screen {
     private final Screen parent;
+    private final MirrorTarget target;
     private final ModConfig.SaveLocation targetLocation;
     private Component failure;
 
-    public SaveLocationMoveScreen(Screen parent, ModConfig.SaveLocation targetLocation) {
+    public SaveLocationMoveScreen(Screen parent, MirrorTarget target, ModConfig.SaveLocation targetLocation) {
         super(Component.translatable("screen.worldmirror.move.title"));
         this.parent = parent;
+        this.target = target;
         this.targetLocation = targetLocation;
     }
 
@@ -47,7 +50,7 @@ public final class SaveLocationMoveScreen extends Screen {
         if (moving) return;
         moving = true;
         Minecraft client = Minecraft.getInstance();
-        DownloadManager.moveMirrorWorld(client, targetLocation, result -> {
+        DownloadManager.moveMirrorWorld(client, target, targetLocation, result -> {
             moving = false;
 #if MC_VERSION >= 260200
             if (client.gui.screen() != this) return;

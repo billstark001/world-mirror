@@ -40,14 +40,15 @@ public final class XaeroBridgeOverlay {
         if (!config.showXaeroWorldMapOverlay || client.level == null) return;
 
         ResourceKey<Level> dimension = client.level.dimension();
+        var target = ChunkStatusCache.targetFor(client);
         long refreshMs = Math.max(1, config.xaeroWorldMapOverlayRefreshSeconds) * 1_000L;
-        ChunkStatusSnapshot snapshot = ChunkStatusCache.getOrScheduleRefresh(client, dimension, refreshMs);
+        ChunkStatusSnapshot snapshot = ChunkStatusCache.getOrScheduleRefresh(target, dimension, refreshMs);
         long now = System.currentTimeMillis();
         ChunkBounds visible = ChunkMapView.overlayVisibleRange(
                 context.width(), context.height(), context.cameraX(), context.cameraZ(),
                 context.pixelsPerBlock());
         if (visible == null) return;
-        var liveSnapshot = viewportCache.get(client, dimension, visible, snapshot, now);
+        var liveSnapshot = viewportCache.get(client, target, dimension, visible, snapshot, now);
         ChunkMapView.renderOverlay(
                 context.canvas()::fill, projection,
                 context::worldToScreenX,

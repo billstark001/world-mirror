@@ -27,21 +27,23 @@ class MirrorWorldContextTest {
 
 
     @Test
-    void recognizesLegacyMetadataWithoutAWorldgenSchema(@TempDir Path world) throws Exception {
+    void classifiesUnversionedMetadataBeforeAndAfterExplicitUpgrade(@TempDir Path world) throws Exception {
         createWorld(world);
         Files.writeString(world.resolve(WorldMetadata.FILE_NAME),
                 JsonSupport.toPrettyJson(new LegacyMetadata(
                         "server:example.test", "server")));
 
+        assertEquals(WorldMetadata.Schema.LEGACY, WorldMetadata.inspectSchema(world));
+        assertFalse(MirrorMigrationPlan.inspect(world, 100).mayCreateOrWriteWithoutMigration());
+        WorldMetadataUpgrade.upgrade(world, "mirror:test", "remote:test");
         assertEquals(MirrorWorldContext.State.OUTDATED, MirrorWorldContext.inspect(world, 100).state());
     }
 
     @Test
     void rejectsNewerSchemasInsteadOfDowngradingThem(@TempDir Path world) {
         WorldMetadata metadata = metadata();
-        metadata.worldgenSchema = WorldMetadata.CURRENT_WORLDGEN_SCHEMA + 1;
-        metadata.worldgenAssetRevision = MirrorWorldgenAssets.ASSET_REVISION + 1;
-        metadata.worldgenAssetDataVersion = 101;
+        metadata.generation = new WorldMetadata.Generation(WorldMetadata.GenerationMode.VOID,
+                WorldMetadata.CURRENT_WORLDGEN_SCHEMA + 1, MirrorWorldgenAssets.ASSET_REVISION + 1, 101, 0);
         metadata.save(world);
 
         assertEquals(MirrorWorldContext.State.FUTURE, MirrorWorldContext.inspect(world, 100).state());
@@ -51,25 +53,27 @@ class MirrorWorldContextTest {
     }
 
     @Test
-    void protectsFutureMetadataEvenWhenWorldgenIsCurrent(@TempDir Path world) {
+    void protectsFutureMetadataEvenWhenWorldgenIsCurrent(@TempDir Path world) throws Exception {
         WorldMetadata metadata = metadata();
         metadata.markWorldgenCurrent(100, MirrorWorldgenAssets.ASSET_REVISION);
-        metadata.metadataSchema = WorldMetadata.CURRENT_METADATA_SCHEMA + 1;
-        assertTrue(metadata.save(world));
+        var document = com.google.gson.JsonParser.parseString(JsonSupport.toPrettyJson(metadata)).getAsJsonObject();
+        document.addProperty("metadataSchema", WorldMetadata.CURRENT_METADATA_SCHEMA + 1);
+        JsonSupport.writeDocument(world.resolve(WorldMetadata.FILE_NAME), document);
 
         assertEquals(MirrorWorldContext.State.FUTURE, MirrorWorldContext.inspect(world, 100).state());
         assertFalse(MirrorMigrationPlan.inspect(world, 100).mayCreateOrWriteWithoutMigration());
     }
 
     @Test
-    void doesNotAdoptMetadataFromAnotherFormat(@TempDir Path world) {
+    void doesNotAdoptMetadataFromAnotherFormat(@TempDir Path world) throws Exception {
         WorldMetadata metadata = metadata();
-        metadata.format = "another-tool";
         metadata.markWorldgenCurrent(100, MirrorWorldgenAssets.ASSET_REVISION);
-        assertTrue(metadata.save(world));
+        var document = com.google.gson.JsonParser.parseString(JsonSupport.toPrettyJson(metadata)).getAsJsonObject();
+        document.addProperty("format", "another-tool");
+        JsonSupport.writeDocument(world.resolve(WorldMetadata.FILE_NAME), document);
 
         assertEquals(MirrorMigrationPlan.State.UNMANAGED, MirrorMigrationPlan.inspect(world, 100).state());
-        assertFalse(WorldMetadata.isOwnedBy(world, metadata.sourceId));
+        assertTrue(WorldMetadata.loadIfPresent(world).isEmpty());
         assertFalse(MirrorWorldContext.inspect(world, 100).isMirror());
     }
 
@@ -96,16 +100,15 @@ class MirrorWorldContextTest {
     void schedulesTheOneTimeVoidCleanupWithoutChangingSchemaOne(@TempDir Path world) {
         createWorld(world);
         WorldMetadata metadata = metadata();
-        metadata.worldgenSchema = WorldMetadata.CURRENT_WORLDGEN_SCHEMA;
-        metadata.worldgenAssetRevision = MirrorWorldgenAssets.ASSET_REVISION;
-        metadata.worldgenAssetDataVersion = 100;
+        metadata.generation = new WorldMetadata.Generation(WorldMetadata.GenerationMode.VOID,
+                WorldMetadata.CURRENT_WORLDGEN_SCHEMA, MirrorWorldgenAssets.ASSET_REVISION, 100, 0);
         metadata.save(world);
 
         MirrorMigrationPlan.Inspection pending = MirrorMigrationPlan.inspect(world, 100);
         assertEquals(MirrorMigrationPlan.State.OUTDATED, pending.state());
         assertTrue(pending.cleanupLegacyVoidChunks());
 
-        metadata.legacyVoidChunkCleanupRevision = WorldMetadata.CURRENT_VOID_CHUNK_CLEANUP_REVISION;
+        metadata.markWorldgenCurrent(100, MirrorWorldgenAssets.ASSET_REVISION);
         metadata.save(world);
         assertEquals(MirrorMigrationPlan.State.CURRENT, MirrorMigrationPlan.inspect(world, 100).state());
     }
@@ -114,10 +117,7 @@ class MirrorWorldContextTest {
     void treatsRevisionTwoAsOutdatedOnEveryTarget(@TempDir Path world) {
         createWorld(world);
         WorldMetadata metadata = metadata();
-        metadata.worldgenSchema = WorldMetadata.CURRENT_WORLDGEN_SCHEMA;
-        metadata.worldgenAssetRevision = 2;
-        metadata.worldgenAssetDataVersion = 100;
-        metadata.legacyVoidChunkCleanupRevision = WorldMetadata.CURRENT_VOID_CHUNK_CLEANUP_REVISION;
+        metadata.markWorldgenCurrent(100, 2);
         metadata.save(world);
 
         MirrorMigrationPlan.Inspection inspection = MirrorMigrationPlan.inspect(world, 100);
@@ -127,27 +127,9 @@ class MirrorWorldContextTest {
         assertTrue(inspection.refreshAssets());
     }
 
-    @Test
-    void nearbyExportLineageKeepsTheOriginalSourceOrCreatesAStableDerivedIdentity() {
-        WorldMetadata current = metadata();
-        current.mirrorId = "mirror-id";
-
-        NearbyExporter.Lineage inherited = NearbyExporter.resolveLineage(
-                NearbyExporter.Choice.INHERIT_ORIGINAL, current, "fallback", "server");
-        assertEquals("server:example.test", inherited.sourceId());
-        assertEquals("mirror-id", inherited.parentMirrorId());
-
-        NearbyExporter.Lineage derived = NearbyExporter.resolveLineage(
-                NearbyExporter.Choice.CURRENT_MIRROR, current, "fallback", "server");
-        assertEquals("mirror:mirror-id", derived.sourceId());
-        assertEquals("mirror", derived.sourceType());
-    }
-
     private static WorldMetadata metadata() {
-        WorldMetadata metadata = new WorldMetadata();
-        metadata.sourceId = "server:example.test";
-        metadata.sourceType = "server";
-        return metadata;
+        return WorldMetadata.create("mirror:test", WorldGraph.Kind.MIRROR, "remote:test",
+                WorldGraph.Role.SYNC, "server:example.test");
     }
 
     private record LegacyMetadata(String sourceId, String sourceType) { }

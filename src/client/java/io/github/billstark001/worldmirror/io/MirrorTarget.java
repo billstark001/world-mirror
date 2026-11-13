@@ -2,23 +2,36 @@ package io.github.billstark001.worldmirror.io;
 
 import io.github.billstark001.worldmirror.download.MirrorMigrationCoordinator;
 import io.github.billstark001.worldmirror.download.MirrorMigrationPlan;
+import io.github.billstark001.worldmirror.download.WorldMetadata;
+
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Objects;
+import java.util.Optional;
 
-/** Stable identity attached to an offline action; a folder name alone cannot authorize mutation. */
-public record MirrorTarget(Path folder, String sourceId) {
+/** Stable identity attached to an offline action. */
+public record MirrorTarget(Path folder, String nodeId, String sourceId) {
     public MirrorTarget {
         folder = Objects.requireNonNull(folder).toAbsolutePath().normalize();
-        if (sourceId == null || sourceId.isBlank()) throw new IllegalArgumentException("Missing target source");
+        if (nodeId == null || nodeId.isBlank() || sourceId == null || sourceId.isBlank()) {
+            throw new IllegalArgumentException("Missing mirror target identity");
+        }
+    }
+
+    public static Optional<MirrorTarget> at(Path folder) {
+        return WorldMetadata.loadIfPresent(folder).map(metadata -> new MirrorTarget(folder, metadata.nodeId, metadata.sourceId));
+    }
+
+    public boolean matches(WorldMetadata metadata) {
+        return metadata != null && nodeId.equals(metadata.nodeId) && sourceId.equals(metadata.sourceId);
     }
 
     /** Writers recheck this after acquiring the native lease, immediately before mutation. */
     public void requireCurrent() throws IOException {
         var inspection = MirrorMigrationCoordinator.inspect(folder);
-        if (inspection.state() != MirrorMigrationPlan.State.CURRENT || inspection.metadata() == null
-                || !sourceId.equals(inspection.metadata().sourceId)) {
-            throw new IOException("Unverified mirror target: " + folder + " source=" + sourceId
+        var metadata = inspection.metadata();
+        if (inspection.state() != MirrorMigrationPlan.State.CURRENT || !matches(metadata)) {
+            throw new IOException("Unverified mirror target: " + folder + " node=" + nodeId
                     + " state=" + inspection.state());
         }
     }

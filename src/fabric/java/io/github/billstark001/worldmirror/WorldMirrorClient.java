@@ -54,6 +54,11 @@ import net.minecraft.world.level.storage.LevelResource;
 import org.lwjgl.glfw.GLFW;
 #endif
 
+import io.github.billstark001.worldmirror.download.WorldGraphService;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
+import net.minecraft.client.gui.screens.worldselection.SelectWorldScreen;
+
 import java.nio.file.Path;
 
 @Environment(EnvType.CLIENT)
@@ -237,19 +242,27 @@ public class WorldMirrorClient implements ClientModInitializer {
         // Apply the configured on-join behaviour whenever the player enters a world.
         // ClientPlayConnectionEvents.JOIN fires after the world object is available,
         // which is exactly when we need it.
+        ClientLifecycleEvents.CLIENT_STARTED.register(client -> WorldGraphService.instance().refreshAsync());
+        ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
+            if (screen instanceof SelectWorldScreen || screen instanceof JoinMultiplayerScreen) {
+                WorldGraphService.instance().refreshAsync();
+            }
+        });
         ClientLifecycleEvents.CLIENT_STOPPING.register(DownloadManager::shutdown);
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> onJoin(client));
 
         // Reset lifecycle tracking state when the player leaves a server / world.
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
-            MirrorWorldContext.leave();
             DownloadManager.onLeaveWorld(client);
+            MirrorWorldContext.leave();
+            WorldGraphService.instance().leave();
         });
     }
 
     private static void onJoin(net.minecraft.client.Minecraft client) {
         MirrorWorldContext.enter(currentLocalSave(client),
                 SharedConstants.getCurrentVersion().dataVersion().version());
+        WorldGraphService.instance().enter(client);
         DownloadManager.onJoinWorld(client);
     }
 

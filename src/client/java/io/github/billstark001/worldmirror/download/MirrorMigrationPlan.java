@@ -5,7 +5,6 @@ import io.github.billstark001.worldmirror.io.MirrorWorldgenCheck;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Optional;
 
 /**
  * Read-only classification of a mirror save before an operation may write it.
@@ -42,36 +41,27 @@ public final class MirrorMigrationPlan {
 
     static Inspection inspect(Path worldFolder, int dataVersion, boolean fresh) {
         Path normalized = worldFolder.toAbsolutePath().normalize();
-        Path metadataFile = normalized.resolve(WorldMetadata.FILE_NAME);
-        boolean hasLevelDat = !Files.notExists(normalized.resolve("level.dat"));
-        if (!Files.isRegularFile(metadataFile)) {
-            if (!Files.notExists(metadataFile)) {
-                return new Inspection(normalized, State.UNREADABLE, null, false, false, false, false, null);
+        var schema = WorldMetadata.inspectSchema(normalized);
+        switch (schema) {
+            case MISSING -> {
+                boolean unclaimed = Files.isRegularFile(normalized.resolve("level.dat")) && MirrorClaim.read(normalized) == null;
+                return unavailable(normalized, unclaimed ? State.UNMANAGED : State.NEW, null);
             }
-            return new Inspection(normalized, hasLevelDat && MirrorClaim.source(normalized) == null ? State.UNMANAGED : State.NEW,
-                    null, false, false, false, false, null);
+            case UNMANAGED -> { return unavailable(normalized, State.UNMANAGED, null); }
+            case FUTURE -> { return unavailable(normalized, State.FUTURE, "metadata_schema_future"); }
+            case LEGACY -> { return unavailable(normalized, State.UNREADABLE, "metadata_upgrade_required"); }
+            case UNREADABLE -> { return unavailable(normalized, State.UNREADABLE, "metadata_unreadable"); }
+            case CURRENT -> { }
         }
-
-        Optional<WorldMetadata> loaded = WorldMetadata.loadIfPresent(normalized);
-        if (loaded.isEmpty()) {
-            return new Inspection(normalized, State.UNREADABLE, null, false, false, false, false, null);
-        }
+        var loaded = WorldMetadata.loadIfPresent(normalized);
+        if (loaded.isEmpty()) return unavailable(normalized, State.UNREADABLE, "metadata_unreadable");
         WorldMetadata metadata = loaded.get();
-        if (!WorldMetadata.FORMAT.equals(metadata.format)) {
-            return new Inspection(normalized, State.UNMANAGED, metadata, false, false, false, false, null);
-        }
-        if (metadata.sourceId == null || metadata.sourceId.isBlank()) {
-            return new Inspection(normalized, State.UNREADABLE, metadata, false, false, false, false, null);
-        }
-        if (metadata.metadataSchema > WorldMetadata.CURRENT_METADATA_SCHEMA
-                || metadata.hasFutureWorldgenSchema()
-                || metadata.hasFutureWorldgenAssets(dataVersion,
-                        MirrorWorldgenAssets.ASSET_REVISION)) {
+        if (metadata.hasFutureWorldgenSchema() || metadata.hasFutureWorldgenAssets(dataVersion,
+                MirrorWorldgenAssets.ASSET_REVISION)) {
             return new Inspection(normalized, State.FUTURE, metadata, false, false, false, false, null);
         }
         if (!Files.isRegularFile(normalized.resolve("level.dat"))) {
-            return new Inspection(normalized, State.UNREADABLE, metadata,
-                    false, false, false, false, "level_data_missing");
+            return new Inspection(normalized, State.UNREADABLE, metadata, false, false, false, false, "level_data_missing");
         }
         boolean migrateWorldgen = metadata.needsWorldgenMigration();
         boolean refreshAssets = metadata.needsWorldgenAssetRefresh(
@@ -95,5 +85,9 @@ public final class MirrorMigrationPlan {
                 migrateWorldgen || refreshAssets || cleanupLegacyVoidChunks
                         ? State.OUTDATED : State.CURRENT,
                 metadata, migrateWorldgen, refreshAssets, cleanupLegacyVoidChunks, repairWorldgen, null);
+    }
+
+    private static Inspection unavailable(Path folder, State state, String problem) {
+        return new Inspection(folder, state, null, false, false, false, false, problem);
     }
 }

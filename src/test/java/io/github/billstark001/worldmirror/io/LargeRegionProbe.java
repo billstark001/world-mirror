@@ -2,6 +2,7 @@ package io.github.billstark001.worldmirror.io;
 
 import io.github.billstark001.worldmirror.core.EntityTracker;
 import io.github.billstark001.worldmirror.conflict.ConflictManager;
+import io.github.billstark001.worldmirror.download.WorldGraph;
 import io.github.billstark001.worldmirror.download.WorldMetadata;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.UUIDUtil;
@@ -63,7 +64,8 @@ public final class LargeRegionProbe {
             throw new AssertionError("Cannot initialize isolated conflict target");
         }
         String source = "local:large-conflict-probe";
-        WorldMetadata metadata = WorldMetadata.create(source, "singleplayer", "synchronized");
+        WorldMetadata metadata = WorldMetadata.create("mirror:large-region", WorldGraph.Kind.MIRROR, "local:large-region",
+                WorldGraph.Role.SYNC, source);
         metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), MirrorWorldgenAssets.ASSET_REVISION);
         if (!metadata.save(world)) throw new AssertionError("Cannot save isolated conflict metadata");
         Path directory = Files.createDirectories(ConflictManager.getConflictDir(world, Level.OVERWORLD));
@@ -76,7 +78,7 @@ public final class LargeRegionProbe {
                 NbtWriteSupport.writeChunkAndDigest(chunk, writer.getChunkDataOutputStream(new ChunkPos(i % 32, i / 32)));
             }
         }
-        if (!ConflictManager.clearAllConflicts(new MirrorTarget(world, source), true)
+        if (!ConflictManager.clearAllConflicts(new MirrorTarget(world, metadata.nodeId, source), true)
                 || ConflictManager.countAllConflicts(world) != 0) throw new AssertionError("Large conflict batches remain pending");
         Path target = ChunkExporter.regionDirForDimension(world, Level.OVERWORLD).resolve("r.0.0.mca");
         int[] visited = {0};

@@ -218,9 +218,9 @@ final class DownloadExportCoordinator {
 
     static ExportJob createJob(Frozen work, ModConfig.DownloadPipelineMode mode) {
         ModConfig config = ModConfig.get();
-        return new ExportJob(work, () -> MirrorMapping.getInstance().claimOutputDirectory(work.context().source().id()),
+        return new ExportJob(work, () -> WorldGraphService.instance().currentTarget(work.context().source().target()).folder(),
                 mode, config.performance.diagnosticPerformanceLogging, config.cache.invalidateAfterExport,
-                buildResolver(work.context().source().id()), config.performance.diagnosticPerformanceLogging
+                buildResolver(work.context().source().strategy()), config.performance.diagnosticPerformanceLogging
                 ? Math.max(0L, config.performance.slowRegionMillis) : -1L,
                 (part, dimension, chunks) -> ExportStatusStore.global().writing(work, part, dimension, chunks));
     }
@@ -244,15 +244,19 @@ final class DownloadExportCoordinator {
         return new Completion(job, outcome, (System.nanoTime() - started) / 1_000_000,
                 cpuStart < 0 || cpuEnd < cpuStart ? -1 : (cpuEnd - cpuStart) / 1_000_000);
     }
-    void drainCompletions() {
+    void drainCompletions(Source currentSession) {
         if (closed) return;
         Completion completion;
         while ((completion = completions.poll()) != null) {
-            try { settle(completion); }
-            finally { applyReceipts(completion.job().work(), completion.outcome(), completion.job().invalidate()); }
+            var work = completion.job().work();
+            boolean live = work.context().source() == currentSession;
+            try { settle(completion, live); }
+            finally {
+                if (live) applyReceipts(work, completion.outcome(), completion.job().invalidate());
+            }
         }
     }
-    private void settle(Completion completion) {
+    private void settle(Completion completion, boolean live) {
         var job = completion.job();
         var work = job.work();
         var outcome = completion.outcome();
@@ -277,7 +281,7 @@ final class DownloadExportCoordinator {
                 + " unreadable=" + lastUnreadable + " settled=" + lastSettled + " elapsedMs=" + lastExportMillis;
         if (successful) WMLogger.info(summary); else WMLogger.debug(summary);
         observe(() -> ExportNotifications.global().observe(ExportStatusStore.global().finish(work, outcome)));
-        if (!closed && successful && work.context().notifyPlayer()) {
+        if (live && successful && work.context().notifyPlayer()) {
             observe(() -> WMPlayerMessages.sendSystemMessage(Minecraft.getInstance().player, Component.translatable("msg.worldmirror.exportDone")));
         }
     }
@@ -288,12 +292,12 @@ final class DownloadExportCoordinator {
         closed = true;
         executor.execute(() -> {
             Completion completed;
-            while ((completed = completions.poll()) != null) settle(completed);
+            while ((completed = completions.poll()) != null) settle(completed, false);
             scheduler.pending.prepareForShutdown();
             long now = System.nanoTime() / 1_000_000;
             Frozen work;
             while ((work = (Frozen) scheduler.pending.poll(true, now)) != null) {
-                prepareJob(work, now).ifPresent(job -> settle(perform(job)));
+                prepareJob(work, now).ifPresent(job -> settle(perform(job), false));
             }
             if (scheduler.pending.frozenCount() > 0) WMLogger.warn("Export shutdown finished with "
                     + scheduler.pending.frozenCount() + " unsaved frozen bundle(s); failed writes were not acknowledged.");
@@ -349,7 +353,8 @@ final class DownloadExportCoordinator {
             OperationFailures.report(work.context().source().id(), "output_claim", null, preparationFailure);
             return ExportOutcome.failed(work);
         }
-        String sourceId = work.context().source().id(), sourceType = work.context().source().type();
+        var target = work.context().source().target();
+        String sourceId = target.sourceId();
         var snapshot = work.terrain();
         var entitySnapshot = work.entities();
         var containerSnapshot = work.containers();
@@ -370,14 +375,19 @@ final class DownloadExportCoordinator {
             }
 
             boolean createFreshWorld = readiness.state() == MirrorMigrationPlan.State.NEW;
-            String reservedSource = createFreshWorld ? MirrorClaim.source(worldFolder) : readiness.metadata().sourceId;
-            if (reservedSource != null && !sourceId.equals(reservedSource)) {
-                WMLogger.warn("Export target identity changed before the native lease was acquired; retained source=" + sourceId);
+            var reservation = createFreshWorld ? MirrorClaim.read(worldFolder) : null;
+            WorldMetadata metadata = readiness.metadata();
+            boolean matches = createFreshWorld
+                    ? reservation != null && target.nodeId().equals(reservation.nodeId())
+                            && target.parentNodeId().equals(reservation.parentNodeId()) && sourceId.equals(reservation.sourceId())
+                    : metadata != null && target.nodeId().equals(metadata.nodeId)
+                            && target.parentNodeId().equals(metadata.parentNodeId) && sourceId.equals(metadata.sourceId);
+            if (!matches) {
+                WMLogger.warn("Export target identity changed before the native lease was acquired: " + target.nodeId());
                 return ExportOutcome.failed(work);
             }
-            WorldMetadata metadata = createFreshWorld
-                    ? WorldMetadata.create(sourceId, sourceType, "synchronized")
-                    : readiness.metadata();
+            if (createFreshWorld) metadata = WorldMetadata.create(target.nodeId(), WorldGraph.Kind.MIRROR,
+                    target.parentNodeId(), WorldGraph.Role.SYNC, sourceId);
             boolean worldgenReady = WorldStructureCreator.createLoadableWorld(
                     worldFolder, sourceId, createFreshWorld, createFreshWorld, worldSettings);
             if (!worldgenReady) {
@@ -391,16 +401,13 @@ final class DownloadExportCoordinator {
                 if (!metadata.save(worldFolder)) {
                     return ExportOutcome.failed(work);
                 }
-                MirrorClaim.finish(worldFolder, sourceId);
+                MirrorClaim.finish(worldFolder, target.nodeId());
             }
 
             try {
                 db = ChunkDatabase.open(worldFolder, sourceId);
             } catch (SQLException e) {
                 WMLogger.warn("Chunk database open failed; export aborted world=" + worldFolder, e);
-                return ExportOutcome.failed(work);
-            }
-            if (!metadata.migrateAndCleanChunkTimes(db, worldFolder)) {
                 return ExportOutcome.failed(work);
             }
             result = ChunkExporter.exportChunks(
@@ -450,7 +457,7 @@ final class DownloadExportCoordinator {
             if (db != null) db.close();
         }
         if (repairedIndex || !durableWritten.isEmpty()) {
-            ChunkStatusCache.invalidateSaved(worldFolder, sourceId);
+            ChunkStatusCache.invalidateSaved(worldFolder, target.nodeId(), sourceId);
         }
         return new ExportOutcome(result, durableWritten, remaining, indexCommitted, metadataCommitted, indexMillis);
     }
@@ -479,14 +486,7 @@ final class DownloadExportCoordinator {
         }
     }
 
-    private static ConflictResolver buildResolver(String sourceId) {
-        ModConfig.ConflictStrategy strategy = ModConfig.get().defaultConflictStrategy;
-        String perWorld = MirrorMapping.getInstance().getPerWorldConflictStrategy(sourceId);
-        if (perWorld != null) {
-            try {
-                strategy = ModConfig.ConflictStrategy.valueOf(perWorld);
-            } catch (IllegalArgumentException ignored) { }
-        }
+    private static ConflictResolver buildResolver(ModConfig.ConflictStrategy strategy) {
         return switch (strategy) {
             case IGNORE -> new IgnoreResolver();
             case MANUAL -> new ManualResolver();

@@ -29,7 +29,8 @@ public final class ChunkWorldOverlay {
     private static ViewState lastView;
     private static final GeometryCache geometryCache = new GeometryCache();
     private static final ChunkViewportCache viewportCache = new ChunkViewportCache();
-    private record ViewState(ResourceKey<Level> dimension, ChunkBounds range, Settings settings) { }
+    private record ViewState(ResourceKey<Level> dimension, ChunkBounds range, Settings settings,
+                             ChunkStatusCache.StatusTarget target) { }
 
     private ChunkWorldOverlay() {}
 
@@ -64,15 +65,16 @@ public final class ChunkWorldOverlay {
         ChunkBounds range = new ChunkBounds(centerX - radius, centerX + radius, centerZ - radius, centerZ + radius);
         long rebuildIntervalMs = ChunkViewportCache.refreshInterval(range);
         Settings settings = new Settings(height, sessionStartedAtMs, showInnerGrid, opacityPercent, colorMode);
-        ViewState view = new ViewState(dimension, range, settings);
+        var target = ChunkStatusCache.targetFor(client);
+        ViewState view = new ViewState(dimension, range, settings, target);
         if (now >= lastBuildMs && now - lastBuildMs < rebuildIntervalMs
                 && client.level == lastLevel.get() && view.equals(lastView)) return;
-        ChunkStatusSnapshot persistent = ChunkStatusCache.getOrScheduleRefresh(client, dimension, PERSISTENT_REFRESH_INTERVAL_MS);
+        ChunkStatusSnapshot persistent = ChunkStatusCache.getOrScheduleRefresh(target, dimension, PERSISTENT_REFRESH_INTERVAL_MS);
         if (client.level != lastLevel.get() || lastView == null || !dimension.equals(lastView.dimension())) {
             geometryCache.clear();
             viewportCache.clear();
         }
-        LiveChunkStatusSnapshot live = viewportCache.get(client, dimension, range, persistent, now);
+        LiveChunkStatusSnapshot live = viewportCache.get(client, target, dimension, range, persistent, now);
         cached = geometryCache.get(persistent, live, range, settings, now);
         lastBuildMs = now;
         lastView = view;

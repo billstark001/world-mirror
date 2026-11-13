@@ -29,19 +29,14 @@ class DownloadConfigDiagnosticsTest {
     }
 
     @Test
-    void localSnapshotShowsOverridesAndEffectiveValuesSeparately() {
-        ModConfig config = new ModConfig();
-        JsonObject json = JsonParser.parseString(DownloadConfigDiagnostics.localJson(
-                config, new MirrorMapping(), "server:example.test", "server"))
+    void localSnapshotKeepsGraphIdentityAndIndexNamespaceSeparate() {
+        var target = new WorldGraphService.Target("mirror:copy", "remote:origin", "server:example.test", java.nio.file.Path.of("save"));
+        JsonObject json = JsonParser.parseString(DownloadConfigDiagnostics.localJson(target, ModConfig.ConflictStrategy.MANUAL))
                 .getAsJsonObject();
 
-        assertTrue(json.get("saveLocationOverride").isJsonNull());
-        assertEquals(config.defaultSaveLocation.name(),
-                json.get("effectiveSaveLocation").getAsString());
-        assertTrue(json.get("conflictStrategyOverride").isJsonNull());
-        assertEquals(config.defaultConflictStrategy.name(),
-                json.get("effectiveConflictStrategy").getAsString());
-        assertEquals("example.test", json.get("mirrorBaseFolderName").getAsString());
-        assertTrue(json.get("resolvedFolderName").isJsonNull());
+        assertEquals("mirror:copy", json.get("nodeId").getAsString());
+        assertEquals("remote:origin", json.get("parentNodeId").getAsString());
+        assertEquals("server:example.test", json.get("indexSourceId").getAsString());
+        assertEquals("MANUAL", json.get("conflictStrategy").getAsString());
     }
 }

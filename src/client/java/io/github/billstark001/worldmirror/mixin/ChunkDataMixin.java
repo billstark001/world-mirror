@@ -88,27 +88,27 @@ public abstract class ChunkDataMixin {
 
     @Inject(method = "handleAddEntity", at = @At("TAIL"))
     private void onAddEntity(ClientboundAddEntityPacket packet, CallbackInfo ci) {
-        DownloadManager.markEntitiesDirty();
+        DownloadManager.markEntitiesDirty(this.getLevel());
     }
 
     @Inject(method = "handleRemoveEntities", at = @At("TAIL"))
     private void onRemoveEntities(ClientboundRemoveEntitiesPacket packet, CallbackInfo ci) {
-        DownloadManager.markEntitiesDirty();
+        DownloadManager.markEntitiesDirty(this.getLevel());
     }
 
     @Inject(method = "handleMoveEntity", at = @At("TAIL"))
     private void onMoveEntity(ClientboundMoveEntityPacket packet, CallbackInfo ci) {
-        DownloadManager.markEntitiesDirty();
+        DownloadManager.markEntitiesDirty(this.getLevel());
     }
 
     @Inject(method = "handleTeleportEntity", at = @At("TAIL"))
     private void onTeleportEntity(ClientboundTeleportEntityPacket packet, CallbackInfo ci) {
-        DownloadManager.markEntitiesDirty();
+        DownloadManager.markEntitiesDirty(this.getLevel());
     }
 
     @Inject(method = "handleSetEntityData", at = @At("TAIL"))
     private void onSetEntityData(ClientboundSetEntityDataPacket packet, CallbackInfo ci) {
-        DownloadManager.markEntitiesDirty();
+        DownloadManager.markEntitiesDirty(this.getLevel());
     }
 
     /**
@@ -123,10 +123,8 @@ public abstract class ChunkDataMixin {
             ClientboundLightUpdatePacketData lightData,
             boolean markDirty,
             CallbackInfo ci) {
-        if (!DownloadManager.isCaptureEnabled()) return;
-
         ClientLevel world = this.getLevel();
-        if (world == null) return;
+        if (!DownloadManager.canCapture(world)) return;
 
         ChunkPos pos = new ChunkPos(chunkX, chunkZ);
         try {

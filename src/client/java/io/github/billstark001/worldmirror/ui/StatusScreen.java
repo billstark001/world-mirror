@@ -6,11 +6,15 @@ import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.conflict.ConflictManager;
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.download.DownloadManager;
-import io.github.billstark001.worldmirror.download.MirrorMapping;
+import io.github.billstark001.worldmirror.download.ExportStatusStore;
 import io.github.billstark001.worldmirror.download.MirrorWorldContext;
+import io.github.billstark001.worldmirror.download.OperationFailures;
+import io.github.billstark001.worldmirror.download.WorldGraphService;
 import io.github.billstark001.worldmirror.download.WorldMetadata;
+import io.github.billstark001.worldmirror.io.MirrorTarget;
 import io.github.billstark001.worldmirror.io.WorldSettingsSnapshot;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
+import io.github.billstark001.worldmirror.util.OfflineTasks;
 import me.shedaniel.autoconfig.AutoConfigClient;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
@@ -46,6 +50,7 @@ public class StatusScreen extends StatusScreenApi {
     private Button exportButton;
     private Component settingsFailure;
     private boolean settingsSucceeded;
+    private boolean savingRouting;
     private long lastSyncTime;
     private long nextSyncTimeRefreshMs;
     private int conflictCount;
@@ -54,11 +59,12 @@ public class StatusScreen extends StatusScreenApi {
     private Button dropdownOpener;
     private final List<Button> dropdownChoices = new ArrayList<>();
 
-    private record StatusContext(
-            String sourceId,
-            String sourceType,
-            Path output,
-            WorldMetadata metadata) { }
+    private record StatusContext(WorldGraphService.Source observation, String sourceNodeId,
+                                 Path output, MirrorTarget target, boolean currentWorldIsMirror) {
+        String mirrorNodeId() {
+            return target == null ? null : target.nodeId();
+        }
+    }
 
     protected StatusScreen() {
         super(Component.translatable("screen.worldmirror.status.title"));
@@ -102,7 +108,11 @@ public class StatusScreen extends StatusScreenApi {
         super.tick();
         boolean export = DownloadManager.isExportInProgress();
         boolean downloading = DownloadManager.isCaptureEnabled();
-        if (exportButton != null) exportButton.active = !DownloadManager.isManualExportChecking();
+        if (exportButton != null && !dropdownOpen) exportButton.active = !DownloadManager.isManualExportChecking();
+        if (!dropdownOpen && !resolveStatusContext(Minecraft.getInstance()).equals(statusContext)) {
+            refresh();
+            return;
+        }
         boolean exportFinished = lastExportState && !export;
         if (export != lastExportState || downloading != lastDownloadState) {
             lastExportState = export;
@@ -113,7 +123,10 @@ public class StatusScreen extends StatusScreenApi {
                         : "screen.worldmirror.status.startDownload"));
             }
         }
-        if (exportFinished) loadPersistentStatus();
+        if (exportFinished) {
+            refresh();
+            return;
+        }
         long now = System.currentTimeMillis();
         if (now >= nextSyncTimeRefreshMs) {
             refreshLastSyncTime();
@@ -183,21 +196,20 @@ public class StatusScreen extends StatusScreenApi {
     }
 
     private void addSettingsButtons(int left) {
-        String sourceId = statusContext.sourceId();
-        ModConfig.SaveLocation saveLocation = resolveSaveLocation(sourceId);
-        ModConfig.ConflictStrategy strategy = resolveStrategy(sourceId);
-        addEnumDropdown(left, 116, "screen.worldmirror.status.saveLoc",
+        WorldGraphService service = WorldGraphService.instance();
+        ModConfig.SaveLocation saveLocation = resolveSaveLocation();
+        ModConfig.ConflictStrategy strategy = service.conflictStrategy(
+                statusContext.mirrorNodeId(), statusContext.sourceNodeId());
+        Button location = addEnumDropdown(left, 116, "screen.worldmirror.status.saveLoc",
                 saveLocation, ModConfig.SaveLocation.values(),
                 value -> enumLabel("config.worldmirror.saveLoc", value),
-                target -> selectSaveLocation(sourceId, target));
-        addEnumDropdown(left, 140, "screen.worldmirror.status.conflictStrategy",
+                this::selectSaveLocation);
+        location.active = service.available() && statusContext.sourceNodeId() != null && !statusContext.currentWorldIsMirror();
+        Button conflict = addEnumDropdown(left, 140, "screen.worldmirror.status.conflictStrategy",
                 strategy, ModConfig.ConflictStrategy.values(),
                 value -> enumLabel("config.worldmirror.conflictStrategy", value),
-                target -> {
-                    MirrorMapping.getInstance().setPerWorldConflictStrategy(
-                            sourceId, target.name());
-                    refresh();
-                });
+                this::selectConflictStrategy);
+        conflict.active = service.available() && (statusContext.sourceNodeId() != null || statusContext.target() != null);
         int settingWidth = (PANEL_WIDTH - 8) / 3;
         boolean canSync = canSyncWorldSettings();
         Button syncTime = addRenderableWidget(Button.builder(Component.translatable(
@@ -224,10 +236,10 @@ public class StatusScreen extends StatusScreenApi {
                 .bounds(left, 188, PANEL_WIDTH, BUTTON_HEIGHT).build());
     }
 
-    private <T extends Enum<T>> void addEnumDropdown(
+    private <T extends Enum<T>> Button addEnumDropdown(
             int x, int y, String labelKey, T current, T[] values,
             Function<T, Component> valueLabel, Consumer<T> onSelect) {
-        addRenderableWidget(Button.builder(
+        return addRenderableWidget(Button.builder(
                         dropdownLabel(labelKey, valueLabel.apply(current), false),
                         button -> {
                             if (dropdownOpen) {
@@ -273,25 +285,66 @@ public class StatusScreen extends StatusScreenApi {
         if (selected != null) setFocused(selected);
     }
 
-    private void selectSaveLocation(String sourceId, ModConfig.SaveLocation target) {
+    private void selectSaveLocation(ModConfig.SaveLocation target) {
+        if (!canChangeRouting()) return;
+        if (target == resolveSaveLocation()) {
+            refresh();
+        } else if (statusContext.target() != null) {
+            showScreen(new SaveLocationMoveScreen(this, statusContext.target(), target));
+        } else {
+            var observation = statusContext.observation();
+            saveRouting("save_location", () -> WorldGraphService.instance().setSaveLocation(observation, target));
+        }
+    }
+
+    private void selectConflictStrategy(ModConfig.ConflictStrategy strategy) {
+        if (!canChangeRouting()) return;
+        var context = statusContext;
+        saveRouting("conflict_strategy", () -> WorldGraphService.instance().setConflictStrategy(
+                context.mirrorNodeId(), context.sourceNodeId(), strategy));
+    }
+
+    private boolean canChangeRouting() {
         if (DownloadManager.isCaptureEnabled()) {
             refreshWithSettingsResult(Component.translatable(
                     "screen.worldmirror.move.failure.download_active"), false);
-            return;
+            return false;
         }
         if (DownloadManager.isExportInProgress()) {
             refreshWithSettingsResult(Component.translatable(
                     "screen.worldmirror.move.failure.export_in_progress"), false);
-            return;
+            return false;
         }
-        if (target == resolveSaveLocation(sourceId)) {
+        if (savingRouting) return false;
+        if (!statusContext.equals(resolveStatusContext(Minecraft.getInstance()))) {
             refresh();
-        } else if (Files.isDirectory(DownloadManager.previewOutputPath(Minecraft.getInstance()))) {
-            showScreen(new SaveLocationMoveScreen(this, target));
-        } else {
-            DownloadManager.setMirrorSaveLocation(sourceId, target);
-            refresh();
+            return false;
         }
+        return true;
+    }
+
+    @FunctionalInterface
+    private interface RoutingChange {
+        void run() throws java.io.IOException;
+    }
+
+    private void saveRouting(String operation, RoutingChange change) {
+        var context = statusContext;
+        var client = Minecraft.getInstance();
+        savingRouting = true;
+        OfflineTasks.start("WM-ChangeRouting", () -> {
+            change.run();
+            return true;
+        }, failure -> {
+            String scope = context.mirrorNodeId() != null ? context.mirrorNodeId() : context.sourceNodeId();
+            OperationFailures.report(scope, operation, context.output(), failure);
+            return false;
+        }, client::execute, success -> {
+            savingRouting = false;
+            if (ClientDialogs.currentScreen(client) != this) return;
+            if (success) refresh();
+            else refreshWithSettingsResult(Component.translatable("screen.worldmirror.move.failure.io_error"), false);
+        }, () -> {});
     }
 
     private static Component dropdownLabel(String labelKey, Component value, boolean open) {
@@ -305,16 +358,15 @@ public class StatusScreen extends StatusScreenApi {
     }
 
     private void addConflictButtons(int left) {
-        Path output = statusContext.output();
-        if (conflictCount > 0 && ConflictActions.canResolve(new io.github.billstark001.worldmirror.io.MirrorTarget(
-                output, statusContext.sourceId()))) {
+        MirrorTarget target = statusContext.target();
+        if (conflictCount > 0 && ConflictActions.canResolve(target)) {
             addRenderableWidget(Button.builder(Component.translatable(
                             "screen.worldmirror.status.overwriteAll"),
-                    button -> resolveAllConflicts(output, true))
+                    button -> resolveAllConflicts(target, true))
                     .bounds(left, 108, 178, BUTTON_HEIGHT).build());
             addRenderableWidget(Button.builder(Component.translatable(
                             "screen.worldmirror.status.discardAll"),
-                    button -> resolveAllConflicts(output, false))
+                    button -> resolveAllConflicts(target, false))
                     .bounds(left + 182, 108, 178, BUTTON_HEIGHT).build());
         }
         addRenderableWidget(Button.builder(Component.translatable(
@@ -324,15 +376,14 @@ public class StatusScreen extends StatusScreenApi {
     }
 
     private void renderStatus(Canvas graphics) {
-        String sourceType = statusContext.sourceType();
-        String sourceId = statusContext.sourceId();
-        Path fileName = statusContext.output().getFileName();
-        String folder = fileName != null ? fileName.toString() : statusContext.output().toString();
+        Path output = statusContext.output();
+        String folder = output == null ? "—" : output.getFileName().toString();
+        var observation = statusContext.observation();
+        String label = observation == null ? "—" : observation.label();
         int x = left();
-        pairLine(graphics, "screen.worldmirror.status.sourceId", sourceType + " · " + sourceId,
+        pairLine(graphics, "screen.worldmirror.status.sourceId", label,
                 "screen.worldmirror.status.mirrorPath", folder, x, 62);
-        int savedCount = ChunkStatusCache.getOrScheduleSavedCount(
-                statusContext.output(), sourceId, 1_000L);
+        int savedCount = ChunkStatusCache.getOrScheduleSavedCount(statusContext.target(), 1_000L);
         pairLine(graphics, "screen.worldmirror.status.savedChunks",
                 savedCount < 0 ? "…" : String.valueOf(savedCount),
                 "screen.worldmirror.status.chunks",
@@ -344,9 +395,11 @@ public class StatusScreen extends StatusScreenApi {
         graphics.text(Component.translatable(DownloadManager.isExportInProgress() || DownloadManager.hasManualExport()
                 ? "screen.worldmirror.status.exportRunning"
                 : "screen.worldmirror.status.exportIdle"), x + 182, 104, 0xFFE0E0E0);
-        var health = io.github.billstark001.worldmirror.download.ExportStatusStore.global().health(sourceId);
-        graphics.text(ExportStatusText.health(health), x, 128, health.degraded() ? 0xFFFF6060 : 0xFFE0E0E0);
-        if (health.degraded()) graphics.text(ExportStatusText.stage(health), x, 190, 0xFFFF6060);
+        if (statusContext.target() != null) {
+            var health = ExportStatusStore.global().health(statusContext.mirrorNodeId());
+            graphics.text(ExportStatusText.health(health), x, 128, health.degraded() ? 0xFFFF6060 : 0xFFE0E0E0);
+            if (health.degraded()) graphics.text(ExportStatusText.stage(health), x, 190, 0xFFFF6060);
+        }
         MirrorWorldContext.Snapshot mirror = MirrorWorldContext.current();
         if (mirror.isMirror()) {
             graphics.centered(Component.translatable("screen.worldmirror.status.currentMirror."
@@ -358,7 +411,7 @@ public class StatusScreen extends StatusScreenApi {
         graphics.centered(Component.translatable("screen.worldmirror.tab.settingsHeader"),
                 width / 2, 66, 0xFFE0E0E0);
         line(graphics, "screen.worldmirror.status.outputPath",
-                statusContext.output().toString(), left(), 80);
+                statusContext.output() == null ? "—" : statusContext.output().toString(), left(), 80);
         line(graphics, "screen.worldmirror.status.xaeroOverlay",
                 bridgeStatus().getString(), left(), 94);
         if (settingsFailure != null) {
@@ -368,31 +421,28 @@ public class StatusScreen extends StatusScreenApi {
     }
 
     private boolean canSyncWorldSettings() {
-        return MirrorMapping.getInstance().isAvailable() && Minecraft.getInstance().level != null
-                && !MirrorWorldContext.current().isMirror()
-                && Files.isDirectory(statusContext.output())
+        return WorldGraphService.instance().available() && Minecraft.getInstance().level != null
+                && !statusContext.currentWorldIsMirror() && statusContext.target() != null
                 && !DownloadManager.isCaptureEnabled()
                 && !DownloadManager.isExportInProgress();
     }
 
     private void syncWorldSetting(WorldStructureCreator.Setting setting) {
         Minecraft client = Minecraft.getInstance();
-        if (!canSyncWorldSettings()) {
+        if (!canSyncWorldSettings() || !statusContext.equals(resolveStatusContext(client))) {
             settingsSucceeded = false;
             settingsFailure = Component.translatable(
                     "screen.worldmirror.status.syncSettingUnavailable");
             return;
         }
         WorldSettingsSnapshot snapshot = WorldStructureCreator.captureWorldSettings(client.level);
-        Path output = statusContext.output();
-        var target = new io.github.billstark001.worldmirror.io.MirrorTarget(output, statusContext.sourceId());
-        io.github.billstark001.worldmirror.util.OfflineTasks.start("WM-SyncWorldSetting",
+        MirrorTarget target = statusContext.target();
+        OfflineTasks.start("WM-SyncWorldSetting",
                 () -> WorldStructureCreator.syncWorldSetting(target, snapshot, setting), failure -> {
-                    io.github.billstark001.worldmirror.download.OperationFailures.report(
-                            output.toString(), "setting_sync", output, failure);
+                    OperationFailures.report(target.nodeId(), "setting_sync", target.folder(), failure);
                     return false;
                 }, client::execute, succeeded -> {
-                    if (!output.equals(statusContext.output())) return;
+                    if (!target.equals(resolveStatusContext(client).target())) return;
                     settingsSucceeded = succeeded;
                     settingsFailure = Component.translatable(succeeded
                             ? "screen.worldmirror.status.syncSettingDone"
@@ -458,62 +508,58 @@ public class StatusScreen extends StatusScreenApi {
 
     private boolean conflictOperationInProgress;
 
-    private void resolveAllConflicts(Path output, boolean overwrite) {
-        if (conflictOperationInProgress) return;
+    private void resolveAllConflicts(MirrorTarget target, boolean overwrite) {
+        var client = Minecraft.getInstance();
+        if (conflictOperationInProgress || !target.equals(resolveStatusContext(client).target())) return;
         conflictOperationInProgress = true;
-        var target = new io.github.billstark001.worldmirror.io.MirrorTarget(output, statusContext.sourceId());
         ConflictActions.resolveAll(target, overwrite, () -> {
             conflictOperationInProgress = false;
-            if (statusContext != null && output.equals(statusContext.output())) refresh();
+            if (ClientDialogs.currentScreen(client) == this) refresh();
         });
     }
 
     private void loadPersistentStatus() {
         Minecraft client = Minecraft.getInstance();
         statusContext = resolveStatusContext(client);
-        Path output = statusContext.output();
+        MirrorTarget target = statusContext.target();
+        conflictCount = 0;
         try {
-            conflictCount = ConflictManager.countAllConflicts(output);
-            io.github.billstark001.worldmirror.download.OperationFailures.recovered(statusContext.sourceId(), "conflict_read");
-        }
-        catch (java.io.IOException failure) {
+            if (target != null && ChunkStatusCache.hasIdentity(target)) {
+                conflictCount = ConflictManager.countAllConflicts(target.folder());
+                if (!ChunkStatusCache.hasIdentity(target)) conflictCount = 0;
+                OperationFailures.recovered(target.nodeId(), "conflict_read");
+            }
+        } catch (java.io.IOException failure) {
             conflictCount = -1;
-            io.github.billstark001.worldmirror.download.OperationFailures.report(
-                    statusContext.sourceId(), "conflict_read", output, failure);
+            OperationFailures.report(target.nodeId(), "conflict_read", target.folder(), failure);
         }
         refreshLastSyncTime();
     }
 
     private void refreshLastSyncTime() {
-        Path output = statusContext.output();
-        WorldMetadata metadata = WorldMetadata.loadIfPresent(output).orElse(null);
-        if (metadata != null) {
-            lastSyncTime = metadata.lastSyncTime;
-        } else {
-            lastSyncTime = Files.isRegularFile(output.resolve(WorldMetadata.FILE_NAME)) ? -1L : 0L;
+        MirrorTarget target = statusContext.target();
+        if (target == null) {
+            lastSyncTime = 0L;
+            return;
         }
+        lastSyncTime = WorldMetadata.loadIfPresent(target.folder())
+                .filter(target::matches)
+                .map(metadata -> metadata.lastSyncTime)
+                .orElseGet(() -> Files.isRegularFile(target.folder().resolve(WorldMetadata.FILE_NAME)) ? -1L : 0L);
     }
 
     private static StatusContext resolveStatusContext(Minecraft client) {
-        MirrorWorldContext.Snapshot mirror = MirrorWorldContext.current();
-        if (mirror.worldFolder() != null) {
-            WorldMetadata metadata = WorldMetadata.loadIfPresent(mirror.worldFolder())
-                    .orElse(mirror.metadata());
-            String sourceId = metadata != null && metadata.sourceId != null
-                    && !metadata.sourceId.isBlank()
-                    ? metadata.sourceId : WorldMetadata.detectSourceId(client);
-            String sourceType = metadata != null && metadata.sourceType != null
-                    && !metadata.sourceType.isBlank()
-                    ? metadata.sourceType : WorldMetadata.detectSourceType(client);
-            return new StatusContext(sourceId, sourceType, mirror.worldFolder(), metadata);
+        WorldGraphService service = WorldGraphService.instance();
+        var observation = service.source();
+        var statusTarget = ChunkStatusCache.targetFor(client);
+        if (statusTarget != null) {
+            var target = statusTarget.mirror();
+            String parent = statusTarget.currentWorldIsMirror()
+                    ? MirrorWorldContext.current().metadata().parentNodeId : service.sourceNode(observation);
+            return new StatusContext(observation, parent, target.folder(), target, statusTarget.currentWorldIsMirror());
         }
-
-        String sourceId = WorldMetadata.detectSourceId(client);
-        String sourceType = WorldMetadata.detectSourceType(client);
-        Path output = DownloadManager.previewOutputPathForLocation(
-                sourceId, resolveSaveLocation(sourceId));
-        WorldMetadata metadata = WorldMetadata.loadIfPresent(output).orElse(null);
-        return new StatusContext(sourceId, sourceType, output, metadata);
+        return new StatusContext(observation, service.sourceNode(observation), service.preview(observation), null,
+                MirrorWorldContext.current().isMirror());
     }
 
     private Component lastSync() {
@@ -535,24 +581,14 @@ public class StatusScreen extends StatusScreenApi {
         return Component.translatable("screen.worldmirror.status.age.hours", seconds / 3_600);
     }
 
-    private static ModConfig.SaveLocation resolveSaveLocation(String sourceId) {
-        String configured = MirrorMapping.getInstance().getPerWorldSaveLocation(sourceId);
-        try {
-            return configured != null ? ModConfig.SaveLocation.valueOf(configured)
-                    : ModConfig.get().defaultSaveLocation;
-        } catch (IllegalArgumentException ignored) {
-            return ModConfig.get().defaultSaveLocation;
+    private ModConfig.SaveLocation resolveSaveLocation() {
+        WorldGraphService service = WorldGraphService.instance();
+        String nodeId = statusContext.mirrorNodeId();
+        var node = nodeId == null ? null : service.graph().nodes().get(nodeId);
+        if (node != null && node.location() != null) {
+            return ModConfig.SaveLocation.valueOf(node.location().root().name());
         }
-    }
-
-    private static ModConfig.ConflictStrategy resolveStrategy(String sourceId) {
-        String configured = MirrorMapping.getInstance().getPerWorldConflictStrategy(sourceId);
-        try {
-            return configured != null ? ModConfig.ConflictStrategy.valueOf(configured)
-                    : ModConfig.get().defaultConflictStrategy;
-        } catch (IllegalArgumentException ignored) {
-            return ModConfig.get().defaultConflictStrategy;
-        }
+        return service.saveLocation(statusContext.sourceNodeId());
     }
 
     protected void refresh() {

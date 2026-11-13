@@ -113,7 +113,7 @@ class ExportTransactionTest {
                     OptionalLong.empty());
             status.queued(work);
             var phases = new java.util.ArrayList<io.github.billstark001.worldmirror.io.ExportProgress.Part>();
-            var outcome = DownloadExportCoordinator.write(new DownloadExportCoordinator.ExportJob(work, () -> world,
+            var outcome = DownloadExportCoordinator.write(new DownloadExportCoordinator.ExportJob(work, () -> ExportTestTargets.reserve(world, work),
                     ModConfig.DownloadPipelineMode.STABLE_PERIODIC, false, false, new OverwriteResolver(), -1L,
                     (part, dimension, chunks) -> {
                         status.writing(work, part, dimension, chunks);
@@ -225,7 +225,7 @@ class ExportTransactionTest {
                 new ChunkListener.CapturedChunk(nbt, revision * 100L, revision, false))));
         return new ExportWork.Frozen(
                 new ExportWork.Context(ExportWork.Trigger.STOP, false,
-                new ExportWork.Source("server:transaction", "server")),
+                ExportTestTargets.source("server:transaction")),
                 snapshot,
                 Map.of(),
                 Map.of(),
@@ -235,7 +235,7 @@ class ExportTransactionTest {
     }
 
     private static DownloadExportCoordinator.ExportJob job(ExportWork.Frozen work, Path world, ConflictResolver resolver) {
-        return new DownloadExportCoordinator.ExportJob(work, () -> world, ModConfig.DownloadPipelineMode.STABLE_PERIODIC,
+        return new DownloadExportCoordinator.ExportJob(work, () -> ExportTestTargets.reserve(world, work), ModConfig.DownloadPipelineMode.STABLE_PERIODIC,
                 false, false, resolver, -1L, io.github.billstark001.worldmirror.io.ExportProgress.NONE);
     }
     @Test
@@ -295,7 +295,7 @@ class ExportTransactionTest {
             sql.execute("UPDATE chunks SET update_source='player'");
         }
         var work = terrain(2);
-        var outcome = DownloadExportCoordinator.write(new DownloadExportCoordinator.ExportJob(work, () -> world,
+        var outcome = DownloadExportCoordinator.write(new DownloadExportCoordinator.ExportJob(work, () -> ExportTestTargets.reserve(world, work),
                 ModConfig.DownloadPipelineMode.STABLE_PERIODIC, false, false, new OverwriteResolver(), -1L,
                 (part, dimension, chunks) -> {
                     try (var connection = DriverManager.getConnection("jdbc:sqlite:" + world.resolve("data/world_mirror.sqlite"));

@@ -1,0 +1,335 @@
+package io.github.billstark001.worldmirror.download;
+
+import com.google.common.net.InetAddresses;
+import io.github.billstark001.worldmirror.config.ModConfig;
+import io.github.billstark001.worldmirror.util.FileProof;
+import io.github.billstark001.worldmirror.util.FileTransaction;
+import io.github.billstark001.worldmirror.util.JsonSupport;
+
+import java.io.IOException;
+import java.net.IDN;
+import java.net.Inet6Address;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.EnumMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
+
+/** Durable graph index and user routing choices. Save metadata owns the observed graph. */
+public final class WorldGraphConfig {
+    public static final String FILE_NAME = "world-graph.json";
+    public static final int SCHEMA = 2;
+    private static final int DEFAULT_PORT = 25565;
+
+    public enum IdPolicy { AUTO, ENDPOINT_ONLY, REQUIRE_BOUND_ID }
+
+    public record SourceSettings(String defaultMirrorId, ModConfig.SaveLocation saveLocation,
+                                 String preferredFolderName, ModConfig.ConflictStrategy conflictStrategy) {
+        public SourceSettings {
+            if (defaultMirrorId != null) requireKey(defaultMirrorId, "default mirror");
+            if (preferredFolderName != null && !MirrorFolders.isUsableFolderName(preferredFolderName)) {
+                throw new IllegalArgumentException("Invalid preferred folder name");
+            }
+        }
+    }
+
+    public record MirrorSettings(ModConfig.ConflictStrategy conflictStrategy) {}
+
+    public record EndpointRule(String addressGroupId, Set<String> sourceIds, String defaultSourceId, IdPolicy idPolicy) {
+        public EndpointRule {
+            requireKey(addressGroupId, "address group");
+            sourceIds = Collections.unmodifiableSet(new TreeSet<>(sourceIds));
+            sourceIds.forEach(WorldGraphConfig::requireRemoteId);
+            Objects.requireNonNull(idPolicy, "ID policy");
+            if (defaultSourceId != null && !sourceIds.contains(defaultSourceId)) {
+                throw new IllegalArgumentException("Endpoint default is not one of its source candidates");
+            }
+        }
+    }
+
+    private record AdvertisedKey(String provider, String addressGroupId, String advertisedId) {}
+
+    public record StableBinding(String provider, String addressGroupId, String advertisedId, String sourceId) {
+        public StableBinding {
+            requireKey(provider, "ID provider");
+            requireKey(addressGroupId, "address group");
+            requireKey(advertisedId, "advertised ID");
+            requireRemoteId(sourceId);
+        }
+
+        private AdvertisedKey key() {
+            return new AdvertisedKey(provider, addressGroupId, advertisedId);
+        }
+    }
+
+    public record PendingImport(LegacyEntry legacy, WorldGraph.Location location, String reason) {
+        public PendingImport {
+            if (legacy == null && location == null) throw new IllegalArgumentException("Missing import evidence");
+            requireKey(reason, "import reason");
+        }
+    }
+
+    public record Snapshot(int schema, Map<String, WorldGraph.Node> nodes, Map<String, WorldGraph.Location> locations,
+                           Map<String, SourceSettings> sourceSettings,
+                           Map<String, MirrorSettings> mirrorSettings, Map<String, EndpointRule> endpointRules,
+                           List<StableBinding> stableBindings, Map<String, PendingImport> pendingImports) {
+        public Snapshot {
+            if (schema != SCHEMA) throw new IllegalArgumentException("Unsupported world graph schema " + schema);
+            nodes = freeze(nodes);
+            locations = freeze(locations);
+            sourceSettings = freeze(sourceSettings);
+            mirrorSettings = freeze(mirrorSettings);
+            endpointRules = freeze(endpointRules);
+            pendingImports = freeze(pendingImports);
+            nodes.forEach((key, node) -> {
+                if (!key.equals(node.id())) throw new IllegalArgumentException("Graph key differs from node ID");
+            });
+            endpointRules.keySet().forEach(key -> {
+                if (!key.equals(normalizeEndpoint(key))) throw new IllegalArgumentException("Noncanonical endpoint " + key);
+            });
+            stableBindings = stableBindings.stream().sorted(Comparator.comparing(StableBinding::provider)
+                    .thenComparing(StableBinding::addressGroupId).thenComparing(StableBinding::advertisedId)).toList();
+            Set<AdvertisedKey> seen = new HashSet<>();
+            for (StableBinding binding : stableBindings) {
+                if (!seen.add(binding.key())) throw new IllegalArgumentException("Duplicate advertised world ID");
+            }
+        }
+
+        public static Snapshot empty() {
+            return new Snapshot(SCHEMA, Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), List.of(), Map.of());
+        }
+
+        public Snapshot withNodes(Map<String, WorldGraph.Node> observed) {
+            Map<String, WorldGraph.Location> updated = new TreeMap<>(locations);
+            observed.forEach((id, node) -> {
+                if (node.location() != null) updated.put(id, node.location());
+            });
+            return new Snapshot(schema, observed, updated, sourceSettings, mirrorSettings, endpointRules, stableBindings, pendingImports);
+        }
+    }
+
+    private record Published(Snapshot snapshot, FileProof.Version version) {}
+
+    private final Path file;
+    private volatile Published published;
+
+    private WorldGraphConfig(Path file, Published published) {
+        this.file = file;
+        this.published = published;
+    }
+
+    /** Opens one verified generation and recovers a previous interrupted config publication. */
+    public static WorldGraphConfig open(Path file) throws IOException {
+        Path path = file.toAbsolutePath().normalize();
+        FileTransaction.recover(path.getParent());
+        FileProof.Version observed = stamp(path);
+        JsonSupport.Document<Snapshot> document = JsonSupport.readDocument(path, Snapshot.class);
+        if (!Objects.equals(observed, stamp(path))) throw new IOException("World graph changed while loading: " + path);
+        return switch (document.state()) {
+            case MISSING -> new WorldGraphConfig(path, new Published(Snapshot.empty(), null));
+            case VALID -> new WorldGraphConfig(path, new Published(document.value(), observed));
+            case INVALID, UNAVAILABLE -> throw new IOException("Cannot load world graph: " + path, document.failure());
+        };
+    }
+
+    public Snapshot snapshot() {
+        return published.snapshot();
+    }
+
+    public boolean exists() {
+        return published.version() != null;
+    }
+
+    boolean isCurrent() throws IOException {
+        return Objects.equals(published.version(), stamp(file));
+    }
+
+    /** Publishes the new snapshot only after a successful compare-and-replace on disk. */
+    public synchronized boolean replace(Snapshot expected, Snapshot next) throws IOException {
+        Objects.requireNonNull(next, "new graph snapshot");
+        Published previous = published;
+        if (previous.snapshot() != expected) return false;
+        if (previous.version() != null && previous.snapshot().equals(next)) {
+            if (!Objects.equals(previous.version(), stamp(file))) {
+                throw new IOException("World graph changed before publication: " + file);
+            }
+            return true;
+        }
+        FileProof.Version version = JsonSupport.compareAndWriteDocument(file, next, previous.version());
+        published = new Published(next, version);
+        return true;
+    }
+
+    /** Normalizes a player-entered server address without resolving DNS or SRV records. */
+    public static String normalizeEndpoint(String input) {
+        if (input == null || input.isBlank()) throw new IllegalArgumentException("Missing server address");
+        String address = input.strip();
+        String host;
+        int port = DEFAULT_PORT;
+        int firstColon = address.indexOf(':');
+        if (address.startsWith("[")) {
+            int close = address.indexOf(']');
+            if (close < 0) throw new IllegalArgumentException("Unclosed IPv6 address");
+            host = ipv6(address.substring(1, close));
+            if (close < address.length() - 1) {
+                if (address.charAt(close + 1) != ':') throw new IllegalArgumentException("Invalid IPv6 port separator");
+                port = parsePort(address.substring(close + 2));
+            }
+        } else if (firstColon >= 0 && firstColon != address.lastIndexOf(':')) {
+            host = ipv6(address);
+        } else {
+            String name = firstColon < 0 ? address : address.substring(0, firstColon);
+            if (name.isBlank() || name.equals(".")) throw new IllegalArgumentException("Missing server host");
+            host = IDN.toASCII(name, IDN.USE_STD3_ASCII_RULES).toLowerCase(Locale.ROOT);
+            if (firstColon >= 0) port = parsePort(address.substring(firstColon + 1));
+        }
+        return port == DEFAULT_PORT ? host : host + ":" + port;
+    }
+
+    private static String ipv6(String host) {
+        if (host.indexOf(':') < 0) throw new IllegalArgumentException("Expected an IPv6 address");
+        int zoneStart = host.indexOf('%');
+        String zone = zoneStart < 0 ? "" : host.substring(zoneStart);
+        if (!zone.isEmpty() && !zone.matches("%[a-zA-Z0-9_.-]+")) throw new IllegalArgumentException("Invalid IPv6 zone");
+        var parsed = InetAddresses.forString(zoneStart < 0 ? host : host.substring(0, zoneStart));
+        String literal = InetAddresses.toAddrString(parsed);
+        if (!(parsed instanceof Inet6Address)) literal = "::ffff:" + literal;
+        return "[" + literal + zone + "]";
+    }
+
+    private static int parsePort(String value) {
+        if (value.isEmpty() || !value.chars().allMatch(c -> c >= '0' && c <= '9')) {
+            throw new IllegalArgumentException("Invalid server port");
+        }
+        int port = Integer.parseInt(value);
+        if (port < 1 || port > 65535) throw new IllegalArgumentException("Invalid server port");
+        return port;
+    }
+
+    private static FileProof.Version stamp(Path file) throws IOException {
+        try {
+            return FileProof.version(file);
+        } catch (NoSuchFileException missing) {
+            return null;
+        }
+    }
+
+    private static <V> Map<String, V> freeze(Map<String, V> entries) {
+        Map<String, V> ordered = new TreeMap<>();
+        entries.forEach((key, value) -> {
+            requireKey(key, "configuration key");
+            ordered.put(key, Objects.requireNonNull(value));
+        });
+        return Collections.unmodifiableMap(ordered);
+    }
+
+    private static void requireKey(String value, String label) {
+        if (value == null || value.isBlank() || value.chars().anyMatch(Character::isISOControl)) {
+            throw new IllegalArgumentException("Invalid " + label);
+        }
+    }
+
+    private static void requireRemoteId(String id) {
+        requireKey(id, "remote source");
+        if (!id.startsWith("remote:") || id.substring("remote:".length()).isBlank()) {
+            throw new IllegalArgumentException("Expected a remote source ID");
+        }
+    }
+
+    public record LegacyImport(Map<String, LegacyEntry> entries) {
+        public LegacyImport {
+            entries = freeze(entries);
+        }
+    }
+
+    public record LegacyEntry(String sourceId, String preferredFolderName,
+                              Map<ModConfig.SaveLocation, String> resolvedFolderNames,
+                              ModConfig.SaveLocation saveLocation, ModConfig.ConflictStrategy conflictStrategy) {
+        public LegacyEntry {
+            requireKey(sourceId, "legacy source");
+            Map<ModConfig.SaveLocation, String> resolved = new EnumMap<>(ModConfig.SaveLocation.class);
+            resolvedFolderNames.forEach((root, name) -> {
+                if (!MirrorFolders.isUsableFolderName(name)) throw new IllegalArgumentException("Invalid legacy folder name");
+                resolved.put(root, name);
+            });
+            if (preferredFolderName != null && !MirrorFolders.isUsableFolderName(preferredFolderName)) {
+                throw new IllegalArgumentException("Invalid legacy preferred folder name");
+            }
+            resolvedFolderNames = Collections.unmodifiableMap(resolved);
+        }
+    }
+
+    /** Reads the previous routing file only for the explicit migration. */
+    public static LegacyImport readLegacy(Path file) throws IOException {
+        Path path = file.toAbsolutePath().normalize();
+        FileProof.Version observed = stamp(path);
+        JsonSupport.Document<LegacyDocument> document = JsonSupport.readDocument(path, LegacyDocument.class);
+        if (!Objects.equals(observed, stamp(path))) throw new IOException("Legacy mirror routing changed while loading: " + path);
+        return switch (document.state()) {
+            case MISSING -> new LegacyImport(Map.of());
+            case VALID -> {
+                try {
+                    yield document.value().toImport();
+                } catch (IllegalArgumentException invalid) {
+                    throw new IOException("Cannot import legacy mirror routing: " + path, invalid);
+                }
+            }
+            case INVALID, UNAVAILABLE -> throw new IOException("Cannot import legacy mirror routing: " + path, document.failure());
+        };
+    }
+
+    private record LegacyDocument(Map<String, String> entries, Map<String, String> resolvedFolderNames,
+                                  Map<String, String> perWorldSaveLocation, Map<String, String> perWorldConflictStrategy) {
+        private LegacyDocument {
+            entries = orEmpty(entries);
+            resolvedFolderNames = orEmpty(resolvedFolderNames);
+            perWorldSaveLocation = orEmpty(perWorldSaveLocation);
+            perWorldConflictStrategy = orEmpty(perWorldConflictStrategy);
+        }
+
+        private LegacyImport toImport() {
+            Set<String> sources = new TreeSet<>(entries.keySet());
+            sources.addAll(perWorldSaveLocation.keySet());
+            sources.addAll(perWorldConflictStrategy.keySet());
+            Map<String, Map<ModConfig.SaveLocation, String>> locations = new TreeMap<>();
+            resolvedFolderNames.forEach((key, name) -> {
+                int delimiter = key.indexOf('\0');
+                if (delimiter <= 0 || key.indexOf('\0', delimiter + 1) >= 0) {
+                    throw new IllegalArgumentException("Invalid legacy folder locator");
+                }
+                String source = key.substring(0, delimiter);
+                ModConfig.SaveLocation root = ModConfig.SaveLocation.valueOf(key.substring(delimiter + 1));
+                sources.add(source);
+                if (MirrorFolders.isUsableFolderName(name)) {
+                    locations.computeIfAbsent(source, ignored -> new EnumMap<>(ModConfig.SaveLocation.class)).put(root, name);
+                }
+            });
+            Map<String, LegacyEntry> result = new TreeMap<>();
+            for (String source : sources) {
+                String preferred = entries.get(source);
+                result.put(source, new LegacyEntry(source,
+                        MirrorFolders.isUsableFolderName(preferred) ? preferred : null,
+                        locations.getOrDefault(source, Map.of()),
+                        parseOverride(ModConfig.SaveLocation.class, perWorldSaveLocation.get(source)),
+                        parseOverride(ModConfig.ConflictStrategy.class, perWorldConflictStrategy.get(source))));
+            }
+            return new LegacyImport(result);
+        }
+
+        private static <K, V> Map<K, V> orEmpty(Map<K, V> entries) {
+            return entries == null ? Map.of() : entries;
+        }
+
+        private static <E extends Enum<E>> E parseOverride(Class<E> type, String name) {
+            return name == null || name.isBlank() ? null : Enum.valueOf(type, name);
+        }
+    }
+}

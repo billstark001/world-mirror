@@ -52,12 +52,13 @@ public final class LiveChunkStatusSnapshot {
 
     public static LiveChunkStatusSnapshot capture(ResourceKey<Level> dimension,
                                                    ChunkBounds range,
-                                                   ChunkStatusSnapshot persistent, String source) {
+                                                   ChunkStatusSnapshot persistent, String nodeId, boolean includeLive) {
         if (dimension == null) return EMPTY;
         var records = new Long2ObjectOpenHashMap<Record>();
         var exports = new Long2ObjectOpenHashMap<ExportStatus.Chunk>();
-        ExportStatusStore.global().inRange(source, dimension, range.minX(), range.maxX(), range.minZ(), range.maxZ())
+        ExportStatusStore.global().inRange(nodeId, dimension, range.minX(), range.maxX(), range.minZ(), range.maxZ())
                 .forEach(status -> exports.put(ChunkBounds.key(status.x(), status.z()), status));
+        if (!includeLive) return exports.isEmpty() ? EMPTY : new LiveChunkStatusSnapshot(records, exports);
         for (ChunkListener.MapChunkStatus chunk : ChunkListener.snapshotMapStatusInRange(
                 dimension, range.minX(), range.maxX(), range.minZ(), range.maxZ())) {
             if (chunk.pendingWrite()) exports.compute(ChunkBounds.key(chunk.x(), chunk.z()), (key, old) ->

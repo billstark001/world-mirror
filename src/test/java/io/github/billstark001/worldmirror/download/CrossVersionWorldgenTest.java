@@ -44,6 +44,8 @@ class CrossVersionWorldgenTest {
     void currentMetadataCannotHideReal262Generators(@TempDir Path world) throws Exception {
         copyFixture(world);
         WorldMetadata metadata = WorldMetadata.loadIfPresent(world).orElseThrow();
+        assertEquals("mirror:cross-version", metadata.nodeId);
+        assertEquals("local:cross-version", metadata.parentNodeId);
         metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), MirrorWorldgenAssets.ASSET_REVISION);
         assertTrue(metadata.save(world));
         assertTrue(MirrorMigrationCoordinator.inspect(world).repairWorldgen());

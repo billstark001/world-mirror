@@ -1,5 +1,6 @@
 package io.github.billstark001.worldmirror.io;
 
+import io.github.billstark001.worldmirror.download.WorldGraph;
 import io.github.billstark001.worldmirror.download.WorldMetadata;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.Bootstrap;
@@ -22,7 +23,8 @@ public final class CrossVersionWorldgenFixture {
         Path world = Files.createTempDirectory(output, "world-");
         if (!WorldStructureCreator.createLoadableWorld(world, "26.2 fixture", true, true,
                 WorldSettingsSnapshot.defaults())) throw new IllegalStateException("Fixture creation failed");
-        WorldMetadata metadata = WorldMetadata.create("local:cross-version", "singleplayer", "synchronized");
+        WorldMetadata metadata = WorldMetadata.create("mirror:cross-version", WorldGraph.Kind.MIRROR, "local:cross-version",
+                WorldGraph.Role.SYNC, "local:cross-version");
         metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), MirrorWorldgenAssets.ASSET_REVISION);
         if (!metadata.save(world)) throw new IllegalStateException("Fixture metadata failed");
         Files.writeString(output.resolve("fixture-root.txt"), world.toAbsolutePath().toString());

@@ -35,14 +35,14 @@ class ExportStatusStoreTest {
         var store = new ExportStatusStore();
         store.queued(work);
         store.writing(work,ExportProgress.Part.TERRAIN,Level.OVERWORLD,chunks.keySet());
-        assertEquals(100,store.health("mixed").counts().writing());
+        assertEquals(100,store.health("mirror:mixed").counts().writing());
         var result = new ChunkExporter.ExportResult(Map.of(),Map.of(),Map.of(),Map.of(),false,true,
                 new ChunkExporter.ExportTimings(0,0,0,0,0,0,0));
         var receipts = Map.of(Level.OVERWORLD,written);
         var outcome = new DownloadExportCoordinator.ExportOutcome(result,receipts,work.remaining(result,receipts,100),true,true,0);
         var counts = store.finish(work,outcome).counts();
         assertEquals(new ExportStatus.Counts(0,0,50,0,50,50,50,0),counts);
-        assertEquals(counts,store.inRange("mixed",Level.OVERWORLD,0,99,0,0).stream()
+        assertEquals(counts,store.inRange("mirror:mixed",Level.OVERWORLD,0,99,0,0).stream()
                 .map(ExportStatus.Chunk::counts).reduce(ExportStatus.Counts.EMPTY,ExportStatus.Counts::plus));
     }
 
@@ -51,13 +51,13 @@ class ExportStatusStoreTest {
         var store = new ExportStatusStore();
         var work = work("a",1,-1);
         store.queued(work);
-        long version = store.version("a",Level.OVERWORLD);
-        var health = store.health("a");
+        long version = store.version("mirror:a",Level.OVERWORLD);
+        var health = store.health("mirror:a");
         synchronized (store) {
             var read = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
-                assertEquals(version,store.version("a",Level.OVERWORLD));
-                assertSame(health,store.health("a"));
-                assertEquals(1,store.inRange("a",Level.OVERWORLD,-33,-33,65,65).size());
+                assertEquals(version,store.version("mirror:a",Level.OVERWORLD));
+                assertSame(health,store.health("mirror:a"));
+                assertEquals(1,store.inRange("mirror:a",Level.OVERWORLD,-33,-33,65,65).size());
                 return true;
             });
             assertTrue(read.get(2,java.util.concurrent.TimeUnit.SECONDS));
@@ -69,14 +69,14 @@ class ExportStatusStoreTest {
         var store = new ExportStatusStore();
         var work = work("a",1,2);
         store.queued(work);
-        var health = store.health("a");
+        var health = store.health("mirror:a");
         var chunk = chunk(store,"a");
-        long version = store.version("a",Level.OVERWORLD);
+        long version = store.version("mirror:a",Level.OVERWORLD);
         for (int attempt = 0; attempt < 100; attempt++) store.queued(work);
-        assertSame(health,store.health("a"));
+        assertSame(health,store.health("mirror:a"));
         assertSame(chunk,chunk(store,"a"));
         assertSame(chunk,chunk.withTerrain(1));
-        assertEquals(version,store.version("a",Level.OVERWORLD));
+        assertEquals(version,store.version("mirror:a",Level.OVERWORLD));
     }
 
     @Test
@@ -94,16 +94,16 @@ class ExportStatusStoreTest {
         assertTrue(chunk(store, "a").hasFailure(), "retry must not erase an unresolved failure");
         store.finish(work, outcome(work, true, false, true));
         assertEquals(PARTIAL, chunk(store, "a").state());
-        assertEquals(ExportStatus.FailureStage.ENTITIES, store.health("a").stage());
+        assertEquals(ExportStatus.FailureStage.ENTITIES, store.health("mirror:a").stage());
         var newerTerrain = work("a", 2, -1);
         store.queued(newerTerrain);
         store.finish(newerTerrain, outcome(newerTerrain, true, true, true));
         assertEquals(PARTIAL, chunk(store, "a").state(), "a later terrain pass cannot recover failed entities");
-        assertTrue(store.health("a").degraded());
+        assertTrue(store.health("mirror:a").degraded());
         store.finish(work, outcome(work, true, true, true));
         assertEquals(SUCCEEDED, chunk(store, "a").state());
-        assertTrue(store.health("a").settled());
-        assertEquals(1, store.health("a").counts().succeeded());
+        assertTrue(store.health("mirror:a").settled());
+        assertEquals(1, store.health("mirror:a").counts().succeeded());
     }
 
     @Test
@@ -149,17 +149,17 @@ class ExportStatusStoreTest {
         var b = work("b", 2, -1);
         store.queued(a);
         store.queued(b);
-        long before = store.version("b", Level.OVERWORLD);
+        long before = store.version("mirror:b", Level.OVERWORLD);
         for (int attempt = 0; attempt < 100; attempt++) {
             store.queued(a);
             store.finish(a, outcome(a, false, false, true));
         }
-        assertEquals(before, store.version("b", Level.OVERWORLD));
+        assertEquals(before, store.version("mirror:b", Level.OVERWORLD));
         assertEquals(QUEUED, chunk(store, "b").state());
-        assertEquals(1, store.health("a").counts().total());
-        assertEquals(1, store.inRange("a", Level.OVERWORLD, -34, -32, 64, 66).size());
-        assertTrue(store.inRange("a", Level.NETHER, -100, 100, -100, 100).isEmpty());
-        assertTrue(store.inRange("a", Level.OVERWORLD, 0, 100, 0, 100).isEmpty());
+        assertEquals(1, store.health("mirror:a").counts().total());
+        assertEquals(1, store.inRange("mirror:a", Level.OVERWORLD, -34, -32, 64, 66).size());
+        assertTrue(store.inRange("mirror:a", Level.NETHER, -100, 100, -100, 100).isEmpty());
+        assertTrue(store.inRange("mirror:a", Level.OVERWORLD, 0, 100, 0, 100).isEmpty());
     }
 
     @Test
@@ -172,9 +172,9 @@ class ExportStatusStoreTest {
         assertEquals(SUCCEEDED, observed.state());
         assertEquals(QUEUED, observed.withTerrain(2).state());
         assertEquals(SUCCEEDED, observed.state(), "viewport enrichment cannot mutate durable observations");
-        long version = store.version("a", Level.OVERWORLD);
+        long version = store.version("mirror:a", Level.OVERWORLD);
         store.finish(work, outcome(work, true, true, true));
-        assertEquals(version, store.version("a", Level.OVERWORLD), "unchanged results must not invalidate geometry");
+        assertEquals(version, store.version("mirror:a", Level.OVERWORLD), "unchanged results must not invalidate geometry");
     }
 
     @Test
@@ -182,21 +182,21 @@ class ExportStatusStoreTest {
         var store = new ExportStatusStore();
         var empty = work("a", -1, -1);
         store.finish(empty, DownloadExportCoordinator.ExportOutcome.failed(empty));
-        assertTrue(store.health("a").worldFailure());
+        assertTrue(store.health("mirror:a").worldFailure());
         var work = work("a", 1, -1);
         store.queued(work);
         store.finish(work, outcome(work, false, false, false));
-        assertTrue(store.health("a").worldFailure());
+        assertTrue(store.health("mirror:a").worldFailure());
         store.finish(work, outcome(work, true, true, true));
-        assertTrue(store.health("a").settled());
+        assertTrue(store.health("mirror:a").settled());
     }
 
     private static ExportStatus.Chunk chunk(ExportStatusStore store, String source) {
-        return store.inRange(source, Level.OVERWORLD, -33, -33, 65, 65).getFirst();
+        return store.inRange("mirror:" + source, Level.OVERWORLD, -33, -33, 65, 65).getFirst();
     }
     static ExportWork.Frozen work(String source, long terrain, long entity) {
         return new ExportWork.Frozen(new ExportWork.Context(ExportWork.Trigger.PERIODIC, false,
-                new ExportWork.Source(source, "server")),
+                ExportTestTargets.source(source)),
                 ChunkListener.snapshotOf(terrain < 0 ? Map.of() : Map.of(Level.OVERWORLD, Map.of(POS,
                         new ChunkListener.CapturedChunk(new CompoundTag(), terrain * 100, terrain, false)))),
                 entity < 0 ? Map.of() : Map.of(Level.OVERWORLD, Map.of(POS,

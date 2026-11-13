@@ -61,8 +61,8 @@ class DownloadExportCoordinatorTest {
                 new DownloadExportCoordinator.ExportJob(work, () -> {
                     String source = work.context().source().id();
                     attempts.merge(source, 1, Integer::sum);
-                    if (source.equals("server:broken")) throw new java.io.IOException("storage unavailable");
-                    return worlds.resolve("healthy");
+                    if (source.equals("mirror:server:broken")) throw new java.io.IOException("storage unavailable");
+                    return ExportTestTargets.reserve(worlds.resolve("healthy"), work);
                 }, io.github.billstark001.worldmirror.config.ModConfig.DownloadPipelineMode.STABLE_PERIODIC,
                         false, true, new io.github.billstark001.worldmirror.conflict.OverwriteResolver(), -1,
                         io.github.billstark001.worldmirror.io.ExportProgress.NONE);
@@ -74,14 +74,48 @@ class DownloadExportCoordinatorTest {
             coordinator.enqueue(prepared("server:healthy").terrainOnly());
             coordinator.shutdown();
             coordinator.cancelRequest();
-            coordinator.drainCompletions();
+            coordinator.drainCompletions(null);
             assertTrue(executor.awaitTermination(15, TimeUnit.SECONDS));
-            assertEquals(2, attempts.get("server:broken"), "one accepted write and one final attempt");
-            assertEquals(1, attempts.get("server:healthy"));
+            assertEquals(2, attempts.get("mirror:server:broken"), "one accepted write and one final attempt");
+            assertEquals(1, attempts.get("mirror:server:healthy"));
             assertTrue(Files.exists(io.github.billstark001.worldmirror.io.ChunkExporter.regionDirForDimension(
                     worlds.resolve("healthy"), Level.OVERWORLD).resolve("r.0.0.mca")));
             assertEquals(1, scheduler.pending.frozenCount());
             assertEquals(1, ChunkListener.getDirtyCount(), "shutdown must not acknowledge live state");
+        } finally {
+            coordinator.shutdown();
+            assertTrue(executor.awaitTermination(15, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void priorSessionReceiptsDoNotAcknowledgeTheCurrentSessionForTheSameTarget(@TempDir Path world) throws Exception {
+        var scheduler = new ExportScheduler();
+        var executor = DownloadExportCoordinator.createExportExecutor();
+        java.util.function.Function<ExportWork.Frozen, DownloadExportCoordinator.ExportJob> jobs = work ->
+                new DownloadExportCoordinator.ExportJob(work, () -> ExportTestTargets.reserve(world, work),
+                        io.github.billstark001.worldmirror.config.ModConfig.DownloadPipelineMode.STABLE_PERIODIC,
+                        false, true, new io.github.billstark001.worldmirror.conflict.OverwriteResolver(), -1,
+                        io.github.billstark001.worldmirror.io.ExportProgress.NONE);
+        var coordinator = new DownloadExportCoordinator(new DownloadCaptureQueue(() -> false, 1, () -> 8),
+                scheduler, executor, jobs);
+        var first = ExportTestTargets.source("server:same-target");
+        var next = ExportTestTargets.source("server:same-target");
+        assertEquals(first, next, "durable scheduling groups work for the same target");
+        ChunkPos position = new ChunkPos(0, 0);
+        var chunk = new CompoundTag();
+        chunk.putInt("xPos", 0);
+        chunk.putInt("zPos", 0);
+        ChunkListener.addChunkNbt(Level.OVERWORLD, position, chunk);
+        try {
+            var work = new ExportWork.Frozen(new ExportWork.Context(ExportWork.Trigger.STOP, false, first),
+                    ChunkListener.snapshotDirtyState(), Map.of(), Map.of(), WorldSettingsSnapshot.defaults(), 0L,
+                    OptionalLong.empty());
+            coordinator.submit(jobs.apply(work), 0);
+            executor.submit(() -> {}).get(15, TimeUnit.SECONDS);
+            coordinator.drainCompletions(next);
+            assertEquals(1, ChunkListener.getDirtyCount(), "receipts apply only to the owning live session");
+            assertEquals(1, ChunkDatabase.countAllReadOnly(world, first.target().sourceId()), "the old write still commits");
         } finally {
             coordinator.shutdown();
             assertTrue(executor.awaitTermination(15, TimeUnit.SECONDS));
@@ -102,9 +136,9 @@ class DownloadExportCoordinatorTest {
         var first = coordinator.snapshotReadyTerrain();
         assertEquals(Set.of(ready), first.chunks().get(Level.OVERWORLD).keySet());
         var work = new ExportWork.Frozen(new ExportWork.Context(ExportWork.Trigger.RESOURCE_PRESSURE,
-                false, new ExportWork.Source("server:light-test", "server")), first, Map.of(), Map.of(),
+                false, ExportTestTargets.source("server:light-test")), first, Map.of(), Map.of(),
                 WorldSettingsSnapshot.defaults(), 0, OptionalLong.empty());
-        var outcome = DownloadExportCoordinator.write(new DownloadExportCoordinator.ExportJob(work, () -> world,
+        var outcome = DownloadExportCoordinator.write(new DownloadExportCoordinator.ExportJob(work, () -> ExportTestTargets.reserve(world, work),
                 io.github.billstark001.worldmirror.config.ModConfig.DownloadPipelineMode.STABLE_PERIODIC, false, true,
                 new io.github.billstark001.worldmirror.conflict.OverwriteResolver(), -1,
                 io.github.billstark001.worldmirror.io.ExportProgress.NONE));
@@ -161,7 +195,7 @@ class DownloadExportCoordinatorTest {
         Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> oldEntities = Map.of();
 
         var pending = new ExportWork.Frozen(
-                new ExportWork.Context(ExportWork.Trigger.STOP, false, new ExportWork.Source("server:old", "server")),
+                new ExportWork.Context(ExportWork.Trigger.STOP, false, ExportTestTargets.source("server:old")),
                 oldTerrain,
                 oldEntities,
                 containers(oldContainer),
@@ -176,7 +210,7 @@ class DownloadExportCoordinatorTest {
         var frozen = (ExportWork.Frozen) queue.poll(false, 0L);
 
         assertEquals(ExportWork.Trigger.STOP, frozen.context().trigger());
-        assertEquals("server:old", frozen.context().source().id());
+        assertEquals("mirror:server:old", frozen.context().source().id());
         assertEquals("old", frozen.containers().get(Level.OVERWORLD)
                 .get(BlockPos.ZERO).getStringOr("source", ""));
         assertSame(oldEntities, frozen.entities());
@@ -261,7 +295,7 @@ class DownloadExportCoordinatorTest {
     }
 
     private static ExportWork.Intent intent(ExportWork.Trigger trigger, boolean notifyPlayer, String source) {
-        return new ExportWork.Intent(new ExportWork.Context(trigger, notifyPlayer, new ExportWork.Source(source, "server")),
+        return new ExportWork.Intent(new ExportWork.Context(trigger, notifyPlayer, ExportTestTargets.source(source)),
                 ExportWork.CapturePhase.REQUIRED, ExportWork.EntityScope.LIVE, notifyPlayer,
                 java.util.Optional.empty(), WorldSettingsSnapshot.defaults());
     }
@@ -272,7 +306,7 @@ class DownloadExportCoordinatorTest {
         var update = new EntityTracker.ChunkUpdate(4L, EntityTracker.Observation.PARTIAL,
                 Map.of(uuid, entity), Set.of());
         return new ExportWork.Frozen(
-                new ExportWork.Context(ExportWork.Trigger.STOP, false, new ExportWork.Source(source, "server")),
+                new ExportWork.Context(ExportWork.Trigger.STOP, false, ExportTestTargets.source(source)),
                 ChunkListener.snapshotOf(Map.of(Level.OVERWORLD, Map.of(new ChunkPos(0, 0),
                         new ChunkListener.CapturedChunk(new CompoundTag(), 100L, 3L, false)))),
                 Map.of(Level.OVERWORLD, Map.of(new ChunkPos(0, 0), update)),
@@ -297,8 +331,8 @@ class DownloadExportCoordinatorTest {
         var terrain = (ExportWork.Frozen) queue.poll(true, 99L);
         assertSame(newer.terrain(), terrain.terrain());
         assertTrue(terrain.entities().isEmpty());
-        assertFalse(queue.hasTerrainForSource(new ExportWork.Source("server:first", "server")));
-        assertTrue(queue.hasEntitiesForSource(new ExportWork.Source("server:first", "server")));
+        assertFalse(queue.hasTerrainForSource(ExportTestTargets.source("server:first")));
+        assertTrue(queue.hasEntitiesForSource(ExportTestTargets.source("server:first")));
         assertNull(queue.poll(false, 99L));
         assertSame(failedEntities, queue.poll(true, 100L));
         var entities = (ExportWork.Frozen) queue.poll(true, 100L);
@@ -315,7 +349,7 @@ class DownloadExportCoordinatorTest {
                 b, new ChunkListener.CapturedChunk(new CompoundTag(), 200L, 5L, false));
         var initial = prepared("server:first");
         var frozen = new ExportWork.Frozen(
-                new ExportWork.Context(initial.context().trigger(), true, new ExportWork.Source(initial.context().source().id(), "server")),
+                new ExportWork.Context(initial.context().trigger(), true, initial.context().source()),
                 ChunkListener.snapshotOf(Map.of(Level.OVERWORLD, chunks)),
                 initial.entities(),
                 Map.of(Level.OVERWORLD,
@@ -343,7 +377,7 @@ class DownloadExportCoordinatorTest {
         var queue = new ExportScheduler.Pending();
         var old = prepared("server:first");
         var entities = new ExportWork.Frozen(
-                new ExportWork.Context(old.context().trigger(), false, new ExportWork.Source(old.context().source().id(), "server")),
+                new ExportWork.Context(old.context().trigger(), false, old.context().source()),
                 ChunkListener.snapshotOf(Map.of()),
                 old.entities(),
                 Map.of(),
@@ -364,7 +398,7 @@ class DownloadExportCoordinatorTest {
     void preparedOldSnapshotCannotSettleLiveEntityCaptureSignals() {
         var coordinator = new DownloadExportCoordinator(new DownloadCaptureQueue(() -> false, 1, () -> 8192), new ExportScheduler(), DownloadExportCoordinator.createExportExecutor(), work -> { throw new IllegalStateException("No target configured"); });
         var prepared = new ExportWork.Frozen(
-                new ExportWork.Context(ExportWork.Trigger.STOP, false, new ExportWork.Source("server:old", "server")),
+                new ExportWork.Context(ExportWork.Trigger.STOP, false, ExportTestTargets.source("server:old")),
                 ChunkListener.snapshotOf(Map.of()),
                 Map.of(),
                 Map.of(),
@@ -388,7 +422,7 @@ class DownloadExportCoordinatorTest {
     void queuedSnapshotsKeepTheSourceResolvedBeforeDeferral() {
         var frozen = prepared("server:old");
         var retry = frozen.retry();
-        assertEquals("server:old", retry.context().source().id());
+        assertEquals("mirror:server:old", retry.context().source().id());
         assertSame(frozen.terrain(), retry.terrain());
         assertEquals(frozen.entities(), retry.entities());
     }
@@ -400,9 +434,9 @@ class DownloadExportCoordinatorTest {
         ChunkPos pos = new ChunkPos(0, 0);
         ChunkListener.addChunkNbt(Level.OVERWORLD, pos, new CompoundTag());
         var work = new ExportWork.Frozen(new ExportWork.Context(ExportWork.Trigger.MANUAL, true,
-                new ExportWork.Source("server:completion", "server")), ChunkListener.snapshotDirtyState(), Map.of(), Map.of(),
+                ExportTestTargets.source("server:completion")), ChunkListener.snapshotDirtyState(), Map.of(), Map.of(),
                 WorldSettingsSnapshot.defaults(), 0, OptionalLong.empty());
-        var job = new DownloadExportCoordinator.ExportJob(work, () -> world,
+        var job = new DownloadExportCoordinator.ExportJob(work, () -> ExportTestTargets.reserve(world, work),
                 io.github.billstark001.worldmirror.config.ModConfig.DownloadPipelineMode.STABLE_PERIODIC, true, true,
                 new io.github.billstark001.worldmirror.conflict.OverwriteResolver(), -1,
                 io.github.billstark001.worldmirror.io.ExportProgress.NONE);
@@ -416,7 +450,7 @@ class DownloadExportCoordinatorTest {
             ChunkListener.markChunkDirty(Level.OVERWORLD, pos);
             long latest = ChunkListener.getDimension(Level.OVERWORLD).get(pos).revision();
             assertEquals(2, coordinator.sampleResources().retainedChunks(), "a newer live revision is distinct from the write snapshot");
-            org.junit.jupiter.api.Assertions.assertDoesNotThrow(coordinator::drainCompletions);
+            coordinator.drainCompletions(work.context().source());
             assertEquals(1, coordinator.sampleResources().retainedChunks());
             var first = coordinator.snapshotDiagnostics();
             var second = coordinator.snapshotDiagnostics();
@@ -446,14 +480,14 @@ class DownloadExportCoordinatorTest {
         queue.enqueue(other);
         queue.request(live);
 
-        assertTrue((queue.hasTerrainForSource(new ExportWork.Source("server:first", "server")) || queue.hasEntitiesForSource(new ExportWork.Source("server:first", "server"))));
+        assertTrue((queue.hasTerrainForSource(ExportTestTargets.source("server:first")) || queue.hasEntitiesForSource(ExportTestTargets.source("server:first"))));
         assertSame(other, queue.poll(false, 99L));
         assertNull(queue.poll(false, 99L));
         assertSame(failed, queue.poll(true, 100L));
         assertSame(newer, queue.poll(true, 100L));
         assertNull(queue.poll(true, 100L));
         assertSame(live, queue.poll(false, 100L));
-        assertFalse((queue.hasTerrainForSource(new ExportWork.Source("server:first", "server")) || queue.hasEntitiesForSource(new ExportWork.Source("server:first", "server"))));
+        assertFalse((queue.hasTerrainForSource(ExportTestTargets.source("server:first")) || queue.hasEntitiesForSource(ExportTestTargets.source("server:first"))));
     }
 
     @Test
@@ -470,7 +504,7 @@ class DownloadExportCoordinatorTest {
         var queue = new ExportScheduler.Pending();
         var first = prepared("server:first");
         var failedEntities = new ExportWork.Frozen(
-                new ExportWork.Context(first.context().trigger(), false, new ExportWork.Source(first.context().source().id(), "server")),
+                new ExportWork.Context(first.context().trigger(), false, first.context().source()),
                 ChunkListener.snapshotOf(Map.of()),
                 first.entities(),
                 Map.of(),
@@ -487,7 +521,7 @@ class DownloadExportCoordinatorTest {
         var terrain = (ExportWork.Frozen) queue.poll(true, 100L);
         assertSame(first.terrain(), terrain.terrain());
         assertTrue(terrain.entities().isEmpty());
-        assertEquals("server:other", queue.poll(true, 100L).context().source().id());
+        assertEquals("mirror:server:other", queue.poll(true, 100L).context().source().id());
         assertNull(queue.poll(true, 100L), "failed and dependent entity bundles must not loop during shutdown");
         assertEquals(2, queue.frozenCount());
     }
@@ -538,7 +572,7 @@ class DownloadExportCoordinatorTest {
     @Test
     void aRetryRetainsVerifiedCaptureTimeAndAnUnknownFrozenSource() {
         var request = new ExportWork.Frozen(
-                new ExportWork.Context(ExportWork.Trigger.RETRY, true, new ExportWork.Source("unknown", "server")),
+                new ExportWork.Context(ExportWork.Trigger.RETRY, true, ExportTestTargets.source("unknown")),
                 ChunkListener.snapshotOf(Map.of()),
                 Map.of(),
                 Map.of(),
@@ -547,7 +581,7 @@ class DownloadExportCoordinatorTest {
                 OptionalLong.empty());
 
         var normalized = request.retry();
-        assertEquals("unknown", normalized.context().source().id());
+        assertEquals("mirror:unknown", normalized.context().source().id());
         assertEquals(123L, normalized.durableCaptureTime());
         assertSame(request.terrain(), normalized.terrain());
     }

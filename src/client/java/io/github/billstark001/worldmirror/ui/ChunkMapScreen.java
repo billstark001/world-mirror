@@ -1,6 +1,5 @@
 package io.github.billstark001.worldmirror.ui;
 
-import io.github.billstark001.worldmirror.conflict.ConflictManager;
 import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
 import io.github.billstark001.worldmirror.ui.ChunkStatusCache.StatusTarget;
@@ -21,7 +20,6 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 
-import java.nio.file.Path;
 import java.util.*;
 
 /**
@@ -73,10 +71,8 @@ public class ChunkMapScreen extends Screen {
     private LiveChunkStatusSnapshot liveSnapshot = LiveChunkStatusSnapshot.EMPTY;
     private final ChunkViewportCache viewportCache = new ChunkViewportCache();
     private final ChunkMapProjection projection = new ChunkMapProjection();
-    private Path worldFolder;
-    private String targetSourceId;
+    private StatusTarget statusTarget;
     private boolean resolvingConflict;
-    private boolean viewingCurrentMirror;
     private ResourceKey<Level> currentDimension;
 
     // ── Dialog ────────────────────────────────────────────────────────────────
@@ -136,9 +132,7 @@ public class ChunkMapScreen extends Screen {
         dialogOverwriteBtn = addRenderableWidget(Button.builder(
                 Component.translatable("screen.worldmirror.chunkmap.dialog.overwrite"),
                 btn -> {
-                    if (dialogChunk != null && worldFolder != null && currentDimension != null) {
-                        resolveSelectedConflict(true);
-                    }
+                    resolveSelectedConflict(true);
                     closeDialog();
                 }
         ).bounds(bx + btnW + gap, btnY, btnW, 20).build());
@@ -146,9 +140,7 @@ public class ChunkMapScreen extends Screen {
         dialogDiscardBtn = addRenderableWidget(Button.builder(
                 Component.translatable("screen.worldmirror.chunkmap.dialog.discard"),
                 btn -> {
-                    if (dialogChunk != null && worldFolder != null && currentDimension != null) {
-                        resolveSelectedConflict(false);
-                    }
+                    resolveSelectedConflict(false);
                     closeDialog();
                 }
         ).bounds(bx + 2 * (btnW + gap), btnY, btnW, 20).build());
@@ -157,27 +149,36 @@ public class ChunkMapScreen extends Screen {
     }
 
     private void resolveSelectedConflict(boolean overwrite) {
-        if (resolvingConflict || targetSourceId == null) return;
+        StatusTarget selected = statusTarget;
+        Minecraft client = Minecraft.getInstance();
+        if (resolvingConflict || dialogChunk == null || selected == null || currentDimension == null
+                || client.level == null || !currentDimension.equals(client.level.dimension())
+                || !selected.equals(ChunkStatusCache.targetFor(client))) return;
         resolvingConflict = true;
-        Path selected = worldFolder;
-        var target = new io.github.billstark001.worldmirror.io.MirrorTarget(selected, targetSourceId);
-        ConflictActions.resolve(target, dialogChunk, currentDimension, overwrite, () -> {
+        ConflictActions.resolve(selected.mirror(), dialogChunk, currentDimension, overwrite, () -> {
             resolvingConflict = false;
-            if (selected.equals(worldFolder)) loadData(Minecraft.getInstance());
+            if (selected.equals(statusTarget)) loadData(Minecraft.getInstance());
         });
     }
 
     // ── Data loading ──────────────────────────────────────────────────────────
 
     private void loadData(Minecraft client) {
-        StatusTarget target = ChunkStatusCache.targetFor(client);
-        worldFolder = target != null ? target.worldFolder() : null;
-        targetSourceId = target != null ? target.sourceId() : null;
-        viewingCurrentMirror = target != null && target.currentWorldIsMirror();
+        updateTarget(client);
         if (currentDimension == null) currentDimension = Level.OVERWORLD;
 
-        statusSnapshot = ChunkStatusCache.getOrScheduleRefresh(client, currentDimension, 0L);
+        statusSnapshot = ChunkStatusCache.getOrScheduleRefresh(statusTarget, currentDimension, 0L);
         viewportCache.clear();
+    }
+
+    private void updateTarget(Minecraft client) {
+        StatusTarget next = ChunkStatusCache.targetFor(client);
+        ResourceKey<Level> dimension = client == null || client.level == null ? Level.OVERWORLD : client.level.dimension();
+        if (!Objects.equals(statusTarget, next) || !dimension.equals(currentDimension)) {
+            closeDialog();
+            statusTarget = next;
+            currentDimension = dimension;
+        }
     }
 
     // ── Rendering ─────────────────────────────────────────────────────────────
@@ -192,13 +193,15 @@ public class ChunkMapScreen extends Screen {
         ModConfig.ChunkMapConfig mapConfig = config.chunkMap;
         boolean measure = config.performance.diagnosticPerformanceLogging;
         long start = measure ? System.nanoTime() : 0L;
+        updateTarget(this.minecraft);
         statusSnapshot = ChunkStatusCache.getOrScheduleRefresh(
-                this.minecraft, currentDimension, PERSISTENT_REFRESH_INTERVAL_MS);
+                statusTarget, currentDimension, PERSISTENT_REFRESH_INTERVAL_MS);
         long savedReady = measure ? System.nanoTime() : 0L;
         long now = System.currentTimeMillis();
         ChunkMapView.BuiltInViewport viewport = viewport(
                 mapConfig.background == ModConfig.ChunkMapBackground.TRANSPARENT);
-        liveSnapshot = viewportCache.get(this.minecraft, currentDimension, ChunkMapView.visibleRange(viewport), statusSnapshot, now);
+        liveSnapshot = viewportCache.get(this.minecraft, statusTarget, currentDimension,
+                ChunkMapView.visibleRange(viewport), statusSnapshot, now);
         long liveReady = measure ? System.nanoTime() : 0L;
         var previousFrame = measure ? projection.currentFrame() : null;
         MeasuredCanvas measured = measure ? new MeasuredCanvas(ctx::fill) : null;
@@ -225,7 +228,7 @@ public class ChunkMapScreen extends Screen {
             ChunkMapView.drawPlayerMarker(
                     ctx::fill, viewport, client.player.getX() / 16.0D, client.player.getZ() / 16.0D);
         }
-        if (viewingCurrentMirror) {
+        if (statusTarget != null && statusTarget.currentWorldIsMirror()) {
 #if MC_VERSION >= 260102
             ctx.centeredText(this.font, Component.translatable("screen.worldmirror.chunkmap.currentMirror"),
 #else
@@ -345,7 +348,8 @@ public class ChunkMapScreen extends Screen {
             return true;
         }
 
-        if (ChunkMapPan.isPrimary(event) && hoveredChunk != null && statusSnapshot.hasConflict(
+        if (ChunkMapPan.isPrimary(event) && hoveredChunk != null && statusTarget != null
+                && ConflictActions.canResolve(statusTarget.mirror()) && statusSnapshot.hasConflict(
                 hoveredChunk.getMinBlockX() >> 4, hoveredChunk.getMinBlockZ() >> 4)) {
             openDialog(hoveredChunk);
             return true;

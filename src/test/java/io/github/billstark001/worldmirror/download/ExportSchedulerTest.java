@@ -9,7 +9,7 @@ class ExportSchedulerTest {
     @Test
     void captureReadinessAndNotificationAreIndependentRequestProperties() {
         var pending = new ExportScheduler.Pending();
-        var source = new ExportWork.Source("server:request", "server");
+        var source = ExportTestTargets.source("server:request");
         var quietScan = new ExportWork.Intent(new ExportWork.Context(ExportWork.Trigger.MANUAL, false, source),
                 ExportWork.CapturePhase.READY, ExportWork.EntityScope.LIVE, true,
                 java.util.Optional.empty(), io.github.billstark001.worldmirror.io.WorldSettingsSnapshot.defaults());

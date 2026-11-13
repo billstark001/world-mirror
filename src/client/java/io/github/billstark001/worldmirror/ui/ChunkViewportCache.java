@@ -25,14 +25,21 @@ public final class ChunkViewportCache {
     private long capturedAt;
     private LiveChunkStatusSnapshot snapshot = LiveChunkStatusSnapshot.EMPTY;
 
-    public LiveChunkStatusSnapshot get(Minecraft client, ResourceKey<Level> dimension, ChunkBounds visible,
-                                       ChunkStatusSnapshot saved, long now) {
-        var target = ChunkStatusCache.targetFor(client);
-        String source = target == null ? "unknown" : target.sourceId();
+    public LiveChunkStatusSnapshot get(Minecraft client, ChunkStatusCache.StatusTarget target,
+                                       ResourceKey<Level> dimension, ChunkBounds visible, ChunkStatusSnapshot saved, long now) {
+        if (target == null) {
+            clear();
+            return LiveChunkStatusSnapshot.EMPTY;
+        }
+        String nodeId = target.mirror().nodeId();
+        var capture = DownloadManager.captureTarget();
+        boolean includeLive = capture != null && nodeId.equals(capture.nodeId());
         Context next = new Context(target, dimension, saved,
-                ChunkListener.mapStatusVersion(dimension), DownloadManager.pendingCaptureStatusVersion(dimension),
-                ExportStatusStore.global().version(source, dimension));
-        return get(client.level, next, visible, now, range -> LiveChunkStatusSnapshot.capture(dimension, range, saved, source));
+                includeLive ? ChunkListener.mapStatusVersion(dimension) : -1L,
+                includeLive ? DownloadManager.pendingCaptureStatusVersion(dimension) : -1L,
+                ExportStatusStore.global().version(nodeId, dimension));
+        return get(client.level, next, visible, now,
+                range -> LiveChunkStatusSnapshot.capture(dimension, range, saved, nodeId, includeLive));
     }
 
     LiveChunkStatusSnapshot get(Object nextWorld, Context next, ChunkBounds visible, long now,

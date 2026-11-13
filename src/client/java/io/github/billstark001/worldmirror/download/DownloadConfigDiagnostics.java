@@ -5,78 +5,29 @@ import io.github.billstark001.worldmirror.util.JsonSupport;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.minecraft.client.Minecraft;
 
-/** Emits reproducible global and current-world configuration at diagnostic startup. */
+/** Emits the effective configuration and current target at diagnostic startup. */
 final class DownloadConfigDiagnostics {
-    private DownloadConfigDiagnostics() { }
+    private DownloadConfigDiagnostics() {}
 
     static void log(Minecraft client) {
         ModConfig config = ModConfig.get();
-        String sourceId = WorldMetadata.detectSourceId(client);
-        String sourceType = WorldMetadata.detectSourceType(client);
-        MirrorMapping mapping = MirrorMapping.getInstance();
-
+        var graph = WorldGraphService.instance();
+        var target = DownloadManager.captureTarget();
         WMLogger.info("[perf] config.global=" + globalJson(config));
-        WMLogger.info("[perf] config.local="
-                + localJson(config, mapping, sourceId, sourceType));
+        WMLogger.info("[perf] config.local=" + localJson(target,
+                target == null ? null : graph.conflictStrategy(target.nodeId(), target.parentNodeId())));
     }
 
     static String globalJson(ModConfig config) {
         return JsonSupport.toCompactJsonWithNulls(config);
     }
 
-    static String localJson(
-            ModConfig config, MirrorMapping mapping, String sourceId, String sourceType) {
-        String saveLocationOverride = mapping.getPerWorldSaveLocation(sourceId);
-        ModConfig.SaveLocation effectiveSaveLocation =
-                effectiveSaveLocation(config, saveLocationOverride);
-        String conflictStrategyOverride = mapping.getPerWorldConflictStrategy(sourceId);
-        ModConfig.ConflictStrategy effectiveConflictStrategy =
-                effectiveConflictStrategy(config, conflictStrategyOverride);
-        String resolvedFolderName = mapping.previewResolvedFolderName(
-                sourceId, effectiveSaveLocation.name());
-
+    static String localJson(WorldGraphService.Target target, ModConfig.ConflictStrategy strategy) {
         return JsonSupport.toCompactJsonWithNulls(new LocalConfigSnapshot(
-                sourceId,
-                sourceType,
-                saveLocationOverride,
-                effectiveSaveLocation,
-                conflictStrategyOverride,
-                effectiveConflictStrategy,
-                mapping.previewBaseFolderName(sourceId),
-                resolvedFolderName));
+                target == null ? null : target.nodeId(), target == null ? null : target.parentNodeId(),
+                target == null ? null : target.sourceId(), target == null ? null : target.folder().toString(), strategy));
     }
 
-    private static ModConfig.ConflictStrategy effectiveConflictStrategy(
-            ModConfig config, String override) {
-        if (override != null) {
-            try {
-                return ModConfig.ConflictStrategy.valueOf(override);
-            } catch (IllegalArgumentException ignored) {
-                // Invalid persisted values fall back to the current global setting.
-            }
-        }
-        return config.defaultConflictStrategy;
-    }
-
-    private static ModConfig.SaveLocation effectiveSaveLocation(
-            ModConfig config, String override) {
-        if (override != null) {
-            try {
-                return ModConfig.SaveLocation.valueOf(override);
-            } catch (IllegalArgumentException ignored) {
-                // Invalid persisted values fall back to the current global setting.
-            }
-        }
-        return config.defaultSaveLocation;
-    }
-
-    private record LocalConfigSnapshot(
-            String sourceId,
-            String sourceType,
-            String saveLocationOverride,
-            ModConfig.SaveLocation effectiveSaveLocation,
-            String conflictStrategyOverride,
-            ModConfig.ConflictStrategy effectiveConflictStrategy,
-            String mirrorBaseFolderName,
-            String resolvedFolderName) { }
+    private record LocalConfigSnapshot(String nodeId, String parentNodeId, String indexSourceId,
+                                       String output, ModConfig.ConflictStrategy conflictStrategy) {}
 }

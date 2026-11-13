@@ -1,249 +1,255 @@
 package io.github.billstark001.worldmirror.download;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import io.github.billstark001.worldmirror.format.MirrorFormat;
-import io.github.billstark001.worldmirror.util.WMLogger;
+import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.JsonSupport;
+import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.Minecraft;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 
-/**
- * Per-world metadata written to {@code <mirror>/worldmirror_meta.json}.
- * <p>
- * Survives being copied into {@code saves/} so that future sync sessions can
- * resume from where they left off.
- * <p>
- * This class is designed to be read/written from a background thread —
- * it does not access any Minecraft game-thread objects after construction.
- */
-public class WorldMetadata {
-
-    /** Current semantic format of the generated mirror-world dimensions. */
-    public static final int CURRENT_WORLDGEN_SCHEMA = MirrorFormat.WORLDGEN_SCHEMA;
-    public static final int CURRENT_METADATA_SCHEMA = MirrorFormat.METADATA_SCHEMA;
-    /** Cleanup revision independent from {@link #CURRENT_WORLDGEN_SCHEMA}. */
-    public static final int CURRENT_VOID_CHUNK_CLEANUP_REVISION = 1;
-    public static final String FORMAT = MirrorFormat.FORMAT;
-
-    // ── JSON fields ───────────────────────────────────────────────────────────
-
-    /** Mod version that created / last updated this mirror. */
-    public String modVersion = "unknown";
-
-    /** Stable marker for read-only mirror-world discovery. */
-    public String format = FORMAT;
-
-    /** Format of this metadata document, independent from world-generation schema. */
-    public int metadataSchema = CURRENT_METADATA_SCHEMA;
-
-    /** Whether this is a synchronized mirror or a standalone nearby export. */
-    public String mirrorKind = "synchronized";
-
-    /** Stable save identity.  Unlike a folder name, it survives copies and moves. */
-    public String mirrorId;
-
-    /** Optional identity of the mirror this save was exported from. */
-    public String parentMirrorId;
-
-    /** {@code "singleplayer"} or {@code "server"}. */
-    public String sourceType = "unknown";
-
-    /** Server address or local world folder name. */
-    public String sourceId = "unknown";
-
-    /** New writes use the newest durably saved chunk capture time; old values are preserved. */
-    public long lastSyncTime = 0;
-
-    /**
-     * Semantic world-generation schema.  Gson assigns {@code 0} when this field
-     * is absent, which deliberately treats all pre-schema mirrors as migratable.
-     */
-    public int worldgenSchema = 0;
-
-    /** Revision of the vanilla-readable world data pack embedded in the save. */
-    public int worldgenAssetRevision = 0;
-
-    /** Minecraft data version used when the embedded assets were last refreshed. */
-    public int worldgenAssetDataVersion = 0;
-
-    /**
-     * Completion marker for removing only the all-air {@code minecraft:the_void}
-     * chunks made by the pre-schema generator.  It intentionally does not bump
-     * {@link #worldgenSchema}: schema 1 remains the only released schema.
-     */
-    public int legacyVoidChunkCleanupRevision = 0;
-
-    /**
-     * Legacy per-chunk last-write timestamp map — kept for reading old JSON files
-     * during migration to {@code data/world_mirror.sqlite}.
-     * <p>
-     * This field is <em>not</em> written back to JSON after migration (it is set to
-     * {@code null}, and GSON skips null fields by default).  New code should use
-     * {@link ChunkDatabase} instead.
-     *
-     * @deprecated Use {@link ChunkDatabase} for chunk timestamp tracking.
-     */
-    @Deprecated
-    public Map<String, Long> chunkUpdateTimes = null;
-
-    // ── Persistence ───────────────────────────────────────────────────────────
-
+/** Canonical metadata for a mirror or snapshot saved on disk. */
+public final class WorldMetadata {
     public static final String FILE_NAME = MirrorFormat.METADATA_FILE;
+    public static final String FORMAT = MirrorFormat.FORMAT;
+    public static final int CURRENT_METADATA_SCHEMA = 2;
+    public static final int CURRENT_WORLDGEN_SCHEMA = MirrorFormat.WORLDGEN_SCHEMA;
+    public static final int CURRENT_VOID_CHUNK_CLEANUP_REVISION = 1;
 
-    /** Creates metadata for a newly-created mirror world. */
-    public static WorldMetadata create(String sourceId, String sourceType, String mirrorKind) {
-        WorldMetadata meta = new WorldMetadata();
-        meta.modVersion = currentModVersion();
-        meta.sourceType = sourceType;
-        meta.sourceId = sourceId;
-        meta.mirrorKind = mirrorKind;
-        meta.ensureMirrorId();
-        return meta;
-    }
+    public enum Schema { MISSING, LEGACY, CURRENT, FUTURE, UNMANAGED, UNREADABLE }
+    public enum GenerationMode { VOID }
 
-    /** Reads metadata without creating or modifying a file. */
-    public static Optional<WorldMetadata> loadIfPresent(Path worldFolder) {
-        Path file = worldFolder.resolve(FILE_NAME);
-        var document = JsonSupport.readDocument(file, WorldMetadata.class);
-        if (document.failure() != null) {
-            WMLogger.warnRateLimited("metadata-read-" + worldFolder, 30_000L,
-                    "World metadata unavailable: " + file, document.failure());
+    public record Generation(GenerationMode mode, int revision, int assetRevision, int dataVersion,
+                             int cleanupRevision) {
+        public Generation {
+            if (mode == null || revision < 0 || assetRevision < 0 || dataVersion < 0 || cleanupRevision < 0) {
+                throw new IllegalArgumentException("Invalid mirror generation");
+            }
         }
-        return Optional.ofNullable(document.value());
     }
 
-    /** Atomically writes the metadata, returning false if the document could not be replaced. */
-    public boolean save(Path worldFolder) {
-        ensureMirrorId();
-        Path metadataFile = worldFolder.resolve(FILE_NAME);
+    public final String format = FORMAT;
+    public final int metadataSchema = CURRENT_METADATA_SCHEMA;
+    public String modVersion;
+    public String nodeId;
+    public WorldGraph.Kind kind;
+    public String parentNodeId;
+    public WorldGraph.Role role;
+    /** Physical SQLite namespace retained when graph identities or routes change. */
+    public String sourceId;
+    public long lastSyncTime;
+    public Generation generation;
+
+    private WorldMetadata() {}
+
+    public static WorldMetadata create(String nodeId, WorldGraph.Kind kind, String parentNodeId,
+                                       WorldGraph.Role role, String sourceId) {
+        WorldMetadata metadata = new WorldMetadata();
+        metadata.modVersion = currentModVersion();
+        metadata.nodeId = nodeId;
+        metadata.kind = kind;
+        metadata.parentNodeId = parentNodeId;
+        metadata.role = role;
+        metadata.sourceId = sourceId;
+        metadata.generation = new Generation(GenerationMode.VOID, 0, 0, 0, 0);
+        metadata.validate();
+        return metadata;
+    }
+
+    /** Inspects the persisted format without adopting or writing legacy metadata. */
+    public static Schema inspectSchema(Path worldFolder) {
+        var read = readDocument(worldFolder);
+        if (read.state() == JsonSupport.ReadState.MISSING) return Schema.MISSING;
+        if (read.state() != JsonSupport.ReadState.VALID) return Schema.UNREADABLE;
         try {
-            JsonSupport.writeDocument(metadataFile, this);
+            return switch (schema(read.value())) {
+                case CURRENT -> {
+                    fromCurrent(read.value());
+                    yield Schema.CURRENT;
+                }
+                case LEGACY -> Schema.LEGACY;
+                case FUTURE -> Schema.FUTURE;
+                case UNMANAGED -> Schema.UNMANAGED;
+                case MISSING, UNREADABLE -> Schema.UNREADABLE;
+            };
+        } catch (IllegalArgumentException malformed) {
+            return Schema.UNREADABLE;
+        }
+    }
+
+    /** Reads a complete current document. Explicit upgrade code owns older disk schemas. */
+    public static Optional<WorldMetadata> loadIfPresent(Path worldFolder) {
+        var read = readDocument(worldFolder);
+        if (read.state() == JsonSupport.ReadState.MISSING) return Optional.empty();
+        try {
+            if (read.state() == JsonSupport.ReadState.VALID) {
+                return schema(read.value()) == Schema.CURRENT ? Optional.of(fromCurrent(read.value()))
+                        : Optional.empty();
+            }
+            WMLogger.warnRateLimited("metadata-read-" + worldFolder, 30_000L,
+                    "World metadata unavailable: " + worldFolder, read.failure());
+        } catch (IllegalArgumentException malformed) {
+            WMLogger.warnRateLimited("metadata-read-" + worldFolder, 30_000L,
+                    "Invalid world metadata: " + worldFolder, malformed);
+        }
+        return Optional.empty();
+    }
+
+    static JsonSupport.Document<JsonObject> readDocument(Path worldFolder) {
+        Path file = worldFolder.resolve(FILE_NAME);
+        if (Files.isSymbolicLink(file)) {
+            return new JsonSupport.Document<>(JsonSupport.ReadState.UNAVAILABLE, null,
+                    new IOException("Mirror metadata is a symbolic link: " + file));
+        }
+        return JsonSupport.readDocument(file, JsonObject.class);
+    }
+
+    static Schema schema(JsonObject json) {
+        String marker = string(json, "format", false);
+        if (marker != null && !FORMAT.equals(marker)) return Schema.UNMANAGED;
+        if (!json.has("metadataSchema") && marker == null) {
+            return LegacyWorldMetadata.hasUnversionedSignature(json) ? Schema.LEGACY : Schema.UNMANAGED;
+        }
+        if (marker == null) throw new IllegalArgumentException("Missing mirror format");
+        int version = integer(json, "metadataSchema", 0);
+        if (version > CURRENT_METADATA_SCHEMA) return Schema.FUTURE;
+        return switch (version) {
+            case 0, 1 -> Schema.LEGACY;
+            case CURRENT_METADATA_SCHEMA -> Schema.CURRENT;
+            default -> throw new IllegalArgumentException("Invalid mirror metadata schema");
+        };
+    }
+
+    static WorldMetadata fromCurrent(JsonObject json) {
+        WorldMetadata metadata = new WorldMetadata();
+        metadata.modVersion = string(json, "modVersion", false);
+        metadata.nodeId = string(json, "nodeId", true);
+        metadata.kind = WorldGraph.Kind.valueOf(string(json, "kind", true));
+        metadata.parentNodeId = string(json, "parentNodeId", false);
+        metadata.role = WorldGraph.Role.valueOf(string(json, "role", true));
+        metadata.sourceId = string(json, "sourceId", true);
+        metadata.lastSyncTime = number(json, "lastSyncTime", -1);
+        if (!(json.get("generation") instanceof JsonObject generation)) {
+            throw new IllegalArgumentException("Missing mirror generation");
+        }
+        metadata.generation = new Generation(GenerationMode.valueOf(string(generation, "mode", true)),
+                integer(generation, "revision", -1), integer(generation, "assetRevision", -1),
+                integer(generation, "dataVersion", -1), integer(generation, "cleanupRevision", -1));
+        metadata.validate();
+        return metadata;
+    }
+
+    static String string(JsonObject json, String name, boolean required) {
+        JsonElement element = json.get(name);
+        if (!required && (element == null || element.isJsonNull())) return null;
+        if (element == null || !element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()
+                || !validKey(element.getAsString())) {
+            throw new IllegalArgumentException("Invalid metadata string: " + name);
+        }
+        return element.getAsString();
+    }
+
+    static int integer(JsonObject json, String name, int defaultValue) {
+        long value = number(json, name, defaultValue);
+        if (value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
+            throw new IllegalArgumentException("Invalid metadata integer: " + name);
+        }
+        return (int) value;
+    }
+
+    static long number(JsonObject json, String name, long defaultValue) {
+        JsonElement element = json.get(name);
+        if (element == null) return defaultValue;
+        if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isNumber()) {
+            throw new IllegalArgumentException("Invalid metadata number: " + name);
+        }
+        try {
+            return Long.parseLong(element.getAsString());
+        } catch (NumberFormatException invalid) {
+            throw new IllegalArgumentException("Invalid metadata integer: " + name, invalid);
+        }
+    }
+
+    static boolean validKey(String key) {
+        return key != null && !key.isBlank() && key.chars().noneMatch(Character::isISOControl);
+    }
+
+    private static boolean isNodeId(String id, String prefix) {
+        return validKey(id) && id.startsWith(prefix) && validKey(id.substring(prefix.length()));
+    }
+
+    private static boolean isParentNodeId(String id) {
+        return isNodeId(id, "mirror:") || isNodeId(id, "snapshot:") || isNodeId(id, "local:")
+                || isNodeId(id, "remote:") || isNodeId(id, "unresolved:");
+    }
+
+    private void validate() {
+        boolean mirror = kind == WorldGraph.Kind.MIRROR && isNodeId(nodeId, "mirror:")
+                && isParentNodeId(parentNodeId) && role != null;
+        boolean snapshot = kind == WorldGraph.Kind.SNAPSHOT && isNodeId(nodeId, "snapshot:")
+                && parentNodeId == null && role == WorldGraph.Role.SNAPSHOT;
+        if (!(mirror || snapshot) || !validKey(sourceId) || lastSyncTime < 0 || generation == null) {
+            throw new IllegalArgumentException("Invalid mirror metadata");
+        }
+    }
+
+    /** Atomically writes the validated current document. */
+    public boolean save(Path worldFolder) {
+        try {
+            validate();
+            JsonSupport.writeDocument(worldFolder.resolve(FILE_NAME), this);
             return true;
-        } catch (Exception e) {
-            WMLogger.warn("World metadata save failed file=" + metadataFile, e);
+        } catch (IOException | RuntimeException failure) {
+            WMLogger.warn("World metadata save failed: " + worldFolder, failure);
             return false;
         }
     }
 
-    // ── Per-chunk time tracking (legacy — replaced by ChunkDatabase) ─────────
-
-    /**
-     * If this instance was loaded from an old JSON file that contained a non-empty
-     * {@code chunkUpdateTimes} map, this method migrates that data into {@code db}
-     * and then clears the field so it is not written back to JSON.
-     * <p>
-     * Safe to call even if migration has already been performed (idempotent).
-     * Failed database or metadata writes retain the legacy field for retry.
-     *
-     * @param db          open {@link ChunkDatabase} to migrate into
-     * @param worldFolder mirror-world root (used to re-save cleaned JSON)
-     * @return true if migration and removal of the legacy field both succeeded
-     */
-    @SuppressWarnings("deprecation")
-    public boolean migrateAndCleanChunkTimes(ChunkDatabase db, Path worldFolder) {
-        if (chunkUpdateTimes == null) return true;
-        Map<String, Long> legacyTimes = chunkUpdateTimes;
-        if (!legacyTimes.isEmpty() && !db.migrateFromChunkUpdateTimes(legacyTimes)) return false;
-        chunkUpdateTimes = null; // null → GSON skips field on next save
-        if (save(worldFolder)) return true;
-        chunkUpdateTimes = legacyTimes;
-        return false;
+    void publishUpgrade(Path worldFolder, FileProof.Version expected) throws IOException {
+        validate();
+        JsonSupport.compareAndWriteDocument(worldFolder.resolve(FILE_NAME), this, expected);
     }
 
-    /** Whether the dimension generator itself must be replaced. */
     public boolean needsWorldgenMigration() {
-        return worldgenSchema < CURRENT_WORLDGEN_SCHEMA;
+        return generation.revision() < CURRENT_WORLDGEN_SCHEMA;
     }
 
-    /** Assigns an identity to legacy metadata the next time it is written. */
-    public void ensureMirrorId() {
-        if (mirrorId == null || mirrorId.isBlank()) mirrorId = UUID.randomUUID().toString();
-    }
-
-    /** True when this save was written by a newer world-generation schema. */
     public boolean hasFutureWorldgenSchema() {
-        return worldgenSchema > CURRENT_WORLDGEN_SCHEMA;
+        return generation.revision() > CURRENT_WORLDGEN_SCHEMA;
     }
 
-    /** Whether the embedded vanilla data pack must be refreshed for this game version. */
     public boolean needsWorldgenAssetRefresh(int dataVersion, int assetRevision) {
-        return worldgenAssetDataVersion < dataVersion || worldgenAssetRevision < assetRevision;
+        return generation.dataVersion() < dataVersion || generation.assetRevision() < assetRevision;
     }
 
-    /** True when refreshing assets would downgrade a newer mirror save. */
     public boolean hasFutureWorldgenAssets(int dataVersion, int assetRevision) {
-        return worldgenAssetDataVersion > dataVersion || worldgenAssetRevision > assetRevision;
+        return generation.dataVersion() > dataVersion || generation.assetRevision() > assetRevision;
     }
 
-    /** Whether an old, blank void chunk cleanup has not yet been performed. */
     public boolean needsLegacyVoidChunkCleanup() {
-        return legacyVoidChunkCleanupRevision < CURRENT_VOID_CHUNK_CLEANUP_REVISION;
+        return generation.cleanupRevision() < CURRENT_VOID_CHUNK_CLEANUP_REVISION;
     }
 
     /** Marks both layers of world-generation migration as complete after a successful write. */
     public void markWorldgenCurrent(int dataVersion, int assetRevision) {
-        worldgenSchema = CURRENT_WORLDGEN_SCHEMA;
-        worldgenAssetDataVersion = dataVersion;
-        worldgenAssetRevision = assetRevision;
-        legacyVoidChunkCleanupRevision = CURRENT_VOID_CHUNK_CLEANUP_REVISION;
+        generation = new Generation(GenerationMode.VOID, CURRENT_WORLDGEN_SCHEMA, assetRevision,
+                dataVersion, CURRENT_VOID_CHUNK_CLEANUP_REVISION);
         modVersion = currentModVersion();
     }
 
-    // ── Convenience update ────────────────────────────────────────────────────
-
-    /**
-     * Returns {@code true} if a {@code worldmirror_meta.json} exists in {@code worldFolder}
-     * and its format marker and {@code sourceId} field match this writer.
-     * Returns {@code false} if the file does not exist or cannot be read.
-     * Safe to call from any thread.
-     */
-    public static boolean isOwnedBy(Path worldFolder, String sourceId) {
-        return loadIfPresent(worldFolder)
-                .map(meta -> FORMAT.equals(meta.format) && sourceId != null && sourceId.equals(meta.sourceId))
-                .orElse(false);
-    }
-
-    /** Records the newest durably saved capture time without rewriting older metadata values. */
     public boolean markSyncComplete(Path worldFolder, long latestCaptureTime) {
-        if (latestCaptureTime > 0L) {
-            lastSyncTime = Math.max(lastSyncTime, latestCaptureTime);
-        }
+        lastSyncTime = Math.max(lastSyncTime, latestCaptureTime);
         modVersion = currentModVersion();
         return save(worldFolder);
     }
 
-    // ── Source detection (call on game thread) ────────────────────────────────
-
-    public static String detectSourceType(Minecraft client) {
-        try {
-            if (client.getSingleplayerServer() != null) return "singleplayer";
-        } catch (Exception ignored) {}
-        return "server";
-    }
-
-    public static String detectSourceId(Minecraft client) {
-        try {
-            if (client.getCurrentServer() != null) {
-                return "server:" + client.getCurrentServer().ip;
-            }
-        } catch (Exception ignored) {}
-        try {
-            if (client.getSingleplayerServer() != null) {
-                return "local:" + client.getSingleplayerServer().getWorldData().getLevelName();
-            }
-        } catch (Exception ignored) {}
-        return "unknown";
-    }
-
     private static String currentModVersion() {
-        return FabricLoader.getInstance()
-                .getModContainer("worldmirror")
-                .map(c -> c.getMetadata().getVersion().getFriendlyString())
-                .orElse("unknown");
+        return FabricLoader.getInstance().getModContainer("worldmirror")
+                .map(container -> container.getMetadata().getVersion().getFriendlyString()).orElse("unknown");
     }
 }

@@ -28,11 +28,18 @@ sealed interface ExportWork permits ExportWork.Intent, ExportWork.Frozen {
         boolean automatic() { return automatic; }
         int priority() { return priority; }
     }
-    record Source(String id, String type) {
+    record Source(WorldGraphService.Target target, io.github.billstark001.worldmirror.config.ModConfig.ConflictStrategy strategy) {
         public Source {
-            id = id == null || id.isBlank() ? "unknown" : id;
-            type = type == null || type.isBlank() ? "server" : type;
+            Objects.requireNonNull(target);
+            Objects.requireNonNull(strategy);
         }
+        String id() { return target.nodeId(); }
+
+        @Override public boolean equals(Object other) {
+            return other instanceof Source source && id().equals(source.id());
+        }
+
+        @Override public int hashCode() { return id().hashCode(); }
     }
     record Context(Trigger trigger, boolean notifyPlayer, Source source) {
         public Context { Objects.requireNonNull(trigger); Objects.requireNonNull(source); }

@@ -2,6 +2,7 @@ package io.github.billstark001.worldmirror.io;
 
 import io.github.billstark001.worldmirror.download.MirrorMigrationCoordinator;
 import io.github.billstark001.worldmirror.download.MirrorMigrationPlan;
+import io.github.billstark001.worldmirror.download.WorldGraph;
 import io.github.billstark001.worldmirror.download.WorldMetadata;
 import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.FileTransaction;
@@ -249,7 +250,7 @@ class MirrorWorldgenRepairTest {
         }
         try (var output = Files.newOutputStream(journal.resolve("prepared"))) { manifest.store(output, "interrupted migration fixture"); }
         Files.writeString(journal.resolve("manifest.sha256"), FileProof.sha256(journal.resolve("prepared")));
-        Files.writeString(world.resolve(WorldRecovery.MARKER), "interrupted migration fixture");
+        if (externalEdit) Files.writeString(world.resolve(WorldRecovery.MARKER), "interrupted migration fixture");
         Files.write(generator, replacement); // Crash after the first replacement, before metadata.
         if (externalEdit) {
             String external = "{\"external_edit\":true}";
@@ -272,7 +273,8 @@ class MirrorWorldgenRepairTest {
 
     private static void createOldWorld(Path world) throws Exception {
         assertTrue(WorldStructureCreator.createLoadableWorld(world, "test", true, true, WorldSettingsSnapshot.defaults()));
-        WorldMetadata metadata = WorldMetadata.create("local:repair", "singleplayer", "synchronized");
+        WorldMetadata metadata = WorldMetadata.create("mirror:repair", WorldGraph.Kind.MIRROR, "local:repair",
+                WorldGraph.Role.SYNC, "local:repair");
         metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(), MirrorWorldgenAssets.ASSET_REVISION);
         assertTrue(metadata.save(world));
         CompoundTag root = read(world);

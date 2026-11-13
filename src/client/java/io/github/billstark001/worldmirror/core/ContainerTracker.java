@@ -9,6 +9,7 @@ import com.mojang.serialization.DataResult;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.util.ContainerNameSupport;
 import io.github.billstark001.worldmirror.download.DownloadManager;
+import io.github.billstark001.worldmirror.download.WorldGraphService;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.Minecraft;
@@ -60,7 +61,7 @@ public final class ContainerTracker {
     public static void onContainerOpened(int syncId, Component name) {
         openContainers.remove(syncId);
         Minecraft client = Minecraft.getInstance();
-        if (client.level == null) return;
+        if (client.level == null || !WorldGraphService.instance().observationIsCurrent(client)) return;
         HitResult hitResult = client.hitResult;
         if (hitResult instanceof BlockHitResult blockHit) {
             BlockPos pos = blockHit.getBlockPos();
@@ -356,7 +357,8 @@ public final class ContainerTracker {
     private static OpenContainer currentContainer(int syncId) {
         OpenContainer container = openContainers.get(syncId);
         if (container == null) return null;
-        if (Minecraft.getInstance().level == container.world()) {
+        Minecraft client = Minecraft.getInstance();
+        if (client.level == container.world() && WorldGraphService.instance().observationIsCurrent(client)) {
             BlockEntity blockEntity = container.world().getBlockEntity(container.pos());
             if (blockEntity != null && container.blockEntityType().equals(typeId(blockEntity))) return container;
         }
