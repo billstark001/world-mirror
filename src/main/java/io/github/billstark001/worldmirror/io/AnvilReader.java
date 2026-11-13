@@ -131,7 +131,8 @@ public final class AnvilReader {
                 }
                 try (InputStream payload = compressed;
                      InputStream decoded = version.wrap(com.google.common.io.ByteStreams.limit(payload, MAX_COMPRESSED_BYTES));
-                     DataInputStream input = new DataInputStream(digest == null ? decoded : new java.security.DigestInputStream(decoded, digest))) {
+                     DataInputStream input = digest == null ? new DataInputStream(decoded)
+                             : NbtReadSupport.digestingInput(decoded, digest)) {
                     CompoundTag result = NbtReadSupport.readChunk(input);
                     // Reaching the codec's EOF checks gzip/LZ4 trailers too. Parsing
                     // only the NBT root could accept a damaged compression checksum.

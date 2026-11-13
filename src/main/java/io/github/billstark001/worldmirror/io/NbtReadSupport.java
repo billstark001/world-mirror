@@ -1,13 +1,20 @@
 package io.github.billstark001.worldmirror.io;
 
+import io.github.billstark001.worldmirror.util.FileProof;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
+import net.minecraft.util.FastBufferedInputStream;
 
 import java.io.DataInput;
+import java.io.DataInputStream;
 import java.io.IOException;
-import java.nio.file.Path;
+import java.io.InputStream;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
+import java.util.Arrays;
 
 /** Finite allocation budgets for untrusted on-disk NBT, including external chunks. */
 public final class NbtReadSupport {
@@ -27,10 +34,22 @@ public final class NbtReadSupport {
     }
 
     /** Checks decodability and exact serialized content without retaining another chunk tree. */
-    static boolean verifyChunk(java.io.DataInputStream nativeInput, byte[] expected) throws IOException {
-        var digest = io.github.billstark001.worldmirror.util.FileProof.sha256();
-        CompoundTag decoded = readChunk(new java.io.DataInputStream(new java.security.DigestInputStream(nativeInput, digest)));
-        return decoded != null && nativeInput.read() == -1 && java.util.Arrays.equals(expected, digest.digest());
+    static boolean verifyChunk(DataInputStream nativeInput, byte[] expected) throws IOException {
+        var digest = FileProof.sha256();
+        DataInputStream input = digestingInput(nativeInput, digest);
+        return readChunk(input) != null && input.read() == -1 && Arrays.equals(expected, digest.digest());
+    }
+
+    /** Batch the NBT reader's small reads before updating the digest. */
+    static DataInputStream digestingInput(InputStream input, MessageDigest digest) {
+        var hashed = new DigestInputStream(input, digest) {
+            @Override
+            public long skip(long count) throws IOException {
+                // NbtIo skips the root name. Include it even when the name extends past the buffer.
+                return count <= 0 ? 0 : readNBytes((int) Math.min(count, 8192)).length;
+            }
+        };
+        return new DataInputStream(new FastBufferedInputStream(hashed));
     }
 
     public static CompoundTag readWorldData(Path file) throws IOException {

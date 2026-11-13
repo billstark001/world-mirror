@@ -1,13 +1,17 @@
 package io.github.billstark001.worldmirror.io;
 
+import io.github.billstark001.worldmirror.util.FileProof;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
 
+import java.io.BufferedOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UTFDataFormatException;
+import java.security.DigestOutputStream;
 import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -21,9 +25,9 @@ final class NbtWriteSupport {
 
     /** Owns the native output stream; the digest describes exactly the uncompressed bytes written. */
     static byte[] writeChunkAndDigest(CompoundTag tag, DataOutputStream nativeOutput) throws IOException {
-        var digest = io.github.billstark001.worldmirror.util.FileProof.sha256();
-        try (var output = new DataOutputStream(new java.security.DigestOutputStream(nativeOutput, digest))) {
-            net.minecraft.nbt.NbtIo.writeUnnamedTag(tag, output);
+        var digest = FileProof.sha256();
+        try (var output = new DataOutputStream(new BufferedOutputStream(new DigestOutputStream(nativeOutput, digest)))) {
+            NbtIo.writeUnnamedTag(tag, output);
         }
         return digest.digest();
     }
