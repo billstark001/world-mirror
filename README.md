@@ -10,7 +10,7 @@ A client-side Fabric mod that mirrors the world you are playing on a multiplayer
 
 | Feature                                | Description                                                                                                                                                                                                                                                                                                                                                              |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Persistent download session**        | Press **P** to start or stop a download session. Chunks received from the server are recorded automatically while the session is active.                                                                                                                                                                                                                                 |
+| **Persistent download session**        | Press **U** to start or stop a download session. Chunks received from the server are recorded automatically while the session is active.                                                                                                                                                                                                                                 |
 | **Stable and adaptive pipelines**      | Hardened periodic sync remains the default. An opt-in adaptive mode reacts to coalesced chunk changes with bounded durability latency. Both use main-thread capture budgets and low-memory, one-region-at-a-time background writes.                                                                                                                                      |
 | **Timestamp- and source-aware writes** | SQLite records successful per-chunk write times and source priorities. Older snapshots and updates outranked by a third-party source are skipped.                                                                                                                                                                                                                        |
 | **Multi-dimension support**            | Overworld, Nether, End, and custom dimensions are exported using the save layout required by the selected Minecraft version.                                                                                                                                                                                                                                             |
@@ -35,14 +35,14 @@ A client-side Fabric mod that mirrors the world you are playing on a multiplayer
 
 | Key   | Action                                                       |
 | ----- | ------------------------------------------------------------ |
-| **P** | Toggle download session on / off                             |
-| **O** | Export cached data to disk immediately                       |
-| **L** | Clear all cached chunks, entities, and containers            |
+| **U** | Toggle download session on / off                             |
+| **V** | Export cached data to disk immediately                       |
+| **J** | Clear all cached chunks, entities, and containers            |
 | **I** | Open the in-game status screen                               |
 | **M** | Open the chunk map directly                                  |
 | **K** | Toggle the in-world chunk overlay for the current world type |
 
-All keybindings are rebindable in _Options → Controls → World Mirror_.
+All keybindings are rebindable in _Options → Controls → World Mirror_. Existing installations keep their saved bindings. Use the same menu to change an older binding that conflicts with a vanilla shortcut.
 
 ---
 
@@ -118,7 +118,7 @@ Click **Global Settings** in the status screen. If Mod Menu is installed, the sa
 
 Configuration is persisted in `<.minecraft>/config/worldmirror.json`.
 
-Cache age, distance, and count settings evict only data already saved successfully. Unsaved terrain stays available for retry and may exceed these retention limits while export or storage is failing. Clearing the cache with **L** explicitly discards live capture data. Queued or running exports retain their frozen snapshots and can still finish or retry.
+Cache age, distance, and count settings evict only data already saved successfully. Unsaved terrain stays available for retry and may exceed these retention limits while export or storage is failing. Clearing the cache with **J** explicitly discards live capture data. Queued or running exports retain their frozen snapshots and can still finish or retry.
 
 ### Optional Xaero integration
 
@@ -323,12 +323,12 @@ Cloth Config and SQLite JDBC are bundled in the World Mirror JAR. LibGui is not 
 
 ## Typical Usage
 
-Continuous recording requires an active download session, started with **P** or a lifecycle setting. Manual **O** exports can also run without a session. The normal workflow is:
+Continuous recording requires an active download session, started with **U** or a lifecycle setting. Manual **V** exports can also run without a session. The normal workflow is:
 
-1. Join the source world and press **P once**. Confirm that the action bar says World Mirror is active.
+1. Join the source world and press **U once**. Confirm that the action bar says World Mirror is active.
 2. Explore the areas you want to retain. Open each container whose inventory matters; unopened inventories are not sent to the client.
-3. Leave the session active while exploring. Stable Periodic writes changed chunks on the configured interval; pressing **O** is optional and requests an immediate final pass. Automatic periodic passes do not rescan a 17×17 area.
-4. Press **P** to stop. If “Export cached chunks on stop” is disabled (the default), use **O before stopping** when you want a final pass immediately.
+3. Leave the session active while exploring. Stable Periodic writes changed chunks on the configured interval; pressing **V** is optional and requests an immediate final pass. Automatic periodic passes do not rescan a 17×17 area.
+4. Press **U** to stop. If “Export cached chunks on stop” is disabled (the default), use **V before stopping** when you want a final pass immediately.
 5. The default output is `<.minecraft>/downloaded_worlds/`, which Minecraft does not list as a singleplayer save. Select **Saves Folder** before downloading if it should appear directly in the world list.
 
 Changing the download pipeline while a session is active is intentionally safe: the new choice applies the next time the session starts. Export requests remain serialized, and every offline writer acquires the target save's session lock.
@@ -341,11 +341,11 @@ Distant Horizons' “slow GC” warning is selected from the JVM garbage collect
 
 ### Quick export (no session)
 
-Press **O** at any time to trigger an immediate export, even when no download session is active. With the default lifecycle settings, the mod first queues a small loaded area around the player for capture.
+Press **V** at any time to trigger an immediate export, even when no download session is active. With the default lifecycle settings, the mod first queues a small loaded area around the player for capture.
 
 ### Starting fresh
 
-Press **L** to clear the in-memory chunk, entity, and container caches. This does not delete or reset any mirror data already written to disk. Previously frozen exports remain queued and can still write or retry; clearing live caches does not cancel them.
+Press **J** to clear the in-memory chunk, entity, and container caches. This does not delete or reset any mirror data already written to disk. Previously frozen exports remain queued and can still write or retry; clearing live caches does not cancel them.
 
 ---
 

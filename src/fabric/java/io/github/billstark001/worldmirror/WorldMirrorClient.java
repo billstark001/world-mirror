@@ -87,13 +87,13 @@ public class WorldMirrorClient implements ClientModInitializer {
 
 #if MC_VERSION >= 260300
         toggleKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.worldmirror.toggle", InputConstants.Type.KEYBOARD, InputConstants.KEY_P, CATEGORY));
+                "key.worldmirror.toggle", InputConstants.Type.KEYBOARD, InputConstants.KEY_U, CATEGORY));
 
         exportKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.worldmirror.export", InputConstants.Type.KEYBOARD, InputConstants.KEY_O, CATEGORY));
+                "key.worldmirror.export", InputConstants.Type.KEYBOARD, InputConstants.KEY_V, CATEGORY));
 
         clearKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.worldmirror.clear", InputConstants.Type.KEYBOARD, InputConstants.KEY_L, CATEGORY));
+                "key.worldmirror.clear", InputConstants.Type.KEYBOARD, InputConstants.KEY_J, CATEGORY));
 
         statusKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.worldmirror.status", InputConstants.Type.KEYBOARD, InputConstants.KEY_I, CATEGORY));
@@ -105,13 +105,13 @@ public class WorldMirrorClient implements ClientModInitializer {
                 InputConstants.Type.KEYBOARD, InputConstants.KEY_K,
 #elif MC_VERSION >= 260102
         toggleKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.worldmirror.toggle", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_P, CATEGORY));
+                "key.worldmirror.toggle", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_U, CATEGORY));
 
         exportKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.worldmirror.export", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_O, CATEGORY));
+                "key.worldmirror.export", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_V, CATEGORY));
 
         clearKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.worldmirror.clear", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_L, CATEGORY));
+                "key.worldmirror.clear", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_J, CATEGORY));
 
         statusKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.worldmirror.status", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_I, CATEGORY));
@@ -123,13 +123,13 @@ public class WorldMirrorClient implements ClientModInitializer {
                 new KeyMapping("key.worldmirror.worldOverlay", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_K,
 #else
         toggleKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.worldmirror.toggle", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_P, CATEGORY));
+                "key.worldmirror.toggle", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_U, CATEGORY));
 
         exportKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.worldmirror.export", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_O, CATEGORY));
+                "key.worldmirror.export", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_V, CATEGORY));
 
         clearKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.worldmirror.clear", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_L, CATEGORY));
+                "key.worldmirror.clear", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_J, CATEGORY));
 
         statusKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.worldmirror.status", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_I, CATEGORY));

@@ -6,21 +6,21 @@ Use it to archive a build, keep a personal record of an area, or take a permitte
 
 ## Important before you start
 
-- Press **P** after joining the world. World Mirror does not continuously record unless the action bar says the download session is active.
-- Pressing **O** exports data that has already been captured. It does not start a download session or magically fetch distant chunks.
+- Press **U** after joining the world. World Mirror does not continuously record unless the action bar says the download session is active.
+- Pressing **V** exports data that has already been captured. It does not start a download session or magically fetch distant chunks.
 - Mirrors go to `<.minecraft>/downloaded_worlds/` by default. Minecraft does **not** show that folder in the Singleplayer menu. Choose **Saves Folder** in World Mirror's settings if you want the mirror to appear there automatically.
 - A client-side mod can only save information sent to your client. Open containers whose contents matter, and expect server-only data to be missing.
 
 ## Quick start
 
 1. Install the World Mirror JAR that exactly matches your Minecraft version.
-2. Join the world and press **P**. Check that the action bar says World Mirror is active.
+2. Join the world and press **U**. Check that the action bar says World Mirror is active.
 3. Explore the area you want to save. Open chests, barrels, furnaces, and other containers whose inventories you want to keep.
-4. Press **O** when you want an immediate export, then wait for the completion message.
-5. Press **P** again to stop the download session.
+4. Press **V** when you want an immediate export, then wait for the completion message.
+5. Press **U** again to stop the download session.
 6. Open the mirror from Singleplayer if you selected **Saves Folder**. Otherwise it remains under `<.minecraft>/downloaded_worlds/<mirror-name>/` until you move it or change the per-world save location.
 
-Automatic export on stop is available in settings but is disabled by default, so using **O before stopping** is the safest simple workflow.
+Automatic export on stop is available in settings but is disabled by default, so using **V before stopping** is the safest simple workflow.
 
 You can also press **I** and choose **Export Now**. The status screen stays open while it checks and writes the mirror. If the mirror needs an upgrade or repair, confirm before writing.
 
@@ -28,14 +28,14 @@ You can also press **I** and choose **Export Now**. The status screen stays open
 
 | Key   | Action                                                       |
 | ----- | ------------------------------------------------------------ |
-| **P** | Start or stop the download session                           |
-| **O** | Export captured changes now                                  |
+| **U** | Start or stop the download session                           |
+| **V** | Export captured changes now                                  |
 | **I** | Open World Mirror's status and settings screen               |
 | **M** | Open the built-in chunk map                                  |
 | **K** | Toggle the in-world chunk overlay for the current world type |
-| **L** | Clear the in-memory capture cache                            |
+| **J** | Clear the in-memory capture cache                            |
 
-All controls can be rebound under _Options → Controls → World Mirror_. Clearing the cache with **L** does not delete mirror files already written to disk or cancel exports already queued with their own captured data.
+All controls can be rebound under _Options → Controls → World Mirror_. Existing installations keep their saved bindings. Clearing the cache with **J** does not delete mirror files already written to disk or cancel exports already queued with their own captured data.
 
 ## What World Mirror saves
 
@@ -81,7 +81,7 @@ When an incoming chunk meets an existing local chunk, choose one of these strate
 
 Keep the target mirror closed while exporting, applying conflicts, upgrading it, or copying world settings. Review its conflicts from the original source world. If a mirror export fails, World Mirror keeps the unfinished data and retries while the game is running, including after you leave the source world. An entity failure does not prevent terrain from continuing to save. Terrain saved with entities still pending appears as partial success. Periodic, adaptive, and manual failures all use the merged chat/toast notices and status-screen health described above.
 
-On exit, World Mirror lets accepted writes finish and makes a final attempt at queued captured data. This does not guarantee recovery from a continuing storage failure: remaining retries are held in memory and do not survive closing the game. Use **O** and check its result before quitting.
+On exit, World Mirror lets accepted writes finish and makes a final attempt at queued captured data. This does not guarantee recovery from a continuing storage failure: remaining retries are held in memory and do not survive closing the game. Use **V** and check its result before quitting.
 
 If applying a conflict fails, its incoming version remains pending. A newer version that arrives while you apply an older one also remains available for review.
 
