@@ -267,7 +267,8 @@ public final class NearbyExporter {
                 return;
             }
             WorldGraphService.instance().refreshAsync();
-            WMLogger.info("Nearby export complete: " + output.toAbsolutePath());
+            WMLogger.info("Nearby export completed world=" + output.toAbsolutePath()
+                    + " linkedUpstream=" + (lineage.parentNodeId() != null));
             client.execute(
                     ()
                             -> WMPlayerMessages.sendSystemMessage(client.player,

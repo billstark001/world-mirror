@@ -102,14 +102,17 @@ public final class MirrorMigrationCoordinator {
             MirrorMigrationPlan.Inspection plan = MirrorMigrationPlan.inspect(
                     normalized, SharedConstants.getCurrentVersion().dataVersion().version(), true);
             if (target != null && !target.matches(plan.metadata()))
-                return Result.failure("mirror_identity_changed");
+                return reject(normalized, "mirror_identity_changed");
             if (plan.state() == MirrorMigrationPlan.State.CURRENT) {
+                WMLogger.debug("Approved mirror upgrade skipped for an already current world=" + normalized);
                 return Result.success(false, null);
             }
             if (plan.state() != MirrorMigrationPlan.State.OUTDATED || plan.metadata() == null) {
-                return Result.failure(
-                        "mirror_not_migratable:" + plan.state().name().toLowerCase(Locale.ROOT));
+                return reject(
+                        normalized, "mirror_not_migratable:" + plan.state().name().toLowerCase(Locale.ROOT));
             }
+            WMLogger.info("Mirror upgrade started world=" + normalized + " generator=" + plan.worldgenWork()
+                    + " terrain=" + plan.terrainWork());
 
             LegacyVoidChunkCleanup.Plan voidCleanup;
             try {
@@ -150,7 +153,7 @@ public final class MirrorMigrationCoordinator {
                         ? WorldStructureCreator.upgradeVoidWorld(stagedWorld, worldName)
                         : WorldStructureCreator.maintainWorld(stagedWorld, worldName);
                 if (!ready)
-                    return Result.failure("worldgen_write_failed");
+                    return reject(normalized, "worldgen_write_failed");
                 safeProgress.update(Phase.WRITING_WORLD_DATA, 1, 1);
                 var stagedRegions = voidCleanup.regions()
                                             .stream()
@@ -167,7 +170,7 @@ public final class MirrorMigrationCoordinator {
                 metadata.markWorldgenCurrent(SharedConstants.getCurrentVersion().dataVersion().version(),
                         MirrorWorldgenAssets.ASSET_REVISION);
                 if (!metadata.save(stagedWorld))
-                    return Result.failure("metadata_write_failed");
+                    return reject(normalized, "metadata_write_failed");
                 java.util.Map<Path, Path> replacements = new java.util.HashMap<>();
                 try (var files = Files.walk(stagedWorld)) {
                     for (Path file : files.filter(Files::isRegularFile).toList()) {
@@ -180,10 +183,12 @@ public final class MirrorMigrationCoordinator {
                         io.github.billstark001.worldmirror.io.MirrorWorldgenCheck.inspectFresh(stagedWorld);
                 if (verified.state()
                         != io.github.billstark001.worldmirror.io.MirrorWorldgenCheck.State.CURRENT) {
-                    return Result.failure("worldgen_verification_failed");
+                    return reject(normalized, "worldgen_verification_failed");
                 }
                 verifyOriginals(normalized, replacements.keySet(), snapshot);
                 transaction.commit(replacements);
+                WMLogger.info("Mirror upgrade completed world=" + normalized + " backup=" + backup
+                        + " files=" + replacements.size() + " cleanedRegions=" + stagedRegions.size());
                 return Result.success(true, backup);
             }
         } catch (Exception error) {
@@ -192,6 +197,11 @@ public final class MirrorMigrationCoordinator {
                             ? "world_locked"
                             : "migration_failed");
         }
+    }
+
+    private static Result reject(Path world, String reason) {
+        WMLogger.warn("Mirror upgrade could not proceed world=" + world + " reason=" + reason);
+        return Result.failure(reason);
     }
 
     private static boolean publishable(Path relative) {

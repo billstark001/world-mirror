@@ -77,10 +77,17 @@ public final class SeedChunkTracking {
             if (metadata.generation.mode() == WorldMetadata.GenerationMode.SEEDED) {
                 try {
                     if (WorldStructureCreator.matchesSeededGeneration(
-                                folder, metadata.generation.settingsDigest()))
+                                folder, metadata.generation.settingsDigest())) {
                         epoch = metadata.generation.seedEpoch();
+                        WMLogger.info("Verified seed terrain tracking started world=" + folder);
+                    } else {
+                        WMLogger.warn("Seed terrain tracking disabled because the generator settings changed"
+                                + " world=" + folder);
+                    }
                 } catch (IOException | RuntimeException failure) {
-                    WMLogger.warn("Could not verify the assigned seed generator for " + folder, failure);
+                    WMLogger.warn("Seed terrain tracking disabled because the generator could not be verified"
+                                    + " world=" + folder,
+                            failure);
                 }
             }
             current = new Session(server, folder, metadata.sourceId, epoch, ConcurrentHashMap.newKeySet(),

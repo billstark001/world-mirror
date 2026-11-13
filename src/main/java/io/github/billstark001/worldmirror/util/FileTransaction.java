@@ -312,6 +312,8 @@ public final class FileTransaction implements AutoCloseable {
                             }
                             rollback(root, directory, manifest);
                             publish(directory.resolve("rolled-back"), digest);
+                            WMLogger.info("Interrupted file transaction rolled back root=" + root
+                                    + " transaction=" + directory.getFileName());
                         }
                     }
                 }

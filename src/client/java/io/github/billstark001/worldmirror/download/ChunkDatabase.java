@@ -140,6 +140,7 @@ public class ChunkDatabase implements Closeable {
                 if (!ChunkIndexStore.hasRegisteredSource(connection, ChunkIndexStore.REPLAY_IMPORT)
                         || !ChunkIndexStore.hasRegisteredSource(connection, ChunkIndexStore.SEED_GENERATED)) {
                     ChunkIndexStore.initialize(connection);
+                    WMLogger.info("Mirror chunk index source registrations upgraded world=" + worldFolder);
                 }
             }
         }

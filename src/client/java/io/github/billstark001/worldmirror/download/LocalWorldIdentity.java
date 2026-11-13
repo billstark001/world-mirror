@@ -2,6 +2,7 @@ package io.github.billstark001.worldmirror.download;
 
 import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.JsonSupport;
+import io.github.billstark001.worldmirror.util.WMLogger;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -41,6 +42,7 @@ final class LocalWorldIdentity {
             return current;
         String nodeId = "local:" + UUID.randomUUID();
         JsonSupport.compareAndWriteDocument(folder.resolve(FILE_NAME), new Document(1, nodeId), null);
+        WMLogger.info("Local world identity assigned world=" + folder);
         return nodeId;
     }
 

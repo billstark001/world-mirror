@@ -6,6 +6,7 @@ import io.github.billstark001.worldmirror.ui.ClientDialogs;
 import io.github.billstark001.worldmirror.ui.MirrorPrompt;
 import io.github.billstark001.worldmirror.legacy.LegacyWorldMetadata;
 import io.github.billstark001.worldmirror.util.OfflineTasks;
+import io.github.billstark001.worldmirror.util.WMLogger;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.worldselection.WorldOpenFlows;
 
@@ -122,6 +123,7 @@ public final class WorldOpenMigrationController {
 
     private static void recover(Minecraft client, Path folder, Runnable reload, Runnable reopen) {
         inspect(client, folder, "WM-RecoverMirror", () -> {
+            WMLogger.info("Mirror recovery before opening world=" + folder);
             var plan = MirrorMigrationCoordinator.recoverAndInspect(folder);
             if (LegacyWorldMetadata.hasLegacyHeader(folder) || hasRelocationJournal(folder)
                     || ambiguous(folder)) {
@@ -151,6 +153,8 @@ public final class WorldOpenMigrationController {
     private static void showDecision(Minecraft client, Path worldFolder, Runnable reloadCallback,
             Runnable reopen, MirrorMigrationPlan.Inspection plan) {
         if (plan == null || plan.state() == MirrorMigrationPlan.State.UNREADABLE) {
+            if (plan != null)
+                WMLogger.warn("Mirror could not open world=" + worldFolder + " state=" + plan.state());
             ClientDialogs.alert(client,
                     new MirrorPrompt.Alert(
                             new MirrorPrompt.Text("screen.worldmirror.upgrade.unavailableTitle"),
@@ -161,6 +165,7 @@ public final class WorldOpenMigrationController {
                             new MirrorPrompt.Text("gui.done")),
                     reloadCallback);
         } else if (plan.state() == MirrorMigrationPlan.State.FUTURE) {
+            WMLogger.warn("Mirror is newer than this client world=" + worldFolder);
             ClientDialogs.alert(client,
                     new MirrorPrompt.Alert(new MirrorPrompt.Text("screen.worldmirror.upgrade.futureTitle"),
                             new MirrorPrompt.Text("screen.worldmirror.upgrade.futureBody"),
@@ -169,6 +174,8 @@ public final class WorldOpenMigrationController {
         } else if (!plan.requiresApproval()) {
             reopen.run();
         } else {
+            WMLogger.info("Mirror opening awaiting upgrade approval world=" + worldFolder
+                    + " generator=" + plan.worldgenWork() + " terrain=" + plan.terrainWork());
             var metadata = plan.metadata();
             var target = new MirrorTarget(worldFolder, metadata.nodeId, metadata.sourceId);
             Runnable upgrade = () -> migrateThenReopen(client, target, reopen, reloadCallback);
@@ -212,7 +219,10 @@ public final class WorldOpenMigrationController {
                     return result;
                 },
                 failure
-                -> MirrorMigrationCoordinator.Result.failure("unexpected_failure"),
+                -> {
+                    WMLogger.warn("Mirror upgrade before opening failed world=" + target.folder(), failure);
+                    return MirrorMigrationCoordinator.Result.failure("unexpected_failure");
+                },
                 result
                 -> {
                     if (result.success()) {

@@ -187,6 +187,9 @@ public class ChunkExporter {
             Map<ChunkPos, Long> written = entityRevisions.get(entry.getKey());
             return written != null && written.size() == entry.getValue().size();
         });
+        if (recoveredIndex)
+            WMLogger.info(
+                    "Recovered chunk index entries from seed replacement receipts world=" + worldFolder);
         return new ExportResult(allWritten, allSettled, allUnreadable, entityRevisions, chunkWritesSuccessful,
                 entityWritesSuccessful,
                 new ExportTimings(toMillis(databaseLookupNs), toMillis(materializeNs), toMillis(chunkReadNs),

@@ -174,6 +174,9 @@ final class WorldGraphInventory {
                             : LegacySourceIds.legacyNodeId(old);
                     String parentId = LegacySourceIds.legacyParent(old, remoteIds, knownLegacyIds);
                     metadata = WorldMetadataUpgrade.upgrade(candidate.path(), nodeId, parentId, old);
+                    WMLogger.info("Legacy mirror metadata upgraded world=" + candidate.path()
+                            + " upstreamResolved="
+                            + (parentId == null || !parentId.startsWith("unresolved:")));
                     pending.remove(key);
                     if (parentId != null && parentId.startsWith("unresolved:")) {
                         pending.put("upstream:" + nodeId,
@@ -253,6 +256,8 @@ final class WorldGraphInventory {
         publish.accept(new Result(
                 graph, Map.copyOf(indexSources), untrackedLocalWorlds, List.copyOf(orphanedMirrors)));
         migration.complete(allocations, pending.keySet());
+        if (migration.hasLegacyFile())
+            WMLogger.info("Legacy mirror routing archived entries=" + legacy.entries().size());
     }
 
     private List<Candidate> scanMetadata(List<Path> folders, Set<Path> deferred,
@@ -332,11 +337,14 @@ final class WorldGraphInventory {
                         String parent = LegacySourceIds.legacyParent(oldSource, remoteIds, knownLegacyIds);
                         try {
                             claim = LegacyMirrorClaim.upgrade(folder, oldSource, parent);
+                            WMLogger.info("Legacy mirror reservation upgraded world=" + folder);
                         } catch (IOException failure) {
                             var evidence = new PendingImport(
                                     legacy.entryFor(oldSource), location, "claim_upgrade_deferred");
                             pending.put(key, evidence);
                             pending.put(BLOCKED_SOURCE + parent, evidence);
+                            WMLogger.warnRateLimited("graph-claim-upgrade:" + folder, 30_000L,
+                                    "Legacy mirror reservation upgrade deferred world=" + folder, failure);
                             continue;
                         }
                     }
@@ -345,6 +353,9 @@ final class WorldGraphInventory {
                         && !Files.notExists(
                                 folder.resolve(MirrorClaim.FILE_NAME), LinkOption.NOFOLLOW_LINKS)) {
                     pending.put(key, new PendingImport(null, location, "invalid_mirror_claim"));
+                    WMLogger.warnRateLimited("graph-claim-invalid:" + folder, 30_000L,
+                            "World inventory unavailable due to an invalid mirror reservation world="
+                                    + folder);
                     continue;
                 }
                 if (claim != null) {
@@ -385,6 +396,8 @@ final class WorldGraphInventory {
                     observed.add(new Node(id, null, location, Kind.LOCAL, null));
             } catch (IOException | RuntimeException failure) {
                 pending.put(key, new PendingImport(null, location, "local_identity_deferred"));
+                WMLogger.warnRateLimited("graph-local-scan:" + folder, 30_000L,
+                        "Local world inventory deferred world=" + folder, failure);
             }
         }
         return List.copyOf(untracked);
@@ -419,8 +432,13 @@ final class WorldGraphInventory {
                 observed.add(
                         new Node(replacement, copy.parentId(), copy.location(), copy.kind(), copy.role()));
                 pending.remove(key);
+                WMLogger.info("Copied world assigned a new identity world=" + folder + " original="
+                        + root(duplicate.original().location().root())
+                                .resolve(duplicate.original().location().folder()));
             } catch (IOException | RuntimeException failure) {
                 pending.put(key, new PendingImport(null, copy.location(), "duplicate_identity_deferred"));
+                WMLogger.warnRateLimited("graph-copy:" + folder, 30_000L,
+                        "Copied world identity repair deferred world=" + folder, failure);
             }
         }
         return WorldGraph.reconcile(observed, affinity);

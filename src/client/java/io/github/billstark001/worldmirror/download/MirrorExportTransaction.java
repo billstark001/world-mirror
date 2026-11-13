@@ -82,8 +82,8 @@ final class MirrorExportTransaction {
         try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
             MirrorMigrationPlan.Inspection readiness = MirrorMigrationCoordinator.inspect(worldFolder);
             if (!readiness.mayCreateOrWriteWithoutMigration()) {
-                WMLogger.warn("Mirror requires an explicit upgrade or is not writable (" + readiness.state()
-                        + "); export aborted without modifying it.");
+                WMLogger.warnRateLimited("export-world-unavailable:" + worldFolder, 30_000L,
+                        "Mirror export cannot proceed world=" + worldFolder + " state=" + readiness.state());
                 return ExportOutcome.failed(work);
             }
 
@@ -98,8 +98,8 @@ final class MirrorExportTransaction {
                             && target.parentNodeId().equals(metadata.parentNodeId)
                             && sourceId.equals(metadata.sourceId);
             if (!matches) {
-                WMLogger.warn("Export target identity changed before the native lease was acquired: "
-                        + target.nodeId());
+                WMLogger.warnRateLimited("export-world-identity:" + worldFolder, 30_000L,
+                        "Mirror export identity changed before acquiring the lease world=" + worldFolder);
                 return ExportOutcome.failed(work);
             }
             if (createFreshWorld)
@@ -115,7 +115,8 @@ final class MirrorExportTransaction {
                 worldgenReady = WorldStructureCreator.upgradeVoidWorld(worldFolder, sourceId);
             }
             if (!worldgenReady) {
-                WMLogger.warn("World generation setup failed; export aborted before writing chunks.");
+                WMLogger.warnRateLimited("export-world-generator:" + worldFolder, 30_000L,
+                        "Mirror export world generation setup failed world=" + worldFolder);
                 return ExportOutcome.failed(work);
             }
             if (createFreshWorld) {
@@ -125,6 +126,7 @@ final class MirrorExportTransaction {
                     return ExportOutcome.failed(work);
                 }
                 MirrorClaim.finish(worldFolder, target.nodeId());
+                WMLogger.info("Reserved mirror initialized world=" + worldFolder);
             }
 
             try {

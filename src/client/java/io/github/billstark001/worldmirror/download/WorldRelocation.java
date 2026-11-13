@@ -7,6 +7,7 @@ import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.FileTransaction;
 import io.github.billstark001.worldmirror.util.JsonSupport;
 import io.github.billstark001.worldmirror.util.WorldRecovery;
+import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.legacy.LegacyRelocation;
 import net.minecraft.util.DirectoryLock;
 
@@ -222,6 +223,8 @@ public final class WorldRelocation {
             removeUnusedTarget(target);
         else if (!plan.retainsSourceReservation())
             removeUnusedTarget(source);
+        WMLogger.info("World relocation recovered outcome=" + (committed ? "committed" : "rolled_back")
+                + " source=" + source + " target=" + target);
     }
 
     static Journal journal(Path folder) throws IOException {

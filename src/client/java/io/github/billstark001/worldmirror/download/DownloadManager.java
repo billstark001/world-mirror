@@ -266,11 +266,12 @@ public final class DownloadManager {
             finalizeCaptureOnStop(client, "manual-toggle");
             WMPlayerMessages.sendOverlayMessage(
                     client.player, Component.translatable("msg.worldmirror.downloadStop"));
-            WMLogger.debug("Download deactivated");
+            WMLogger.info("Download stopped reason=manual-toggle");
             return;
         }
         if (preparingDownload || hasDownloadPreparationReview()) {
             cancelRouteRequest();
+            WMLogger.info("Download preparation cancelled reason=manual-toggle");
             WMPlayerMessages.sendOverlayMessage(
                     client.player, Component.translatable("msg.worldmirror.downloadStop"));
             return;
@@ -617,6 +618,9 @@ public final class DownloadManager {
         }
         selectedMirror = id;
         createMirror = create;
+        String selection = create ? "new" : (id == null ? "default" : "explicit");
+        WMLogger.info("Session mirror choice changed selection=" + selection
+                + (target == null ? "" : " world=" + target.folder()));
         if (restart)
             cancelRouteRequest();
         if ((active || restart) && !captureEnabled)
@@ -670,6 +674,7 @@ public final class DownloadManager {
                 || !WorldGraphService.instance().observationIsCurrent(client))
             return;
         preparingDownload = true;
+        WMLogger.debug("Download preparation started reason=" + reason);
         WMPlayerMessages.sendOverlayMessage(
                 client.player, Component.translatable("screen.worldmirror.status.downloadPreparing"));
         requestRoute(client, () -> activateDownload(client, reason), false);
@@ -714,6 +719,8 @@ public final class DownloadManager {
             return; // first provider response; keep any pending join action
         boolean active = captureEnabled;
         boolean starting = preparingDownload || downloadReview != null;
+        WMLogger.info("Download route changed; ending previous session active=" + active
+                + " preparing=" + starting);
         endCaptureSession(false);
         cancelRouteRequest();
         var behavior = ModConfig.get().lifecycle.onServerWorldChange;
@@ -823,6 +830,9 @@ public final class DownloadManager {
             // An arriving ID or an explicit source choice can resume this action without interrupting play.
             if (!request.announced()) {
                 pendingRoute = request.announcedNow();
+                WMLogger.info("Download route awaiting " + (canChoose ? "source selection" : "a bound ID")
+                        + " state=" + resolution.state()
+                        + " choices=" + resolution.candidateSourceIds().size());
                 WMPlayerMessages.sendSystemMessage(client.player,
                         Component.translatable(canChoose ? "screen.worldmirror.captureRoute.selectionRequired"
                                                          : "screen.worldmirror.captureRoute.waiting"));
@@ -830,6 +840,8 @@ public final class DownloadManager {
             return;
         }
         pendingRoute = null;
+        WMLogger.info("Manual action requires a download source choice state=" + resolution.state()
+                + " choices=" + resolution.candidateSourceIds().size());
         openSourceChooser(client, observation, resolution, (id, create) -> {
             if (request.id() != routeRequestId || request.connection() != client.getConnection()
                     || graph.chooseSource(observation, id, create) == null)
@@ -980,6 +992,8 @@ public final class DownloadManager {
         }
         switch (plan.state()) {
             case OUTDATED -> {
+                WMLogger.info("Mirror output awaiting upgrade approval world=" + target.folder()
+                        + " generator=" + plan.worldgenWork() + " terrain=" + plan.terrainWork());
                 boolean repair =
                         plan.worldgenWork() == MirrorMigrationPlan.WorldgenWork.REPAIR_VOID_GENERATOR;
                 var title = new MirrorPrompt.Text(
@@ -1006,17 +1020,22 @@ public final class DownloadManager {
                     ClientDialogs.toast(client, title, message);
                 }
             }
-            case FUTURE ->
+            case FUTURE -> {
+                WMLogger.warn("Mirror output is newer than this client world=" + target.folder());
                 showOutputAlert(client, showDialog,
                         new MirrorPrompt.Text("screen.worldmirror.upgrade.futureTitle"),
                         new MirrorPrompt.Text("screen.worldmirror.upgrade.futureBody"));
-            default ->
+            }
+            default -> {
+                WMLogger.warn(
+                        "Mirror output unavailable world=" + target.folder() + " state=" + plan.state());
                 showOutputAlert(client, showDialog,
                         new MirrorPrompt.Text("screen.worldmirror.upgrade.unavailableTitle"),
                         plan.problem() != null
                                 ? new MirrorPrompt.Text("screen.worldmirror.repair.unavailableBody")
                                 : new MirrorPrompt.Text(
                                           "screen.worldmirror.upgrade.unavailableBody", plan.state().name()));
+            }
         }
     }
 
@@ -1049,7 +1068,10 @@ public final class DownloadManager {
                             mirror, MirrorMigrationCoordinator.ProgressListener.NONE);
                 },
                 failure
-                -> MirrorMigrationCoordinator.Result.failure("unexpected_failure"),
+                -> {
+                    WMLogger.warn("Mirror output upgrade failed world=" + target.folder(), failure);
+                    return MirrorMigrationCoordinator.Result.failure("unexpected_failure");
+                },
                 client::execute,
                 result
                 -> {
@@ -1099,8 +1121,8 @@ public final class DownloadManager {
             queueLoadedScan(client, "initial-capture");
         WMPlayerMessages.sendOverlayMessage(
                 client.player, Component.translatable("msg.worldmirror.downloadStart"));
-        WMLogger.info("Download activated with pipeline=" + exportScheduler.mode()
-                + (reason == null ? "" : " by " + reason));
+        WMLogger.info("Download activated pipeline=" + exportScheduler.mode()
+                + " world=" + captureSession.target().folder() + (reason == null ? "" : " reason=" + reason));
         updateResourceState(client, System.nanoTime() / 1_000_000L);
     }
 

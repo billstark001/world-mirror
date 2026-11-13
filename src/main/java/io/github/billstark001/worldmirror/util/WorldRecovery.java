@@ -127,5 +127,6 @@ public final class WorldRecovery {
         });
         for (Path directory : directories) FileTransaction.recover(directory);
         Files.delete(root.resolve(MARKER));
+        WMLogger.info("World recovery completed world=" + root + " transactionRoots=" + directories.size());
     }
 }

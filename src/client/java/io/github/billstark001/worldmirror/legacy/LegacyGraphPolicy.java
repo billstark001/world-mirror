@@ -7,6 +7,7 @@ import io.github.billstark001.worldmirror.util.JsonSupport;
 import io.github.billstark001.worldmirror.util.JsonSupport.Document;
 import io.github.billstark001.worldmirror.util.JsonSupport.ReadState;
 import io.github.billstark001.worldmirror.util.FileProof;
+import io.github.billstark001.worldmirror.util.WMLogger;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -34,8 +35,10 @@ public final class LegacyGraphPolicy {
         } catch (RuntimeException invalid) {
             return new Read(new Document<>(ReadState.INVALID, null, invalid), version);
         }
-        if (changed)
+        if (changed) {
             version = JsonSupport.compareAndWriteDocument(file, graph, version);
+            WMLogger.info("Legacy world identity policies upgraded config=" + file);
+        }
         return new Read(new Document<>(ReadState.VALID, snapshot, null), version);
     }
 

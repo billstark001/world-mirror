@@ -366,7 +366,12 @@ public final class WorldGraphService {
         var after = resolve(next, published.config());
         boolean sameSource =
                 before.sourceNodeId() != null && before.sourceNodeId().equals(after.sourceNodeId());
+        boolean confirmSwitch = !sameSource && late;
         route = sameSource ? next : new Route(previous.source(), observation, null, false, late);
+        WMLogger.debug("World identity observation state=" + evidence.state() + " policy="
+                + (rule == null ? IdPolicy.PREFER_BOUND_ID : rule.idPolicy()) + " previousResolution="
+                + before.state() + " resolution=" + (confirmSwitch ? State.CHOOSE_SOURCE : after.state())
+                + " changedSource=" + !sameSource + " late=" + late);
         return !sameSource;
     }
 
@@ -395,6 +400,7 @@ public final class WorldGraphService {
                 && (rule == null || !config.hasEndpointSource(rule.addressGroupId(), selected))
                 && selected.equals(WorldSourceResolver.suggestedSourceId(config, expected));
         route = new Route(previous.source(), expected, selected, create || newAdvertisedSource, false);
+        WMLogger.info("Download source selected newSource=" + route.createSource());
         return selected;
     }
 
@@ -525,6 +531,10 @@ public final class WorldGraphService {
             throw new IOException("No source selected");
         publishConfig(
                 before, before.nodes(), sources, mirrors, before.endpointRules(), before.pendingImports());
+        if (nodeId != null ? !before.mirrorSettings().equals(mirrors)
+                           : !before.sourceSettings().equals(sources))
+            WMLogger.info("World conflict policy saved scope=" + (nodeId == null ? "source" : "mirror")
+                    + " strategy=" + (strategy == null ? "inherit" : strategy));
     }
 
     public synchronized void setSaveLocation(Source observation, ModConfig.SaveLocation location)
@@ -547,6 +557,8 @@ public final class WorldGraphService {
                         old.conflictStrategy(), old.inheritedMirrorId()));
         publishConfig(before, before.nodes(), sources, before.mirrorSettings(), before.endpointRules(),
                 before.pendingImports());
+        if (!before.sourceSettings().equals(sources))
+            WMLogger.info("Default download location saved location=" + location);
     }
 
     synchronized Target prepare(Source observation) throws IOException {
@@ -619,6 +631,7 @@ public final class WorldGraphService {
             }
             throw failure;
         }
+        WMLogger.info("Download mirror reserved world=" + folder);
         recordRoute(before, route, parent, preferredMirror(old) == null && !createMirror ? nodeId : null);
         refreshPublished();
         return new Target(nodeId, parent, indexSource, folder);
@@ -648,6 +661,11 @@ public final class WorldGraphService {
             }
         }
         replaceConfig(before, next);
+        if (!next.equals(before)) {
+            WMLogger.info("Download route saved defaultMirror=" + (target != null) + " endpointChanged="
+                    + !before.endpointRules().equals(next.endpointRules()) + " stableBindingAdded="
+                    + (before.stableBindings().size() < next.stableBindings().size()));
+        }
     }
 
     public synchronized void editRouting(UnaryOperator<WorldGraphConfig.Snapshot> edit) throws IOException {
@@ -669,6 +687,13 @@ public final class WorldGraphService {
                     throw new IOException("Default mirror must be an available direct download target");
             }
             replaceConfig(before, next);
+            if (!next.equals(before)) {
+                WMLogger.info("World routing settings saved endpointsChanged="
+                        + !before.endpointRules().equals(next.endpointRules())
+                        + " stableBindingsChanged=" + !before.stableBindings().equals(next.stableBindings())
+                        + " sourceSettingsChanged=" + !before.sourceSettings().equals(next.sourceSettings())
+                        + " mirrorSettingsChanged=" + !before.mirrorSettings().equals(next.mirrorSettings()));
+            }
         }
         if (clientService)
             refreshAsync();
@@ -710,6 +735,8 @@ public final class WorldGraphService {
                 }
                 changeParentOnDisk(folder, child, parentId);
             }
+            WMLogger.info(
+                    "World upstream " + (parentId == null ? "removed" : "changed") + " world=" + folder);
             var before = open().snapshot();
             var pending = new HashMap<>(before.pendingImports());
             pending.remove("upstream:" + nodeId);
@@ -878,6 +905,7 @@ public final class WorldGraphService {
                 return false;
             }
         });
+        WMLogger.info("World relocated source=" + from + " target=" + destination);
         refreshPublished();
         return new MoveResult(from, destination);
     }
@@ -912,6 +940,7 @@ public final class WorldGraphService {
                 }
                 access.deleteLevel();
             }
+            WMLogger.info("World deleted world=" + folder + " type=" + node.kind());
             refreshPublished();
         }
     }
@@ -962,6 +991,9 @@ public final class WorldGraphService {
                 store = null;
             WorldGraphConfig config = open();
             inventory.refresh(config, result -> publishInventory(result, config.snapshot()));
+            if (!available)
+                WMLogger.info("World graph available worlds=" + published.graph().nodes().size()
+                        + " downloadTargets=" + published.targets().size());
             available = true;
         } catch (IOException | RuntimeException failure) {
             store = null;
@@ -971,15 +1003,21 @@ public final class WorldGraphService {
     }
 
     private void publishInventory(WorldGraphInventory.Result result, WorldGraphConfig.Snapshot config) {
+        Snapshot previous = published.graph();
+        Snapshot graph = result.graph();
         Map<String, Target> targets = new HashMap<>();
         result.indexSources().forEach((id, indexSource) -> {
-            Node node = result.graph().nodes().get(id);
+            Node node = graph.nodes().get(id);
             Location location = node.location();
             Path folder = inventory.root(location.root()).resolve(location.folder());
             targets.put(id, new Target(id, node.parentId(), indexSource, folder));
         });
-        published = new Published(result.graph(), config, Map.copyOf(targets), result.untrackedLocalWorlds(),
-                result.orphanedMirrors());
+        published = new Published(
+                graph, config, Map.copyOf(targets), result.untrackedLocalWorlds(), result.orphanedMirrors());
+        if (!previous.cyclicIds().equals(graph.cyclicIds()) && !graph.cyclicIds().isEmpty())
+            WMLogger.warn("World graph has cyclic upstream links worlds=" + graph.cyclicIds().size());
+        if (!previous.missingParents().equals(graph.missingParents()))
+            WMLogger.debug("World graph missing upstreams=" + graph.missingParents().size());
     }
 
     private WorldGraphConfig open() throws IOException {
