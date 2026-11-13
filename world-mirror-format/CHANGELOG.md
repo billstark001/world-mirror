@@ -2,11 +2,16 @@
 
 Releases are listed newest first by release date, after unreleased changes. Use Added, Changed, and Fixed categories where applicable. Keep the root `world-mirror-format` sections synchronized with this file; changes that belong only to one consumer remain in that consumer's changelog.
 
-## [Unreleased]
+## [0.1.4] — Unreleased
+
+### Added
+
+- Register `seed_generated` at priority 100 with timestamp zero. Expose seed-only index mutations, map-visible queries, and a shared terrain digest.
 
 ### Changed
 
 - Move the unversioned chunk timestamp importer into the legacy package and preserve the published JVM entry point.
+- Persist missing source registrations during writable initialization. Priority queries read registered rules from SQLite.
 
 ## [0.1.3] — 2026-11-13
 

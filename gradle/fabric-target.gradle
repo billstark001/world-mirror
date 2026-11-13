@@ -99,7 +99,7 @@ tasks.named("ideaSyncTask").configure {
 }
 
 dependencies {
-    implementation include("io.github.billstark001.worldmirror:world-mirror-format:0.1.3")
+    implementation include("io.github.billstark001.worldmirror:world-mirror-format:0.1.4")
     compileOnly "com.google.code.gson:gson:${rootProject.gson_version}"
     minecraft "com.mojang:minecraft:${target.minecraft}"
 
