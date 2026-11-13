@@ -14,18 +14,23 @@ public final class OfflineTasks {
                                  Consumer<Runnable> clientExecutor, Consumer<T> completed, Runnable cleanup) {
         Thread worker = new Thread(() -> {
             T result;
+            boolean ready = false;
             try {
                 try { result = work.run(); }
                 catch (Exception failure) {
                     WMLogger.warn("Offline operation failed: " + name, failure);
                     result = failed.apply(failure);
                 }
+                ready = true;
             } finally {
                 // Even a fatal VM error must not leave an ordinary busy/progress flag stuck.
-                deliver(clientExecutor, cleanup);
+                if (!ready) deliver(clientExecutor, cleanup);
             }
             T outcome = result;
-            deliver(clientExecutor, () -> completed.accept(outcome));
+            deliver(clientExecutor, () -> {
+                runCallback(cleanup);
+                completed.accept(outcome);
+            });
         }, name);
         worker.setDaemon(false);
         worker.start();
@@ -33,12 +38,14 @@ public final class OfflineTasks {
 
     private static void deliver(Consumer<Runnable> executor, Runnable callback) {
         try {
-            executor.accept(() -> {
-                try { callback.run(); }
-                catch (RuntimeException failure) { WMLogger.warn("Offline operation UI callback failed", failure); }
-            });
+            executor.accept(() -> runCallback(callback));
         } catch (RuntimeException unavailable) {
             WMLogger.warn("Cannot schedule offline operation UI completion", unavailable);
         }
+    }
+
+    private static void runCallback(Runnable callback) {
+        try { callback.run(); }
+        catch (RuntimeException failure) { WMLogger.warn("Offline operation UI callback failed", failure); }
     }
 }

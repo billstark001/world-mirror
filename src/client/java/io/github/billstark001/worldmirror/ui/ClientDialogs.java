@@ -21,6 +21,14 @@ public final class ClientDialogs {
 
     private ClientDialogs() {}
 
+    public static Screen currentScreen(Minecraft client) {
+#if MC_VERSION >= 260200
+        return client.gui.screen();
+#else
+        return client.screen;
+#endif
+    }
+
     public static void confirm(Minecraft client, MirrorPrompt.Confirmation prompt,
                                Runnable accept, Runnable cancel) {
 #if MC_VERSION >= 260200

@@ -117,6 +117,7 @@ final class ExportScheduler {
         void retry(Frozen work, long readyAtMs) { frozen.addFirst(new Scheduled(work, readyAtMs)); }
         boolean hasTerrainForSource(Source source) { return frozen.stream().anyMatch(item -> source.equals(item.work.context().source()) && item.work.hasTerrain()); }
         boolean hasEntitiesForSource(Source source) { return frozen.stream().anyMatch(item -> source.equals(item.work.context().source()) && item.work.hasEntities()); }
+        boolean hasManualRequest() { return live != null && live.context().trigger() == Trigger.MANUAL; }
         void clearLive() { live = null; }
         void prepareForShutdown() { frozen.forEach(item -> item.readyAtMs = Long.MIN_VALUE); clearLive(); }
         int frozenCount() { return frozen.size(); }

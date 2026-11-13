@@ -13,6 +13,7 @@ import io.github.billstark001.worldmirror.util.WMPlayerMessages;
 import io.github.billstark001.worldmirror.ui.ClientDialogs;
 import io.github.billstark001.worldmirror.ui.MirrorPrompt;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
@@ -51,6 +52,7 @@ public final class DownloadManager {
     private static long nextResourceCheckMs;
     private static volatile long downloadSessionStartedAtMs;
     private static long lastCacheEvictionMs = 0;
+    private static boolean manualExportChecking;
     private static final int INITIAL_CAPTURE_RANGE = 33;
     private static final int STOP_CAPTURE_RANGE = 6;
     private static final long CACHE_EVICTION_INTERVAL_MS = 5_000L;
@@ -110,6 +112,14 @@ public final class DownloadManager {
 
     public static boolean isExportInProgress() {
         return exportCoordinator.isInProgress();
+    }
+
+    public static boolean isManualExportChecking() {
+        return manualExportChecking;
+    }
+
+    public static boolean hasManualExport() {
+        return manualExportChecking || exportCoordinator.hasManualExport();
     }
 
     /** Records gameplay frame spacing without doing work when diagnostics are disabled. */
@@ -201,7 +211,8 @@ public final class DownloadManager {
      * Performs an immediate one-shot export regardless of the toggle state.
      */
     public static void exportNow(Minecraft client) {
-        requestOutputReady(client, () -> exportNowReady(client));
+        if (manualExportChecking || client.level == null) return;
+        requestOutputReady(client, () -> exportNowReady(client), true);
     }
 
     private static void exportNowReady(Minecraft client) {
@@ -464,7 +475,7 @@ public final class DownloadManager {
     }
 
     private static void requestDownloadStart(Minecraft client, String reason) {
-        Runnable continueStart = () -> requestOutputReady(client, () -> activateDownload(client, reason));
+        Runnable continueStart = () -> requestOutputReady(client, () -> activateDownload(client, reason), false);
         MirrorWorldContext.Snapshot currentMirror = MirrorWorldContext.current();
         if (currentMirror.isMirror() && !mirrorCaptureWarningShown) {
             String bodyKey = currentMirror.state() == MirrorWorldContext.State.OUTDATED
@@ -484,50 +495,70 @@ public final class DownloadManager {
     }
 
     /** Ensures an output world is current only after an explicit confirmation. */
-    private static void requestOutputReady(Minecraft client, Runnable onReady) {
+    private static void requestOutputReady(Minecraft client, Runnable onReady, boolean manualExport) {
         String sourceId = WorldMetadata.detectSourceId(client);
+        var connection = client.getConnection();
+        Screen origin = manualExport ? ClientDialogs.currentScreen(client) : null;
         MirrorMapping mapping = MirrorMapping.getInstance();
         Path output = mapping.selectOutputPath(sourceId, mapping.effectiveSaveLocation(sourceId));
-        MirrorPrompt.ProgressHandle progress = ClientDialogs.progress(client,
-                new MirrorPrompt.Text("screen.worldmirror.upgrade.checking"));
+        Runnable close;
+        if (manualExport) {
+            manualExportChecking = true;
+            close = () -> manualExportChecking = false;
+        } else {
+            MirrorPrompt.ProgressHandle progress = ClientDialogs.progress(client,
+                    new MirrorPrompt.Text("screen.worldmirror.upgrade.checking"));
+            close = progress::close;
+        }
         io.github.billstark001.worldmirror.util.OfflineTasks.start("WM-InspectOutput",
                 () -> MirrorMigrationCoordinator.recoverAndInspect(output), failure -> {
                     OperationFailures.report(sourceId, "worldgen_check", output, failure);
                     return null;
                 }, client::execute, plan -> {
-                    if (sourceId.equals(WorldMetadata.detectSourceId(client))) {
-                        showOutputReadiness(client, output, onReady, plan);
-                    }
-                }, progress::close);
+                    if ((manualExport && connection != client.getConnection())
+                            || !sourceId.equals(WorldMetadata.detectSourceId(client))) return;
+                    if (plan != null && plan.mayCreateOrWriteWithoutMigration()) onReady.run();
+                    else showOutputProblem(client, output, onReady, plan,
+                            !manualExport || ClientDialogs.currentScreen(client) == origin);
+                }, close);
     }
 
-    private static void showOutputReadiness(Minecraft client, Path output, Runnable onReady,
-                                            MirrorMigrationPlan.Inspection plan) {
+    private static void showOutputProblem(Minecraft client, Path output, Runnable onReady,
+                                          MirrorMigrationPlan.Inspection plan, boolean showDialog) {
         if (plan == null) {
-            ClientDialogs.alert(client, new MirrorPrompt.Alert(
+            showOutputAlert(client, showDialog,
                     new MirrorPrompt.Text("screen.worldmirror.upgrade.unavailableTitle"),
-                    new MirrorPrompt.Text("screen.worldmirror.upgrade.unavailableBody", "inspection_failed"),
-                    new MirrorPrompt.Text("gui.done")), () -> {});
+                    new MirrorPrompt.Text("screen.worldmirror.upgrade.unavailableBody", "inspection_failed"));
             return;
         }
         switch (plan.state()) {
-            case NEW, CURRENT -> onReady.run();
-            case OUTDATED -> ClientDialogs.confirm(client, new MirrorPrompt.Confirmation(
-                    new MirrorPrompt.Text(plan.repairWorldgen() ? "screen.worldmirror.repair.title" : "screen.worldmirror.upgrade.title"),
-                    new MirrorPrompt.Text(plan.repairWorldgen() ? "screen.worldmirror.repair.downloadBody" : "screen.worldmirror.upgrade.downloadBody", output.getFileName()),
-                    new MirrorPrompt.Text(plan.repairWorldgen() ? "screen.worldmirror.repair.downloadConfirm" : "screen.worldmirror.upgrade.downloadConfirm"),
-                    new MirrorPrompt.Text("gui.cancel")),
-                    () -> migrateOutputAndContinue(client, output, onReady), () -> {});
-            case FUTURE -> ClientDialogs.alert(client, new MirrorPrompt.Alert(
+            case OUTDATED -> {
+                var title = new MirrorPrompt.Text(plan.repairWorldgen()
+                        ? "screen.worldmirror.repair.title" : "screen.worldmirror.upgrade.title");
+                var message = new MirrorPrompt.Text(plan.repairWorldgen()
+                        ? "screen.worldmirror.repair.downloadBody" : "screen.worldmirror.upgrade.downloadBody", output.getFileName());
+                if (showDialog) ClientDialogs.confirm(client, new MirrorPrompt.Confirmation(title, message,
+                        new MirrorPrompt.Text(plan.repairWorldgen()
+                                ? "screen.worldmirror.repair.downloadConfirm" : "screen.worldmirror.upgrade.downloadConfirm"),
+                        new MirrorPrompt.Text("gui.cancel")),
+                        () -> migrateOutputAndContinue(client, output, onReady), () -> {});
+                else ClientDialogs.toast(client, title, message);
+            }
+            case FUTURE -> showOutputAlert(client, showDialog,
                     new MirrorPrompt.Text("screen.worldmirror.upgrade.futureTitle"),
-                    new MirrorPrompt.Text("screen.worldmirror.upgrade.futureBody"),
-                    new MirrorPrompt.Text("gui.done")), () -> {});
-            default -> ClientDialogs.alert(client, new MirrorPrompt.Alert(
+                    new MirrorPrompt.Text("screen.worldmirror.upgrade.futureBody"));
+            default -> showOutputAlert(client, showDialog,
                     new MirrorPrompt.Text("screen.worldmirror.upgrade.unavailableTitle"),
                     plan.problem() != null ? new MirrorPrompt.Text("screen.worldmirror.repair.unavailableBody")
-                            : new MirrorPrompt.Text("screen.worldmirror.upgrade.unavailableBody", plan.state().name()),
-                    new MirrorPrompt.Text("gui.done")), () -> {});
+                            : new MirrorPrompt.Text("screen.worldmirror.upgrade.unavailableBody", plan.state().name()));
         }
+    }
+
+    private static void showOutputAlert(Minecraft client, boolean showDialog, MirrorPrompt.Text title,
+                                        MirrorPrompt.Text message) {
+        if (showDialog) ClientDialogs.alert(client,
+                new MirrorPrompt.Alert(title, message, new MirrorPrompt.Text("gui.done")), () -> {});
+        else ClientDialogs.toast(client, title, message);
     }
 
     private static void migrateOutputAndContinue(Minecraft client, Path output, Runnable onReady) {

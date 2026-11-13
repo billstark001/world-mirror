@@ -43,6 +43,7 @@ public class StatusScreen extends StatusScreenApi {
     private boolean lastExportState;
     private boolean lastDownloadState;
     private Button toggleButton;
+    private Button exportButton;
     private Component settingsFailure;
     private boolean settingsSucceeded;
     private long lastSyncTime;
@@ -92,10 +93,16 @@ public class StatusScreen extends StatusScreenApi {
     }
 
     @Override
+    public boolean isPauseScreen() {
+        return !DownloadManager.hasManualExport();
+    }
+
+    @Override
     public void tick() {
         super.tick();
         boolean export = DownloadManager.isExportInProgress();
         boolean downloading = DownloadManager.isCaptureEnabled();
+        if (exportButton != null) exportButton.active = !DownloadManager.isManualExportChecking();
         boolean exportFinished = lastExportState && !export;
         if (export != lastExportState || downloading != lastDownloadState) {
             lastExportState = export;
@@ -157,10 +164,14 @@ public class StatusScreen extends StatusScreenApi {
                                 : "screen.worldmirror.status.startDownload"),
                 button -> DownloadManager.toggle(Minecraft.getInstance()))
                 .bounds(left, 140, 178, BUTTON_HEIGHT).build());
-        addRenderableWidget(Button.builder(Component.translatable(
+        exportButton = addRenderableWidget(Button.builder(Component.translatable(
                         "screen.worldmirror.status.exportNow"),
-                button -> DownloadManager.exportNow(Minecraft.getInstance()))
+                button -> {
+                    DownloadManager.exportNow(Minecraft.getInstance());
+                    button.active = !DownloadManager.isManualExportChecking();
+                })
                 .bounds(left + 182, 140, 178, BUTTON_HEIGHT).build());
+        exportButton.active = !DownloadManager.isManualExportChecking();
         addRenderableWidget(Button.builder(Component.translatable(
                         "screen.worldmirror.status.clearData"),
                 button -> { DownloadManager.clearAll(Minecraft.getInstance()); refresh(); })
@@ -330,7 +341,7 @@ public class StatusScreen extends StatusScreenApi {
                 String.valueOf(ChunkListener.getDirtyCount()),
                 "screen.worldmirror.status.lastSync", lastSync().getString(), x, 90);
         graphics.text(Component.translatable(DownloadManager.captureStatusKey()), x, 104, 0xFFE0E0E0);
-        graphics.text(Component.translatable(DownloadManager.isExportInProgress()
+        graphics.text(Component.translatable(DownloadManager.isExportInProgress() || DownloadManager.hasManualExport()
                 ? "screen.worldmirror.status.exportRunning"
                 : "screen.worldmirror.status.exportIdle"), x + 182, 104, 0xFFE0E0E0);
         var health = io.github.billstark001.worldmirror.download.ExportStatusStore.global().health(sourceId);

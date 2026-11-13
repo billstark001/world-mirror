@@ -81,6 +81,11 @@ final class DownloadExportCoordinator {
     }
 
     boolean isInProgress() { return inFlight != null; }
+    boolean hasManualExport() {
+        ExportJob active = inFlight;
+        return scheduler.pending.hasManualRequest()
+                || active != null && active.work().context().trigger() == Trigger.MANUAL;
+    }
     void markEntitiesDirty() { entityRevision++; }
     boolean hasEntityWork() { return entityRevision > durableEntityRevision || EntityTracker.hasDirtyUpdates(); }
     DiagnosticSnapshot snapshotDiagnostics() {
