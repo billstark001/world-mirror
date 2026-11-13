@@ -146,7 +146,7 @@ Automatic and manual export failures produce merged chat and top-right toast not
 
 Based on the original contribution by [@cev-api](https://github.com/cev-api) in [PR #14](https://github.com/billstark001/world-mirror/pull/14).
 
-The 0.5.0 overlay at 60% opacity and a 24-chunk radius in a normally generated Minecraft 26.2 world. The same-status interior grid is enabled in the first screenshot and disabled in the second:
+Both screenshots show the overlay from the same viewpoint in Minecraft 26.3, at 62% opacity with a 24-chunk radius. The first has the same-status interior grid enabled and the second has it disabled.
 
 ![In-world chunk overlay with interior grid](assets/world-overlay-0.5.0-inner-grid-on.png)
 
