@@ -4,6 +4,8 @@ import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.JsonSupport;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -19,6 +21,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class WorldGraphServiceTest {
     private static final String SOURCE = "server:Example.org:25565";
@@ -152,6 +155,30 @@ class WorldGraphServiceTest {
         assertThrows(IOException.class, () -> service.prepare(remote(), () -> false));
         assertNull(service.target(remote()));
         assertFalse(Files.exists(game.resolve("downloaded_worlds")));
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void ignoresJunctionsWhenDiscoveringWorlds() throws Exception {
+        Path outside = Files.createDirectory(game.resolve("external-save"));
+        writeMirror(outside, MIRROR, REMOTE);
+        Path junction = Files.createDirectory(game.resolve("saves")).resolve("Junction");
+        var command = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+                "New-Item -ItemType Junction -Path $env:WM_TEST_JUNCTION -Target $env:WM_TEST_EXTERNAL -ErrorAction Stop")
+                .redirectErrorStream(true);
+        command.environment().put("WM_TEST_JUNCTION", junction.toString());
+        command.environment().put("WM_TEST_EXTERNAL", outside.toString());
+        var process = command.start();
+        String result = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        try {
+            assumeTrue(process.waitFor() == 0, result);
+            var service = service();
+            service.refresh();
+            assertFalse(service.graph().nodes().containsKey(MIRROR));
+            assertEquals(MIRROR, WorldMetadata.loadIfPresent(outside).orElseThrow().nodeId);
+        } finally {
+            Files.deleteIfExists(junction);
+        }
     }
 
     @Test

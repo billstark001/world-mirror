@@ -2,6 +2,8 @@ package io.github.billstark001.worldmirror.util;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.DigestInputStream;
@@ -11,6 +13,19 @@ import java.nio.file.attribute.BasicFileAttributes;
 /** Streaming content proofs avoid retaining a second copy of large staged files. */
 public final class FileProof {
     private FileProof() {}
+
+    /** Allows an absent directory. On Windows, junctions report both directory and other. */
+    public static void requirePlainDirectory(Path path) throws IOException {
+        BasicFileAttributes attributes;
+        try {
+            attributes = Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+        } catch (NoSuchFileException missing) {
+            return;
+        }
+        if (!attributes.isDirectory() || attributes.isOther() || attributes.isSymbolicLink()) {
+            throw new IOException("Not a plain directory: " + path);
+        }
+    }
 
     /** A cheap change token, captured under the writer's lease; it is not a content proof. */
     public record Version(long size, java.nio.file.attribute.FileTime modified, Object identity) {}

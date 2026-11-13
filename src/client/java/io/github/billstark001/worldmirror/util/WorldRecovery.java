@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardOpenOption;
@@ -25,12 +26,14 @@ public final class WorldRecovery {
 
     private WorldRecovery() {}
 
-    public static boolean required(Path root) { return !Files.notExists(root.resolve(MARKER)); }
+    public static boolean required(Path root) { return !Files.notExists(root.resolve(MARKER), LinkOption.NOFOLLOW_LINKS); }
 
     static boolean owns(Path directory) {
         Scope scope = CURRENT.get();
         return scope != null && directory.startsWith(scope.root);
     }
+
+    static Path root() { return CURRENT.get().root; }
 
     static boolean needsDiscovery(Path directory) { return !CURRENT.get().discovered.contains(directory); }
 
@@ -62,8 +65,9 @@ public final class WorldRecovery {
         if (scope == null || !transactionRoot.startsWith(scope.root)) return false;
         if (!scope.marked) {
             Path marker = scope.root.resolve(MARKER);
-            Files.writeString(marker, "Recovery requires the native world session lock");
-            try (var channel = FileChannel.open(marker, StandardOpenOption.WRITE)) { channel.force(true); }
+            Files.writeString(marker, "Recovery requires the native world session lock", StandardOpenOption.CREATE_NEW,
+                    StandardOpenOption.WRITE);
+            try (var channel = FileChannel.open(marker, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) { channel.force(true); }
             scope.marked = true;
         }
         scope.pending++;
@@ -84,6 +88,9 @@ public final class WorldRecovery {
             FileTransaction.recover(root);
             return;
         }
+        if (!Files.isRegularFile(root.resolve(MARKER), LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("Invalid world recovery marker: " + root.resolve(MARKER));
+        }
         var directories = new LinkedHashSet<Path>();
         Files.walkFileTree(root, new SimpleFileVisitor<>() {
             @Override public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) {
@@ -92,7 +99,7 @@ public final class WorldRecovery {
                     directories.add(directory.getParent());
                     return FileVisitResult.SKIP_SUBTREE;
                 }
-                return FileVisitResult.CONTINUE;
+                return attributes.isOther() ? FileVisitResult.SKIP_SUBTREE : FileVisitResult.CONTINUE;
             }
         });
         for (Path directory : directories) FileTransaction.recover(directory);

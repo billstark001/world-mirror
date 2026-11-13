@@ -3,6 +3,7 @@ package io.github.billstark001.worldmirror.download;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import io.github.billstark001.worldmirror.io.WorldWriteLock;
+import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.FileTransaction;
 import io.github.billstark001.worldmirror.util.JsonSupport;
 import io.github.billstark001.worldmirror.util.WorldRecovery;
@@ -13,6 +14,7 @@ import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -33,6 +35,7 @@ final class WorldRelocation {
     private WorldRelocation() {}
 
     static boolean isEmptyReservation(Path folder, String nodeId) throws IOException {
+        FileProof.requirePlainDirectory(folder);
         if (!Files.isDirectory(folder, LinkOption.NOFOLLOW_LINKS)
                 || !Files.isRegularFile(folder.resolve(MirrorClaim.FILE_NAME), LinkOption.NOFOLLOW_LINKS)
                 || !MirrorClaim.ownedBy(folder, nodeId)) return false;
@@ -49,6 +52,8 @@ final class WorldRelocation {
         if (!expected.folder().equals(source)) throw new IOException("Relocation source does not match its binding");
         String nodeId = expected.nodeId();
         requirePlainDirectory(source);
+        FileProof.requirePlainDirectory(target.getParent());
+        FileProof.requirePlainDirectory(target);
         boolean routed = false;
         boolean created = false;
         boolean standalone = false;
@@ -223,14 +228,16 @@ final class WorldRelocation {
             boolean inSource = !Files.notExists(first, LinkOption.NOFOLLOW_LINKS);
             boolean inTarget = !Files.notExists(second, LinkOption.NOFOLLOW_LINKS);
             if (inSource == inTarget) throw new IOException("Missing or ambiguous relocation data; copies retained: " + name);
-            var attributes = Files.readAttributes(inSource ? first : second,
-                    java.nio.file.attribute.BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-            if (!attributes.isRegularFile() && !attributes.isDirectory()) throw new IOException("Unsupported relocation entry: " + name);
+            var attributes = Files.readAttributes(inSource ? first : second, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            if (attributes.isOther() || attributes.isSymbolicLink() || (!attributes.isRegularFile() && !attributes.isDirectory())) {
+                throw new IOException("Unsupported relocation entry: " + name);
+            }
         }
     }
 
     private static void requirePlainDirectory(Path root) throws IOException {
-        if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) {
+        FileProof.requirePlainDirectory(root);
+        if (!root.toRealPath().equals(root.toAbsolutePath().normalize())) {
             throw new IOException("Relocation root is not a plain directory: " + root);
         }
     }
@@ -281,7 +288,9 @@ final class WorldRelocation {
 
     private static void removeUnusedTarget(Path target) {
         try {
-            if (Files.notExists(target) || DirectoryLock.isLocked(target)) return;
+            if (Files.notExists(target, LinkOption.NOFOLLOW_LINKS)) return;
+            requirePlainDirectory(target);
+            if (DirectoryLock.isLocked(target)) return;
             try (var entries = Files.list(target)) {
                 if (entries.anyMatch(path -> !path.getFileName().toString().equals(DirectoryLock.LOCK_FILE))) return;
             }

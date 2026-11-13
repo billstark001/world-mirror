@@ -1,5 +1,6 @@
 package io.github.billstark001.worldmirror.io;
 
+import io.github.billstark001.worldmirror.util.FileProof;
 import net.minecraft.util.DirectoryLock;
 
 import java.io.IOException;
@@ -79,10 +80,7 @@ public final class WorldWriteLock implements AutoCloseable {
 
     /** Acquires only the native lock; use acquire() when this root also needs World Mirror recovery. */
     public static DirectoryLock acquireDirectory(Path world) throws IOException {
-        if (!Files.notExists(world, LinkOption.NOFOLLOW_LINKS)
-                && !Files.isDirectory(world, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("Not a plain world directory: " + world);
-        }
+        FileProof.requirePlainDirectory(world);
         Path lock = world.resolve(DirectoryLock.LOCK_FILE);
         if (!Files.notExists(lock, LinkOption.NOFOLLOW_LINKS)
                 && !Files.isRegularFile(lock, LinkOption.NOFOLLOW_LINKS)) {

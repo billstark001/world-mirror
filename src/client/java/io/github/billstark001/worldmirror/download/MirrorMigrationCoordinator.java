@@ -199,10 +199,8 @@ public final class MirrorMigrationCoordinator {
     private static Path backupTouchedFiles(Path worldFolder, Path snapshot,
                                            java.util.Map<Path, String> expected) throws IOException {
         Path backupRoot = worldFolder.resolve("backups");
+        FileProof.requirePlainDirectory(backupRoot);
         if (Files.notExists(backupRoot, LinkOption.NOFOLLOW_LINKS)) Files.createDirectory(backupRoot);
-        if (!Files.isDirectory(backupRoot, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("Migration backup directory is not a plain directory: " + backupRoot);
-        }
         String timestamp = Instant.now().toString().replace(':', '-');
         Path archive = backupRoot.resolve("worldmirror-schema-backup-" + timestamp + ".zip");
         try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(archive, StandardOpenOption.CREATE_NEW))) {
@@ -241,7 +239,10 @@ public final class MirrorMigrationCoordinator {
         if (!Files.notExists(pack, LinkOption.NOFOLLOW_LINKS)) {
             try (var paths = Files.walk(pack)) {
                 for (Path path : paths.toList()) {
-                    if (Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) continue;
+                    if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
+                        FileProof.requirePlainDirectory(path);
+                        continue;
+                    }
                     addExistingFile(files, root, path);
                 }
             }
@@ -296,10 +297,7 @@ public final class MirrorMigrationCoordinator {
 
     private static void requirePlainAncestors(Path root, Path directory) throws IOException {
         for (Path part = directory; !part.equals(root); part = part.getParent()) {
-            if (!Files.notExists(part, LinkOption.NOFOLLOW_LINKS)
-                    && !Files.isDirectory(part, LinkOption.NOFOLLOW_LINKS)) {
-                throw new IOException("Migration directory is not a plain directory: " + part);
-            }
+            FileProof.requirePlainDirectory(part);
         }
     }
 

@@ -390,7 +390,9 @@ public final class WorldGraphService {
     }
 
     private FileChannel acquireGraphLease() throws IOException {
+        FileProof.requirePlainDirectory(configDirectory);
         Files.createDirectories(configDirectory);
+        requirePlainRoot(configDirectory);
         var channel = FileChannel.open(configDirectory.resolve(GRAPH_LOCK),
                 StandardOpenOption.CREATE, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
         try {
@@ -481,7 +483,8 @@ public final class WorldGraphService {
     }
 
     private static void requirePlainRoot(Path path) throws IOException {
-        if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS) || !path.toRealPath().equals(path.toAbsolutePath().normalize())) {
+        FileProof.requirePlainDirectory(path);
+        if (!path.toRealPath().equals(path.toAbsolutePath().normalize())) {
             throw new IOException("Invalid world root: " + path);
         }
     }
@@ -991,8 +994,13 @@ public final class WorldGraphService {
             try (var entries = Files.list(base)) {
                 for (Path path : entries.sorted().toList()) {
                     if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) continue;
-                    try { locationOf(path); }
-                    catch (IllegalArgumentException invalid) { continue; }
+                    try {
+                        requirePlainRoot(path);
+                        locationOf(path);
+                    } catch (IOException | IllegalArgumentException invalid) {
+                        WMLogger.warnRateLimited("graph-directory:" + path, 30_000, "World directory unavailable: " + path, invalid);
+                        continue;
+                    }
                     result.add(path);
                 }
             }

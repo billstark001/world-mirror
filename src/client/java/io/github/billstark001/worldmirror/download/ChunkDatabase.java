@@ -3,6 +3,7 @@ package io.github.billstark001.worldmirror.download;
 import io.github.billstark001.worldmirror.format.ChunkIndexStore;
 import io.github.billstark001.worldmirror.format.ChunkIndexStore.ChunkCoordinate;
 import io.github.billstark001.worldmirror.format.MirrorFormat;
+import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.minecraft.world.level.ChunkPos;
 import org.sqlite.SQLiteConfig;
@@ -68,11 +69,8 @@ public class ChunkDatabase implements Closeable {
 
     private static void requireSafeFiles(Path worldFolder) throws IOException {
         Path database = worldFolder.resolve(MirrorFormat.DATABASE_FILE);
-        Path data = database.getParent();
-        if (!Files.notExists(data, LinkOption.NOFOLLOW_LINKS)
-                && !Files.isDirectory(data, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("Not a plain chunk index directory: " + data);
-        }
+        FileProof.requirePlainDirectory(worldFolder);
+        FileProof.requirePlainDirectory(database.getParent());
         for (String suffix : List.of("", "-wal", "-shm", "-journal")) {
             Path file = database.resolveSibling(database.getFileName() + suffix);
             if (!Files.notExists(file, LinkOption.NOFOLLOW_LINKS)

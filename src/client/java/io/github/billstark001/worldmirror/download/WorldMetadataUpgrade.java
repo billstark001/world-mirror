@@ -56,10 +56,8 @@ public final class WorldMetadataUpgrade {
     private static void backupLegacyDocument(Path world, LegacyWorldMetadata legacy) throws IOException {
         Path metadata = world.resolve(WorldMetadata.FILE_NAME);
         Path backups = world.resolve("backups");
+        FileProof.requirePlainDirectory(backups);
         if (Files.notExists(backups, LinkOption.NOFOLLOW_LINKS)) Files.createDirectory(backups);
-        if (!Files.isDirectory(backups, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("Mirror backup directory is not a regular directory: " + backups);
-        }
         try (var transaction = new FileTransaction(backups)) {
             Path staged = transaction.stagingDirectory().resolve(WorldMetadata.FILE_NAME);
             String digest = FileProof.copyVerified(metadata, staged);

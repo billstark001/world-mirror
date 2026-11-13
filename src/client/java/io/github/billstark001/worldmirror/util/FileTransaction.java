@@ -8,9 +8,11 @@ import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -56,8 +58,10 @@ public final class FileTransaction implements AutoCloseable {
         Lease acquired = null;
         try {
             if (guard.active) throw new IOException("Nested transaction on the same directory: " + root);
-            Files.createDirectories(this.root);
+            FileProof.requirePlainDirectory(this.root);
             worldOwned = WorldRecovery.owns(this.root);
+            if (worldOwned) rejectLinks(this.root, WorldRecovery.root());
+            Files.createDirectories(this.root);
             if (!worldOwned || WorldRecovery.needsDiscovery(this.root)) {
                 recoverLocked(this.root);
                 if (worldOwned) WorldRecovery.discovered(this.root);
@@ -78,9 +82,13 @@ public final class FileTransaction implements AutoCloseable {
     public Path stagingDirectory() { return directory.resolve("new"); }
 
     public static boolean hasPending(Path root) throws IOException {
-        if (root == null || Files.notExists(root)) return false;
+        if (root == null || Files.notExists(root, LinkOption.NOFOLLOW_LINKS)) return false;
+        FileProof.requirePlainDirectory(root);
         try (var entries = Files.newDirectoryStream(root, PREFIX + "*")) {
-            for (Path directory : entries) if (!Files.notExists(directory.resolve("prepared"))) return true;
+            for (Path directory : entries) {
+                FileProof.requirePlainDirectory(directory);
+                if (!Files.notExists(directory.resolve("prepared"), LinkOption.NOFOLLOW_LINKS)) return true;
+            }
         }
         return false;
     }
@@ -197,8 +205,7 @@ public final class FileTransaction implements AutoCloseable {
 
     private static Lease lease(Path directory) throws IOException {
         Path file = directory.resolve(OWNER);
-        if (Files.isSymbolicLink(file)) throw new IOException("Symbolic transaction owner: " + file);
-        FileChannel channel = FileChannel.open(file, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+        FileChannel channel = FileChannel.open(file, StandardOpenOption.CREATE, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
         try {
             FileLock lock = channel.tryLock();
             if (lock == null) throw new IOException("Transaction is active: " + directory);
@@ -211,7 +218,8 @@ public final class FileTransaction implements AutoCloseable {
     }
 
     private static void recoverLocked(Path root) throws IOException {
-        if (Files.notExists(root)) return;
+        if (Files.notExists(root, LinkOption.NOFOLLOW_LINKS)) return;
+        FileProof.requirePlainDirectory(root);
         recoverPeers(root, null);
         try (var entries = Files.newDirectoryStream(root, CLEANUP_PREFIX + "*")) {
             for (Path directory : entries) {
@@ -226,7 +234,7 @@ public final class FileTransaction implements AutoCloseable {
         try (var entries = Files.newDirectoryStream(root, PREFIX + "*")) {
             for (Path directory : entries) {
                 if (directory.equals(own)) continue;
-                if (Files.isSymbolicLink(directory) || !Files.isDirectory(directory)) throw new IOException("Invalid transaction directory: " + directory);
+                FileProof.requirePlainDirectory(directory);
                 try (Lease ignored = lease(directory)) {
                     Path journal = directory.resolve("prepared");
                     if (!Files.notExists(journal)) {
@@ -333,8 +341,19 @@ public final class FileTransaction implements AutoCloseable {
     }
 
     private static void rejectLinks(Path file, Path root) throws IOException {
-        for (Path part = file; !part.equals(root); part = part.getParent()) {
-            if (Files.isSymbolicLink(part)) throw new IOException("Symbolic transaction path: " + part);
+        if (file.equals(root)) return;
+        Path part = root;
+        for (Path segment : root.relativize(file)) {
+            part = part.resolve(segment);
+            BasicFileAttributes attributes;
+            try {
+                attributes = Files.readAttributes(part, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            } catch (NoSuchFileException missing) {
+                return;
+            }
+            if (attributes.isSymbolicLink() || attributes.isOther()) {
+                throw new IOException("Aliased transaction path: " + part);
+            }
         }
     }
 
@@ -388,8 +407,12 @@ public final class FileTransaction implements AutoCloseable {
     }
 
     private static void removeDirectory(Path directory) throws IOException {
-        if (Files.isSymbolicLink(directory)) throw new IOException("Symbolic cleanup directory: " + directory);
+        FileProof.requirePlainDirectory(directory);
         Files.walkFileTree(directory, new java.nio.file.SimpleFileVisitor<>() {
+            @Override public java.nio.file.FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attributes) throws IOException {
+                if (attributes.isOther()) throw new IOException("Aliased cleanup directory: " + dir);
+                return java.nio.file.FileVisitResult.CONTINUE;
+            }
             @Override public java.nio.file.FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attributes) throws IOException {
                 Files.delete(file); return java.nio.file.FileVisitResult.CONTINUE;
             }

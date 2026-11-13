@@ -1,6 +1,8 @@
 package io.github.billstark001.worldmirror.util;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -70,6 +72,43 @@ class FileTransactionTest {
             assertThrows(IOException.class, () -> transaction.commit(Map.of(Path.of("../escape"), staged)));
         }
         assertFalse(Files.exists(root.resolve("../escape")));
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void doesNotWriteOrRecoverThroughDirectoryJunctions(@TempDir Path root) throws Exception {
+        Path world = Files.createDirectory(root.resolve("world"));
+        Path outside = Files.createDirectory(root.resolve("outside"));
+        Path sentinel = Files.writeString(outside.resolve("data"), "outside");
+        for (String name : new String[]{"aliased-target", FileTransaction.PREFIX + "alias",
+                FileTransaction.CLEANUP_PREFIX + "alias"}) {
+            Path junction = world.resolve(name);
+            ProcessBuilder command = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive",
+                    "-Command", "$ErrorActionPreference = 'Stop'; New-Item -ItemType Junction "
+                    + "-Path $env:WM_JUNCTION_PATH -Target $env:WM_JUNCTION_TARGET | Out-Null");
+            command.environment().put("WM_JUNCTION_PATH", junction.toString());
+            command.environment().put("WM_JUNCTION_TARGET", outside.toString());
+            Process process = command.redirectErrorStream(true).start();
+            String output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            assertEquals(0, process.waitFor(), output);
+            try {
+                if (name.startsWith(FileTransaction.PREFIX)) {
+                    assertThrows(IOException.class, () -> FileTransaction.recover(world));
+                } else if (name.startsWith(FileTransaction.CLEANUP_PREFIX)) {
+                    FileTransaction.recover(world);
+                    assertTrue(Files.isDirectory(junction));
+                } else {
+                    try (FileTransaction transaction = new FileTransaction(world)) {
+                        Path staged = Files.writeString(transaction.stagingDirectory().resolve("data"), "replacement");
+                        assertThrows(IOException.class, () -> transaction.commit(Map.of(Path.of(name, "data"), staged)));
+                    }
+                }
+                assertEquals("outside", Files.readString(sentinel));
+                assertFalse(Files.exists(outside.resolve("owner.lock")));
+            } finally {
+                Files.delete(junction);
+            }
+        }
     }
 
     @Test
