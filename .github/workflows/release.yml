@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing tag to retry (for example, v0.4.1)'
+        description: 'Existing tag to retry (for example, v0.5.4)'
         required: true
         type: string
       publish_modrinth:
@@ -28,75 +28,53 @@ jobs:
     outputs:
       version: ${{ steps.metadata.outputs.version }}
       tag: ${{ steps.metadata.outputs.tag }}
-      release_name: ${{ steps.metadata.outputs.release_name }}
       channel: ${{ steps.metadata.outputs.channel }}
       prerelease: ${{ steps.metadata.outputs.prerelease }}
       publish_modrinth: ${{ steps.metadata.outputs.publish_modrinth }}
       minecraft: ${{ steps.artifacts.outputs.minecraft }}
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-      WANT_MODRINTH: ${{ github.event_name == 'push' || inputs.publish_modrinth }}
-      MODRINTH_PROJECT_ID: ${{ vars.MODRINTH_PROJECT_ID }}
-      MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+
+      - name: Checkout release tooling for a retry
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .release-workflow
+          sparse-checkout: .github/scripts
 
       - name: Validate and derive release metadata
         id: metadata
         shell: bash
+        env:
+          TOOLING_ROOT: ${{ github.event_name == 'workflow_dispatch' && '.release-workflow' || '.' }}
+          WANT_MODRINTH: ${{ github.event_name == 'push' || inputs.publish_modrinth }}
+          MODRINTH_PROJECT_ID: ${{ vars.MODRINTH_PROJECT_ID }}
+          HAS_MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN != '' }}
         run: |
           set -euo pipefail
-          version="$(sed -n 's/^mod_version=//p' gradle.properties)"
-          test "$(grep -c '^mod_version=' gradle.properties)" -eq 1
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
-          test "$RELEASE_TAG" = "v$version"
-
-          first_changelog_version="$(sed -n 's/^## \[\([^]]*\)\].*/\1/p' CHANGELOG.md | head -n 1)"
-          test "$first_changelog_version" = "$version"
-          awk -v header="## [$version]" '
-            /^## / { if (found) exit; found = index($0, header) == 1 }
-            found && /^---$/ { exit }
-            found { print }
-          ' CHANGELOG.md > release-notes.md
-          test -s release-notes.md
-
-          suffix="${version#*-}"
-          if [[ "$version" != *-* ]]; then
-            channel=release
-            prerelease=false
-          elif [[ "${suffix,,}" == *alpha* ]]; then
-            channel=alpha
-            prerelease=true
-          else
-            channel=beta
-            prerelease=true
-          fi
+          bash "$TOOLING_ROOT/.github/scripts/release-metadata.sh" mod "$RELEASE_TAG" "$GITHUB_OUTPUT" release-notes.md
 
           publish_modrinth=false
           if [[ "$WANT_MODRINTH" == "true" \
                 && -n "$MODRINTH_PROJECT_ID" \
-                && -n "$MODRINTH_TOKEN" ]]; then
+                && "$HAS_MODRINTH_TOKEN" == "true" ]]; then
             publish_modrinth=true
           elif [[ "$WANT_MODRINTH" == "true" ]]; then
             if [[ -z "$MODRINTH_PROJECT_ID" ]]; then
               echo '::notice::MODRINTH_PROJECT_ID repository variable is not configured; skipping Modrinth publishing.'
             fi
-            if [[ -z "$MODRINTH_TOKEN" ]]; then
+            if [[ "$HAS_MODRINTH_TOKEN" != "true" ]]; then
               echo '::notice::MODRINTH_TOKEN is not configured; skipping Modrinth publishing.'
             fi
           fi
 
-          {
-            echo "version=$version"
-            echo "tag=$RELEASE_TAG"
-            echo "release_name=World Mirror $RELEASE_TAG"
-            echo "channel=$channel"
-            echo "prerelease=$prerelease"
-            echo "publish_modrinth=$publish_modrinth"
-          } >> "$GITHUB_OUTPUT"
+          echo "publish_modrinth=$publish_modrinth" >> "$GITHUB_OUTPUT"
 
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v4
@@ -113,9 +91,11 @@ jobs:
           ./gradlew verifyBridgeMatrix
 
       - name: Build all targets once
+        env:
+          VERSION: ${{ steps.metadata.outputs.version }}
         run: |
           chmod +x ./gradlew
-          ./gradlew collectArtifacts
+          ./gradlew -Pmod_version="$VERSION" collectArtifacts
 
       - name: Collect and validate distributable JARs
         id: artifacts
@@ -153,7 +133,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.build.outputs.tag }}
-          name: ${{ needs.build.outputs.release_name }}
+          name: World Mirror ${{ needs.build.outputs.tag }}
           body_path: build/release/release-notes.md
           prerelease: ${{ needs.build.outputs.prerelease }}
           files: build/release/*.jar
@@ -182,7 +162,7 @@ jobs:
           modrinth-id: ${{ vars.MODRINTH_PROJECT_ID }}
           modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
           files: build/release/world-mirror-${{ needs.build.outputs.version }}+${{ matrix.minecraft }}-fabric.jar
-          name: ${{ needs.build.outputs.release_name }} for Minecraft ${{ matrix.minecraft }}
+          name: World Mirror ${{ needs.build.outputs.tag }} for Minecraft ${{ matrix.minecraft }}
           version: ${{ needs.build.outputs.version }}+${{ matrix.minecraft }}-fabric
           version-type: ${{ needs.build.outputs.channel }}
           changelog-file: build/release/release-notes.md

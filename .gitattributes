@@ -13,6 +13,7 @@
 *.md            text eol=lf
 *.mjs           text eol=lf
 *.ps1           text eol=lf
+*.sh            text eol=lf
 /.clang-format  text eol=lf
 /.gitattributes text eol=lf
 /.gitignore     text eol=lf

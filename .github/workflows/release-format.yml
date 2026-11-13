@@ -25,27 +25,27 @@ jobs:
     outputs:
       version: ${{ steps.metadata.outputs.version }}
       tag: ${{ steps.metadata.outputs.tag }}
+      prerelease: ${{ steps.metadata.outputs.prerelease }}
     steps:
       - name: Checkout format release tag
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+
+      - name: Checkout release tooling for a retry
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .release-workflow
+          sparse-checkout: .github/scripts
 
       - name: Validate format version and extract release notes
         id: metadata
         shell: bash
-        run: |
-          set -euo pipefail
-          version="$(awk -F"'" '/^version = / { print $2 }' world-mirror-format/build.gradle)"
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
-          test "$RELEASE_TAG" = "world-mirror-format-v$version"
-          awk -v header="## world-mirror-format [$version]" '
-            /^## / { if (found) exit; found = index($0, header) == 1 }
-            found && /^---$/ { exit }
-            found { print }
-          ' CHANGELOG.md > release-notes.md
-          test -s release-notes.md
-          printf 'version=%s\ntag=%s\n' "$version" "$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+        env:
+          TOOLING_ROOT: ${{ github.event_name == 'workflow_dispatch' && '.release-workflow' || '.' }}
+        run: bash "$TOOLING_ROOT/.github/scripts/release-metadata.sh" format "$RELEASE_TAG" "$GITHUB_OUTPUT" release-notes.md
 
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v4
@@ -63,7 +63,7 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          ./gradlew -p world-mirror-format releaseBundle
+          ./gradlew -p world-mirror-format -PformatVersion="$VERSION" releaseBundle
           zip="world-mirror-format/build/distributions/world-mirror-format-$VERSION.zip"
           test -f "$zip"
           test -f "$zip.sha256"
@@ -104,6 +104,7 @@ jobs:
           tag_name: ${{ needs.build.outputs.tag }}
           name: World Mirror Format ${{ needs.build.outputs.version }}
           body_path: build/release-format/release-notes.md
+          prerelease: ${{ needs.build.outputs.prerelease }}
           make_latest: false
           files: |
             build/release-format/*.zip

@@ -5,6 +5,7 @@ plugins {
 
 group = 'io.github.billstark001.worldmirror'
 version = '0.1.4'
+version = providers.gradleProperty('formatVersion').getOrElse(version.toString())
 
 java {
     toolchain.languageVersion = JavaLanguageVersion.of(21)
