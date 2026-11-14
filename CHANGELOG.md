@@ -8,6 +8,19 @@ Use Added, Changed, and Fixed categories where applicable. Combine related chang
 
 ---
 
+## [0.6.0-alpha.2] — Unreleased
+
+### Fixed
+
+- Clear verified void placeholders with mixed vanilla biomes or old vanilla blending data when assigning a seed, so the affected chunks can generate terrain.
+- Recalculate lighting along newly generated terrain borders, including when experimental terrain blending is off.
+- Repair surviving void placeholders when opening a previously converted mirror with its conversion backup. Trace fully vanilla biome placeholders along verified old boundaries and recognize incoming fluids and boundary cobblestone deposits.
+- Respect the experimental blending switch during native generation. Regenerate distorted terrain only when its saved provenance confirms it is unmodified.
+- Preserve custom files and unrelated data pack settings when changing a mirror's seed.
+- Show repair progress during world opening and preserve untouched chunk payloads and timestamps in edited region files.
+
+---
+
 ## world-mirror-format [0.1.4] — 2026-11-14
 
 ### Added

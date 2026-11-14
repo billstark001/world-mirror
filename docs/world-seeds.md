@@ -12,7 +12,15 @@ The preview shows how many void placeholders will be removed and how many retain
 
 ![Seed conversion preview showing affected chunks and the terrain difference warning](../assets/world-seed-preview.png)
 
-Applying a seed switches the save to the native normal preset. World Mirror stores the seed in Minecraft's own generator settings and records the preset, generation batch and settings fingerprint in mirror metadata. It removes World Mirror's void datapack and remaps its biome IDs in retained chunks to plains, nether wastes or the End, as appropriate. Captured, imported, and edited terrain is preserved. A save with custom generator settings must be converted back to an owned World Mirror generator before using this operation.
+Applying a seed switches the save to the native normal preset. World Mirror stores the seed in Minecraft's own generator settings and records the preset, generation batch and settings fingerprint in mirror metadata. It removes its unmodified void datapack and its references from the save's pack selection. It remaps the pack's biome IDs in retained chunks to plains, nether wastes or the End, as appropriate. Captured, imported, and edited terrain is preserved. Applying a first seed requires the owned World Mirror generator and its unmodified pack. Changing an assigned seed preserves the save's pack selection.
+
+Verified void placeholders are cleared even if an earlier Minecraft upgrade added vanilla blending data or mixed vanilla biomes into them. Minecraft recalculates saved lighting next to newly generated terrain when those chunks load, regardless of the experimental terrain blending setting.
+
+Minecraft can place features across chunk borders as it generates adjacent terrain. This can change blocks, such as ores, in already downloaded chunks.
+
+When you open a mirror seeded by an earlier build, World Mirror uses its pre-conversion backup to identify leftover void chunks. It can recognize incoming water or lava and cobblestone from their contact along the old void edge. Verified unmodified seed terrain affected by old blending data can also regenerate. Watch the opening screen for scan, staging and backup progress. Keep the pre-conversion backup in the mirror's `backups` folder for this check. The repair backs up affected files and keeps captured terrain, edited chunks and chunks with ambiguous changes.
+
+Open an older seeded mirror before changing its seed in a newer Minecraft version. The repair matches the conversion backup against the Minecraft data version recorded for the seed operation.
 
 Applying a seed to a fresh World Mirror reservation creates the playable save and its metadata with the reserved identity. A recognized void mirror with missing metadata is registered as a standalone snapshot and keeps its existing SQLite namespace when there is exactly one. Opening the seed editor and previewing leave metadata unwritten.
 
