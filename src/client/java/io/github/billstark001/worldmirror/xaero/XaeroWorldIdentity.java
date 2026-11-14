@@ -52,6 +52,15 @@ public final class XaeroWorldIdentity {
         PLAY_OBSERVATIONS.put(listener, observation);
     }
 
+    public static void resetNegotiation(ClientPacketListener listener) {
+        PLAY_CHANNELS.remove(listener.getConnection());
+        PLAY_OBSERVATIONS.remove(listener);
+    }
+
+    public static void resetPlayEvidence(ClientPacketListener listener) {
+        PLAY_OBSERVATIONS.remove(listener);
+    }
+
     public static void observeConfiguration(Connection connection, CustomPacketPayload payload) {
         if (!INSTALLED || !(payload instanceof CommonRegisterPayload registration)) {
             return;

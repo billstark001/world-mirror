@@ -30,8 +30,6 @@ import java.util.Objects;
 public final class DownloadManager {
     private DownloadManager() {}
 
-    // ── State ─────────────────────────────────────────────────────────────────
-
     private static volatile boolean captureEnabled;
     private static volatile long downloadSessionStartedAtMs;
     private static long lastCacheEvictionMs = 0;
@@ -41,8 +39,6 @@ public final class DownloadManager {
     static final DownloadExportCoordinator exportCoordinator = new DownloadExportCoordinator(
             DownloadCapture.queue, exportScheduler, DownloadExportCoordinator.createExportExecutor(),
             work -> DownloadExportCoordinator.createJob(work, exportScheduler.mode()));
-    // ── Lifecycle tracking ────────────────────────────────────────────────────
-
     /**
      * The dimension registry key observed on the previous client tick.
      * Used to detect dimension changes (e.g. Overworld → Nether).
@@ -59,6 +55,9 @@ public final class DownloadManager {
 
     /** Enabled capture can be temporarily reduced or paused without changing its toggle. */
     public static String captureStatusKey() {
+        if (DownloadRoute.awaitingSource()
+                || (DownloadWorldChanges.hasCaptureIntent() && DownloadWorldChanges.awaitingIdentity()))
+            return DownloadPreparationPrompts.sourceStatusKey();
         if (!captureEnabled) {
             if (DownloadRoute.hasDownloadPreparationReview())
                 return "screen.worldmirror.status.downloadNeedsReview";
@@ -165,17 +164,20 @@ public final class DownloadManager {
      */
     public static void onJoinWorld(Minecraft client) {
         downloadSessionStartedAtMs = 0L;
-        boolean wasActive = captureEnabled;
+        Boolean continued = DownloadWorldChanges.takeReconfiguration(client);
+        boolean wasActive = continued == null ? captureEnabled : continued;
         captureEnabled = false;
         freezeStoppedSource(false);
         resetRoute();
         DownloadCapture.clearPendingCaptureState(false);
         DownloadCapture.clearCapturedWorldState();
         mirrorCaptureWarningShown = false;
-        var behavior = ModConfig.get().lifecycle.onJoinWorld;
+        var lifecycle = ModConfig.get().lifecycle;
+        var behavior = continued == null ? lifecycle.onJoinWorld : lifecycle.onServerWorldChange;
         if (behavior == ModConfig.TransitionBehavior.START
                 || (wasActive && behavior == ModConfig.TransitionBehavior.KEEP)) {
-            DownloadRoute.requestDownloadStart(client, "join-world");
+            DownloadRoute.requestDownloadStart(
+                    client, continued == null ? "join-world" : "server-world-change");
         }
 
         // Reset tracking so subsequent change-detection starts fresh.
@@ -324,7 +326,8 @@ public final class DownloadManager {
 
     static boolean hasRoutingWork() {
         // A source choice can wait for user configuration, but a resolved disk check or export owns its route.
-        return captureEnabled || DownloadRoute.isCheckingTarget() || exportCoordinator.hasQueuedWork();
+        return captureEnabled && !DownloadWorldChanges.isRespawnBoundary() || DownloadRoute.isCheckingTarget()
+                || exportCoordinator.hasQueuedWork();
     }
 
     static void logicalWorldChanged(Minecraft client) {

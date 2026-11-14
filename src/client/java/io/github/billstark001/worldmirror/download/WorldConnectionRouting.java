@@ -5,6 +5,7 @@ import io.github.billstark001.worldmirror.download.WorldGraph.Snapshot;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.EndpointRule;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.IdPolicy;
 import io.github.billstark001.worldmirror.download.WorldSourceResolver.ConnectionObservation;
+import io.github.billstark001.worldmirror.download.WorldSourceResolver.Discovery;
 import io.github.billstark001.worldmirror.download.WorldSourceResolver.ProviderObservation;
 import io.github.billstark001.worldmirror.download.WorldSourceResolver.ProviderState;
 import io.github.billstark001.worldmirror.download.WorldSourceResolver.Resolution;
@@ -28,8 +29,15 @@ public final class WorldConnectionRouting {
     private final WorldGraphService service;
     private final WorldInventoryFolders folders;
 
+    public enum Choice { EXISTING, NEW, ADDRESS_ONCE, REMEMBER_ADDRESS }
+
     record Route(Source source, ConnectionObservation observation, String chosenSource, boolean createSource,
-            boolean confirmSwitch) {}
+            boolean confirmSwitch, boolean addressOnly, boolean rememberAddress) {
+        Route withObservation(ConnectionObservation observed) {
+            return new Route(source, observed, chosenSource, createSource, confirmSwitch, addressOnly,
+                    rememberAddress);
+        }
+    }
 
     private record ResolvedRoute(Route route, WorldGraphConfig.Snapshot config, Resolution value) {}
 
@@ -57,13 +65,20 @@ public final class WorldConnectionRouting {
         Route current = route;
         return current == null ? null : current.observation();
     }
+    boolean isSameWorld(ConnectionObservation expected) {
+        var observed = observation();
+        return expected != null && observed != null
+                && expected.connectionEpoch() == observed.connectionEpoch()
+                && expected.worldEpoch() == observed.worldEpoch();
+    }
     boolean expectsIdentity() {
-        var observation = observation();
-        if (observation == null || observation.endpoint() == null
-                || observation.providerObservation().state() != ProviderState.ADVERTISED)
+        var current = route;
+        if (current == null || current.observation().endpoint() == null)
             return false;
-        var rule = service.configSnapshot().endpointRules().get(observation.endpoint());
-        return rule == null || rule.idPolicy() != IdPolicy.ENDPOINT_ONLY;
+        IdPolicy policy = policy(service.configSnapshot(), current);
+        return policy == IdPolicy.REQUIRE_BOUND_ID
+                || policy == IdPolicy.PREFER_BOUND_ID && !current.addressOnly()
+                && current.observation().providerObservation().state() != ProviderState.ABSENT;
     }
     public Resolution currentResolution() {
         var view = service.published();
@@ -226,10 +241,11 @@ public final class WorldConnectionRouting {
         return source == null
                 ? null
                 : new Route(source,
-                          new ConnectionObservation(connectionEpoch, source.endpoint(), source.nodeId(),
+                          new ConnectionObservation(connectionEpoch, 0, source.endpoint(), source.nodeId(),
                                   source.endpoint() == null ? ProviderObservation.absent()
-                                                            : ProviderObservation.pending()),
-                          null, false, false);
+                                                            : ProviderObservation.pending(),
+                                  Discovery.PROBING),
+                          null, false, false, false, false);
     }
 
     boolean observeProvider(ProviderObservation evidence, boolean late) {
@@ -242,44 +258,83 @@ public final class WorldConnectionRouting {
                 || (evidence.state() == ProviderState.ABSENT
                         && lastEvidence.state() == ProviderState.ADVERTISED))
             return false;
-        var observation = new ConnectionObservation(
-                previous.observation().connectionEpoch(), previous.source().endpoint(), null, evidence);
+        var observation = previous.observation().withProvider(evidence);
         var config = service.configSnapshot();
-        EndpointRule rule = config.endpointRules().get(previous.source().endpoint());
-        boolean ignored = rule != null && rule.idPolicy() == IdPolicy.ENDPOINT_ONLY;
-        if (ignored
+        IdPolicy policy = policy(config, previous);
+        if (policy == IdPolicy.ENDPOINT_ONLY || previous.addressOnly() && policy != IdPolicy.REQUIRE_BOUND_ID
                 || (lastEvidence.state() == ProviderState.PENDING && evidence.state() == ProviderState.ABSENT
                         && previous.chosenSource() != null)) {
             // Keep the evidence for policy edits without disturbing an endpoint or manual selection.
-            route = new Route(previous.source(), observation, previous.chosenSource(),
-                    previous.createSource(), previous.confirmSwitch());
+            route = previous.withObservation(observation);
             return false;
         }
         var before = resolveCurrent(previous, config);
-        var next = new Route(previous.source(), observation, null, false, false);
+        var next = new Route(previous.source(), observation, null, false, false, false, false);
         var after = resolve(next, config);
         boolean sameSource =
                 before.sourceNodeId() != null && before.sourceNodeId().equals(after.sourceNodeId());
         boolean confirmSwitch = !sameSource && late;
-        route = sameSource ? next : new Route(previous.source(), observation, null, false, late);
-        WMLogger.debug("World identity observation state=" + evidence.state() + " policy="
-                + (rule == null ? IdPolicy.PREFER_BOUND_ID : rule.idPolicy()) + " previousResolution="
-                + before.state() + " resolution=" + (confirmSwitch ? State.CHOOSE_SOURCE : after.state())
+        route = sameSource ? next
+                           : new Route(previous.source(), observation, null, false, late, false, false);
+        WMLogger.debug("World identity observation state=" + evidence.state() + " policy=" + policy
+                + " previousResolution=" + before.state()
+                + " resolution=" + (confirmSwitch ? State.CHOOSE_SOURCE : after.state())
                 + " changedSource=" + !sameSource + " late=" + late);
         return !sameSource;
     }
 
-    void requireSourceChoice() {
-        Route previous = route;
-        if (previous != null && previous.source().endpoint() != null)
-            route = new Route(previous.source(), previous.observation(), null, false, true);
+    boolean strictlyRequiresIdentity() {
+        var current = route;
+        return current != null && policy(service.configSnapshot(), current) == IdPolicy.REQUIRE_BOUND_ID;
     }
 
-    String chooseSource(ConnectionObservation expected, String id, boolean create) {
+    void enterRemoteBoundary(boolean needsFreshIdentity) {
+        Route previous = route;
+        if (previous == null || previous.source().endpoint() == null)
+            return;
+        var observation = previous.observation().enterWorldBoundary();
+        route = needsFreshIdentity
+                ? new Route(previous.source(), observation.withProvider(ProviderObservation.pending()), null,
+                          false, false, false, false)
+                : previous.withObservation(observation);
+    }
+
+    boolean finishDiscovery(ConnectionObservation expected) {
+        Route previous = route;
+        if (previous == null || previous.observation() != expected
+                || expected.discovery() != Discovery.PROBING)
+            return false;
+        route = previous.withObservation(expected.finishDiscovery());
+        return true;
+    }
+
+    boolean observeAtBoundary(
+            long connectionEpoch, long worldEpoch, ProviderObservation evidence, String activeSource) {
+        var current = route;
+        if (current == null || current.observation().connectionEpoch() != connectionEpoch
+                || current.observation().worldEpoch() != worldEpoch
+                || evidence.state() != ProviderState.ADVERTISED)
+            return false;
+        var config = service.configSnapshot();
+        observeProvider(evidence, false);
+        if (activeSource != null && policy(config, current) != IdPolicy.ENDPOINT_ONLY
+                && !current.addressOnly()
+                && !Objects.equals(activeSource, resolveCurrent(route, config).sourceNodeId())) {
+            var next = route;
+            route = new Route(next.source(), next.observation(), null, false, true, false, false);
+        }
+        return true;
+    }
+
+    String chooseSource(ConnectionObservation expected, String id, Choice choice) {
         Route previous = route;
         if (previous == null || previous.observation() != expected || previous.source().endpoint() == null)
             return null;
         var config = service.configSnapshot();
+        boolean addressOnly = choice == Choice.ADDRESS_ONCE || choice == Choice.REMEMBER_ADDRESS;
+        if (addressOnly)
+            return chooseAddress(previous, config, choice == Choice.REMEMBER_ADDRESS);
+        boolean create = choice == Choice.NEW;
         String selected = create ? WorldSourceResolver.suggestedSourceId(config, expected) : id;
         Resolution current = resolve(previous, config);
         var rule = config.endpointRules().get(expected.endpoint());
@@ -290,12 +345,59 @@ public final class WorldConnectionRouting {
                         && rule.idPolicy() == IdPolicy.REQUIRE_BOUND_ID)
                 || (!create && !current.candidateSourceIds().contains(selected)))
             return null;
+        if (rule != null && rule.idPolicy() == IdPolicy.REQUIRE_BOUND_ID
+                && !matchesBoundSource(config, expected, selected))
+            return null;
         boolean newAdvertisedSource = expected.providerObservation().state() == ProviderState.ADVERTISED
                 && (rule == null || !config.hasEndpointSource(rule.addressGroupId(), selected))
                 && selected.equals(WorldSourceResolver.suggestedSourceId(config, expected));
-        route = new Route(previous.source(), expected, selected, create || newAdvertisedSource, false);
+        route = new Route(
+                previous.source(), expected, selected, create || newAdvertisedSource, false, false, false);
         WMLogger.info("Download source selected newSource=" + route.createSource());
         return selected;
+    }
+
+    private static boolean matchesBoundSource(
+            WorldGraphConfig.Snapshot config, ConnectionObservation expected, String selected) {
+        return selected.equals(WorldSourceResolver.resolve(config, expected, null).sourceNodeId());
+    }
+
+    String addressSource(ConnectionObservation expected) {
+        Route current = route;
+        return current != null && current.observation() == expected
+                ? addressChoice(service.configSnapshot(), current)
+                : null;
+    }
+
+    private String chooseAddress(Route previous, WorldGraphConfig.Snapshot config, boolean remember) {
+        String selected = addressChoice(config, previous);
+        if (selected == null)
+            return null;
+        route = new Route(previous.source(), previous.observation(), selected, false, false, true, remember);
+        return selected;
+    }
+
+    static WorldGraphConfig.Snapshot rememberAddress(
+            WorldGraphConfig.Snapshot config, Route route, String source) throws IOException {
+        if (!source.equals(addressChoice(config, route)))
+            throw new IOException("Address routing changed before the source was saved");
+        String endpoint = route.source().endpoint();
+        var next = config.withEndpointSource(endpoint, source);
+        var rule = next.endpointRules().get(endpoint);
+        return next.withEndpointRule(endpoint,
+                new EndpointRule(rule.addressGroupId(), rule.sourceIds(), source, IdPolicy.ENDPOINT_ONLY));
+    }
+
+    private static String addressChoice(WorldGraphConfig.Snapshot config, Route route) {
+        return policy(config, route) == IdPolicy.REQUIRE_BOUND_ID
+                ? null
+                : WorldSourceResolver.resolveAddress(config, route.observation()).sourceNodeId();
+    }
+
+    private static IdPolicy policy(WorldGraphConfig.Snapshot config, Route route) {
+        var rule = route.source().endpoint() == null ? null
+                                                     : config.endpointRules().get(route.source().endpoint());
+        return rule == null ? IdPolicy.PREFER_BOUND_ID : rule.idPolicy();
     }
 
     private static String currentAddress(Minecraft client) {
@@ -345,18 +447,25 @@ public final class WorldConnectionRouting {
     private static Route unobservedRoute(Source source) {
         return source == null ? null
                               : new Route(source,
-                                        new ConnectionObservation(0, source.endpoint(), source.nodeId(),
-                                                ProviderObservation.absent()),
-                                        null, false, false);
+                                        new ConnectionObservation(0, 0, source.endpoint(), source.nodeId(),
+                                                ProviderObservation.absent(), Discovery.PROBING),
+                                        null, false, false, false, false);
     }
 
     static Resolution resolve(Route route, WorldGraphConfig.Snapshot config) {
         if (route == null)
             return new Resolution(State.UNAVAILABLE, null, java.util.Set.of());
-        var resolved = WorldSourceResolver.resolve(config, route.observation(), route.chosenSource());
-        if (route.chosenSource() != null && route.createSource())
+        boolean strict = policy(config, route) == IdPolicy.REQUIRE_BOUND_ID;
+        var resolved = WorldSourceResolver.resolve(
+                config, route.observation(), strict ? null : route.chosenSource());
+        if (route.addressOnly() && !strict) {
+            if (route.chosenSource().equals(addressChoice(config, route)))
+                return new Resolution(State.RESOLVED, route.chosenSource(), resolved.candidateSourceIds());
+            return new Resolution(State.CHOOSE_SOURCE, null, resolved.candidateSourceIds());
+        }
+        if (route.chosenSource() != null && route.createSource() && !strict)
             return new Resolution(State.RESOLVED, route.chosenSource(), resolved.candidateSourceIds());
-        if (route.confirmSwitch()) {
+        if (route.confirmSwitch() && !strict) {
             var choices = new java.util.TreeSet<>(resolved.candidateSourceIds());
             if (resolved.sourceNodeId() != null)
                 choices.add(resolved.sourceNodeId());

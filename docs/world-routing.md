@@ -26,15 +26,17 @@ After upgrading from v0.5.4, use **Import Old Local Routes** in the Worlds toolb
 
 The client normalizes the address the player entered: host case, IDN, IPv6 and the default port. It does not use DNS/SRV resolution, a display name, the seed, or a dimension as evidence that two logical worlds are the same.
 
-| ID policy          | Source choice                                                                                                                                                                       |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ENDPOINT_ONLY`    | Use the endpoint default or the only candidate. If there are several candidates and no default, ask.                                                                                |
-| `PREFER_BOUND_ID`  | Use a bound advertised ID. Use the endpoint rule when the client has evidence that no ID is available. Ask when an ID is unfamiliar or its use for this session needs confirmation. |
-| `REQUIRE_BOUND_ID` | Wait when no ID is available. An unfamiliar or conflicting advertised ID needs explicit selection.                                                                                  |
+| ID policy          | Source choice                                                                                                                                                                |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ENDPOINT_ONLY`    | Use the endpoint default or the only candidate. If there are several candidates and no default, ask.                                                                         |
+| `PREFER_BOUND_ID`  | Use a bound advertised ID. Use the endpoint rule when the protocol confirms no provider is available. Offer a source choice when discovery times out or an ID is unfamiliar. |
+| `REQUIRE_BOUND_ID` | Wait for an advertised ID with a binding. Bind an unfamiliar ID in the route editor before capture can proceed.                                                              |
 
 ![Server address rule with the stable ID policy dropdown open](../assets/server-address-policy.png)
 
-A binding uses the provider, address group and raw advertised ID. For Xaero, the observation is the signed ID from the decoded level-properties packet; the adapter does not use derived folder names or Xaero's selected map. An unrecognized ID can be assigned a new source at the first download. If a server obfuscates or rotates its IDs, use endpoint-only routing or choose the logical source for each connection. Changing the policy can use an ID already seen on the open connection. The client cannot infer a switch from two servers that present identical evidence. Lack of a packet is not evidence of absence; a provider without reliable ordering can require explicit confirmation at a transition. Dimension changes with unchanged identity retain the same source and target.
+A binding uses the provider, address group and raw advertised ID. For Xaero, the observation is the signed ID from the decoded level-properties packet. An unrecognized ID can be assigned a new source at the first download. If discovery times out, choose a source or use **Use Address Once**. **Always Use Address** saves the address rule when the download target is prepared. The address choices are offered when the endpoint resolves to one source and the policy permits them. An ID already seen on the open connection can still apply after a policy change.
+
+Endpoint-only sessions keep their source across ordinary respawns. A session that relies on an ID pauses at a respawn boundary until fresh evidence or an allowed user confirmation authorizes capture. The same bound ID can resume that session and target even after the wait expires. A different source or an explicit server reconfiguration ends the old session, and queued exports retain their original destination. When a proxy reuses the client level after a source change, capture waits for a fresh full chunk packet for each reused coordinate. A proxy that gives the same evidence for two worlds cannot be distinguished by the client.
 
 ![Stable IDs tab with a saved Xaero binding](../assets/stable-id-bindings.png)
 

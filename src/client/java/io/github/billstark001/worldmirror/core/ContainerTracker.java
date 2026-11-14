@@ -9,6 +9,7 @@ import com.mojang.serialization.DataResult;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.util.ContainerNameSupport;
 import io.github.billstark001.worldmirror.download.DownloadCapture;
+import io.github.billstark001.worldmirror.download.RemoteChunkProvenance;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.Minecraft;
@@ -59,6 +60,9 @@ public final class ContainerTracker {
         HitResult hitResult = client.hitResult;
         if (hitResult instanceof BlockHitResult blockHit) {
             BlockPos pos = blockHit.getBlockPos();
+            if (!RemoteChunkProvenance.canSample(
+                        client.level, new ChunkPos(pos.getX() >> 4, pos.getZ() >> 4)))
+                return;
             BlockEntity blockEntity = client.level.getBlockEntity(pos);
             // Ender-chest contents belong to the player, not to this world block.
             if (blockEntity == null || blockEntity instanceof EnderChestBlockEntity)
@@ -353,7 +357,9 @@ public final class ContainerTracker {
         if (container == null)
             return null;
         Minecraft client = Minecraft.getInstance();
-        if (DownloadCapture.canCapture(container.world())) {
+        if (DownloadCapture.canCapture(container.world())
+                && RemoteChunkProvenance.canSample(container.world(),
+                        new ChunkPos(container.pos().getX() >> 4, container.pos().getZ() >> 4))) {
             BlockEntity blockEntity = container.world().getBlockEntity(container.pos());
             if (blockEntity != null && container.blockEntityType().equals(typeId(blockEntity)))
                 return container;

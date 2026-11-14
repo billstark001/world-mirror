@@ -5,6 +5,7 @@ import io.github.billstark001.worldmirror.download.WorldGraphConfig.IdPolicy;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.Snapshot;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.StableBinding;
 import io.github.billstark001.worldmirror.download.WorldSourceResolver.ConnectionObservation;
+import io.github.billstark001.worldmirror.download.WorldSourceResolver.Discovery;
 import io.github.billstark001.worldmirror.download.WorldSourceResolver.ProviderObservation;
 import io.github.billstark001.worldmirror.download.WorldSourceResolver.State;
 import org.junit.jupiter.api.Test;
@@ -42,13 +43,37 @@ class WorldSourceResolverTest {
         assertEquals(State.WAITING_ID, resolve(require, ProviderObservation.absent(), FIRST).state());
         assertEquals(State.WAITING_ID, resolve(require, ProviderObservation.pending(), FIRST).state());
         assertEquals(State.CHOOSE_SOURCE, resolve(require, FIRST_ID, null).state());
+        assertNull(resolve(require, FIRST_ID, FIRST).sourceNodeId());
         assertEquals(SECOND, resolve(require, SECOND_ID, null).sourceNodeId());
+        assertEquals(SECOND, resolve(require, SECOND_ID, FIRST).sourceNodeId());
 
         Snapshot endpointOnly = configured(IdPolicy.ENDPOINT_ONLY, FIRST);
         assertEquals(FIRST, resolve(endpointOnly, ProviderObservation.pending(), null).sourceNodeId());
         assertEquals(FIRST, resolve(endpointOnly, SECOND_ID, null).sourceNodeId());
         assertEquals(State.CHOOSE_SOURCE,
                 resolve(configured(IdPolicy.ENDPOINT_ONLY, null), SECOND_ID, null).state());
+    }
+
+    @Test
+    void discoveryDeadlineOffersAChoiceWithoutTreatingSilenceAsAbsence() {
+        var expired = observation(ADDRESS, ProviderObservation.pending()).finishDiscovery();
+        assertEquals(ProviderObservation.pending(), expired.providerObservation());
+        assertEquals(
+                State.CHOOSE_SOURCE, WorldSourceResolver.resolve(Snapshot.empty(), expired, null).state());
+        var prefer = configured(IdPolicy.PREFER_BOUND_ID, FIRST);
+        assertEquals(State.CHOOSE_SOURCE, WorldSourceResolver.resolve(prefer, expired, null).state());
+        assertEquals(FIRST, WorldSourceResolver.resolveAddress(prefer, expired).sourceNodeId());
+        assertEquals(SECOND,
+                WorldSourceResolver.resolve(prefer, expired.withProvider(SECOND_ID), null).sourceNodeId());
+        assertEquals(State.WAITING_ID,
+                WorldSourceResolver.resolve(configured(IdPolicy.REQUIRE_BOUND_ID, FIRST), expired, null)
+                        .state());
+        assertEquals(FIRST,
+                WorldSourceResolver.resolve(configured(IdPolicy.ENDPOINT_ONLY, FIRST), expired, null)
+                        .sourceNodeId());
+        assertEquals(State.CHOOSE_SOURCE,
+                WorldSourceResolver.resolveAddress(configured(IdPolicy.PREFER_BOUND_ID, null), expired)
+                        .state());
     }
 
     @Test
@@ -97,8 +122,8 @@ class WorldSourceResolverTest {
         assertEquals("local:world",
                 WorldSourceResolver
                         .resolve(config,
-                                new ConnectionObservation(
-                                        8, null, "local:world", ProviderObservation.pending()),
+                                new ConnectionObservation(8, 0, null, "local:world",
+                                        ProviderObservation.pending(), Discovery.PROBING),
                                 SECOND)
                         .sourceNodeId());
     }
@@ -116,6 +141,6 @@ class WorldSourceResolverTest {
     }
 
     private static ConnectionObservation observation(String endpoint, ProviderObservation provider) {
-        return new ConnectionObservation(7, endpoint, null, provider);
+        return new ConnectionObservation(7, 0, endpoint, null, provider, Discovery.PROBING);
     }
 }

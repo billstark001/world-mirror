@@ -58,9 +58,11 @@ public final class DownloadCapture {
 
     /** Last-chance main-thread capture before Fabric removes a loaded chunk. */
     public static void captureChunkBeforeUnload(ClientLevel world, LevelChunk chunk) {
-        if (chunk == null || !canCapture(world))
+        if (chunk == null)
             return;
-        queue.captureBeforeUnload(world, chunk);
+        if (canCapture(world))
+            queue.captureBeforeUnload(world, chunk);
+        RemoteChunkProvenance.forget(world, chunk.getPos());
     }
 
     /** Queues a normal capture when a light packet arrives before its base chunk. */
@@ -134,7 +136,8 @@ public final class DownloadCapture {
         for (int cx = playerCX - STOP_CAPTURE_RANGE; cx <= playerCX + STOP_CAPTURE_RANGE; cx++) {
             for (int cz = playerCZ - STOP_CAPTURE_RANGE; cz <= playerCZ + STOP_CAPTURE_RANGE; cz++) {
                 ChunkAccess chunk = world.getChunk(cx, cz, ChunkStatus.FULL, false);
-                if (!(chunk instanceof LevelChunk wc) || SeedChunkTracking.hidden(world, wc))
+                if (!(chunk instanceof LevelChunk wc) || !RemoteChunkProvenance.canSample(world, cx, cz)
+                        || SeedChunkTracking.hidden(world, wc))
                     continue;
                 try {
                     if (ChunkSerializer.isChunkEmpty(wc))

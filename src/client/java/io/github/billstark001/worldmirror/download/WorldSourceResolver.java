@@ -15,6 +15,7 @@ public final class WorldSourceResolver {
     public enum State { WAITING_ID, CHOOSE_SOURCE, UNAVAILABLE, RESOLVED }
 
     public enum ProviderState { PENDING, ABSENT, ADVERTISED, CONFLICT }
+    public enum Discovery { PROBING, DEADLINE_PASSED }
 
     public record ProviderObservation(ProviderState state, String provider, String advertisedId) {
         public ProviderObservation {
@@ -44,9 +45,10 @@ public final class WorldSourceResolver {
         }
     }
 
-    public record ConnectionObservation(long connectionEpoch, String endpoint, String localNodeId,
-            ProviderObservation providerObservation) {
+    public record ConnectionObservation(long connectionEpoch, long worldEpoch, String endpoint,
+            String localNodeId, ProviderObservation providerObservation, Discovery discovery) {
         public ConnectionObservation {
+            Objects.requireNonNull(discovery);
             if (endpoint != null) {
                 endpoint = WorldGraphConfig.normalizeEndpoint(endpoint);
                 if (localNodeId != null) {
@@ -55,6 +57,21 @@ public final class WorldSourceResolver {
                 }
             }
             Objects.requireNonNull(providerObservation);
+        }
+
+        ConnectionObservation withProvider(ProviderObservation provider) {
+            return new ConnectionObservation(
+                    connectionEpoch, worldEpoch, endpoint, localNodeId, provider, discovery);
+        }
+
+        ConnectionObservation enterWorldBoundary() {
+            return new ConnectionObservation(
+                    connectionEpoch, worldEpoch + 1, endpoint, localNodeId, providerObservation, discovery);
+        }
+
+        ConnectionObservation finishDiscovery() {
+            return new ConnectionObservation(connectionEpoch, worldEpoch, endpoint, localNodeId,
+                    providerObservation, Discovery.DEADLINE_PASSED);
         }
     }
 
@@ -101,16 +118,20 @@ public final class WorldSourceResolver {
                 && bound == null) {
             candidates.add(suggestedSourceId(config, observation));
         }
-        boolean requiresMissingId = policy == IdPolicy.REQUIRE_BOUND_ID
-                && (provider.state() == ProviderState.PENDING || provider.state() == ProviderState.ABSENT);
-        if (!requiresMissingId && selectedSourceId != null && candidates.contains(selectedSourceId)) {
+        if (policy != IdPolicy.REQUIRE_BOUND_ID && selectedSourceId != null
+                && candidates.contains(selectedSourceId)) {
             return resolved(selectedSourceId, candidates);
         }
         if (policy == IdPolicy.ENDPOINT_ONLY) {
             return endpointResult(rule, candidates);
         }
         return switch (provider.state()) {
-            case PENDING -> result(State.WAITING_ID, candidates);
+            case PENDING ->
+                result(policy == IdPolicy.PREFER_BOUND_ID
+                                        && observation.discovery() == Discovery.DEADLINE_PASSED
+                                ? State.CHOOSE_SOURCE
+                                : State.WAITING_ID,
+                        candidates);
             case ABSENT ->
                 policy == IdPolicy.REQUIRE_BOUND_ID ? result(State.WAITING_ID, candidates)
                                                     : endpointResult(rule, candidates);
@@ -118,6 +139,17 @@ public final class WorldSourceResolver {
             case ADVERTISED ->
                 bound == null ? result(State.CHOOSE_SOURCE, candidates) : resolved(bound, candidates);
         };
+    }
+
+    /** Address use is available when the endpoint uniquely determines a source. */
+    static Resolution resolveAddress(Snapshot config, ConnectionObservation observation) {
+        if (config == null || observation == null || observation.endpoint() == null)
+            return result(State.UNAVAILABLE, Set.of());
+        EndpointRule rule = config.endpointRules().get(observation.endpoint());
+        Set<String> candidates = rule == null || rule.sourceIds().isEmpty()
+                ? Set.of(WorldGraphConfig.deterministicId("remote", observation.endpoint()))
+                : rule.sourceIds();
+        return endpointResult(rule, candidates);
     }
 
     /** New identified worlds get a stable graph identity without touching an existing source key. */

@@ -73,7 +73,9 @@ class WorldGraphRoutingTest extends WorldGraphFixture {
                         .collect(java.util.stream.Collectors.toSet()));
         assertTrue(service.routing().observeProvider(ProviderObservation.advertised("xaero", "99"), true));
         assertEquals(State.CHOOSE_SOURCE, service.routing().currentResolution().state());
-        assertEquals(second, service.routing().chooseSource(service.routing().observation(), second, false));
+        assertEquals(second,
+                service.routing().chooseSource(
+                        service.routing().observation(), second, WorldConnectionRouting.Choice.EXISTING));
         assertEquals(secondA, service.prepare(service.routing().source()).nodeId());
 
         service.editRouting(snapshot -> snapshot.withEndpointRule(alias, null));
@@ -89,7 +91,8 @@ class WorldGraphRoutingTest extends WorldGraphFixture {
         var id = ProviderObservation.advertised("xaero", "987");
         assertTrue(service.routing().observeProvider(id, false));
         assertEquals(State.CHOOSE_SOURCE, service.routing().currentResolution().state());
-        String selected = service.routing().chooseSource(service.routing().observation(), null, true);
+        String selected = service.routing().chooseSource(
+                service.routing().observation(), null, WorldConnectionRouting.Choice.NEW);
         service.setSourceSaveLocation(selected, ModConfig.SaveLocation.DOWNLOADED);
         var target = service.prepare(service.routing().source());
         assertEquals(selected, target.parentNodeId());

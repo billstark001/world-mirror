@@ -87,7 +87,7 @@ final class DownloadCaptureQueue {
     }
 
     void captureBeforeUnload(ClientLevel world, LevelChunk chunk) {
-        if (world == null || chunk == null)
+        if (world == null || chunk == null || !RemoteChunkProvenance.canSample(world, chunk.getPos()))
             return;
         Key key = new Key(
                 world.dimension(), chunk.getPos().getMinBlockX() >> 4, chunk.getPos().getMinBlockZ() >> 4);
@@ -314,7 +314,9 @@ final class DownloadCaptureQueue {
                 continue;
             ChunkAccess chunk =
                     world.getChunk(request.key().chunkX(), request.key().chunkZ(), ChunkStatus.FULL, false);
-            if (!(chunk instanceof LevelChunk levelChunk) || SeedChunkTracking.hidden(world, levelChunk))
+            if (!(chunk instanceof LevelChunk levelChunk)
+                    || !RemoteChunkProvenance.canSample(world, request.key().chunkX(), request.key().chunkZ())
+                    || SeedChunkTracking.hidden(world, levelChunk))
                 continue;
 
             long captureStartedNs = System.nanoTime();
@@ -407,6 +409,7 @@ final class DownloadCaptureQueue {
                 key
                 -> world.getChunk(key.chunkX(), key.chunkZ(), ChunkStatus.FULL, false)
                                         instanceof LevelChunk chunk
+                        && RemoteChunkProvenance.canSample(world, key.chunkX(), key.chunkZ())
                         && !SeedChunkTracking.hidden(world, chunk) && queue(key, scan.reason(), false));
         if (scan.coordinates().isComplete())
             scans.removeFirst();

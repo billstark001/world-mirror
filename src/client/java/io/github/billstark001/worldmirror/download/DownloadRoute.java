@@ -2,6 +2,7 @@ package io.github.billstark001.worldmirror.download;
 
 import io.github.billstark001.worldmirror.io.MirrorTarget;
 import io.github.billstark001.worldmirror.download.WorldSourceResolver.ConnectionObservation;
+import io.github.billstark001.worldmirror.download.WorldConnectionRouting.Choice;
 import io.github.billstark001.worldmirror.download.WorldSourceResolver.State;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.util.WMPlayerMessages;
@@ -21,7 +22,6 @@ public final class DownloadRoute {
     private DownloadRoute() {}
 
     private static final long PREPARING_NOTICE_NS = 200_000_000L;
-    private static final long SOURCE_WAIT_NOTICE_NS = 2_000_000_000L;
     private static volatile String selectedMirror;
     private static volatile boolean createMirror;
     private static volatile boolean preparingRoute;
@@ -39,6 +39,11 @@ public final class DownloadRoute {
 
     public static boolean isDownloadPreparing() {
         return preparingDownload;
+    }
+
+    static boolean awaitingSource() {
+        var request = pendingRoute;
+        return request != null && !request.manual() && request.announced();
     }
 
     public static boolean isManualExportChecking() {
@@ -101,11 +106,10 @@ public final class DownloadRoute {
         var graph = WorldGraphService.instance();
         var observation = graph.routing().observation();
         if (!graph.available() || observation == null || observation.endpoint() == null
-                || DownloadManager.hasManualExport())
+                || DownloadManager.hasManualExport()
+                || DownloadWorldChanges.isRespawnBoundary() && !DownloadWorldChanges.needsConfirmation())
             return false;
-        var rule = graph.configSnapshot().endpointRules().get(observation.endpoint());
-        return rule == null || rule.idPolicy() != WorldGraphConfig.IdPolicy.REQUIRE_BOUND_ID
-                || graph.routing().currentResolution().state() != State.WAITING_ID;
+        return !graph.routing().strictlyRequiresIdentity();
     }
 
     public static void chooseDownloadSource() {
@@ -116,28 +120,39 @@ public final class DownloadRoute {
         var connection = client.getConnection();
         var observation = graph.routing().observation();
         var resolution = graph.routing().currentResolution();
-        openSourceChooser(client, observation, resolution, (id, create) -> {
+        openSourceChooser(client, observation, resolution, (id, choice) -> {
             if (connection != client.getConnection() || !graph.routing().observationIsCurrent(client))
                 return;
-            String selected = graph.routing().chooseSource(observation, id, create);
-            if (selected == null || Objects.equals(resolution.sourceNodeId(), selected))
+            String selected = graph.routing().chooseSource(observation, id, choice);
+            if (selected == null)
                 return;
             boolean active = DownloadManager.isCaptureEnabled();
             boolean restart = preparingDownload || downloadReview != null;
+            boolean safe = DownloadManager.sessionIsCurrent(client);
+            DownloadWorldChanges.confirmSource(client, observation.worldEpoch(), selected);
+            var current = DownloadManager.session();
+            if (active && current != null && current.sourceNodeId().equals(selected)
+                    && choice != Choice.REMEMBER_ADDRESS) {
+                DownloadWorldChanges.resumeCapture(client);
+                return;
+            }
             if (!active && restart && pendingRoute != null) {
                 // Resolve the retained start request without creating another action or dropping the choice.
                 continuePendingRoute(client);
                 return;
             }
-            if (DownloadManager.sessionIsCurrent(client)) {
+            String previous = current == null ? resolution.sourceNodeId() : current.sourceNodeId();
+            if (previous != null && !previous.equals(selected))
+                RemoteChunkProvenance.restrict(client.level);
+            if (safe) {
                 DownloadCapture.finishPendingBlockChanges(client);
                 DownloadCapture.queue.finishLightUpdates();
             }
-            DownloadManager.endCaptureSession(true);
+            DownloadManager.endCaptureSession(safe);
             cancelRouteRequest();
             selectedMirror = null;
             createMirror = false;
-            if (active || restart)
+            if (active || restart || choice == Choice.REMEMBER_ADDRESS)
                 requestDownloadStart(client, "source-selection");
         });
     }
@@ -229,36 +244,36 @@ public final class DownloadRoute {
             requestOutputReady(client, OutputOrigin.current(client), request.action(), request.manual());
             return;
         }
-        if (resolution.state() == State.WAITING_ID && !request.manual() && elapsed < SOURCE_WAIT_NOTICE_NS)
+        if (resolution.state() == State.WAITING_ID && !request.manual()
+                && elapsed < RemoteWorldBoundary.DISCOVERY_NS)
             return;
+        if (resolution.state() == State.WAITING_ID)
+            graph.routing().finishDiscovery(graph.routing().observation());
+        awaitSourceChoice(client, request, graph);
+    }
+
+    private static void awaitSourceChoice(Minecraft client, PendingRoute request, WorldGraphService graph) {
         var observation = graph.routing().observation();
+        var resolution = graph.routing().currentResolution();
         if (observation == null || observation.endpoint() == null) {
             cancelRouteRequest();
             return;
         }
-        var config = graph.configSnapshot();
-        var rule = config.endpointRules().get(observation.endpoint());
-        boolean canChoose = resolution.state() == State.CHOOSE_SOURCE || rule == null
-                || rule.idPolicy() != WorldGraphConfig.IdPolicy.REQUIRE_BOUND_ID;
+        boolean canChoose = !graph.routing().strictlyRequiresIdentity();
         if (!canChoose || !request.manual()) {
             // An arriving ID or an explicit source choice can resume this action without interrupting play.
             if (!request.announced()) {
                 pendingRoute = request.announcedNow();
-                WMLogger.info("Download route awaiting " + (canChoose ? "source selection" : "a bound ID")
-                        + " state=" + resolution.state()
-                        + " choices=" + resolution.candidateSourceIds().size());
-                WMPlayerMessages.sendSystemMessage(client.player,
-                        Component.translatable(canChoose ? "screen.worldmirror.captureRoute.selectionRequired"
-                                                         : "screen.worldmirror.captureRoute.waiting"));
+                DownloadPreparationPrompts.waitForSource(client, canChoose, resolution);
             }
             return;
         }
         pendingRoute = null;
         WMLogger.info("Manual action requires a download source choice state=" + resolution.state()
                 + " choices=" + resolution.candidateSourceIds().size());
-        openSourceChooser(client, observation, resolution, (id, create) -> {
+        openSourceChooser(client, observation, resolution, (id, choice) -> {
             if (request.id() != routeRequestId || request.connection() != client.getConnection()
-                    || graph.routing().chooseSource(observation, id, create) == null)
+                    || graph.routing().chooseSource(observation, id, choice) == null)
                 return;
             requestRoute(client, request.action(), request.manual());
         });
@@ -286,10 +301,10 @@ public final class DownloadRoute {
 
     private static void openSourceChooser(Minecraft client, ConnectionObservation observation,
             WorldSourceResolver.Resolution resolution,
-            java.util.function.BiConsumer<String, Boolean> selected) {
-        var choices = new java.util.TreeSet<>(resolution.candidateSourceIds());
-        CaptureRouteScreen.open(
-                ClientDialogs.currentScreen(client), observation.endpoint(), choices, selected);
+            java.util.function.BiConsumer<String, Choice> selected) {
+        var routing = WorldGraphService.instance().routing();
+        CaptureRouteScreen.open(ClientDialogs.currentScreen(client), observation.endpoint(),
+                resolution.candidateSourceIds(), routing.addressSource(observation) != null, selected);
     }
 
     private static void requestOutputReady(
@@ -374,6 +389,7 @@ public final class DownloadRoute {
             var graph = WorldGraphService.instance();
             return source != null && source == graph.routing().source()
                     && epoch == DownloadManager.sourceEpoch() && requestId == routeRequestId
+                    && graph.routing().isSameWorld(observation)
                     && Objects.equals(sourceNodeId, graph.routing().currentResolution().sourceNodeId());
         }
 
@@ -429,20 +445,10 @@ public final class DownloadRoute {
                 }
             }
             case FUTURE -> {
-                WMLogger.warn("Mirror output is newer than this client world=" + target.folder());
-                DownloadPreparationPrompts.alert(client, showDialog,
-                        new MirrorPrompt.Text("screen.worldmirror.upgrade.futureTitle"),
-                        new MirrorPrompt.Text("screen.worldmirror.upgrade.futureBody"));
+                DownloadPreparationPrompts.future(client, target, showDialog);
             }
             default -> {
-                WMLogger.warn(
-                        "Mirror output unavailable world=" + target.folder() + " state=" + plan.state());
-                DownloadPreparationPrompts.alert(client, showDialog,
-                        new MirrorPrompt.Text("screen.worldmirror.upgrade.unavailableTitle"),
-                        plan.problem() != null
-                                ? new MirrorPrompt.Text("screen.worldmirror.repair.unavailableBody")
-                                : new MirrorPrompt.Text(
-                                          "screen.worldmirror.upgrade.unavailableBody", plan.state().name()));
+                DownloadPreparationPrompts.unavailable(client, target, plan, showDialog);
             }
         }
     }

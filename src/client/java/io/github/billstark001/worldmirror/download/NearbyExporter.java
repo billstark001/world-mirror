@@ -127,7 +127,9 @@ public final class NearbyExporter {
         for (int cx = playerCX - radiusChunks; cx <= playerCX + radiusChunks; cx++) {
             for (int cz = playerCZ - radiusChunks; cz <= playerCZ + radiusChunks; cz++) {
                 ChunkAccess chunk = world.getChunk(cx, cz, ChunkStatus.FULL, false);
-                if (!(chunk instanceof LevelChunk worldChunk) || SeedChunkTracking.hidden(world, worldChunk))
+                if (!(chunk instanceof LevelChunk worldChunk)
+                        || !RemoteChunkProvenance.canSample(world, cx, cz)
+                        || SeedChunkTracking.hidden(world, worldChunk))
                     continue;
                 try {
                     if (ChunkSerializer.isChunkEmpty(worldChunk))

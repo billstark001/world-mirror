@@ -38,7 +38,7 @@ final class WorldGraphTargetPreparation {
             var target = decision.target();
             if (!stillCurrent.getAsBoolean())
                 throw new IOException("Connection changed during mirror preparation");
-            if (route.createSource() || decision.requestedMirrorId() == null)
+            if (route.createSource() || route.rememberAddress() || decision.requestedMirrorId() == null)
                 recordRoute(service, view.config(), route, parent,
                         decision.requestedMirrorId() == null ? target.nodeId() : null);
             return target;
@@ -99,7 +99,8 @@ final class WorldGraphTargetPreparation {
                                   .withAutomaticMirror(automaticTarget));
         String endpoint = route.source().endpoint();
         if (endpoint != null) {
-            next = next.withEndpointSource(endpoint, parent);
+            next = route.rememberAddress() ? WorldConnectionRouting.rememberAddress(next, route, parent)
+                                           : next.withEndpointSource(endpoint, parent);
             EndpointRule rule = next.endpointRules().get(endpoint);
             if (route.createSource() && rule.idPolicy() != IdPolicy.ENDPOINT_ONLY) {
                 ProviderObservation evidence = route.observation().providerObservation();

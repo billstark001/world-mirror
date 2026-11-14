@@ -2,6 +2,7 @@ package io.github.billstark001.worldmirror.mixin;
 
 import io.github.billstark001.worldmirror.download.DownloadManager;
 import io.github.billstark001.worldmirror.download.DownloadCapture;
+import io.github.billstark001.worldmirror.download.RemoteChunkProvenance;
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.core.LightingUpdate;
 import io.github.billstark001.worldmirror.util.WMLogger;
@@ -34,22 +35,17 @@ public abstract class ChunkDataMixin {
 
     @Inject(method = {"handleLevelChunkWithLight"}, at = { @At("TAIL") })
     private void onChunkData(ClientboundLevelChunkWithLightPacket packet, CallbackInfo ci) {
-        if (!DownloadManager.isCaptureEnabled())
-            return;
-
         ClientLevel world = this.getLevel();
         if (world == null) {
-            WMLogger.warnRateLimited("chunk-packet-no-world", 30_000L,
-                    "Chunk packet ignored because the client world is unavailable");
             return;
         }
-
-        DownloadCapture.queueChunkCapture(world,
 #if MC_VERSION >= 260300
-                new ChunkPos(packet.x(), packet.z()), "full-chunk-packet");
+        ChunkPos pos = new ChunkPos(packet.x(), packet.z());
 #else
-                new ChunkPos(packet.getX(), packet.getZ()), "full-chunk-packet");
+        ChunkPos pos = new ChunkPos(packet.getX(), packet.getZ());
 #endif
+        RemoteChunkProvenance.refresh(world, pos);
+        DownloadCapture.queueChunkCapture(world, pos, "full-chunk-packet");
     }
 
     @Inject(method = "handleBlockUpdate", at = @At("TAIL"))
@@ -128,6 +124,8 @@ public abstract class ChunkDataMixin {
             return;
 
         ChunkPos pos = new ChunkPos(chunkX, chunkZ);
+        if (!RemoteChunkProvenance.canSample(world, pos))
+            return;
         try {
             var lightEngine = world.getChunkSource().getLightEngine();
             boolean applied = ChunkListener.applyLightUpdate(world.dimension(), pos,

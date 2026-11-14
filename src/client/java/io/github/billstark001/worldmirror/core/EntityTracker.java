@@ -1,6 +1,7 @@
 package io.github.billstark001.worldmirror.core;
 
 import io.github.billstark001.worldmirror.io.SeedChunkTracking;
+import io.github.billstark001.worldmirror.download.RemoteChunkProvenance;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
@@ -98,8 +99,8 @@ public final class EntityTracker {
         ResourceKey<Level> dimension = world.dimension();
         EntitySnapshotStore store =
                 dimensions.computeIfAbsent(dimension, ignored -> new EntitySnapshotStore());
-        Map<ChunkPos, Map<UUID, EntityRecord>> observed =
-                observeEntities(world, pos -> !SeedChunkTracking.hidden(world, pos));
+        Map<ChunkPos, Map<UUID, EntityRecord>> observed = observeEntities(world,
+                pos -> RemoteChunkProvenance.canSample(world, pos) && !SeedChunkTracking.hidden(world, pos));
         int total = observed.values().stream().mapToInt(Map::size).sum();
 
         long now = System.currentTimeMillis();
@@ -262,7 +263,8 @@ public final class EntityTracker {
                     z <= centerZ + COMPLETE_OBSERVATION_RADIUS_CHUNKS; z++) {
                 ChunkPos pos = new ChunkPos(x, z);
                 var chunk = world.getChunkSource().getChunk(x, z, ChunkStatus.FULL, false);
-                if (chunk == null || SeedChunkTracking.hidden(world, chunk)) {
+                if (chunk == null || !RemoteChunkProvenance.canSample(world, pos)
+                        || SeedChunkTracking.hidden(world, chunk)) {
                     loaded.remove(pos);
                     continue;
                 }
