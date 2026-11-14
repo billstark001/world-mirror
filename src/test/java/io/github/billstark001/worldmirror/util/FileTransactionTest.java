@@ -1,14 +1,20 @@
 package io.github.billstark001.worldmirror.util;
 
+import com.sun.nio.file.ExtendedOpenOption;
+import io.github.billstark001.worldmirror.io.WorldWriteLock;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 class FileTransactionTest {
@@ -30,6 +36,32 @@ class FileTransactionTest {
         Files.delete(collision);
         FileTransaction.recover(root);
         assertEquals("committed", Files.readString(root.resolve("document")));
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void transientRenameDenialDoesNotLeaveARecoveryMarker(@TempDir Path root) throws Exception {
+        Path journal;
+        try (var lease = WorldWriteLock.acquire(root); var transaction = new FileTransaction(root)) {
+            Path staged = Files.writeString(transaction.stagingDirectory().resolve("document"), "committed");
+            Path probe = Files.writeString(transaction.stagingDirectory().resolve("leftover"), "scratch");
+            transaction.commit(Map.of(Path.of("document"), staged));
+            journal = transaction.stagingDirectory().getParent();
+            try (var handle = FileChannel.open(
+                         probe, StandardOpenOption.READ, ExtendedOpenOption.NOSHARE_DELETE)) {
+                var release = new FutureTask<Void>(() -> {
+                    Thread.sleep(100L);
+                    handle.close();
+                    return null;
+                });
+                Thread.startVirtualThread(release);
+                transaction.close();
+                release.get(5, TimeUnit.SECONDS);
+            }
+        }
+        assertEquals("committed", Files.readString(root.resolve("document")));
+        assertFalse(Files.exists(journal));
+        assertFalse(WorldRecovery.required(root));
     }
 
     @Test

@@ -7,6 +7,7 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.CopyOption;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -311,13 +312,21 @@ public final class FileTransaction implements AutoCloseable {
     }
 
     static void replace(Path source, Path target) throws IOException {
+        move(source, target, true);
+    }
+
+    private static void move(Path source, Path target, boolean replaceExisting) throws IOException {
+        CopyOption[] atomic = replaceExisting
+                ? new CopyOption[] {StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING}
+                : new CopyOption[] {StandardCopyOption.ATOMIC_MOVE};
+        CopyOption[] fallback =
+                replaceExisting ? new CopyOption[] {StandardCopyOption.REPLACE_EXISTING} : new CopyOption[0];
         for (int attempt = 0;; attempt++) {
             try {
                 try {
-                    Files.move(source, target, StandardCopyOption.ATOMIC_MOVE,
-                            StandardCopyOption.REPLACE_EXISTING);
+                    Files.move(source, target, atomic);
                 } catch (AtomicMoveNotSupportedException unsupported) {
-                    Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+                    Files.move(source, target, fallback);
                 }
                 return;
             } catch (java.nio.file.AccessDeniedException transientLock) {
@@ -327,7 +336,7 @@ public final class FileTransaction implements AutoCloseable {
                     Thread.sleep(50L);
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
-                    throw new IOException("Interrupted replacing " + target, interrupted);
+                    throw new IOException("Interrupted moving " + source + " to " + target, interrupted);
                 }
             }
         }
@@ -343,11 +352,7 @@ public final class FileTransaction implements AutoCloseable {
         Path retired = directory.resolveSibling(
                 CLEANUP_PREFIX + directory.getFileName().toString().substring(PREFIX.length()));
         try {
-            try {
-                Files.move(directory, retired, StandardCopyOption.ATOMIC_MOVE);
-            } catch (AtomicMoveNotSupportedException unsupported) {
-                Files.move(directory, retired);
-            }
+            move(directory, retired, false);
         } catch (java.nio.file.NoSuchFileException alreadyRetired) {
             if (Files.notExists(directory))
                 return;
