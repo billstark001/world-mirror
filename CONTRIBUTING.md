@@ -72,7 +72,7 @@ Preserve the SQLite namespace when rewriting a node ID. Back up legacy metadata 
 
 ## Mirror worldgen revision policy
 
-`SeedConversion` owns seed previews and application. `SeedConversionTarget` verifies offline target eligibility and `SeedConversionFiles` stages the file changes. `SeedTerrain` scans regions and checks chunk evidence. `SeedTerrainBiomes` and `SeedTerrainBlending` handle block-adjacent biome and blend data, while `SeedTerrainFiles` handles auxiliary region and external chunk paths.
+`SeedConversion` owns seed previews and application. `SeedConversionTarget` verifies offline target eligibility and `SeedConversionFiles` stages the file changes. `SeedTerrain` scans regions and checks chunk evidence. `SeedTerrainBiomes` and `SeedTerrainBlending` handle block-adjacent biome and blend data, and `ChunkAuxiliaryData` shares read-only entity and POI checks between seed conversion and live export.
 
 `generation.assetRevision` in `worldmirror_meta.json` is one global, monotonically increasing integer for every supported Minecraft target. All artifacts in one mod release write the same value to mirror metadata and the embedded data-pack manifest. Increment it across all targets when the embedded worldgen assets or serialized worldgen settings change for any target. A target whose bytes did not change still adopts the new revision to keep migration ordering consistent.
 

@@ -6,7 +6,6 @@ import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
 import io.github.billstark001.worldmirror.download.SeedTerrainBiomes;
 import io.github.billstark001.worldmirror.download.SeedTerrainBlending;
-import io.github.billstark001.worldmirror.download.SeedTerrainFiles;
 import io.github.billstark001.worldmirror.download.WorldMetadata;
 import io.github.billstark001.worldmirror.format.ChunkIndexStore;
 import io.github.billstark001.worldmirror.format.ChunkUpdatePolicy.Action;
@@ -210,11 +209,13 @@ final class TerrainDimensionExport {
         }
 
         private Map<ChunkPos, StagedChunk> stage() throws IOException {
-            try (var region = new RegionFile(storageInfo, file, regionDir, false)) {
+            try (var region = new RegionFile(storageInfo, file, regionDir, false);
+                    var auxiliary =
+                            new ChunkAuxiliaryData(worldFolder, file, coordinates.x(), coordinates.z())) {
                 for (var entry : entries) {
                     ChunkPos pos = entry.getKey();
                     try {
-                        stageChunk(region, pos, entry.getValue());
+                        stageChunk(region, auxiliary, pos, entry.getValue());
                     } catch (Exception failure) {
                         staged.failed = true;
                         WMLogger.warnRateLimited("chunk-process-" + dimensionId, 30_000L,
@@ -242,8 +243,8 @@ final class TerrainDimensionExport {
             }
         }
 
-        private void stageChunk(RegionFile region, ChunkPos pos, ChunkListener.CapturedChunk captured)
-                throws Exception {
+        private void stageChunk(RegionFile region, ChunkAuxiliaryData auxiliary, ChunkPos pos,
+                ChunkListener.CapturedChunk captured) throws Exception {
             CompoundTag local = readChunk(region, pos);
             boolean generatedClaim = generatedClaims.contains(pos);
             boolean unindexed = unindexedCandidates.contains(pos);
@@ -261,8 +262,7 @@ final class TerrainDimensionExport {
             boolean seedCandidate = generatedClaim || unindexed;
             var generated = local == null ? null : SeedChunkProvenance.read(local);
             boolean replaceGenerated = seedCandidate && generated != null
-                    && SeedChunkProvenance.isUnmodified(local, generated)
-                    && SeedTerrainFiles.hasNoAuxiliaryData(worldFolder, dimension, pos);
+                    && SeedChunkProvenance.isUnmodified(local, generated) && !auxiliary.hasData(pos);
             if (local != null && !replaceGenerated
                     && (generatedClaim || (seedCandidate && SeedChunkProvenance.hasMarker(local)))) {
                 settled.put(pos, stamp(captured));

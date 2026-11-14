@@ -20,7 +20,7 @@ public final class SeedTerrainBiomes {
 
     private SeedTerrainBiomes() {}
 
-    static boolean nonemptyList(CompoundTag tag, String key) {
+    private static boolean nonemptyList(CompoundTag tag, String key) {
         return tag.contains(key) && (!(tag.get(key) instanceof ListTag list) || !list.isEmpty());
     }
 

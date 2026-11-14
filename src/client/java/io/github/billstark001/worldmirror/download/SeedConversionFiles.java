@@ -203,8 +203,8 @@ final class SeedConversionFiles {
         writes.put(relative, destination);
         var prior = positions(source, region);
         for (ChunkPos pos : prior) {
-            Path originalPayload = SeedTerrainFiles.external(source, pos);
-            Path stagedPayload = SeedTerrainFiles.external(destination, pos);
+            Path originalPayload = AnvilReader.externalFile(source.getParent(), pos);
+            Path stagedPayload = AnvilReader.externalFile(destination.getParent(), pos);
             Path key = root.relativize(originalPayload);
             if (Files.isRegularFile(stagedPayload, LinkOption.NOFOLLOW_LINKS))
                 writes.put(key, stagedPayload);

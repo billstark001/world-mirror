@@ -16,7 +16,7 @@ Applying a seed switches the save to the native normal preset. World Mirror stor
 
 Applying a seed to a fresh World Mirror reservation creates the playable save and its metadata with the reserved identity. A recognized void mirror with missing metadata is registered as a standalone snapshot and keeps its existing SQLite namespace when there is exactly one. Opening the seed editor and previewing leave metadata unwritten.
 
-To remove an assigned seed, preview the return to void generation. The default keeps existing terrain. The delete option only removes chunks from the current batch whose blocks, biomes and block entities still match their original generated contents and whose separate entity and POI data are safe to remove. The preview counts retained and unknown chunks separately. **Change seed** previews a replacement seed directly, keeps existing terrain and starts a new generation batch.
+To remove an assigned seed, preview the return to void generation. The default keeps existing terrain. The delete option only removes chunks from the current batch whose blocks, biomes and block entities still match their original generated contents and whose separate entity and POI data are safe to remove. The preview counts retained and unknown chunks separately. Terrain saved by a newer Minecraft version blocks the conversion. **Change seed** previews a replacement seed directly, keeps existing terrain and starts a new generation batch.
 
 ![Seeded mirror settings with options to change the seed, preview removal, and regenerate the border](../assets/world-seed-management.png)
 

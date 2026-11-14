@@ -25,6 +25,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
@@ -144,6 +145,65 @@ class SeedConversionTest {
             assertFalse(Files.exists(database.resolveSibling(database.getFileName() + "-shm")));
             assertFalse(Files.exists(world.resolve("backups")));
         }
+    }
+
+    @Test
+    void readsCommittedWalWithoutChangingLiveSidecarsDuringPreviewOrCancellation(@TempDir Path world)
+            throws Exception {
+        var target = mirror(world);
+        Path region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        var air = terrain("minecraft:air", "worldmirror:mirror_overworld");
+        McaWriteSupport.writeChunks(region, Level.OVERWORLD, Map.of(PLACEHOLDER, air, CAPTURE, air));
+
+        try (var connection = ChunkDatabase.openWritableConnection(world);
+                var statement = connection.createStatement()) {
+            ChunkIndexStore.initialize(connection);
+            assertTrue(statement.execute("PRAGMA journal_mode=WAL"));
+            statement.execute("PRAGMA wal_autocheckpoint=0");
+            var capture = new ChunkIndexStore(connection, target.sourceId());
+            capture.recordUpdates("minecraft:overworld",
+                    Map.of(new ChunkIndexStore.ChunkCoordinate(1, 0), 42L), "world_mirror");
+            Path database = world.resolve(SeedIndexSnapshot.DATABASE);
+            Path wal = database.resolveSibling(database.getFileName() + "-wal");
+            Path shm = database.resolveSibling(database.getFileName() + "-shm");
+            assertTrue(Files.size(wal) > 32);
+            var files = List.of(database, wal, shm, region, world.resolve("level.dat"),
+                    world.resolve(WorldMetadata.FILE_NAME));
+            var before = new java.util.ArrayList<String>();
+            for (Path file : files) before.add(FileProof.sha256(file));
+
+            var request = SeedConversion.Request.set(25L, false);
+            var approved = SeedConversion.preview(target, request);
+            // The WAL-only row protects one of the two otherwise identical void chunks.
+            assertEquals(1, approved.preview().removed());
+            assertEquals(1, approved.preview().protectedChunks());
+            var verifying = new SeedConversion.Progress[1];
+            verifying[0] = new SeedConversion.Progress(step -> {
+                if (step.phase() == SeedConversion.Phase.VERIFYING)
+                    assertTrue(verifying[0].cancel());
+            });
+            assertThrows(CancellationException.class, () -> SeedConversion.apply(approved, verifying[0]));
+
+            for (int index = 0; index < files.size(); index++)
+                assertEquals(
+                        before.get(index), FileProof.sha256(files.get(index)), files.get(index).toString());
+            assertFalse(Files.exists(world.resolve("backups")));
+        }
+    }
+
+    @Test
+    void seedPreviewRejectsFutureTerrainEvenWhenLevelDataIsCurrent(@TempDir Path world) throws Exception {
+        var target = mirror(world);
+        Path region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        var future = terrain("minecraft:air", "worldmirror:mirror_overworld");
+        future.putInt("DataVersion", dataVersion + 1);
+        McaWriteSupport.writeChunks(region, Level.OVERWORLD, Map.of(PLACEHOLDER, future));
+
+        var rejected = assertThrows(java.io.IOException.class,
+                () -> SeedConversion.preview(target, SeedConversion.Request.set(25L, false)));
+
+        assertTrue(rejected.getMessage().contains("newer Minecraft version"));
+        assertEquals(future, AnvilReader.readChunk(region, PLACEHOLDER));
     }
 
     @Test

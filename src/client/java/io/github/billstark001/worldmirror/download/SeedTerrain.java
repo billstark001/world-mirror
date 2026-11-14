@@ -5,10 +5,12 @@ import io.github.billstark001.worldmirror.download.SeedConversion.Progress;
 import io.github.billstark001.worldmirror.format.ChunkIndexStore;
 import io.github.billstark001.worldmirror.format.SeedTerrainDigest;
 import io.github.billstark001.worldmirror.io.AnvilReader;
+import io.github.billstark001.worldmirror.io.ChunkAuxiliaryData;
 import io.github.billstark001.worldmirror.io.McaWriteSupport;
 import io.github.billstark001.worldmirror.io.SeedChunkProvenance;
 import io.github.billstark001.worldmirror.io.WorldSaveLayout;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
+import net.minecraft.SharedConstants;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.ChunkPos;
@@ -74,6 +76,7 @@ final class SeedTerrain {
         final WorldStructureCreator.SeedSurface surface;
         final Progress progress;
         final int total;
+        final int dataVersion = SharedConstants.getCurrentVersion().dataVersion().version();
         final Path indexRoot;
         final Map<Region, Map<ChunkPos, Edit>> edits = new LinkedHashMap<>();
         final Map<Path, String> proofs = new LinkedHashMap<>();
@@ -161,22 +164,22 @@ final class SeedTerrain {
             proof(poi);
             Map<ChunkPos, Edit> changes = new HashMap<>();
             try (var terrain = AnvilReader.open(region.file(), region.x(), region.z());
-                    var entityData = AnvilReader.open(entities, region.x(), region.z());
-                    var poiData = AnvilReader.open(poi, region.x(), region.z())) {
+                    var auxiliary = new ChunkAuxiliaryData(root, region.file(), region.x(), region.z())) {
+                auxiliary.inspectRegions();
                 for (ChunkPos pos : terrain.positions()
                                 .stream()
                                 .sorted(java.util.Comparator.comparingInt(SeedTerrainFiles::chunkX)
                                                 .thenComparingInt(SeedTerrainFiles::chunkZ))
                                 .toList()) {
-                    proof(SeedTerrainFiles.external(region.file(), pos));
-                    proof(SeedTerrainFiles.external(entities, pos));
-                    proof(SeedTerrainFiles.external(poi, pos));
+                    proof(AnvilReader.externalFile(region.file().getParent(), pos));
+                    proof(AnvilReader.externalFile(entities.getParent(), pos));
+                    proof(AnvilReader.externalFile(poi.getParent(), pos));
                     CompoundTag chunk = terrain.read(pos);
-                    Edit edit =
-                            inspectChunk(region.dimension(), chunk, rows.get(pos), nearDonors.contains(pos),
-                                    ()
-                                            -> SeedTerrainFiles.hasAuxiliary(
-                                                    root, entities, entityData, poi, poiData, pos));
+                    if (chunk.getIntOr("DataVersion", 0) > dataVersion)
+                        throw new IOException("Terrain was saved by a newer Minecraft version: " + pos
+                                + " in " + region.file());
+                    Edit edit = inspectChunk(region.dimension(), chunk, rows.get(pos),
+                            nearDonors.contains(pos), () -> auxiliary.hasData(pos));
                     if (edit.delete()) {
                         if (operation == SeedConversion.Operation.REGENERATE_BORDER) {
                             regeneration.put(pos, region);
@@ -286,7 +289,7 @@ final class SeedTerrain {
                         progress.checkpoint();
                         if (!captured.contains(pos))
                             continue;
-                        proof(SeedTerrainFiles.external(region.file(), pos));
+                        proof(AnvilReader.externalFile(region.file().getParent(), pos));
                         if (SeedTerrainBlending.canDonateBlend(terrain.read(pos)))
                             donors.add(pos);
                     }

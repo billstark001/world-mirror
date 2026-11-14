@@ -291,20 +291,7 @@ class ChunkExporterPersistenceTest {
         assertTrue(metadata.save(world));
         var pos = new ChunkPos(0, 0);
         var region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
-        var original = new CompoundTag();
-        int version = SharedConstants.getCurrentVersion().dataVersion().version();
-        original.putInt("DataVersion", version);
-        original.put("sections", new ListTag());
-        var evidence = SeedChunkProvenance.baseline(original, UUID.randomUUID(), version);
-        var marker = new CompoundTag();
-        marker.putInt(SeedTerrainDigest.SEED_SCHEMA, SeedTerrainDigest.SEED_SCHEMA_VERSION);
-        marker.putString(SeedTerrainDigest.EPOCH, evidence.epoch().toString());
-        marker.putInt(SeedTerrainDigest.DATA_VERSION, version);
-        marker.putString(SeedTerrainDigest.BASELINE, evidence.baseline());
-        marker.putBoolean(SeedTerrainDigest.SEED_EDITED, false);
-        var attachments = new CompoundTag();
-        attachments.put(SeedTerrainDigest.ATTACHMENT, marker);
-        original.put(SeedTerrainDigest.ATTACHMENTS, attachments);
+        var original = generatedTerrain();
         McaWriteSupport.writeChunks(region, Level.OVERWORLD, Map.of(pos, original));
 
         var incoming = new CompoundTag();
@@ -331,6 +318,83 @@ class ChunkExporterPersistenceTest {
             assertEquals(100L, db.queryChunk(dimension, pos).updateTime());
             assertArrayEquals(replaced, Files.readAllBytes(region));
         }
+    }
+
+    @Test
+    void replacesOnlySeedTerrainWithoutEntitiesOrPoiInTheSameRegion(@TempDir Path world) throws Exception {
+        var metadata = WorldMetadata.create("mirror:auxiliary", WorldGraph.Kind.MIRROR, "remote:auxiliary",
+                WorldGraph.Role.SYNC, "server:auxiliary");
+        assertTrue(metadata.save(world));
+        var empty = new ChunkPos(4, 0);
+        var occupied = new ChunkPos(5, 0);
+        var poi = new ChunkPos(6, 0);
+        var malformedPoi = new ChunkPos(7, 0);
+        Path dimension = WorldSaveLayout.dimensionDirectory(world, Level.OVERWORLD);
+        Path region = dimension.resolve("region/r.0.0.mca");
+        var generated = generatedTerrain();
+        McaWriteSupport.writeChunks(region, Level.OVERWORLD,
+                Map.of(empty, generated, occupied, generated, poi, generated, malformedPoi, generated));
+
+        var entity = new CompoundTag();
+        var entities = new ListTag();
+        entities.add(new CompoundTag());
+        entity.put("Entities", entities);
+        McaWriteSupport.writeChunks(
+                dimension.resolve("entities/r.0.0.mca"), Level.OVERWORLD, Map.of(occupied, entity));
+        McaWriteSupport.writeChunks(dimension.resolve("poi/r.0.0.mca"), Level.OVERWORLD,
+                Map.of(poi, poiEntry(true), malformedPoi, poiEntry(false)));
+
+        var writes = new java.util.HashMap<ChunkPos, ChunkListener.CapturedChunk>();
+        for (ChunkPos pos : Set.of(empty, occupied, poi, malformedPoi)) {
+            var nbt = new CompoundTag();
+            nbt.putString("marker", "captured");
+            writes.put(pos, new ChunkListener.CapturedChunk(nbt, 100L, 1L, false));
+        }
+        try (var db = ChunkDatabase.open(world, metadata.sourceId)) {
+            db.recordSeedGeneratedIfMissing("minecraft:overworld", writes.keySet());
+            var capture = ChunkListener.snapshotOf(Map.of(Level.OVERWORLD, writes));
+            var result = ChunkExporter.exportChunks(
+                    world, capture, Map.of(), Map.of(), new IgnoreResolver(), db, -1L, ExportProgress.NONE);
+            assertTrue(result.chunkWritesSuccessful());
+            assertEquals(Set.of(empty), result.written().get(Level.OVERWORLD).keySet());
+            assertEquals(Set.of(occupied, poi, malformedPoi),
+                    result.settledRevisions().get(Level.OVERWORLD).keySet());
+        }
+        assertEquals("captured", AnvilReader.readChunk(region, empty).getStringOr("marker", ""));
+        for (ChunkPos pos : Set.of(occupied, poi, malformedPoi))
+            assertEquals(generated, AnvilReader.readChunk(region, pos));
+    }
+
+    private static CompoundTag poiEntry(boolean withRecords) {
+        var section = new CompoundTag();
+        if (withRecords) {
+            var records = new ListTag();
+            records.add(new CompoundTag());
+            section.put("Records", records);
+        }
+        var sections = new CompoundTag();
+        sections.put("0", section);
+        var entry = new CompoundTag();
+        entry.put("Sections", sections);
+        return entry;
+    }
+
+    private static CompoundTag generatedTerrain() {
+        var original = new CompoundTag();
+        int version = SharedConstants.getCurrentVersion().dataVersion().version();
+        original.putInt("DataVersion", version);
+        original.put("sections", new ListTag());
+        var evidence = SeedChunkProvenance.baseline(original, UUID.randomUUID(), version);
+        var marker = new CompoundTag();
+        marker.putInt(SeedTerrainDigest.SEED_SCHEMA, SeedTerrainDigest.SEED_SCHEMA_VERSION);
+        marker.putString(SeedTerrainDigest.EPOCH, evidence.epoch().toString());
+        marker.putInt(SeedTerrainDigest.DATA_VERSION, version);
+        marker.putString(SeedTerrainDigest.BASELINE, evidence.baseline());
+        marker.putBoolean(SeedTerrainDigest.SEED_EDITED, false);
+        var attachments = new CompoundTag();
+        attachments.put(SeedTerrainDigest.ATTACHMENT, marker);
+        original.put(SeedTerrainDigest.ATTACHMENTS, attachments);
+        return original;
     }
 
     @Test

@@ -191,7 +191,7 @@ public final class AnvilReader {
         }
     }
 
-    static Path externalFile(Path directory, ChunkPos pos) {
+    public static Path externalFile(Path directory, ChunkPos pos) {
         return directory.resolve("c." + (pos.getRegionX() * 32 + pos.getRegionLocalX()) + "."
                 + (pos.getRegionZ() * 32 + pos.getRegionLocalZ()) + ".mcc");
     }
