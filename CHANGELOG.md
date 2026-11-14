@@ -8,7 +8,7 @@ Use Added, Changed, and Fixed categories where applicable. Combine related chang
 
 ---
 
-## [0.6.0-alpha.2] — Unreleased
+## [0.6.0-alpha.2] — 2026-11-14
 
 ### Fixed
 
