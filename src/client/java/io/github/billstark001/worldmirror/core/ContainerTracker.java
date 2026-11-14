@@ -35,12 +35,16 @@ import net.minecraft.world.phys.HitResult;
 
 @Environment(EnvType.CLIENT)
 public final class ContainerTracker {
+    /** Snapshot-only evidence used to distinguish blocks that share a block-entity type. */
+    public static final String BLOCK_ID = "block";
+
     private record ContainerKey(ResourceKey<Level> dimension, BlockPos pos) {}
 
-    private record OpenContainer(ClientLevel world, BlockPos pos, String blockEntityType, Component name,
-            Map<Integer, ItemStack> slots, int containerSize) {
+    private record OpenContainer(ClientLevel world, BlockPos pos, String blockEntityType, String blockId,
+            Component name, Map<Integer, ItemStack> slots, int containerSize) {
         OpenContainer withSlots(Map<Integer, ItemStack> slots, int size) {
-            return new OpenContainer(world, pos, blockEntityType, name, new ConcurrentHashMap<>(slots), size);
+            return new OpenContainer(
+                    world, pos, blockEntityType, blockId, name, new ConcurrentHashMap<>(slots), size);
         }
     }
 
@@ -69,7 +73,8 @@ public final class ContainerTracker {
                 return;
             openContainers.put(syncId,
                     new OpenContainer(client.level, pos.immutable(), typeId(blockEntity),
-                            name == null ? null : name.copy(), new ConcurrentHashMap<>(), 0));
+                            blockId(blockEntity), name == null ? null : name.copy(),
+                            new ConcurrentHashMap<>(), 0));
             WMLogger.debug("Container opened position=" + pos + " syncId=" + syncId);
         }
     }
@@ -215,11 +220,12 @@ public final class ContainerTracker {
 
     private static void saveOverlay(OpenContainer container, BlockPos pos, Map<Integer, ItemStack> slots) {
         BlockEntity blockEntity = container.world().getBlockEntity(pos);
-        if (blockEntity == null || !container.blockEntityType().equals(typeId(blockEntity)))
+        if (!matches(container, blockEntity))
             return;
         ResourceKey<Level> dimension = container.world().dimension();
         CompoundTag overlay = new CompoundTag();
         overlay.putString("id", container.blockEntityType());
+        overlay.putString(BLOCK_ID, container.blockId());
         overlay.put("Items", serializeItems(container.world(), slots));
         ContainerNameSupport.encodeCustomName(container.name())
                 .ifPresent(customName -> overlay.put("CustomName", customName));
@@ -352,6 +358,15 @@ public final class ContainerTracker {
         return BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(blockEntity.getType()).toString();
     }
 
+    private static String blockId(BlockEntity blockEntity) {
+        return BuiltInRegistries.BLOCK.getKey(blockEntity.getBlockState().getBlock()).toString();
+    }
+
+    private static boolean matches(OpenContainer container, BlockEntity blockEntity) {
+        return blockEntity != null && container.blockEntityType().equals(typeId(blockEntity))
+                && container.blockId().equals(blockId(blockEntity));
+    }
+
     private static OpenContainer currentContainer(int syncId) {
         OpenContainer container = openContainers.get(syncId);
         if (container == null)
@@ -361,7 +376,7 @@ public final class ContainerTracker {
                 && RemoteChunkProvenance.canSample(container.world(),
                         new ChunkPos(container.pos().getX() >> 4, container.pos().getZ() >> 4))) {
             BlockEntity blockEntity = container.world().getBlockEntity(container.pos());
-            if (blockEntity != null && container.blockEntityType().equals(typeId(blockEntity)))
+            if (matches(container, blockEntity))
                 return container;
         }
         openContainers.remove(syncId, container);

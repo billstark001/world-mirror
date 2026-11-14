@@ -62,6 +62,10 @@ public final class SeedChunkTracking {
             AttachmentRegistry.<String>builder()
                     .persistent(Codec.STRING)
                     .buildAndRegister(Identifier.parse(SeedTerrainDigest.BLENDING_ATTACHMENT));
+    private static final AttachmentType<CompoundTag> CAPTURE_RECEIPT =
+            AttachmentRegistry.<CompoundTag>builder()
+                    .persistent(CompoundTag.CODEC)
+                    .buildAndRegister(Identifier.parse(SeedTerrainDigest.CAPTURE_RECEIPT));
 
     private static volatile Session current;
 
@@ -99,9 +103,6 @@ public final class SeedChunkTracking {
             if (session != null && session.server() == server)
                 current = null;
         });
-        AttachmentRegistry.<CompoundTag>builder()
-                .persistent(CompoundTag.CODEC)
-                .buildAndRegister(Identifier.parse(SeedTerrainDigest.CAPTURE_RECEIPT));
         ServerChunkEvents.CHUNK_GENERATE.register(SeedChunkTracking::generated);
 #if MC_VERSION >= 260102
         ServerChunkEvents.CHUNK_LOAD.register((level, chunk, generated) -> loaded(level, chunk));
@@ -121,6 +122,11 @@ public final class SeedChunkTracking {
     public static boolean tracks(ServerLevel level) {
         var session = current;
         return session != null && session.server() == level.getServer();
+    }
+
+    /** A persisted receipt still needs its original payload for index recovery. */
+    public static boolean canCleanSavedBlockEntities(ServerLevel level, LevelChunk chunk) {
+        return tracks(level) && !((AttachmentTarget) chunk).hasAttached(CAPTURE_RECEIPT);
     }
 
     public static boolean recordsFreshGeneration(ServerLevel level) {

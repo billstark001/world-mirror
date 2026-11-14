@@ -128,7 +128,8 @@ public class ChunkListener {
                     boolean becameDirty = previous == null || isClean(dimension, pos, previous);
                     CompoundTag mergedNbt = chunkNbt;
                     if (previous != null && !authoritativeEmpty) {
-                        BlockEntityNbtSupport.mergeChunkBlockEntities(mergedNbt, previous.nbt());
+                        BlockEntityNbtSupport.mergeChunkBlockEntities(
+                                mergedNbt, previous.nbt(), pos, dimension);
                     }
                     lightingByChunk.computeIfAbsent(pos, ignoredKey -> new LightingOverlay())
                             .absorbAndStrip(mergedNbt);

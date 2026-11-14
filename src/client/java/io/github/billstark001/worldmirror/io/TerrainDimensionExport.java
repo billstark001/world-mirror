@@ -317,6 +317,7 @@ final class TerrainDimensionExport {
             SeedChunkProvenance.strip(chunk);
             if (seeded)
                 SeedTerrainBiomes.repairCapturedBiomes(chunk, dimension);
+            BlockEntityNbtSupport.removeIncompatible(chunk, pos);
             BlockEntityNbtSupport.applyContainerOverlays(dimension, chunk, containers);
             boolean existsLocally = local != null && !replaceGenerated;
             if (!resolver.shouldWriteChunk(
@@ -326,8 +327,7 @@ final class TerrainDimensionExport {
                 return;
             }
             if (existsLocally && !materialized.authoritativeEmpty())
-                BlockEntityNbtSupport.mergeChunkBlockEntities(chunk, local);
-            BlockEntityNbtSupport.applyContainerOverlays(dimension, chunk, containers);
+                BlockEntityNbtSupport.mergeChunkBlockEntities(chunk, local, pos, dimension, containers);
             if (blend && !chunk.contains(SeedTerrainDigest.BLENDING_DATA)
                     && (SeedTerrainBlending.ownsBlend(local, metadata.generation.seedEpoch())
                             || bordersUnwritten(regionDir, pos, captures.keySet(), occupancy))
