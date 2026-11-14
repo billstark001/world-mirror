@@ -279,6 +279,10 @@ public class ChunkDatabase implements Closeable {
         return toChunkRecords(store.queryRegion(dimension, regionX, regionZ));
     }
 
+    public Map<String, Integer> sourcePriorities(String dimension) throws SQLException {
+        return store.sourcePriorities(dimension);
+    }
+
     public List<ChunkRecord> queryAll(String dimension) throws SQLException {
         return toChunkRecords(store.queryAll(dimension));
     }

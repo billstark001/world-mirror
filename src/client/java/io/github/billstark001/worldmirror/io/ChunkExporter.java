@@ -11,6 +11,7 @@ import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
@@ -26,7 +27,12 @@ import java.util.Set;
 
 @Environment(EnvType.CLIENT)
 public class ChunkExporter {
-    public record WriteStamp(long revision, long capturedAtMs) {}
+    /** A capture whose terrain was verified under the save lease. */
+    public record WriteStamp(long revision, long capturedAtMs, boolean physicalWrite) {
+        public WriteStamp(long revision, long capturedAtMs) {
+            this(revision, capturedAtMs, true);
+        }
+    }
 
     public record ExportTimings(long databaseLookupMs, long materializeMs, long chunkReadMs,
             long resolveMergeWriteMs, long flushMs, long verificationMs, long entityMs) {}
@@ -38,7 +44,19 @@ public class ChunkExporter {
             boolean entityWritesSuccessful, ExportTimings timings, long recoveredCaptureTime,
             boolean recoveredIndex) {
         public int totalWritten() {
-            return written.values().stream().mapToInt(Map::size).sum();
+            return written.values()
+                    .stream()
+                    .mapToInt(stamps
+                            -> (int) stamps.values().stream().filter(WriteStamp::physicalWrite).count())
+                    .sum();
+        }
+
+        public int totalReused() {
+            return written.values()
+                    .stream()
+                    .mapToInt(stamps
+                            -> (int) stamps.values().stream().filter(stamp -> !stamp.physicalWrite()).count())
+                    .sum();
         }
 
         public Map<ResourceKey<Level>, Map<ChunkPos, Long>> writtenRevisions() {
@@ -83,7 +101,7 @@ public class ChunkExporter {
      * @param db             Chunk database for dirty-check and priority enforcement.
      * @param slowRegionThresholdMs Slow-region diagnostics threshold, or -1 to disable.
      * @param progress Observes region/dimension write starts; cannot grant acknowledgements or abort writes.
-     * @return Exact revisions durably written, plus revisions settled without a write.
+     * @return Exact terrain revisions verified for index publication and revisions already settled.
      */
     public static ExportResult exportChunks(Path worldFolder, ChunkListener.DirtySnapshot snapshot,
             Map<ResourceKey<Level>, Map<ChunkPos, EntityTracker.ChunkUpdate>> entitySnapshot,

@@ -325,6 +325,7 @@ final class DownloadExportCoordinator {
         lastTimings = result.timings();
         lastDurabilityIndexMillis = outcome.indexMillis();
         lastWritten = result.totalWritten();
+        int reused = result.totalReused();
         lastUnreadable = result.unreadableChunks().values().stream().mapToInt(Set::size).sum();
         lastSettled = result.settledWithoutWrite().values().stream().mapToInt(Map::size).sum();
         lastExportMillis = completion.elapsedMs();
@@ -332,7 +333,7 @@ final class DownloadExportCoordinator {
             workerWallMillis += lastExportMillis;
             observe(()
                             -> logPerformance(work.context(), job.mode(), work.terrainCount(), lastWritten,
-                                    lastUnreadable, lastExportMillis, completion.cpuMs(),
+                                    reused, lastUnreadable, lastExportMillis, completion.cpuMs(),
                                     outcome.indexMillis(), result.timings()));
         }
         if (!outcome.successful())
@@ -342,9 +343,10 @@ final class DownloadExportCoordinator {
         boolean successful = outcome.successful()
                 && !scheduler.pending.hasEntitiesForTarget(work.context().session().id());
         String summary = "Export pass complete: status=" + (successful ? "success" : "partial")
-                + " pipeline=" + job.mode() + " trigger=" + work.context().trigger() + " dirtySnapshot="
-                + work.terrainCount() + " written=" + lastWritten + " unreadable=" + lastUnreadable
-                + " settled=" + lastSettled + " elapsedMs=" + lastExportMillis;
+                + " pipeline=" + job.mode() + " trigger=" + work.context().trigger()
+                + " dirtySnapshot=" + work.terrainCount() + " written=" + lastWritten + " reused=" + reused
+                + " unreadable=" + lastUnreadable + " settled=" + lastSettled
+                + " elapsedMs=" + lastExportMillis;
         if (successful)
             WMLogger.info(summary);
         else
@@ -431,15 +433,16 @@ final class DownloadExportCoordinator {
     }
 
     private static void logPerformance(Context context, ModConfig.DownloadPipelineMode pipelineMode,
-            int totalChunks, int written, int unreadable, long elapsedMs, long cpuMs, long indexMillis,
-            ChunkExporter.ExportTimings timings) {
+            int totalChunks, int written, int reused, int unreadable, long elapsedMs, long cpuMs,
+            long indexMillis, ChunkExporter.ExportTimings timings) {
         WMLogger.info("[perf] export trigger=" + context.trigger() + " pipeline=" + pipelineMode
-                + " dirtySnapshot=" + totalChunks + " written=" + written + " unreadable=" + unreadable
-                + " dbLookupMs=" + timings.databaseLookupMs() + " materializeMs=" + timings.materializeMs()
-                + " regionReadMs=" + timings.chunkReadMs() + " resolveMergeWriteMs="
-                + timings.resolveMergeWriteMs() + " regionFlushMs=" + timings.flushMs()
-                + " regionVerifyMs=" + timings.verificationMs() + " entityWriteMs=" + timings.entityMs()
-                + " dbCommitMs=" + indexMillis + " workerCpuMs=" + cpuMs + " elapsedMs=" + elapsedMs);
+                + " dirtySnapshot=" + totalChunks + " written=" + written + " reused=" + reused
+                + " unreadable=" + unreadable + " dbLookupMs=" + timings.databaseLookupMs()
+                + " materializeMs=" + timings.materializeMs() + " regionReadMs=" + timings.chunkReadMs()
+                + " resolveMergeWriteMs=" + timings.resolveMergeWriteMs()
+                + " regionFlushMs=" + timings.flushMs() + " regionVerifyMs=" + timings.verificationMs()
+                + " entityWriteMs=" + timings.entityMs() + " dbCommitMs=" + indexMillis
+                + " workerCpuMs=" + cpuMs + " elapsedMs=" + elapsedMs);
     }
 
     private static long currentThreadCpuTimeNs() {

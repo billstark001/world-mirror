@@ -5,9 +5,12 @@ import io.github.billstark001.worldmirror.conflict.OverwriteResolver;
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.core.EntityTracker;
 import io.github.billstark001.worldmirror.io.ExportProgress;
+import io.github.billstark001.worldmirror.io.McaWriteSupport;
+import io.github.billstark001.worldmirror.io.WorldSaveLayout;
 import io.github.billstark001.worldmirror.io.WorldWriteLock;
 import net.minecraft.SharedConstants;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
@@ -112,6 +115,95 @@ class ExportTransactionTest {
             var row = db.queryAll(dimension).getFirst();
             assertEquals("world_mirror", row.updateSource());
             assertEquals(200L, row.updateTime());
+        }
+    }
+
+    @Test
+    void equalFullTerrainAdvancesItsReceiptWithoutRewritingTheRegion(@TempDir Path world) throws Exception {
+        var pos = new ChunkPos(0, 0);
+        var chunk = new CompoundTag();
+        chunk.putString("Status", "minecraft:full");
+        chunk.putLong("LastUpdate", 1_000L);
+        chunk.put("block_ticks", new ListTag());
+        chunk.put("fluid_ticks", new ListTag());
+
+        assertEquals(1, write(terrain(1, chunk), world, new OverwriteResolver()).result().totalWritten());
+        Path region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        byte[] before = Files.readAllBytes(region);
+        var beforeTime = Files.getLastModifiedTime(region);
+        var later = chunk.copy();
+        later.putLong("LastUpdate", 2000L);
+        var outcome = write(terrain(2, later), world, new OverwriteResolver());
+
+        assertTrue(outcome.successful());
+        assertFalse(outcome.remaining().hasTerrain());
+        assertEquals(0, outcome.result().totalWritten());
+        assertEquals(1, outcome.result().totalReused());
+        assertEquals(Map.of(pos, 2L), outcome.durableWritten().get(Level.OVERWORLD));
+        assertArrayEquals(before, Files.readAllBytes(region));
+        assertEquals(beforeTime, Files.getLastModifiedTime(region));
+        try (var db = ChunkDatabase.open(world, "server:transaction")) {
+            assertEquals(200L, db.queryChunk("minecraft:overworld", pos).updateTime());
+        }
+        assertEquals(200L, WorldMetadata.loadIfPresent(world).orElseThrow().lastSyncTime);
+    }
+
+    @Test
+    void reuseRequiresMatchingNativeContentBeyondASaveTime(@TempDir Path world) throws Exception {
+        var chunk = new CompoundTag();
+        chunk.putString("Status", "minecraft:full");
+        chunk.putLong("LastUpdate", 1000L);
+        var scheduled = new CompoundTag();
+        scheduled.putString("i", "minecraft:water");
+        var fluidTicks = new ListTag();
+        fluidTicks.add(scheduled);
+        chunk.put("block_ticks", new ListTag());
+        chunk.put("fluid_ticks", fluidTicks);
+
+        assertEquals(1, write(terrain(1, chunk), world, new OverwriteResolver()).result().totalWritten());
+        var later = chunk.copy();
+        later.putLong("LastUpdate", 2000L);
+        var outcome = write(terrain(2, later), world, new OverwriteResolver());
+        assertTrue(outcome.successful());
+        assertEquals(1, outcome.result().totalWritten());
+        assertEquals(0, outcome.result().totalReused());
+    }
+
+    @Test
+    void mismatchedLocalSlotNeverAuthorizesOneOfItsClaims(@TempDir Path world) throws Exception {
+        var pos = new ChunkPos(0, 0);
+        assertTrue(write(terrain(1), world, new OverwriteResolver()).successful());
+        Path region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        var relocated = new CompoundTag();
+        relocated.putInt("xPos", -1);
+        relocated.putInt("zPos", 0);
+        McaWriteSupport.writeChunks(region, Level.OVERWORLD, Map.of(pos, relocated));
+        byte[] before = Files.readAllBytes(region);
+
+        var outcome = write(terrain(2), world, new OverwriteResolver());
+        assertFalse(outcome.successful());
+        assertTrue(outcome.remaining().hasTerrain());
+        assertEquals(Set.of(pos), outcome.result().unreadableChunks().get(Level.OVERWORLD));
+        assertArrayEquals(before, Files.readAllBytes(region));
+    }
+
+    @Test
+    void incompleteIncomingCoordinatesRetainTheExistingTerrainAndDurability(@TempDir Path world)
+            throws Exception {
+        var pos = new ChunkPos(0, 0);
+        assertTrue(write(terrain(1), world, new OverwriteResolver()).successful());
+        Path region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        byte[] before = Files.readAllBytes(region);
+        var incoming = new CompoundTag();
+        incoming.putInt("xPos", 0);
+
+        var outcome = write(terrain(2, incoming), world, new OverwriteResolver());
+        assertFalse(outcome.successful());
+        assertTrue(outcome.remaining().hasTerrain());
+        assertTrue(outcome.result().unreadableChunks().get(Level.OVERWORLD).isEmpty());
+        assertArrayEquals(before, Files.readAllBytes(region));
+        try (var db = ChunkDatabase.open(world, "server:transaction")) {
+            assertEquals(100L, db.queryChunk("minecraft:overworld", pos).updateTime());
         }
     }
 
@@ -242,6 +334,30 @@ class ExportTransactionTest {
     }
 
     @Test
+    void unchangedMetadataSkipsReplacementButStillRequiresTheInspectedDocument(@TempDir Path world)
+            throws Exception {
+        assertTrue(write(terrain(1), world, new OverwriteResolver()).successful());
+        Path metadata = world.resolve(WorldMetadata.FILE_NAME);
+        Files.setLastModifiedTime(metadata, java.nio.file.attribute.FileTime.fromMillis(1_000L));
+        var originalTime = Files.getLastModifiedTime(metadata);
+        assertTrue(write(terrain(1), world, new OverwriteResolver()).successful());
+        assertEquals(originalTime, Files.getLastModifiedTime(metadata));
+
+        var blocked = write(terrain(2), world, context -> {
+            try {
+                Files.move(metadata, world.resolve("metadata-backup.json"));
+                Files.createDirectory(metadata);
+            } catch (java.io.IOException failure) {
+                throw new UncheckedIOException(failure);
+            }
+            return false;
+        });
+        assertTrue(blocked.indexCommitted());
+        assertFalse(blocked.metadataCommitted());
+        assertTrue(Files.isDirectory(metadata));
+    }
+
+    @Test
     void changedTargetIdentityCannotAuthorizeAnotherSourcesWrite(@TempDir Path world) throws Exception {
         assertTrue(write(terrain(1), world, new OverwriteResolver()).successful());
         var metadata = WorldMetadata.loadIfPresent(world).orElseThrow();
@@ -257,6 +373,10 @@ class ExportTransactionTest {
     private static ExportWork.Frozen terrain(int revision) {
         CompoundTag nbt = new CompoundTag();
         nbt.putInt("marker", revision);
+        return terrain(revision, nbt);
+    }
+
+    private static ExportWork.Frozen terrain(int revision, CompoundTag nbt) {
         var snapshot = ChunkListener.snapshotOf(Map.of(Level.OVERWORLD,
                 Map.of(new ChunkPos(0, 0),
                         new ChunkListener.CapturedChunk(nbt, revision * 100L, revision, false))));

@@ -8,6 +8,7 @@ import io.github.billstark001.worldmirror.download.SeedTerrainBiomes;
 import io.github.billstark001.worldmirror.download.SeedTerrainBlending;
 import io.github.billstark001.worldmirror.download.WorldMetadata;
 import io.github.billstark001.worldmirror.format.ChunkIndexStore;
+import io.github.billstark001.worldmirror.format.ChunkUpdate;
 import io.github.billstark001.worldmirror.format.ChunkUpdatePolicy.Action;
 import io.github.billstark001.worldmirror.format.ChunkUpdatePolicy.Destination;
 import io.github.billstark001.worldmirror.format.ChunkUpdatePolicy.IndexStatus;
@@ -48,7 +49,8 @@ final class TerrainDimensionExport {
 
     private static final class StagedRegion {
         final Map<ChunkPos, StagedChunk> chunks = new HashMap<>();
-        boolean failed;
+        final Map<ChunkPos, WriteStamp> reused = new HashMap<>();
+        boolean failed, invalidHeader;
     }
 
     private static final class TerrainTimings {
@@ -78,6 +80,7 @@ final class TerrainDimensionExport {
     private final Set<ChunkPos> unreadable = new HashSet<>();
     private final TerrainTimings timings = new TerrainTimings();
     private final Map<RegionCoordinates, Set<ChunkPos>> occupancy = new HashMap<>();
+    private Map<String, Integer> sourcePriorities;
 
     TerrainDimensionExport(Path worldFolder, Path regionDir, ResourceKey<Level> dimension,
             Map<ChunkPos, ChunkListener.CapturedChunk> captures,
@@ -126,8 +129,8 @@ final class TerrainDimensionExport {
                 new RegionStorageInfo("world_mirror", dimension, "chunk");
         private final StagedRegion staged = new StagedRegion();
         private final Set<ChunkPos> indexedClean = new HashSet<>();
-        private final Set<ChunkPos> generatedClaims = new HashSet<>();
-        private final Set<ChunkPos> unindexedCandidates = new HashSet<>();
+        private final Map<ChunkPos, ChunkDatabase.ChunkRecord> claims = new HashMap<>();
+        private RegionFile writer;
 
         RegionWrite(RegionCoordinates coordinates,
                 List<Map.Entry<ChunkPos, ChunkListener.CapturedChunk>> entries) {
@@ -141,36 +144,24 @@ final class TerrainDimensionExport {
                 long started = System.nanoTime();
                 try {
                     FileProof.requirePlainPath(worldFolder, file);
-                    var before = RegionFileIntegrity.inspect(file, coordinates.x(), coordinates.z());
-                    if (!before.usable() || !before.invalidChunks().isEmpty()) {
-                        if (!before.usable())
-                            entries.forEach(entry -> unreadable.add(entry.getKey()));
-                        unreadable.addAll(before.invalidChunks());
-                        WMLogger.warn("Region validation failed before write file=" + file + " reason="
-                                + before.failure() + " invalidChunks=" + before.invalidChunks().size()
-                                + "; retainedChunks=" + entries.size());
-                        return false;
-                    }
-                    if (metadata != null)
-                        loadIndexClaims();
-                    if (blend)
-                        occupancy.put(coordinates, before.presentChunks());
-                    lookupBlockedCaptures();
-
                     var verified = RegionMerge.writeVerified(this::stage, this::verify);
-                    if (!verified.regionUsable()) {
+                    if (staged.invalidHeader)
+                        return false;
+                    if (!verified.regionUsable())
                         entries.forEach(entry -> unreadable.add(entry.getKey()));
-                        entries.forEach(entry -> settled.remove(entry.getKey()));
-                    }
                     unreadable.addAll(verified.unreadable());
                     unreadable.removeAll(verified.written().keySet());
+                    boolean reuseVerified = verified.regionUsable() && verifyReuseAfterFailedWrites();
+                    for (var entry : entries)
+                        if (unreadable.contains(entry.getKey()))
+                            settled.remove(entry.getKey());
                     verified.written().forEach((pos, chunk) -> written.put(pos, chunk.stamp()));
                     if (!verified.complete()) {
                         WMLogger.warn("Region durability verification failed file=" + file + " verified="
                                 + verified.written().size() + " failed=" + verified.unreadable().size()
                                 + "; failed chunks retained for retry");
                     }
-                    return !staged.failed && verified.complete();
+                    return !staged.failed && verified.complete() && reuseVerified;
                 } catch (Exception e) {
                     entries.forEach(entry -> settled.remove(entry.getKey()));
                     entries.forEach(entry -> written.remove(entry.getKey()));
@@ -178,40 +169,72 @@ final class TerrainDimensionExport {
                             "Region write failed file=" + file + " retainedChunks=" + entries.size(), e);
                     return false;
                 } finally {
-                    logSlowRegion(dimension, file, entries.size(), staged.chunks.size(), started,
-                            slowRegionThresholdMs);
+                    long elapsed = (System.nanoTime() - started) / 1_000_000L;
+                    if (slowRegionThresholdMs >= 0 && elapsed >= slowRegionThresholdMs)
+                        WMLogger.info("[perf] slowRegion kind=chunk dimension=" + dimensionId
+                                + " file=" + file.getFileName() + " candidates=" + entries.size()
+                                + " written=" + staged.chunks.size() + " elapsedMs=" + elapsed);
                 }
             }
         }
 
         private void loadIndexClaims() throws SQLException {
-            entries.forEach(entry -> unindexedCandidates.add(entry.getKey()));
+            long started = System.nanoTime();
             for (var row : db.queryRegion(dimensionId, coordinates.x(), coordinates.z())) {
                 var pos = new ChunkPos(row.x(), row.z());
-                unindexedCandidates.remove(pos);
-                if (ChunkIndexStore.SEED_GENERATED.equals(row.updateSource()))
-                    generatedClaims.add(pos);
+                if (captures.containsKey(pos))
+                    claims.put(pos, row);
             }
+            for (var entry : entries) {
+                var pos = entry.getKey();
+                var row = claims.get(pos);
+                if (row == null)
+                    continue;
+                long capturedAtMs = entry.getValue().capturedAtMs();
+                if (capturedAtMs <= row.updateTime()) {
+                    indexedClean.add(pos);
+                    continue;
+                }
+                if (sourcePriorities == null)
+                    sourcePriorities = db.sourcePriorities(dimensionId);
+                var coordinate = new ChunkIndexStore.ChunkCoordinate(row.x(), row.z());
+                var incoming = new ChunkUpdate(dimensionId, coordinate, capturedAtMs, "world_mirror");
+                var existing = new ChunkIndexStore.ChunkRecord(
+                        row.x(), row.z(), row.updateTime(), row.updateSource());
+                if (ChunkUpdatePolicy.assess(incoming, existing, sourcePriorities) == IndexStatus.BLOCKED)
+                    indexedClean.add(pos);
+            }
+            timings.databaseLookupNs += System.nanoTime() - started;
+        }
+
+        private boolean verifyReuseAfterFailedWrites() throws IOException {
+            // RegionMerge skips reopening if nothing was staged. A stream may still have
+            // touched the header before failing, so validate it before indexing reused entries.
+            if (writer != null && staged.chunks.isEmpty()) {
+                var after = RegionFileIntegrity.inspect(file, coordinates.x(), coordinates.z());
+                if (!after.usable()) {
+                    entries.forEach(entry -> unreadable.add(entry.getKey()));
+                    return false;
+                }
+                unreadable.addAll(after.invalidChunks());
+            }
+            staged.reused.forEach((pos, stamp) -> {
+                if (!unreadable.contains(pos))
+                    written.put(pos, stamp);
+            });
+            return true;
         }
 
         private boolean shouldSkip(ChunkPos pos, ChunkListener.CapturedChunk capture) throws SQLException {
             return db.shouldSkipUpdate(dimensionId, pos, "world_mirror", capture.capturedAtMs());
         }
 
-        private void lookupBlockedCaptures() throws SQLException {
-            for (var entry : entries) {
-                long started = System.nanoTime();
-                boolean skip = shouldSkip(entry.getKey(), entry.getValue());
-                timings.databaseLookupNs += System.nanoTime() - started;
-                if (skip)
-                    indexedClean.add(entry.getKey());
-            }
-        }
-
         private Map<ChunkPos, StagedChunk> stage() throws IOException {
-            try (var region = new RegionFile(storageInfo, file, regionDir, false);
+            try (var region = AnvilReader.inspect(file, coordinates.x(), coordinates.z());
                     var auxiliary =
                             new ChunkAuxiliaryData(worldFolder, file, coordinates.x(), coordinates.z())) {
+                if (!prepareToStage(region.inspection()))
+                    return Map.of();
                 for (var entry : entries) {
                     ChunkPos pos = entry.getKey();
                     try {
@@ -224,30 +247,58 @@ final class TerrainDimensionExport {
                                 failure);
                     }
                 }
-                if (!staged.chunks.isEmpty()) {
+            } finally {
+                if (writer != null) {
                     long started = System.nanoTime();
-                    region.flush();
-                    timings.flushNs += System.nanoTime() - started;
+                    try {
+                        // Native close pads and forces the file. An extra flush would force it twice.
+                        writer.close();
+                    } finally {
+                        timings.flushNs += System.nanoTime() - started;
+                    }
                 }
             }
             return staged.chunks;
         }
 
+        private boolean prepareToStage(RegionFileIntegrity.Inspection inspection) throws IOException {
+            if (!inspection.usable() || !inspection.invalidChunks().isEmpty()) {
+                if (!inspection.usable())
+                    entries.forEach(entry -> unreadable.add(entry.getKey()));
+                unreadable.addAll(inspection.invalidChunks());
+                WMLogger.warn("Region validation failed before write file=" + file + " reason="
+                        + inspection.failure() + " invalidChunks=" + inspection.invalidChunks().size()
+                        + "; retainedChunks=" + entries.size());
+                staged.invalidHeader = true;
+                return false;
+            }
+            if (blend)
+                occupancy.put(coordinates, inspection.presentChunks());
+            try {
+                loadIndexClaims();
+            } catch (SQLException failure) {
+                throw new IOException("Cannot read the terrain index", failure);
+            }
+            return true;
+        }
+
         private RegionMerge.Verification<ChunkPos> verify(Map<ChunkPos, StagedChunk> expected) {
             long started = System.nanoTime();
             try {
-                return verifyWrittenRegion(
-                        storageInfo, file, regionDir, coordinates.x(), coordinates.z(), expected);
+                return verifyWrittenRegion(file, coordinates.x(), coordinates.z(), expected);
             } finally {
                 timings.verificationNs += System.nanoTime() - started;
             }
         }
 
-        private void stageChunk(RegionFile region, ChunkAuxiliaryData auxiliary, ChunkPos pos,
+        private void stageChunk(AnvilReader.Reader region, ChunkAuxiliaryData auxiliary, ChunkPos pos,
                 ChunkListener.CapturedChunk captured) throws Exception {
+            TerrainChunkNbt.requireCoordinates(captured.nbt(), pos);
             CompoundTag local = readChunk(region, pos);
-            boolean generatedClaim = generatedClaims.contains(pos);
-            boolean unindexed = unindexedCandidates.contains(pos);
+            var claim = claims.get(pos);
+            boolean generatedClaim = metadata != null && claim != null
+                    && ChunkIndexStore.SEED_GENERATED.equals(claim.updateSource());
+            boolean unindexed = metadata != null && claim == null;
             if (local != null && (generatedClaim || unindexed)) {
                 var receipt = SeedCaptureReceipt.read(local, metadata.nodeId);
                 if (receipt != null) {
@@ -263,11 +314,8 @@ final class TerrainDimensionExport {
             var generated = local == null ? null : SeedChunkProvenance.read(local);
             boolean replaceGenerated = seedCandidate && generated != null
                     && SeedChunkProvenance.isUnmodified(local, generated) && !auxiliary.hasData(pos);
-            if (local != null && !replaceGenerated
-                    && (generatedClaim || (seedCandidate && SeedChunkProvenance.hasMarker(local)))) {
-                settled.put(pos, stamp(captured));
-                return;
-            }
+            boolean protectedSeed = local != null && !replaceGenerated
+                    && (generatedClaim || (seedCandidate && SeedChunkProvenance.hasMarker(local)));
             Action action = ChunkUpdatePolicy.decide(WritePolicy.LIVE_SYNC,
                     local == null ? Destination.MISSING : Destination.PRESENT,
                     indexedClean.contains(pos) ? IndexStatus.BLOCKED : IndexStatus.ELIGIBLE);
@@ -284,13 +332,23 @@ final class TerrainDimensionExport {
                                 + " chunk=" + pos + "; retaining capture for repair after index cleanup");
                 return;
             }
-            materializeAndWrite(region, pos, captured, local, replaceGenerated);
+            if (protectedSeed) {
+                settled.put(pos, stamp(captured));
+                return;
+            }
+            if (local != null
+                    && local.getIntOr("DataVersion", 0)
+                            > net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version())
+                throw new IOException("Refusing to replace terrain saved by a newer Minecraft version");
+            materializeAndWrite(pos, captured, local, replaceGenerated);
         }
 
-        private CompoundTag readChunk(RegionFile region, ChunkPos pos) throws IOException {
+        private CompoundTag readChunk(AnvilReader.Reader region, ChunkPos pos) throws IOException {
             long started = System.nanoTime();
             try {
-                CompoundTag local = McaWriteSupport.readChunk(region, pos);
+                CompoundTag local = region.read(pos);
+                if (local != null)
+                    TerrainChunkNbt.requireCoordinates(local, pos);
                 timings.chunkReadNs += System.nanoTime() - started;
                 return local;
             } catch (IOException | RuntimeException failure) {
@@ -307,8 +365,8 @@ final class TerrainDimensionExport {
                 timings.recoveredCaptureTime = Math.max(timings.recoveredCaptureTime, time);
         }
 
-        private void materializeAndWrite(RegionFile region, ChunkPos pos, ChunkListener.CapturedChunk capture,
-                CompoundTag local, boolean replaceGenerated) throws Exception {
+        private void materializeAndWrite(ChunkPos pos, ChunkListener.CapturedChunk capture, CompoundTag local,
+                boolean replaceGenerated) throws Exception {
             long started = System.nanoTime();
             var materialized = snapshot.materialize(dimension, pos, capture);
             timings.materializeNs += System.nanoTime() - started;
@@ -335,35 +393,44 @@ final class TerrainDimensionExport {
                 SeedTerrainBlending.markBlend(chunk, metadata.generation.seedEpoch());
             if (replaceGenerated)
                 SeedCaptureReceipt.write(chunk, metadata.nodeId, capture.capturedAtMs());
-            NbtWriteSupport.validateStrings(chunk);
-            byte[] digest = NbtWriteSupport.writeChunkAndDigest(chunk, region.getChunkDataOutputStream(pos));
-            staged.chunks.put(pos, new StagedChunk(stamp(materialized), digest));
+            if (existsLocally && TerrainChunkNbt.equivalent(local, chunk)) {
+                staged.reused.put(
+                        pos, new WriteStamp(materialized.revision(), materialized.capturedAtMs(), false));
+            } else {
+                NbtWriteSupport.validateStrings(chunk);
+                if (writer == null)
+                    writer = new RegionFile(storageInfo, file, regionDir, false);
+                var output = writer.getChunkDataOutputStream(pos);
+                try {
+                    byte[] digest = NbtWriteSupport.writeChunkAndDigest(chunk, output);
+                    staged.chunks.put(pos, new StagedChunk(stamp(materialized), digest));
+                } catch (IOException | RuntimeException failure) {
+                    unreadable.add(pos);
+                    throw failure;
+                }
+            }
             timings.resolveMergeWriteNs += System.nanoTime() - started;
         }
     }
 
-    private static RegionMerge.Verification<ChunkPos> verifyWrittenRegion(RegionStorageInfo storageInfo,
-            Path regionFile, Path regionDirectory, int regionX, int regionZ,
-            Map<ChunkPos, StagedChunk> staged) {
+    private static RegionMerge.Verification<ChunkPos> verifyWrittenRegion(
+            Path regionFile, int regionX, int regionZ, Map<ChunkPos, StagedChunk> staged) {
         Set<ChunkPos> verified = new HashSet<>();
         Set<ChunkPos> unreadable = new HashSet<>(staged.keySet());
         boolean regionUsable = false;
-        try {
-            RegionFileIntegrity.Inspection inspection =
-                    RegionFileIntegrity.inspect(regionFile, regionX, regionZ);
+        try (var reader = AnvilReader.inspect(regionFile, regionX, regionZ)) {
+            var inspection = reader.inspection();
             if (!inspection.usable()) {
                 return new RegionMerge.Verification<>(false, Set.of(), unreadable);
             }
             unreadable.addAll(inspection.invalidChunks());
-            try (RegionFile reader = new RegionFile(storageInfo, regionFile, regionDirectory, false)) {
-                regionUsable = true;
-                for (ChunkPos pos : staged.keySet()) {
-                    if (inspection.invalidChunks().contains(pos))
-                        continue;
-                    if (matchesStagedChunk(reader, pos, staged.get(pos))) {
-                        verified.add(pos);
-                        unreadable.remove(pos);
-                    }
+            regionUsable = true;
+            for (ChunkPos pos : staged.keySet()) {
+                if (inspection.invalidChunks().contains(pos))
+                    continue;
+                if (matchesStagedChunk(reader, pos, staged.get(pos))) {
+                    verified.add(pos);
+                    unreadable.remove(pos);
                 }
             }
         } catch (Exception ignored) {
@@ -372,9 +439,9 @@ final class TerrainDimensionExport {
         return new RegionMerge.Verification<>(regionUsable, verified, unreadable);
     }
 
-    private static boolean matchesStagedChunk(RegionFile reader, ChunkPos pos, StagedChunk staged) {
-        try (var input = reader.getChunkDataInputStream(pos)) {
-            return input != null && NbtReadSupport.verifyChunk(input, staged.digest());
+    private static boolean matchesStagedChunk(AnvilReader.Reader reader, ChunkPos pos, StagedChunk staged) {
+        try {
+            return reader.matches(pos, staged.digest());
         } catch (Exception ignored) {
             // The summary warning contains the region and failure count.
             return false;
@@ -412,17 +479,5 @@ final class TerrainDimensionExport {
 
     private static WriteStamp stamp(ChunkListener.CapturedChunk captured) {
         return new WriteStamp(captured.revision(), captured.capturedAtMs());
-    }
-
-    private static void logSlowRegion(ResourceKey<Level> dimension, Path file, int candidates, int written,
-            long startedNs, long thresholdMs) {
-        if (thresholdMs < 0L)
-            return;
-        long elapsedMs = (System.nanoTime() - startedNs) / 1_000_000L;
-        if (elapsedMs < thresholdMs)
-            return;
-        WMLogger.info("[perf] slowRegion kind=chunk"
-                + " dimension=" + dimension.identifier() + " file=" + file.getFileName()
-                + " candidates=" + candidates + " written=" + written + " elapsedMs=" + elapsedMs);
     }
 }
