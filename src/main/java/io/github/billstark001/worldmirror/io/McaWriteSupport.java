@@ -104,12 +104,11 @@ public final class McaWriteSupport {
                         NbtIo.writeUnnamedTag(entry.getValue(), output);
                     }
                 }
-                region.flush();
             }
-            validateRegion(target, first.getRegionX(), first.getRegionZ());
-            try (RegionFile reader = new RegionFile(info, target, target.getParent(), false)) {
+            try (var reader = AnvilReader.inspect(target, first.getRegionX(), first.getRegionZ())) {
+                reader.inspection().requireUsable(target);
                 for (Map.Entry<ChunkPos, CompoundTag> entry : chunks.entrySet()) {
-                    if (!entry.getValue().equals(readChunk(reader, entry.getKey()))) {
+                    if (!entry.getValue().equals(reader.read(entry.getKey()))) {
                         throw new IOException("Region write verification failed file=" + target
                                 + " chunk=" + entry.getKey());
                     }

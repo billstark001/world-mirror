@@ -66,28 +66,39 @@ public final class AnvilReader {
     }
 
     public static Reader open(Path file, int regionX, int regionZ) throws IOException {
-        return new Reader(file, regionX, regionZ);
+        return new Reader(file, regionX, regionZ, false);
+    }
+
+    /** Lets the writer inspect the header and read valid slots on one channel under its region lock. */
+    static Reader inspect(Path file, int regionX, int regionZ) throws IOException {
+        return new Reader(file, regionX, regionZ, true);
     }
 
     public static final class Reader implements AutoCloseable {
         private final Path file;
         private final java.util.Set<ChunkPos> positions;
         private final FileChannel channel;
-        private final int[] locations;
+        private final RegionFileIntegrity.Inspection inspection;
         private final FileProof.Version fingerprint;
 
-        private Reader(Path file, int regionX, int regionZ) throws IOException {
+        private Reader(Path file, int regionX, int regionZ, boolean allowInvalidSlots) throws IOException {
             this.file = file;
-            fingerprint = FileReadFailures.check(file);
+            fingerprint = allowInvalidSlots ? null : FileReadFailures.check(file);
             FileChannel opened = null;
             try {
                 if (!Files.notExists(file))
                     opened = FileChannel.open(file, StandardOpenOption.READ);
-                var inspection = opened == null ? RegionFileIntegrity.inspect(file, regionX, regionZ)
-                                                : RegionFileIntegrity.inspect(opened, regionX, regionZ);
-                inspection.requireUsable(file);
-                positions = inspection.presentChunks();
-                locations = inspection.locations();
+                inspection = opened == null ? RegionFileIntegrity.Inspection.empty()
+                                            : RegionFileIntegrity.inspect(opened, regionX, regionZ);
+                if (!allowInvalidSlots)
+                    inspection.requireUsable(file);
+                if (inspection.invalidChunks().isEmpty()) {
+                    positions = inspection.presentChunks();
+                } else {
+                    var valid = new java.util.HashSet<>(inspection.presentChunks());
+                    valid.removeAll(inspection.invalidChunks());
+                    positions = java.util.Set.copyOf(valid);
+                }
                 channel = opened;
             } catch (IOException | RuntimeException | Error failure) {
                 if (opened != null)
@@ -98,6 +109,10 @@ public final class AnvilReader {
                     }
                 throw failure;
             }
+        }
+
+        RegionFileIntegrity.Inspection inspection() {
+            return inspection;
         }
 
         public java.util.Set<ChunkPos> positions() {
@@ -120,7 +135,7 @@ public final class AnvilReader {
             FileProof.Version observed = fingerprint;
             try {
                 int slot = pos.getRegionLocalX() + pos.getRegionLocalZ() * 32;
-                int packed = locations[slot];
+                int packed = inspection.locations()[slot];
                 long offset = (long) (packed >>> 8) * SECTOR_BYTES;
                 long capacity = (packed & 255) * (long) SECTOR_BYTES;
                 if (offset < 8192 || capacity == 0 || offset + capacity > channel.size()) {
@@ -142,6 +157,8 @@ public final class AnvilReader {
                     if (length != 1)
                         throw new FileReadFailures.InvalidData("Invalid external chunk stub: " + file);
                     payloadFile = externalFile(file.getParent(), pos);
+                    if (fingerprint == null)
+                        FileProof.requirePlainFile(payloadFile);
                     observed = FileReadFailures.check(payloadFile);
                     if (observed != null && observed.size() > MAX_COMPRESSED_BYTES) {
                         throw new IOException(
