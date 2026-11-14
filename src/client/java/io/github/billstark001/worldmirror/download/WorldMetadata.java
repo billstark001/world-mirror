@@ -3,6 +3,7 @@ package io.github.billstark001.worldmirror.download;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import io.github.billstark001.worldmirror.format.MirrorFormat;
+import io.github.billstark001.worldmirror.format.WorldLineage;
 import io.github.billstark001.worldmirror.legacy.LegacyVoidChunkCleanup;
 import io.github.billstark001.worldmirror.util.JsonSupport;
 import io.github.billstark001.worldmirror.util.WMLogger;
@@ -210,21 +211,14 @@ public final class WorldMetadata {
         return key != null && !key.isBlank() && key.chars().noneMatch(Character::isISOControl);
     }
 
-    private static boolean isNodeId(String id, String prefix) {
-        return validKey(id) && id.startsWith(prefix) && validKey(id.substring(prefix.length()));
-    }
-
-    private static boolean isParentNodeId(String id) {
-        return isNodeId(id, "mirror:") || isNodeId(id, "snapshot:") || isNodeId(id, "local:")
-                || isNodeId(id, "remote:") || isNodeId(id, "unresolved:");
-    }
-
     private void validate() {
-        boolean mirror = kind == WorldGraph.Kind.MIRROR && isNodeId(nodeId, "mirror:")
-                && (parentNodeId == null || isParentNodeId(parentNodeId)) && role != null;
-        boolean snapshot = kind == WorldGraph.Kind.SNAPSHOT && isNodeId(nodeId, "snapshot:")
-                && (parentNodeId == null || isParentNodeId(parentNodeId)) && role == WorldGraph.Role.SNAPSHOT;
-        if (!(mirror || snapshot) || !validKey(sourceId) || lastSyncTime < 0 || generation == null) {
+        var idKind = WorldLineage.kindOfId(nodeId);
+        boolean mirror = kind == WorldGraph.Kind.MIRROR && idKind == WorldLineage.Kind.MIRROR && role != null;
+        boolean snapshot = kind == WorldGraph.Kind.SNAPSHOT && idKind == WorldLineage.Kind.SNAPSHOT
+                && role == WorldGraph.Role.SNAPSHOT;
+        boolean validParent = parentNodeId == null || WorldLineage.kindOfId(parentNodeId) != null;
+        if (!(mirror || snapshot) || !validParent || !validKey(sourceId) || lastSyncTime < 0
+                || generation == null) {
             throw new IllegalArgumentException("Invalid mirror metadata");
         }
     }

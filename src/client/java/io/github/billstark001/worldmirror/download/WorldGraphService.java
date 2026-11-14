@@ -9,17 +9,15 @@ import io.github.billstark001.worldmirror.download.WorldGraphConfig.EndpointRule
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.MirrorSettings;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.PendingImport;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.SourceSettings;
+import io.github.billstark001.worldmirror.format.WorldGraphLease;
 import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
-import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,8 +29,6 @@ import java.util.function.UnaryOperator;
 
 /** Publishes the world graph and manages the current connection's direct download target. */
 public final class WorldGraphService {
-    private static final String GRAPH_LOCK = ".world-graph.lock";
-
     private static final class ClientService {
         static final WorldGraphService INSTANCE =
                 new WorldGraphService(FabricLoader.getInstance().getGameDir(),
@@ -331,25 +327,7 @@ public final class WorldGraphService {
         FileProof.requirePlainDirectory(configDirectory);
         Files.createDirectories(configDirectory);
         WorldInventoryFolders.requirePlainRoot(configDirectory);
-        var channel = FileChannel.open(configDirectory.resolve(GRAPH_LOCK), StandardOpenOption.CREATE,
-                StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
-        try {
-            var lease = channel.tryLock();
-            if (lease == null)
-                throw new IOException("World graph operation is already running");
-            // The channel holds the lease until the entire graph operation closes it.
-            return channel;
-        } catch (IOException | RuntimeException failure) {
-            try {
-                channel.close();
-            } catch (IOException close) {
-                failure.addSuppressed(close);
-            }
-            if (failure instanceof OverlappingFileLockException) {
-                throw new IOException("World graph operation is already running", failure);
-            }
-            throw failure;
-        }
+        return WorldGraphLease.acquire(configDirectory);
     }
 
     void refreshPublished() throws IOException {

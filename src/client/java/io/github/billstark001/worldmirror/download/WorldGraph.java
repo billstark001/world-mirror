@@ -1,5 +1,7 @@
 package io.github.billstark001.worldmirror.download;
 
+import io.github.billstark001.worldmirror.format.WorldLineage;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -48,11 +50,13 @@ public final class WorldGraph {
             if (fileBacked != (location != null)) {
                 throw new IllegalArgumentException("World location does not match node kind: " + id);
             }
+            if (parentId != null && !WorldLineage.allowsParent(WorldLineage.Kind.valueOf(kind.name()))) {
+                throw new IllegalArgumentException("Invalid parent for node: " + id);
+            }
             if (kind == Kind.MIRROR) {
                 Objects.requireNonNull(role);
-            } else if ((parentId != null && kind != Kind.SNAPSHOT)
-                    || role != (kind == Kind.SNAPSHOT ? Role.SNAPSHOT : null)) {
-                throw new IllegalArgumentException("Invalid parent or role for root node: " + id);
+            } else if (role != (kind == Kind.SNAPSHOT ? Role.SNAPSHOT : null)) {
+                throw new IllegalArgumentException("Invalid role for node: " + id);
             }
             if (parentId != null)
                 requireId(parentId);
@@ -145,14 +149,13 @@ public final class WorldGraph {
         public Optional<Node> findRoot(String id) {
             if (!isUnambiguous(id))
                 return Optional.empty();
-            Node node = nodes.get(id);
-            while (node != null) {
-                if (node.parentId() == null) {
-                    return node.kind() == Kind.UNRESOLVED ? Optional.empty() : Optional.of(node);
-                }
-                node = nodes.get(node.parentId());
-            }
-            return Optional.empty();
+            var trace = WorldLineage.trace(null, id, key -> {
+                Node node = nodes.get(key);
+                return node == null ? null
+                                    : new WorldLineage.Link(node.id(),
+                                              WorldLineage.Kind.valueOf(node.kind().name()), node.parentId());
+            });
+            return trace.root() == null ? Optional.empty() : Optional.of(nodes.get(trace.root().id()));
         }
 
         public boolean wouldCreateCycle(String childId, String parentId) {
@@ -260,14 +263,6 @@ public final class WorldGraph {
     }
 
     static boolean isNodeId(String id) {
-        if (id == null || id.chars().anyMatch(Character::isISOControl))
-            return false;
-        int delimiter = id.indexOf(':');
-        if (delimiter < 0 || id.substring(delimiter + 1).isBlank())
-            return false;
-        return switch (id.substring(0, delimiter)) {
-            case "local", "mirror", "snapshot", "remote", "unresolved" -> true;
-            default -> false;
-        };
+        return WorldLineage.kindOfId(id) != null;
     }
 }

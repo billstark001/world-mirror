@@ -7,6 +7,7 @@ Releases are listed newest first by release date, after unreleased changes. Use 
 ### Added
 
 - Register `seed_generated` at priority 100 with timestamp zero. Expose seed-only index mutations, map-visible queries, and a shared terrain digest.
+- Share typed world lineage traversal and the native graph lease with offline importers.
 
 ### Changed
 

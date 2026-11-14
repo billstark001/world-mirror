@@ -85,6 +85,18 @@ class WorldGraphTest {
     }
 
     @Test
+    void resolvesARemoteRootThroughBothMirrorAndSnapshotNodes() {
+        var snapshot = new WorldGraph.Node("snapshot:intermediate", REMOTE_ID,
+                new WorldGraph.Location(SAVES, "Snapshot"), WorldGraph.Kind.SNAPSHOT,
+                WorldGraph.Role.SNAPSHOT);
+        var child = mirror("mirror:child", snapshot.id(), SAVES, "Child");
+        var graph = WorldGraph.reconcile(List.of(child, snapshot, remote()), Map.of());
+
+        assertEquals(remote(), graph.findRoot(child.id()).orElseThrow());
+        assertEquals(List.of(child), graph.childrenOf(snapshot.id()));
+    }
+
+    @Test
     void choosesOnlyDirectSynchronizedChildrenAndRetainsAnUnavailableDefault() {
         var first = mirror("mirror:a", REMOTE_ID, SAVES, "Z");
         var second = mirror("mirror:b", REMOTE_ID, SAVES, "A");
