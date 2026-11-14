@@ -219,7 +219,7 @@ class WorldGraphMetadataRecoveryTest extends WorldGraphFixture {
     @Test
     void resumesAnUnfinishedClaimAtTheSameFolderAfterReopen() throws Exception {
         var service = service();
-        service.setSaveLocation(remote(), ModConfig.SaveLocation.DOWNLOADED);
+        service.setSourceSaveLocation(REMOTE, ModConfig.SaveLocation.DOWNLOADED);
         var initial = service.prepare(remote());
         Path config = configDirectory().resolve(WorldGraphConfig.FILE_NAME);
         var version = FileProof.version(config);
@@ -239,7 +239,7 @@ class WorldGraphMetadataRecoveryTest extends WorldGraphFixture {
     @Test
     void reassignsAFileCopyOfAnUnfinishedReservation() throws Exception {
         var service = service();
-        service.setSaveLocation(remote(), ModConfig.SaveLocation.DOWNLOADED);
+        service.setSourceSaveLocation(REMOTE, ModConfig.SaveLocation.DOWNLOADED);
         var initial = service.prepare(remote());
         Path copy = folder("saves", "Copy");
         Files.copy(initial.folder().resolve(MirrorClaim.FILE_NAME), copy.resolve(MirrorClaim.FILE_NAME));

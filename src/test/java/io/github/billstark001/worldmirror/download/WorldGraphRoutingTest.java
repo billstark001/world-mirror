@@ -90,7 +90,7 @@ class WorldGraphRoutingTest extends WorldGraphFixture {
         assertTrue(service.routing().observeProvider(id, false));
         assertEquals(State.CHOOSE_SOURCE, service.routing().currentResolution().state());
         String selected = service.routing().chooseSource(service.routing().observation(), null, true);
-        service.setSaveLocation(service.routing().source(), ModConfig.SaveLocation.DOWNLOADED);
+        service.setSourceSaveLocation(selected, ModConfig.SaveLocation.DOWNLOADED);
         var target = service.prepare(service.routing().source());
         assertEquals(selected, target.parentNodeId());
         assertEquals(selected, target.sourceId());
@@ -135,8 +135,8 @@ class WorldGraphRoutingTest extends WorldGraphFixture {
                 var ignored = channel.lock()) {
             assertThrows(IOException.class, service::refresh);
             assertThrows(IOException.class, () -> service.prepare(remote()));
-            assertThrows(
-                    IOException.class, () -> service.setSaveLocation(remote(), ModConfig.SaveLocation.SAVES));
+            assertThrows(IOException.class,
+                    () -> service.setSourceSaveLocation(REMOTE, ModConfig.SaveLocation.SAVES));
             assertThrows(IOException.class,
                     () -> service.setConflictStrategy(MIRROR, REMOTE, ModConfig.ConflictStrategy.MANUAL));
             assertThrows(
@@ -154,6 +154,34 @@ class WorldGraphRoutingTest extends WorldGraphFixture {
         assertThrows(IOException.class, () -> service.prepare(remote(), () -> false));
         assertNull(service.target(remote()));
         assertFalse(Files.exists(game.resolve("downloaded_worlds")));
+    }
+
+    @Test
+    void saveLocationEditStaysWithTheSourceSelectedBeforeAnIdChange() throws Exception {
+        String first = "remote:first", second = "remote:second", group = "endpoint:fixture";
+        var service = service();
+        service.refresh();
+        service.editRouting(snapshot
+                -> snapshot
+                        .withEndpointRule(ENDPOINT,
+                                new WorldGraphConfig.EndpointRule(group, Set.of(first, second), first,
+                                        WorldGraphConfig.IdPolicy.PREFER_BOUND_ID))
+                        .withStableBinding(new WorldGraphConfig.StableBinding("xaero", group, "17", first))
+                        .withStableBinding(new WorldGraphConfig.StableBinding("xaero", group, "18", second)));
+        var source = remote();
+        service.routing().beginObservation(source);
+        service.routing().observeProvider(ProviderObservation.advertised("xaero", "17"), false);
+        String sourceInSettings = service.routing().currentResolution().sourceNodeId();
+        assertEquals(first, sourceInSettings);
+
+        service.routing().observeProvider(ProviderObservation.advertised("xaero", "18"), false);
+        assertSame(source, service.routing().source());
+        assertEquals(second, service.routing().currentResolution().sourceNodeId());
+        service.setSourceSaveLocation(sourceInSettings, ModConfig.SaveLocation.SAVES);
+
+        var settings = service.configSnapshot().sourceSettings();
+        assertEquals(ModConfig.SaveLocation.SAVES, settings.get(first).saveLocation());
+        assertFalse(settings.containsKey(second));
     }
 
     @ParameterizedTest

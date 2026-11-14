@@ -52,6 +52,13 @@ public final class WorldGraphConfig {
                     mirrorId, saveLocation, preferredFolderName, conflictStrategy, inheritedMirrorId);
         }
 
+        public static String preferredMirrorId(SourceSettings settings) {
+            if (settings == null)
+                return null;
+            return settings.defaultMirrorId() == null ? settings.inheritedMirrorId()
+                                                      : settings.defaultMirrorId();
+        }
+
         SourceSettings withoutTarget(String mirrorId) {
             return new SourceSettings(mirrorId.equals(defaultMirrorId) ? null : defaultMirrorId, saveLocation,
                     preferredFolderName, conflictStrategy,

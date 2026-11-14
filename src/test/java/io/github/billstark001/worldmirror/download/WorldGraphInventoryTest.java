@@ -16,7 +16,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -223,8 +222,6 @@ class WorldGraphInventoryTest {
         Path config = Files.createDirectories(game.resolve("config").resolve("worldmirror"));
         var folders = new WorldInventoryFolders(game, () -> ModConfig.SaveLocation.DOWNLOADED);
         var inventory = new WorldGraphInventory(folders, config, () -> ModConfig.SaveLocation.DOWNLOADED);
-        var result = new AtomicReference<WorldGraphInventory.Result>();
-        inventory.refresh(WorldGraphConfig.open(config.resolve(WorldGraphConfig.FILE_NAME)), result::set);
-        return result.get();
+        return inventory.refresh(WorldGraphConfig.open(config.resolve(WorldGraphConfig.FILE_NAME)));
     }
 }

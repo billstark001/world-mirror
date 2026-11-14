@@ -40,7 +40,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /** Inventories both world roots and applies recoverable graph repairs under the graph lease. */
@@ -67,7 +66,7 @@ final class WorldGraphInventory {
         return config.pendingImports().containsKey(BLOCKED_SOURCE + sourceId);
     }
 
-    void refresh(WorldGraphConfig store, Consumer<Result> publish) throws IOException {
+    Result refresh(WorldGraphConfig store) throws IOException {
         FileTransaction.recover(configDirectory);
         WorldGraphConfig.Snapshot before = store.snapshot();
         LegacyGraphImport migration =
@@ -217,11 +216,11 @@ final class WorldGraphInventory {
                 indexSources.put(node.id(), indexSource);
             }
         }
-        publish.accept(new Result(
-                graph, Map.copyOf(indexSources), untrackedLocalWorlds, List.copyOf(orphanedMirrors)));
         migration.complete(allocations, pending.keySet());
         if (migration.hasLegacyFile())
             WMLogger.info("Legacy mirror routing archived entries=" + legacy.entries().size());
+        return new Result(
+                graph, Map.copyOf(indexSources), untrackedLocalWorlds, List.copyOf(orphanedMirrors));
     }
 
     private List<Candidate> scanMetadata(List<Path> folders, Set<Path> deferred,
@@ -272,6 +271,9 @@ final class WorldGraphInventory {
     private Snapshot repairDuplicates(List<Node> observed, Map<String, Location> affinity,
             Map<Location, Candidate> byLocation, Map<String, PendingImport> pending) {
         Snapshot graph = WorldGraph.reconcile(observed, affinity);
+        if (graph.duplicates().isEmpty())
+            return graph;
+        Map<Node, Node> replacements = new HashMap<>();
         for (Duplicate duplicate : graph.duplicates()) {
             Node copy = duplicate.copy();
             Path folder = folders.root(copy.location().root()).resolve(copy.location().folder());
@@ -294,8 +296,7 @@ final class WorldGraphInventory {
                     JsonSupport.compareAndWriteDocument(file, metadata, proof);
                     byLocation.put(copy.location(), new Candidate(copy.location(), folder, metadata, null));
                 }
-                observed.remove(copy);
-                observed.add(
+                replacements.put(copy,
                         new Node(replacement, copy.parentId(), copy.location(), copy.kind(), copy.role()));
                 pending.remove(key);
                 WMLogger.info("Copied world assigned a new identity world=" + folder + " original="
@@ -307,6 +308,9 @@ final class WorldGraphInventory {
                         "Copied world identity repair deferred world=" + folder, failure);
             }
         }
+        if (replacements.isEmpty())
+            return graph;
+        observed.replaceAll(node -> replacements.getOrDefault(node, node));
         return WorldGraph.reconcile(observed, affinity);
     }
 

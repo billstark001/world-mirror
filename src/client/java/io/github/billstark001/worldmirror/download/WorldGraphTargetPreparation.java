@@ -40,19 +40,17 @@ final class WorldGraphTargetPreparation {
                 createMirror ? null : WorldGraphService.targetFor(service.published(), parent, mirrorChoice);
         WorldGraphConfig.Snapshot before = service.open().snapshot();
         SourceSettings old = WorldGraphService.settings(before.sourceSettings(), parent);
+        String preferred = SourceSettings.preferredMirrorId(old);
         if (selected != null) {
-            if (route.createSource()
-                    || (mirrorChoice == null && WorldGraphService.preferredMirror(old) == null))
+            if (route.createSource() || (mirrorChoice == null && preferred == null))
                 recordRoute(service, before, route, parent,
-                        mirrorChoice == null && WorldGraphService.preferredMirror(old) == null
-                                ? selected.nodeId()
-                                : null);
+                        mirrorChoice == null && preferred == null ? selected.nodeId() : null);
             return selected;
         }
         if (mirrorChoice != null)
             throw new IOException("Selected mirror unavailable: " + mirrorChoice);
-        if (WorldGraphService.preferredMirror(old) != null && !createMirror)
-            throw new IOException("Default mirror unavailable: " + WorldGraphService.preferredMirror(old));
+        if (preferred != null && !createMirror)
+            throw new IOException("Default mirror unavailable: " + preferred);
         if (WorldGraphInventory.hasDeferredSource(before, parent)) {
             throw new IOException("An existing mirror is still awaiting metadata upgrade");
         }
@@ -81,8 +79,7 @@ final class WorldGraphTargetPreparation {
             throw failure;
         }
         WMLogger.info("Download mirror reserved world=" + folder);
-        recordRoute(service, before, route, parent,
-                WorldGraphService.preferredMirror(old) == null && !createMirror ? nodeId : null);
+        recordRoute(service, before, route, parent, preferred == null && !createMirror ? nodeId : null);
         service.refreshPublished();
         return new Target(nodeId, parent, indexSource, folder);
     }

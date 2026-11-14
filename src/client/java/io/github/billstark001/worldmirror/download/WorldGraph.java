@@ -66,6 +66,8 @@ public final class WorldGraph {
         private final Set<String> cyclicIds;
         private final Set<String> missingParents;
         private final List<Duplicate> duplicates;
+        private final Set<String> duplicateIds;
+        private final Set<Location> duplicateLocations;
         private final Set<String> ambiguousIds;
         private final Map<String, List<Node>> children;
 
@@ -75,6 +77,17 @@ public final class WorldGraph {
             this.cyclicIds = Set.copyOf(cyclicIds);
             this.missingParents = Set.copyOf(missingParents);
             this.duplicates = List.copyOf(duplicates);
+            Set<String> duplicateIds = new HashSet<>();
+            Set<Location> duplicateLocations = new HashSet<>();
+            for (Duplicate duplicate : duplicates) {
+                duplicateIds.add(duplicate.original().id());
+                if (duplicate.original().location() != null)
+                    duplicateLocations.add(duplicate.original().location());
+                if (duplicate.copy().location() != null)
+                    duplicateLocations.add(duplicate.copy().location());
+            }
+            this.duplicateIds = Set.copyOf(duplicateIds);
+            this.duplicateLocations = Set.copyOf(duplicateLocations);
             Map<String, List<Node>> byParent = new HashMap<>();
             for (Node node : nodes.values()) {
                 if (node.parentId() != null)
@@ -82,7 +95,7 @@ public final class WorldGraph {
             }
             byParent.replaceAll((parent, values) -> values.stream().sorted(NODE_ORDER).toList());
             this.children = Map.copyOf(byParent);
-            this.ambiguousIds = ambiguousAncestry(children, cyclicIds, duplicates);
+            this.ambiguousIds = ambiguousAncestry(children, cyclicIds, this.duplicateIds);
         }
 
         public Map<String, Node> nodes() {
@@ -122,8 +135,11 @@ public final class WorldGraph {
 
         public boolean hasUniqueLocation(String id) {
             Node node = nodes.get(id);
-            return node != null && node.location() != null
-                    && duplicates.stream().noneMatch(copy -> copy.original().id().equals(id));
+            return node != null && node.location() != null && !duplicateIds.contains(id);
+        }
+
+        boolean hasDuplicateAt(Location location) {
+            return duplicateLocations.contains(location);
         }
 
         public Optional<Node> findRoot(String id) {
@@ -155,9 +171,9 @@ public final class WorldGraph {
     }
 
     private static Set<String> ambiguousAncestry(
-            Map<String, List<Node>> children, Set<String> cycles, List<Duplicate> duplicates) {
+            Map<String, List<Node>> children, Set<String> cycles, Set<String> duplicateIds) {
         Set<String> ambiguous = new HashSet<>(cycles);
-        for (Duplicate duplicate : duplicates) ambiguous.add(duplicate.original().id());
+        ambiguous.addAll(duplicateIds);
         if (ambiguous.isEmpty())
             return Set.of();
 

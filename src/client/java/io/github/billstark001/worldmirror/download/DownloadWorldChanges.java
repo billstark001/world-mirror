@@ -21,17 +21,20 @@ public final class DownloadWorldChanges {
     }
 
     static void tick(Minecraft client) {
-        var graph = WorldGraphService.instance();
-        if (graph.routing().updateRemoteObservation(client)) {
+        var routing = WorldGraphService.instance().routing();
+        if (routing.updateRemoteObservation(client)) {
             DownloadManager.logicalWorldChanged(client);
         }
         var evidence = XaeroWorldIdentity.observe(client);
-        if (graph.routing().observeProvider(evidence, DownloadManager.session() != null))
+        if (routing.observeProvider(evidence, DownloadManager.session() != null))
+            DownloadManager.logicalWorldChanged(client);
+        var session = DownloadManager.session();
+        if (session != null && !routing.matchesSessionSource(session.sourceNodeId()))
             DownloadManager.logicalWorldChanged(client);
         if (respawnBoundary && System.nanoTime() - respawnDeadline >= 0L) {
             respawnBoundary = false;
-            if (graph.routing().expectsIdentity() && DownloadManager.session() != null) {
-                graph.routing().requireSourceChoice();
+            if (routing.expectsIdentity() && DownloadManager.session() != null) {
+                routing.requireSourceChoice();
                 DownloadManager.logicalWorldChanged(client);
             } else if (DownloadManager.isCaptureEnabled()) {
                 DownloadCapture.queueLoadedScan(client, "respawn-capture");

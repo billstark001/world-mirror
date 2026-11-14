@@ -116,9 +116,7 @@ public final class WorldOpenMigrationController {
 
     private static boolean ambiguous(Path folder) {
         var location = new WorldGraph.Location(WorldGraph.Root.SAVES, folder.getFileName().toString());
-        return WorldGraphService.instance().graph().duplicates().stream().anyMatch(duplicate
-                -> location.equals(duplicate.copy().location())
-                        || location.equals(duplicate.original().location()));
+        return WorldGraphService.instance().graph().hasDuplicateAt(location);
     }
 
     private static void recover(Minecraft client, Path folder, Runnable reload, Runnable reopen) {

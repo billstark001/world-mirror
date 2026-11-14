@@ -31,8 +31,10 @@ public final class WorldConnectionRouting {
     record Route(Source source, ConnectionObservation observation, String chosenSource, boolean createSource,
             boolean confirmSwitch) {}
 
+    private record ResolvedRoute(Route route, WorldGraphConfig.Snapshot config, Resolution value) {}
+
     private volatile Route route;
-    private volatile ProviderObservation latestProvider = ProviderObservation.pending();
+    private volatile ResolvedRoute resolvedRoute;
     private ClientPacketListener connection;
     private IntegratedServer integratedServer;
     private CompletableFuture<String> localIdentityRequest;
@@ -58,13 +60,19 @@ public final class WorldConnectionRouting {
     boolean expectsIdentity() {
         var observation = observation();
         if (observation == null || observation.endpoint() == null
-                || latestProvider.state() != ProviderState.ADVERTISED)
+                || observation.providerObservation().state() != ProviderState.ADVERTISED)
             return false;
         var rule = service.configSnapshot().endpointRules().get(observation.endpoint());
         return rule == null || rule.idPolicy() != IdPolicy.ENDPOINT_ONLY;
     }
     public Resolution currentResolution() {
-        return resolve(service.available() ? route : null, service.configSnapshot());
+        var view = service.published();
+        return resolveCurrent(view.available() ? route : null, view.config());
+    }
+
+    boolean matchesSessionSource(String sourceId) {
+        var view = service.published();
+        return !view.available() || sourceId.equals(resolveCurrent(route, view.config()).sourceNodeId());
     }
     /** Checks game-thread capture against the observation that owns the current session. */
     public boolean observationIsCurrent(Minecraft client) {
@@ -110,7 +118,6 @@ public final class WorldConnectionRouting {
 
     void beginObservation(Source source) {
         connectionEpoch++;
-        latestProvider = ProviderObservation.pending();
         route = observe(source);
     }
 
@@ -119,7 +126,6 @@ public final class WorldConnectionRouting {
         connection = null;
         integratedServer = null;
         cancelLocalIdentityRequest();
-        latestProvider = ProviderObservation.pending();
         observedAddress = null;
         service.refreshAsync();
     }
@@ -212,7 +218,6 @@ public final class WorldConnectionRouting {
         Source observed = observeAddress(client);
         if (Objects.equals(current, observed))
             return false;
-        latestProvider = ProviderObservation.pending();
         route = observe(observed);
         return true;
     }
@@ -231,23 +236,28 @@ public final class WorldConnectionRouting {
         Route previous = route;
         if (previous == null || previous.source().endpoint() == null)
             return false;
+        var lastEvidence = previous.observation().providerObservation();
         // Provider state is scoped to the connection, not a particular vanilla dimension.
-        if (evidence.state() == ProviderState.PENDING
+        if (lastEvidence.equals(evidence) || evidence.state() == ProviderState.PENDING
                 || (evidence.state() == ProviderState.ABSENT
-                        && latestProvider.state() == ProviderState.ADVERTISED))
-            return false;
-        latestProvider = evidence;
-        if (previous.observation().providerObservation().equals(evidence))
+                        && lastEvidence.state() == ProviderState.ADVERTISED))
             return false;
         var observation = new ConnectionObservation(
                 previous.observation().connectionEpoch(), previous.source().endpoint(), null, evidence);
-        EndpointRule rule = service.configSnapshot().endpointRules().get(previous.source().endpoint());
+        var config = service.configSnapshot();
+        EndpointRule rule = config.endpointRules().get(previous.source().endpoint());
         boolean ignored = rule != null && rule.idPolicy() == IdPolicy.ENDPOINT_ONLY;
-        if (ignored)
+        if (ignored
+                || (lastEvidence.state() == ProviderState.PENDING && evidence.state() == ProviderState.ABSENT
+                        && previous.chosenSource() != null)) {
+            // Keep the evidence for policy edits without disturbing an endpoint or manual selection.
+            route = new Route(previous.source(), observation, previous.chosenSource(),
+                    previous.createSource(), previous.confirmSwitch());
             return false;
-        var before = resolve(previous, service.configSnapshot());
+        }
+        var before = resolveCurrent(previous, config);
         var next = new Route(previous.source(), observation, null, false, false);
-        var after = resolve(next, service.configSnapshot());
+        var after = resolve(next, config);
         boolean sameSource =
                 before.sourceNodeId() != null && before.sourceNodeId().equals(after.sourceNodeId());
         boolean confirmSwitch = !sameSource && late;
@@ -306,13 +316,33 @@ public final class WorldConnectionRouting {
     }
 
     public String sourceNode(Source observation) {
-        return resolve(routeFor(observation), service.configSnapshot()).sourceNodeId();
+        return sourceNode(observation, service.configSnapshot());
+    }
+
+    String sourceNode(Source observation, WorldGraphConfig.Snapshot config) {
+        Route current = route;
+        if (current != null && current.source() == observation)
+            return resolveCurrent(current, config).sourceNodeId();
+        return resolve(unobservedRoute(observation), config).sourceNodeId();
+    }
+
+    private Resolution resolveCurrent(Route current, WorldGraphConfig.Snapshot config) {
+        ResolvedRoute resolved = resolvedRoute;
+        if (resolved != null && resolved.route() == current && resolved.config() == config)
+            return resolved.value();
+        Resolution value = resolve(current, config);
+        resolvedRoute = new ResolvedRoute(current, config, value);
+        return value;
     }
 
     Route routeFor(Source source) {
         Route current = route;
         if (current != null && current.source() == source)
             return current;
+        return unobservedRoute(source);
+    }
+
+    private static Route unobservedRoute(Source source) {
         return source == null ? null
                               : new Route(source,
                                         new ConnectionObservation(0, source.endpoint(), source.nodeId(),

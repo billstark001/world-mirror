@@ -137,9 +137,8 @@ final class StatusSettingsTab {
         } else if (context.target() != null) {
             showScreen(new SaveLocationMoveScreen(screen, context.target(), target));
         } else {
-            var observation = context.observation();
-            saveRouting(
-                    "save_location", () -> WorldGraphService.instance().setSaveLocation(observation, target));
+            saveRouting("save_location",
+                    () -> WorldGraphService.instance().setSourceSaveLocation(context.sourceNodeId(), target));
         }
     }
 
@@ -197,7 +196,6 @@ final class StatusSettingsTab {
                 client::execute,
                 success
                 -> {
-                    savingRouting = false;
                     if (ClientDialogs.currentScreen(client) != screen)
                         return;
                     if (success)
@@ -205,7 +203,7 @@ final class StatusSettingsTab {
                     else
                         showFailure(Component.translatable("screen.worldmirror.move.failure.io_error"));
                 },
-                () -> {});
+                () -> savingRouting = false);
     }
 
     void render(Canvas graphics) {

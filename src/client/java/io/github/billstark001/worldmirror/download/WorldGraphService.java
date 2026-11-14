@@ -52,7 +52,7 @@ public final class WorldGraphService {
     }
     record MoveResult(Path source, Path target) {}
     record Published(Snapshot graph, WorldGraphConfig.Snapshot config, Map<String, Target> targets,
-            List<Location> untrackedLocalWorlds, List<Location> orphanedMirrors) {}
+            List<Location> untrackedLocalWorlds, List<Location> orphanedMirrors, boolean available) {}
     private final WorldInventoryFolders folders;
     private final WorldGraphInventory inventory;
     private final Path configDirectory;
@@ -68,8 +68,7 @@ public final class WorldGraphService {
     });
     private WorldGraphConfig store;
     private volatile Published published = new Published(WorldGraph.reconcile(List.of(), Map.of()),
-            WorldGraphConfig.Snapshot.empty(), Map.of(), List.of(), List.of());
-    private volatile boolean available;
+            WorldGraphConfig.Snapshot.empty(), Map.of(), List.of(), List.of(), false);
     WorldGraphService(Path game, Path configDirectory) {
         this(game, configDirectory, false);
     }
@@ -128,7 +127,7 @@ public final class WorldGraphService {
     }
 
     public boolean available() {
-        return available;
+        return published.available();
     }
     public Snapshot graph() {
         return published.graph();
@@ -142,31 +141,31 @@ public final class WorldGraphService {
         return published.config();
     }
     public Target targetById(String id) {
-        return id == null || !available ? null : published.targets().get(id);
+        Published view = published;
+        return id == null || !view.available() ? null : view.targets().get(id);
     }
     public List<Target> targetsForSource(String id) {
         Published view = published;
-        return id == null || !available ? List.of()
-                                        : view.graph()
-                                                  .childrenOf(id)
-                                                  .stream()
-                                                  .map(node -> view.targets().get(node.id()))
-                                                  .filter(Objects::nonNull)
-                                                  .toList();
+        return id == null || !view.available() ? List.of()
+                                               : view.graph()
+                                                         .childrenOf(id)
+                                                         .stream()
+                                                         .map(node -> view.targets().get(node.id()))
+                                                         .filter(Objects::nonNull)
+                                                         .toList();
     }
 
     public Target target(Source observation) {
-        if (!available)
-            return null;
         Published view = published;
-        return targetFor(view, routing.sourceNode(observation), null);
+        return view.available() ? targetFor(view, routing.sourceNode(observation, view.config()), null)
+                                : null;
     }
 
     static Target targetFor(Published view, String sourceId, String choice) {
         if (sourceId == null)
             return null;
         SourceSettings settings = view.config().sourceSettings().get(sourceId);
-        String preferred = choice != null ? choice : preferredMirror(settings);
+        String preferred = choice != null ? choice : SourceSettings.preferredMirrorId(settings);
         return view.graph()
                 .defaultMirror(sourceId, preferred)
                 .map(node -> view.targets().get(node.id()))
@@ -174,15 +173,16 @@ public final class WorldGraphService {
     }
 
     public Path preview(Source observation) {
-        if (observation == null || !available)
+        Published view = published;
+        if (observation == null || !view.available())
             return null;
-        Target target = target(observation);
+        String sourceId = routing.sourceNode(observation, view.config());
+        Target target = targetFor(view, sourceId, null);
         if (target != null)
             return target.folder();
-        String sourceId = routing.sourceNode(observation);
         if (sourceId == null)
             return null;
-        SourceSettings settings = published.config().sourceSettings().get(sourceId);
+        SourceSettings settings = view.config().sourceSettings().get(sourceId);
         return rootFor(settings == null || settings.saveLocation() == null
                         ? ModConfig.get().defaultSaveLocation
                         : settings.saveLocation())
@@ -218,7 +218,7 @@ public final class WorldGraphService {
 
     private void saveConflictStrategy(String nodeId, String parentId, ModConfig.ConflictStrategy strategy)
             throws IOException {
-        WorldGraphConfig.Snapshot before = open().snapshot();
+        WorldGraphConfig.Snapshot before = currentStore().snapshot();
         Map<String, MirrorSettings> mirrors = new HashMap<>(before.mirrorSettings());
         Map<String, SourceSettings> sources = new HashMap<>(before.sourceSettings());
         if (nodeId != null) {
@@ -241,20 +241,17 @@ public final class WorldGraphService {
                     + " strategy=" + (strategy == null ? "inherit" : strategy));
     }
 
-    public synchronized void setSaveLocation(Source observation, ModConfig.SaveLocation location)
+    public synchronized void setSourceSaveLocation(String sourceId, ModConfig.SaveLocation location)
             throws IOException {
+        if (!WorldGraph.isNodeId(sourceId))
+            throw new IOException("No source selected");
         try (var ignored = acquireGraphLease()) {
-            saveLocationPreference(observation, location);
+            saveLocationPreference(sourceId, location);
         }
     }
 
-    private void saveLocationPreference(Source observation, ModConfig.SaveLocation location)
-            throws IOException {
-        WorldGraphConfig.Snapshot before = open().snapshot();
-        String sourceId =
-                WorldConnectionRouting.resolve(routing.routeFor(observation), before).sourceNodeId();
-        if (sourceId == null)
-            throw new IOException("No source selected");
+    private void saveLocationPreference(String sourceId, ModConfig.SaveLocation location) throws IOException {
+        WorldGraphConfig.Snapshot before = currentStore().snapshot();
         Map<String, SourceSettings> sources = new HashMap<>(before.sourceSettings());
         SourceSettings old = settings(sources, sourceId);
         sources.put(sourceId,
@@ -289,9 +286,7 @@ public final class WorldGraphService {
         if (clientService && DownloadManager.hasRoutingWork())
             throw new IOException("Stop capture and wait for pending exports before editing routes");
         try (var ignored = acquireGraphLease()) {
-            if (store != null && !store.isCurrent())
-                store = null;
-            var before = open().snapshot();
+            var before = currentStore().snapshot();
             var next = Objects.requireNonNull(edit.apply(before));
             if (!before.nodes().equals(next.nodes()) || !before.locations().equals(next.locations())
                     || !before.pendingImports().equals(next.pendingImports()))
@@ -317,7 +312,8 @@ public final class WorldGraphService {
     }
 
     public Target currentTarget(Target target) throws IOException {
-        Target current = available ? published.targets().get(target.nodeId()) : null;
+        Published view = published;
+        Target current = view.available() ? view.targets().get(target.nodeId()) : null;
         if (current == null || !Objects.equals(current.parentNodeId(), target.parentNodeId())
                 || !current.sourceId().equals(target.sourceId())) {
             throw new IOException("Mirror target identity changed: " + target.nodeId());
@@ -358,17 +354,15 @@ public final class WorldGraphService {
 
     void refreshPublished() throws IOException {
         try {
-            if (store != null && !store.isCurrent())
-                store = null;
-            WorldGraphConfig config = open();
-            inventory.refresh(config, result -> publishInventory(result, config.snapshot()));
-            if (!available)
+            boolean wasAvailable = published.available();
+            WorldGraphConfig config = currentStore();
+            WorldGraphInventory.Result result = inventory.refresh(config);
+            publishInventory(result, config.snapshot());
+            if (!wasAvailable)
                 WMLogger.info("World graph available worlds=" + published.graph().nodes().size()
                         + " downloadTargets=" + published.targets().size());
-            available = true;
         } catch (IOException | RuntimeException failure) {
-            store = null;
-            available = false;
+            invalidatePublication();
             throw failure;
         }
     }
@@ -383,8 +377,8 @@ public final class WorldGraphService {
             Path folder = folders.root(location.root()).resolve(location.folder());
             targets.put(id, new Target(id, node.parentId(), indexSource, folder));
         });
-        published = new Published(
-                graph, config, Map.copyOf(targets), result.untrackedLocalWorlds(), result.orphanedMirrors());
+        published = new Published(graph, config, Map.copyOf(targets), result.untrackedLocalWorlds(),
+                result.orphanedMirrors(), true);
         if (!previous.cyclicIds().equals(graph.cyclicIds()) && !graph.cyclicIds().isEmpty())
             WMLogger.warn("World graph has cyclic upstream links worlds=" + graph.cyclicIds().size());
         if (!previous.missingParents().equals(graph.missingParents()))
@@ -395,6 +389,19 @@ public final class WorldGraphService {
         if (store == null)
             store = WorldGraphConfig.open(configDirectory.resolve(WorldGraphConfig.FILE_NAME));
         return store;
+    }
+
+    WorldGraphConfig currentStore() throws IOException {
+        if (store != null && !store.isCurrent())
+            store = null;
+        return open();
+    }
+
+    private void invalidatePublication() {
+        store = null;
+        Published view = published;
+        published = new Published(view.graph(), view.config(), view.targets(), view.untrackedLocalWorlds(),
+                view.orphanedMirrors(), false);
     }
 
     void publishConfig(WorldGraphConfig.Snapshot before, Map<String, Node> nodes,
@@ -417,23 +424,16 @@ public final class WorldGraphService {
             if (!open().replace(before, next))
                 throw new IOException("World graph changed before publication");
         } catch (IOException failure) {
-            store = null;
-            available = false;
+            invalidatePublication();
             throw failure;
         }
         Published view = published;
-        published = new Published(
-                view.graph(), next, view.targets(), view.untrackedLocalWorlds(), view.orphanedMirrors());
+        published = new Published(view.graph(), next, view.targets(), view.untrackedLocalWorlds(),
+                view.orphanedMirrors(), view.available());
     }
 
     static SourceSettings settings(Map<String, SourceSettings> sources, String id) {
         return sources.getOrDefault(id, new SourceSettings(null, null, null, null, null));
-    }
-
-    static String preferredMirror(SourceSettings settings) {
-        if (settings == null)
-            return null;
-        return settings.defaultMirrorId() == null ? settings.inheritedMirrorId() : settings.defaultMirrorId();
     }
 
     Path rootFor(ModConfig.SaveLocation location) {

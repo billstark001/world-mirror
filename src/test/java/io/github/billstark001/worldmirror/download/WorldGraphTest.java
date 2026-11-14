@@ -32,12 +32,19 @@ class WorldGraphTest {
         assertEquals(saved, withoutHint.nodes().get(saved.id()));
         assertEquals(downloaded, withHint.nodes().get(saved.id()));
         assertEquals(List.of(new WorldGraph.Duplicate(downloaded, saved)), withHint.duplicates());
+        assertFalse(withHint.hasUniqueLocation(saved.id()));
+        assertTrue(withHint.hasDuplicateAt(saved.location()));
+        assertTrue(withHint.hasDuplicateAt(downloaded.location()));
+        assertTrue(withHint.hasUniqueLocation(child.id()));
+        assertFalse(withHint.hasDuplicateAt(child.location()));
         assertEquals(List.of(child), withHint.childrenOf(saved.id()));
         assertTrue(withHint.defaultMirror(saved.id(), null).isEmpty());
         assertTrue(withHint.defaultMirror(child.id(), null).isEmpty());
 
         var moved = WorldGraph.reconcile(List.of(saved, child), Map.of(saved.id(), downloaded.location()));
         assertTrue(moved.duplicates().isEmpty());
+        assertTrue(moved.hasUniqueLocation(saved.id()));
+        assertFalse(moved.hasDuplicateAt(saved.location()));
         assertEquals(child, moved.defaultMirror(saved.id(), null).orElseThrow());
     }
 

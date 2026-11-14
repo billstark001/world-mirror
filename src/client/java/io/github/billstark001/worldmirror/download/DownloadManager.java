@@ -368,10 +368,12 @@ public final class DownloadManager {
     }
 
     private static boolean sessionIsCurrent(Minecraft client, CaptureSession session) {
-        var graph = WorldGraphService.instance();
-        return session != null && !DownloadWorldChanges.isRespawnBoundary()
-                && session.connectionEpoch() == graph.routing().connectionEpoch()
-                && session.sourceEpoch() == sourceEpoch && graph.routing().observationIsCurrent(client);
+        if (session == null || DownloadWorldChanges.isRespawnBoundary()
+                || session.sourceEpoch() != sourceEpoch)
+            return false;
+        var routing = WorldGraphService.instance().routing();
+        return session.connectionEpoch() == routing.connectionEpoch() && routing.observationIsCurrent(client)
+                && routing.matchesSessionSource(session.sourceNodeId());
     }
 
     static CaptureSession session() {

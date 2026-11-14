@@ -5,6 +5,7 @@ import io.github.billstark001.worldmirror.conflict.OverwriteResolver;
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.core.EntityTracker;
 import io.github.billstark001.worldmirror.io.ExportProgress;
+import io.github.billstark001.worldmirror.io.WorldWriteLock;
 import net.minecraft.SharedConstants;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.Bootstrap;
@@ -51,6 +52,31 @@ class ExportTransactionTest {
     static void bootstrap() {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
+    }
+
+    @Test
+    void lockedTargetRetainsTheExactWorkAndRetriesWithTheOriginalCaptureTime(@TempDir Path world)
+            throws Exception {
+        var work = terrain(1);
+        ExportTestTargets.reserve(world, work);
+        var claim = MirrorClaim.read(world);
+        MirrorExportTransaction.ExportOutcome blocked;
+        try (var lock = WorldWriteLock.acquireDirectory(world)) {
+            blocked = write(work, world, new OverwriteResolver());
+            assertFalse(blocked.successful());
+            assertFalse(blocked.indexCommitted());
+            assertSame(work, blocked.remaining());
+            assertEquals(claim, MirrorClaim.read(world));
+            assertFalse(Files.exists(world.resolve("level.dat")));
+        }
+
+        var written = write(blocked.remaining(), world, new OverwriteResolver());
+        assertTrue(written.successful());
+        assertEquals(1, written.result().totalWritten());
+        assertNull(MirrorClaim.read(world));
+        try (var db = ChunkDatabase.open(world, work.context().session().target().sourceId())) {
+            assertEquals(100L, db.queryAll("minecraft:overworld").getFirst().updateTime());
+        }
     }
 
     @Test
