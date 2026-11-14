@@ -17,9 +17,11 @@ import io.github.billstark001.worldmirror.ui.WorldMirrorTabbedScreen.SelectionOp
 import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.network.chat.Component;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 
 /** Edits the selected world's relationships and storage. */
@@ -56,7 +58,8 @@ final class WorldRouteDetails {
         boolean editable = managed && view.graph().hasUniqueLocation(id);
         if (managed) {
             entries.add(info(label("upstream",
-                    node.parentId() == null ? label("upstreamNone") : screen.displayName(node.parentId()))));
+                    node.parentId() == null ? label("upstreamNone")
+                                            : screen.worlds().name(node.parentId()))));
         }
         if (!unambiguous)
             entries.add(info(label("ambiguous")));
@@ -69,13 +72,11 @@ final class WorldRouteDetails {
                             -> screen.worldEdit(() -> service.worlds().removeUpstream(id), () -> show(id))));
         }
         var settings = view.config().sourceSettings().get(id);
-        String selected = settings == null           ? null
-                : settings.defaultMirrorId() == null ? settings.inheritedMirrorId()
-                                                     : settings.defaultMirrorId();
+        String selected = WorldGraphConfig.SourceSettings.preferredMirrorId(settings);
         if (selected != null || !view.graph().childrenOf(id).isEmpty()) {
             String defaultId = settings == null ? null : settings.defaultMirrorId();
             entries.add(row(label("targetDefault",
-                                    selected == null ? label("automatic") : screen.displayName(selected)),
+                                    selected == null ? label("automatic") : screen.worlds().name(selected)),
                     unambiguous ? () -> chooseDefaultMirror(id, defaultId) : null));
         }
         if (node.kind() == WorldGraph.Kind.MIRROR) {
@@ -95,7 +96,7 @@ final class WorldRouteDetails {
         } else if (node.kind() == WorldGraph.Kind.LOCAL && view.graph().hasUniqueLocation(id)) {
             entries.add(row(Component.translatable("selectWorld.delete"), () -> confirmDelete(node)));
         }
-        screen.show(Component.literal(screen.displayName(node)), entries, screen::showWorlds);
+        screen.show(Component.literal(screen.worlds().name(node)), entries, screen::showWorlds);
     }
 
     private void chooseDefaultMirror(String id, String current) {
@@ -139,15 +140,9 @@ final class WorldRouteDetails {
 
     private void chooseUpstream(WorldGraph.Node child) {
         var view = screen.view();
-        var entries = new ArrayList<>(view.graph()
-                        .nodes()
-                        .values()
+        var entries = new ArrayList<>(upstreamCandidates(view.graph(), child.id())
                         .stream()
-                        .filter(node
-                                -> node.kind() != WorldGraph.Kind.UNRESOLVED && !node.id().equals(child.id())
-                                        && view.graph().isUnambiguous(node.id())
-                                        && !view.graph().wouldCreateCycle(child.id(), node.id()))
-                        .sorted(screen.nodeOrder())
+                        .sorted(screen.worlds().nodeOrder())
                         .map(screen::choice)
                         .toList());
         var untracked = new HashMap<String, WorldGraph.Location>();
@@ -168,6 +163,25 @@ final class WorldRouteDetails {
                     }, () -> show(child.id()));
                     return null;
                 }));
+    }
+
+    static List<WorldGraph.Node> upstreamCandidates(WorldGraph.Snapshot graph, String childId) {
+        // Block the child and its descendants in a single traversal, including cycles under repair.
+        var excluded = new HashSet<String>();
+        var remaining = new ArrayDeque<String>();
+        remaining.add(childId);
+        while (!remaining.isEmpty()) {
+            String id = remaining.removeFirst();
+            if (!excluded.add(id))
+                continue;
+            for (var child : graph.childrenOf(id)) remaining.add(child.id());
+        }
+        return graph.nodes()
+                .values()
+                .stream()
+                .filter(node -> node.kind() != WorldGraph.Kind.UNRESOLVED)
+                .filter(node -> graph.isUnambiguous(node.id()) && !excluded.contains(node.id()))
+                .toList();
     }
 
     private RoutingRow worldLocation(WorldGraph.Node node) {
@@ -199,7 +213,7 @@ final class WorldRouteDetails {
                                 screen::showWorlds);
                 },
                 Component.translatable("selectWorld.deleteQuestion"),
-                Component.translatable("selectWorld.deleteWarning", screen.displayName(node)),
+                Component.translatable("selectWorld.deleteWarning", screen.worlds().name(node)),
                 Component.translatable("selectWorld.deleteButton"), Component.translatable("gui.cancel")));
     }
 

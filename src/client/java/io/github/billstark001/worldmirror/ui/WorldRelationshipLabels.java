@@ -1,6 +1,7 @@
 package io.github.billstark001.worldmirror.ui;
 
 import io.github.billstark001.worldmirror.download.WorldGraph;
+import io.github.billstark001.worldmirror.download.WorldGraphConfig.SourceSettings;
 import io.github.billstark001.worldmirror.download.WorldGraphService;
 import io.github.billstark001.worldmirror.ui.WorldRelationshipLayout.Card;
 import net.minecraft.network.chat.Component;
@@ -29,9 +30,7 @@ final class WorldRelationshipLabels {
         }
         var count = label("graphChildren", direct.size());
         var settings = view.config().sourceSettings().get(card.key());
-        String preferred = settings == null          ? null
-                : settings.defaultMirrorId() == null ? settings.inheritedMirrorId()
-                                                     : settings.defaultMirrorId();
+        String preferred = SourceSettings.preferredMirrorId(settings);
         if (preferred != null
                 || direct.stream().anyMatch(child -> child.node().role() == WorldGraph.Role.SYNC)) {
             var target = view.graph().defaultMirror(card.key(), preferred).orElse(null);

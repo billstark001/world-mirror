@@ -417,6 +417,7 @@
   "screen.worldmirror.routing.endpointUnavailable": "地址规则已不可用",
   "screen.worldmirror.routing.sourceUnavailable": "远程世界已不可用",
   "screen.worldmirror.routing.bindingExists": "此 ID 已绑定到另一个世界",
+  "screen.worldmirror.routing.bindingChanged": "此 ID 绑定已更改。请刷新列表后重试。",
   "screen.worldmirror.routing.policy.endpoint_only": "忽略稳定 ID",
   "screen.worldmirror.routing.policy.prefer_bound_id": "优先使用已绑定的稳定 ID",
   "screen.worldmirror.routing.policy.require_bound_id": "要求稳定 ID 绑定",

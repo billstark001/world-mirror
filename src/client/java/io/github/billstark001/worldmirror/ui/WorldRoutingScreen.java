@@ -15,7 +15,6 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -30,13 +29,15 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
     private static final List<Component> TABS =
             List.of(label("worlds"), label("endpoints"), label("stableIds"));
 
-    private record WorkResult(WorldGraphService.RoutingView view, Exception failure) {}
+    private record WorkResult(
+            WorldGraphService.RoutingView view, RoutingWorldPresentation worlds, Exception failure) {}
 
     private final Screen parent;
     private final WorldGraphService service = WorldGraphService.instance();
     private final WorldRouteDetails details = new WorldRouteDetails(this, service);
     private final ServerRouteEditor servers = new ServerRouteEditor(this);
     private WorldGraphService.RoutingView view;
+    private RoutingWorldPresentation worlds;
     private List<RoutingRow> rows = List.of();
     private Tab tab = Tab.WORLDS;
     private Component section = label("worlds");
@@ -150,7 +151,7 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
             graphView = new WorldRelationshipView(0, top, width, graphHeight);
         else
             graphView.setRectangle(width, graphHeight, 0, top);
-        graphView.update(view, this::displayName, details::show);
+        graphView.update(view, worlds::name, details::show);
         graphView.active = !busy;
         int step = WorldGraphIconButton.SIZE + TOOLBAR_GAP;
         int toolbarX = Math.max(0, width - 3 * step - TOOLBAR_GAP);
@@ -257,10 +258,10 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
     }
 
     WorldSelectionScreen.Choice choice(WorldGraph.Node node) {
-        var name = Component.literal(displayName(node));
+        var name = Component.literal(worlds.name(node));
         if (node.location() != null)
             return WorldSelectionScreen.Choice.world(node.id(), name, node.location(), node.kind());
-        var aliases = endpoints(node.id());
+        var aliases = worlds.addresses(node.id());
         String address = aliases.isEmpty() ? null : aliases.getFirst();
         var detail =
                 address == null ? Component.empty() : label("serverLocation", String.join(", ", aliases));
@@ -280,36 +281,8 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
         return AUTOMATIC.equals(choice.id()) ? null : choice.id();
     }
 
-    Comparator<WorldGraph.Node> nodeOrder() {
-        return Comparator.comparing((WorldGraph.Node node) -> displayName(node))
-                .thenComparing(WorldGraph.Node::id);
-    }
-
-    String displayName(String id) {
-        WorldGraph.Node node = view.graph().nodes().get(id);
-        return node == null ? id : displayName(node);
-    }
-
-    String displayName(WorldGraph.Node node) {
-        if (node.location() != null)
-            return node.location().folder();
-        if (node.kind() == WorldGraph.Kind.REMOTE) {
-            List<String> endpoints = endpoints(node.id());
-            if (!endpoints.isEmpty())
-                return endpoints.getFirst() + " · " + node.id();
-        }
-        return node.id();
-    }
-
-    private List<String> endpoints(String id) {
-        return view.config()
-                .endpointRules()
-                .entrySet()
-                .stream()
-                .filter(entry -> entry.getValue().sourceIds().contains(id))
-                .map(java.util.Map.Entry::getKey)
-                .sorted()
-                .toList();
+    RoutingWorldPresentation worlds() {
+        return worlds;
     }
 
     @FunctionalInterface
@@ -350,18 +323,20 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
                 ()
                         -> {
                     try {
-                        return new WorkResult(work.run(), null);
+                        var updated = work.run();
+                        return new WorkResult(updated, new RoutingWorldPresentation(updated), null);
                     } catch (EndpointRoutingEdits.InvalidEdit invalid) {
-                        return new WorkResult(null, invalid);
+                        return new WorkResult(null, null, invalid);
                     }
                 },
                 failure
-                -> new WorkResult(null, failure),
+                -> new WorkResult(null, null, failure),
                 Minecraft.getInstance()::execute,
                 result
                 -> {
                     if (result.failure() == null) {
                         view = result.view();
+                        worlds = result.worlds();
                         status = saved ? label("saved") : null;
                         completed.run();
                     } else {

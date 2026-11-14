@@ -59,13 +59,14 @@ final class ServerRouteEditor {
                         -> input(label("addAlias"), label("endpointHint"), "",
                                 entered -> addAlias(endpoint, WorldGraphConfig.normalizeEndpoint(entered)))));
         entries.add(row(label("attachSource"), () -> chooseEndpointSource(endpoint)));
-        entries.add(row(label("sourceDefault",
-                                rule.defaultSourceId() == null ? label("automatic")
-                                                               : screen.displayName(rule.defaultSourceId())),
-                () -> chooseEndpointDefault(endpoint, rule)));
+        entries.add(
+                row(label("sourceDefault",
+                            rule.defaultSourceId() == null ? label("automatic")
+                                                           : screen.worlds().name(rule.defaultSourceId())),
+                        () -> chooseEndpointDefault(endpoint, rule)));
         entries.add(selection(label("policy", policyLabel(rule.idPolicy())), policyOptions(endpoint, rule)));
         for (String id : rule.sourceIds()) {
-            entries.add(new RoutingRow(Component.literal(screen.displayName(id)), label("node", id),
+            entries.add(new RoutingRow(Component.literal(screen.worlds().name(id)), label("node", id),
                     () -> showEndpointSource(endpoint, id)));
         }
         entries.add(row(label("removeEndpoint"), () -> confirmRemoveEndpoint(endpoint)));
@@ -73,7 +74,7 @@ final class ServerRouteEditor {
     }
 
     private void showEndpointSource(String endpoint, String sourceId) {
-        screen.show(Component.literal(screen.displayName(sourceId)),
+        screen.show(Component.literal(screen.worlds().name(sourceId)),
                 List.of(info(label("node", sourceId)),
                         row(label("detachSource"),
                                 ()
@@ -167,8 +168,7 @@ final class ServerRouteEditor {
                         row(label("removeBinding"),
                                 ()
                                         -> screen.edit(config
-                                                -> config.withoutStableBinding(binding.provider(),
-                                                        binding.addressGroupId(), binding.advertisedId()),
+                                                -> EndpointRoutingEdits.removeBinding(config, binding),
                                                 this::showBindings))),
                 this::showBindings);
     }
@@ -191,37 +191,23 @@ final class ServerRouteEditor {
 
     private void chooseBindingSource(String endpoint, WorldGraphConfig.EndpointRule rule) {
         var entries = rule.sourceIds().stream().map(id -> remoteChoice(id, endpoint)).toList();
-        screen.chooseRoute("chooseSource", entries, null, source -> beginBinding(endpoint, source));
+        screen.chooseRoute("chooseSource", entries, null, source -> beginBinding(endpoint, rule, source));
     }
 
     private WorldSelectionScreen.Choice remoteChoice(String id, String endpoint) {
         return WorldSelectionScreen.Choice.server(
-                id, Component.literal(screen.displayName(id)), label("serverLocation", endpoint), endpoint);
+                id, Component.literal(screen.worlds().name(id)), label("serverLocation", endpoint), endpoint);
     }
 
-    private void beginBinding(String endpoint, String source) {
+    private void beginBinding(String endpoint, WorldGraphConfig.EndpointRule rule, String source) {
         input(label("bindingProvider"), label("bindingProvider"), XaeroWorldIdentity.PROVIDER,
                 provider
                 -> input(label("bindingId"), label("bindingId"), "",
-                        id -> addBinding(endpoint, source, provider, id)));
-    }
-
-    private void addBinding(String endpoint, String source, String provider, String id) {
-        screen.edit(config -> {
-            var current = EndpointRoutingEdits.requireEndpoint(config, endpoint);
-            if (!current.sourceIds().contains(source))
-                throw problem("sourceUnavailable");
-            var candidate =
-                    new WorldGraphConfig.StableBinding(provider, current.addressGroupId(), id, source);
-            if (config.stableBindings().stream().anyMatch(existing
-                        -> existing.provider().equals(provider)
-                                && existing.addressGroupId().equals(current.addressGroupId())
-                                && existing.advertisedId().equals(id)
-                                && !existing.sourceId().equals(source))) {
-                throw problem("bindingExists");
-            }
-            return config.withStableBinding(candidate);
-        }, this::showBindings);
+                        id
+                        -> screen.edit(config
+                                -> EndpointRoutingEdits.addBinding(
+                                        config, endpoint, rule.addressGroupId(), source, provider, id),
+                                this::showBindings)));
     }
 
     private List<WorldGraph.Node> remoteSources() {
@@ -231,7 +217,7 @@ final class ServerRouteEditor {
                 .values()
                 .stream()
                 .filter(node -> node.kind() == WorldGraph.Kind.REMOTE)
-                .sorted(screen.nodeOrder())
+                .sorted(screen.worlds().nodeOrder())
                 .toList();
     }
 

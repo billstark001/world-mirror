@@ -50,4 +50,31 @@ class EndpointRoutingEditsTest {
         assertEquals(primary, withoutPrimary.endpointRules().get(ALIAS));
         assertEquals(initial.stableBindings(), withoutPrimary.stableBindings());
     }
+
+    @Test
+    void aStaleBindingFormCannotBindIntoAReassignedAddressGroup() {
+        var updated = Snapshot.empty().withEndpointRule(
+                PRIMARY, new EndpointRule("endpoint:new", Set.of(FIRST), FIRST, IdPolicy.PREFER_BOUND_ID));
+        var failure = assertThrows(EndpointRoutingEdits.InvalidEdit.class,
+                () -> EndpointRoutingEdits.addBinding(updated, PRIMARY, GROUP, FIRST, "xaero", "42"));
+        assertEquals("sourceUnavailable", failure.getMessage());
+    }
+
+    @Test
+    void aStaleBindingDetailCannotRemoveAReplacement() {
+        var original = new StableBinding("xaero", GROUP, "42", FIRST);
+        var replacement = new StableBinding("xaero", GROUP, "42", SECOND);
+        var updated = Snapshot.empty()
+                              .withEndpointRule(PRIMARY,
+                                      new EndpointRule(
+                                              GROUP, Set.of(FIRST, SECOND), FIRST, IdPolicy.PREFER_BOUND_ID))
+                              .withStableBinding(replacement);
+        var failure = assertThrows(EndpointRoutingEdits.InvalidEdit.class,
+                () -> EndpointRoutingEdits.removeBinding(updated, original));
+
+        assertEquals("bindingChanged", failure.getMessage());
+        assertEquals(Set.of(replacement), Set.copyOf(updated.stableBindings()));
+        assertEquals(Set.of(),
+                Set.copyOf(EndpointRoutingEdits.removeBinding(updated, replacement).stableBindings()));
+    }
 }

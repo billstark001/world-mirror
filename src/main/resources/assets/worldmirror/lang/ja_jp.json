@@ -417,6 +417,7 @@
   "screen.worldmirror.routing.endpointUnavailable": "アドレスルールが利用できません",
   "screen.worldmirror.routing.sourceUnavailable": "リモートワールドが利用できません",
   "screen.worldmirror.routing.bindingExists": "この ID は別のワールドに登録されています",
+  "screen.worldmirror.routing.bindingChanged": "この ID の登録が変更されました。一覧を更新して、もう一度お試しください。",
   "screen.worldmirror.routing.policy.endpoint_only": "安定 ID を無視",
   "screen.worldmirror.routing.policy.prefer_bound_id": "登録済みの安定 ID を優先",
   "screen.worldmirror.routing.policy.require_bound_id": "安定 ID の登録が必須",

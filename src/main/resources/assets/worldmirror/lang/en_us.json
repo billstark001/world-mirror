@@ -417,6 +417,7 @@
   "screen.worldmirror.routing.endpointUnavailable": "The address rule is unavailable",
   "screen.worldmirror.routing.sourceUnavailable": "The remote world is unavailable",
   "screen.worldmirror.routing.bindingExists": "This ID is already bound to another world",
+  "screen.worldmirror.routing.bindingChanged": "This ID binding changed. Refresh the list and try again.",
   "screen.worldmirror.routing.policy.endpoint_only": "Ignore stable IDs",
   "screen.worldmirror.routing.policy.prefer_bound_id": "Prefer bound stable IDs",
   "screen.worldmirror.routing.policy.require_bound_id": "Require a stable ID binding",
