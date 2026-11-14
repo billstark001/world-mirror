@@ -309,7 +309,7 @@ class ExportTransactionTest {
             } catch (java.io.IOException failure) {
                 throw new UncheckedIOException(failure);
             }
-            return true;
+            return ConflictResolver.Decision.WRITE;
         };
         var work = terrain(2);
         status.queued(work);
@@ -350,7 +350,7 @@ class ExportTransactionTest {
             } catch (java.io.IOException failure) {
                 throw new UncheckedIOException(failure);
             }
-            return false;
+            return ConflictResolver.Decision.KEEP;
         });
         assertTrue(blocked.indexCommitted());
         assertFalse(blocked.metadataCommitted());

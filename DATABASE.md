@@ -27,7 +27,7 @@ Records terrain chunks that World Mirror (or an external tool) has durably writt
 
 **Primary key:** `(source, dimension, x, y)`
 
-Live sync can record a newer capture after verifying equivalent terrain already saved in the MCA.
+Live sync can record a newer capture after verifying equivalent terrain already saved in the MCA. Pending terrain conflicts enter this table after their terrain is applied and verified.
 
 ---
 

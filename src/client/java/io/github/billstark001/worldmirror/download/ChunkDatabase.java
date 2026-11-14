@@ -125,6 +125,13 @@ public class ChunkDatabase implements Closeable {
         return openConnection("jdbc:sqlite:" + database.toAbsolutePath());
     }
 
+    /** Forces SQLite commits before retiring their corresponding pending conflict records. */
+    public void syncCommits() throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("PRAGMA synchronous=FULL");
+        }
+    }
+
     /** Bring an existing save index up to date. The caller holds the save's native write lease. */
     public static void upgradeExisting(Path worldFolder) throws SQLException, IOException {
         try (var ignored = lockForReplacement(worldFolder)) {

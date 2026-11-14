@@ -1,12 +1,11 @@
 package io.github.billstark001.worldmirror.conflict;
 
 /**
- * {@link ConflictResolver} that always overwrites the local chunk with the
- * incoming server version.
+ * Replaces local terrain and defers protected seed terrain for explicit review.
  */
 public class OverwriteResolver implements ConflictResolver {
     @Override
-    public boolean shouldWriteChunk(ConflictContext context) {
-        return true;
+    public Decision decide(ConflictContext context) {
+        return context.protectedSeed() ? Decision.DEFER : Decision.WRITE;
     }
 }

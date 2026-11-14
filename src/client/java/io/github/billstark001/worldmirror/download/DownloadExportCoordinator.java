@@ -346,16 +346,18 @@ final class DownloadExportCoordinator {
                 + " pipeline=" + job.mode() + " trigger=" + work.context().trigger()
                 + " dirtySnapshot=" + work.terrainCount() + " written=" + lastWritten + " reused=" + reused
                 + " unreadable=" + lastUnreadable + " settled=" + lastSettled
-                + " elapsedMs=" + lastExportMillis;
+                + " pendingConflicts=" + result.pendingConflicts() + " elapsedMs=" + lastExportMillis;
         if (successful)
             WMLogger.info(summary);
         else
             WMLogger.debug(summary);
         observe(() -> ExportNotifications.global().observe(ExportStatusStore.global().finish(work, outcome)));
         if (live && successful && work.context().notifyPlayer()) {
-            observe(()
-                            -> WMPlayerMessages.sendSystemMessage(Minecraft.getInstance().player,
-                                    Component.translatable("msg.worldmirror.exportDone")));
+            int conflicts = result.pendingConflicts();
+            Component message = conflicts == 0
+                    ? Component.translatable("msg.worldmirror.exportDone")
+                    : Component.translatable("msg.worldmirror.exportDoneWithConflicts", conflicts);
+            observe(() -> WMPlayerMessages.sendSystemMessage(Minecraft.getInstance().player, message));
         }
     }
 

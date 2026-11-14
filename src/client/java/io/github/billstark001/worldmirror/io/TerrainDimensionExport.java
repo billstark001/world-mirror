@@ -2,6 +2,7 @@ package io.github.billstark001.worldmirror.io;
 
 import io.github.billstark001.worldmirror.conflict.ConflictContext;
 import io.github.billstark001.worldmirror.conflict.ConflictResolver;
+import io.github.billstark001.worldmirror.conflict.ConflictResolver.Decision;
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
 import io.github.billstark001.worldmirror.download.SeedTerrainBiomes;
@@ -43,7 +44,7 @@ final class TerrainDimensionExport {
     record Result(Map<ChunkPos, WriteStamp> written, Map<ChunkPos, WriteStamp> settledWithoutWrite,
             Set<ChunkPos> unreadableChunks, boolean successful, long databaseLookupNs, long materializeNs,
             long chunkReadNs, long resolveMergeWriteNs, long flushNs, long verificationNs,
-            long recoveredCaptureTime, boolean recoveredIndex) {}
+            long recoveredCaptureTime, boolean recoveredIndex, int pendingConflicts) {}
 
     private record StagedChunk(WriteStamp stamp, byte[] digest) {}
 
@@ -51,6 +52,7 @@ final class TerrainDimensionExport {
         final Map<ChunkPos, StagedChunk> chunks = new HashMap<>();
         final Map<ChunkPos, WriteStamp> reused = new HashMap<>();
         boolean failed, invalidHeader;
+        final TerrainConflicts conflicts = new TerrainConflicts();
     }
 
     private static final class TerrainTimings {
@@ -77,6 +79,7 @@ final class TerrainDimensionExport {
 
     private final Map<ChunkPos, WriteStamp> written = new HashMap<>();
     private final Map<ChunkPos, WriteStamp> settled = new HashMap<>();
+    private final Map<ChunkPos, WriteStamp> savedConflicts = new HashMap<>();
     private final Set<ChunkPos> unreadable = new HashSet<>();
     private final TerrainTimings timings = new TerrainTimings();
     private final Map<RegionCoordinates, Set<ChunkPos>> occupancy = new HashMap<>();
@@ -116,9 +119,11 @@ final class TerrainDimensionExport {
                     entry.getValue().stream().map(Map.Entry::getKey).toList());
             successful &= new RegionWrite(entry.getKey(), entry.getValue()).write(slowRegionThresholdMs);
         }
+        settled.putAll(savedConflicts);
         return new Result(written, settled, Set.copyOf(unreadable), successful, timings.databaseLookupNs,
                 timings.materializeNs, timings.chunkReadNs, timings.resolveMergeWriteNs, timings.flushNs,
-                timings.verificationNs, timings.recoveredCaptureTime, timings.recoveredIndex);
+                timings.verificationNs, timings.recoveredCaptureTime, timings.recoveredIndex,
+                savedConflicts.size());
     }
 
     private final class RegionWrite {
@@ -247,6 +252,7 @@ final class TerrainDimensionExport {
                                 failure);
                     }
                 }
+                flushConflicts();
             } finally {
                 if (writer != null) {
                     long started = System.nanoTime();
@@ -332,7 +338,9 @@ final class TerrainDimensionExport {
                                 + " chunk=" + pos + "; retaining capture for repair after index cleanup");
                 return;
             }
-            if (protectedSeed) {
+            boolean existsLocally = local != null && !replaceGenerated;
+            var decision = resolver.decide(new ConflictContext(existsLocally, protectedSeed));
+            if (decision == Decision.KEEP) {
                 settled.put(pos, stamp(captured));
                 return;
             }
@@ -340,7 +348,7 @@ final class TerrainDimensionExport {
                     && local.getIntOr("DataVersion", 0)
                             > net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version())
                 throw new IOException("Refusing to replace terrain saved by a newer Minecraft version");
-            materializeAndWrite(pos, captured, local, replaceGenerated);
+            materializeAndWrite(pos, captured, local, replaceGenerated, decision);
         }
 
         private CompoundTag readChunk(AnvilReader.Reader region, ChunkPos pos) throws IOException {
@@ -366,7 +374,7 @@ final class TerrainDimensionExport {
         }
 
         private void materializeAndWrite(ChunkPos pos, ChunkListener.CapturedChunk capture, CompoundTag local,
-                boolean replaceGenerated) throws Exception {
+                boolean replaceGenerated, Decision decision) throws Exception {
             long started = System.nanoTime();
             var materialized = snapshot.materialize(dimension, pos, capture);
             timings.materializeNs += System.nanoTime() - started;
@@ -377,13 +385,14 @@ final class TerrainDimensionExport {
                 SeedTerrainBiomes.repairCapturedBiomes(chunk, dimension);
             BlockEntityNbtSupport.removeIncompatible(chunk, pos);
             BlockEntityNbtSupport.applyContainerOverlays(dimension, chunk, containers);
-            boolean existsLocally = local != null && !replaceGenerated;
-            if (!resolver.shouldWriteChunk(
-                        new ConflictContext(pos, existsLocally, chunk, dimension, worldFolder))) {
-                settled.put(pos, stamp(materialized));
+            if (decision == Decision.DEFER) {
+                staged.conflicts.add(pos, materialized, metadata == null ? null : metadata.nodeId);
+                if (staged.conflicts.needsFlush())
+                    flushConflicts();
                 timings.resolveMergeWriteNs += System.nanoTime() - started;
                 return;
             }
+            boolean existsLocally = local != null && !replaceGenerated;
             if (existsLocally && !materialized.authoritativeEmpty())
                 BlockEntityNbtSupport.mergeChunkBlockEntities(chunk, local, pos, dimension, containers);
             if (blend && !chunk.contains(SeedTerrainDigest.BLENDING_DATA)
@@ -410,6 +419,13 @@ final class TerrainDimensionExport {
                 }
             }
             timings.resolveMergeWriteNs += System.nanoTime() - started;
+        }
+
+        private void flushConflicts() {
+            int candidates = staged.conflicts.size();
+            int verified = staged.conflicts.flush(
+                    worldFolder, dimension, metadata == null ? null : metadata.nodeId, savedConflicts);
+            staged.failed |= verified < candidates;
         }
     }
 

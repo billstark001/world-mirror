@@ -2,9 +2,12 @@ package io.github.billstark001.worldmirror.conflict;
 
 import io.github.billstark001.worldmirror.io.WorldSaveLayout;
 import io.github.billstark001.worldmirror.io.AnvilReader;
+import io.github.billstark001.worldmirror.io.TerrainChunkNbt;
 import io.github.billstark001.worldmirror.io.McaWriteSupport;
 import io.github.billstark001.worldmirror.io.WorldWriteLock;
 import io.github.billstark001.worldmirror.io.MirrorTarget;
+import io.github.billstark001.worldmirror.io.SeedCaptureReceipt;
+import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
@@ -66,15 +69,92 @@ public final class ConflictManager {
     /** Returns true only after the incoming chunk has been reopened and verified. */
     public static boolean saveConflict(
             Path worldFolder, ChunkPos pos, CompoundTag chunkNbt, ResourceKey<Level> dimension) {
-        Path file = regionFor(worldFolder, pos, dimension).file();
+        return saveConflicts(worldFolder, dimension, Map.of(pos, chunkNbt), null);
+    }
+
+    /** Writes a single region's pending captures and preserves equivalent or newer verified copies. */
+    public static boolean saveConflicts(Path worldFolder, ResourceKey<Level> dimension,
+            Map<ChunkPos, CompoundTag> incoming, String nodeId) {
+        return stageConflicts(worldFolder, dimension, incoming, nodeId).size() == incoming.size();
+    }
+
+    /** Returns the captures represented by a verified pending copy. */
+    public static Set<ChunkPos> stageConflicts(Path worldFolder, ResourceKey<Level> dimension,
+            Map<ChunkPos, CompoundTag> incoming, String nodeId) {
+        if (incoming.isEmpty())
+            return Set.of();
+        var region = regionFor(worldFolder, incoming.keySet().iterator().next(), dimension);
+        var file = region.file();
+        Set<ChunkPos> verified = new HashSet<>();
         try {
-            McaWriteSupport.writeChunks(file, dimension, Map.of(pos, chunkNbt));
-            return true;
+            FileProof.requirePlainPath(worldFolder, file);
+            synchronized (McaWriteSupport.lockFor(file)) {
+                var changed = changedPending(region, incoming, nodeId, verified);
+                McaWriteSupport.writeChunks(file, dimension, changed);
+                verified.addAll(changed.keySet());
+            }
         } catch (Exception error) {
-            WMLogger.warn(
-                    "Conflict save failed chunk=" + pos + " dimension=" + dimension.identifier(), error);
-            return false;
+            WMLogger.warnRateLimited("pending-conflict-region:" + file, 30_000L,
+                    "Conflict save failed file=" + file + " chunks=" + incoming.size(), error);
         }
+        return verified;
+    }
+
+    private static Map<ChunkPos, CompoundTag> changedPending(ConflictRegion region,
+            Map<ChunkPos, CompoundTag> incoming, String nodeId, Set<ChunkPos> verified) throws IOException {
+        Map<ChunkPos, CompoundTag> changed = new HashMap<>();
+        try (var reader = AnvilReader.open(region.file(), region.x(), region.z())) {
+            for (var entry : incoming.entrySet())
+                stagePending(region, nodeId, reader, entry.getKey(), entry.getValue(), changed, verified);
+        }
+        return changed;
+    }
+
+    private static void stagePending(ConflictRegion region, String nodeId, AnvilReader.Reader reader,
+            ChunkPos pos, CompoundTag incoming, Map<ChunkPos, CompoundTag> changed, Set<ChunkPos> verified) {
+        try {
+            if (pos.getRegionX() != region.x() || pos.getRegionZ() != region.z())
+                throw new IOException("Pending captures span multiple region files");
+            TerrainChunkNbt.requireCoordinates(incoming, pos);
+            if (nodeId != null
+                    && (!TerrainChunkNbt.coordinatesMatch(incoming, pos)
+                            || !TerrainChunkNbt.hasSupportedDataVersion(incoming)))
+                throw new IOException("Pending capture has invalid terrain coordinates or version");
+            if (needsPendingWrite(reader.read(pos), incoming, nodeId)) {
+                changed.put(pos, incoming);
+            } else {
+                verified.add(pos);
+            }
+        } catch (IOException | RuntimeException error) {
+            WMLogger.warnRateLimited("pending-conflict-slot:" + region.file(), 30_000L,
+                    "Could not stage pending terrain file=" + region.file() + " chunk=" + pos, error);
+        }
+    }
+
+    private static boolean needsPendingWrite(CompoundTag existing, CompoundTag incoming, String nodeId)
+            throws IOException {
+        if (nodeId == null) {
+            if (SeedCaptureReceipt.hasReceipt(incoming)
+                    || (existing != null && SeedCaptureReceipt.hasReceipt(existing)))
+                throw new IOException("A capture receipt requires its mirror node for verification");
+            return existing == null || !TerrainChunkNbt.equivalent(existing, incoming);
+        }
+        var next = SeedCaptureReceipt.read(incoming, nodeId);
+        if (next == null)
+            throw new IOException("Incoming conflict is missing its capture receipt");
+        if (existing == null)
+            return true;
+        var prior = SeedCaptureReceipt.read(existing, nodeId);
+        if (prior == null) {
+            if (SeedCaptureReceipt.hasReceipt(existing))
+                throw new IOException("Pending conflict has an invalid or foreign capture receipt");
+            return true;
+        }
+        if (!prior.source().equals(next.source()))
+            throw new IOException("Pending conflict belongs to another capture source");
+        return prior.time() < next.time()
+                && !TerrainChunkNbt.equivalent(SeedCaptureReceipt.withoutReceipt(existing),
+                        SeedCaptureReceipt.withoutReceipt(incoming));
     }
 
     /** Whether the region header contains a pending entry, including an external payload. */
@@ -114,7 +194,7 @@ public final class ConflictManager {
             try {
                 target.requireCurrent();
                 if (overwrite)
-                    applySnapshot(target, region, readSnapshot(region, Set.of(pos)));
+                    return applySnapshot(target, region, readSnapshot(region, Set.of(pos)));
                 else
                     removeEntries(region, Set.of(pos), null);
                 return true;
@@ -139,7 +219,7 @@ public final class ConflictManager {
             synchronized (resolutionLock(region)) {
                 try {
                     if (overwrite)
-                        applyRegion(target, region);
+                        success &= applyRegion(target, region);
                     else
                         removeEntries(region, listCoordinates(region), null);
                 } catch (Exception error) {
@@ -154,16 +234,18 @@ public final class ConflictManager {
         return success;
     }
 
-    private static void applyRegion(MirrorTarget target, ConflictRegion region) throws IOException {
+    private static boolean applyRegion(MirrorTarget target, ConflictRegion region) throws IOException {
         Set<ChunkPos> pending = new HashSet<>(listCoordinates(region));
+        boolean success = true;
         while (!pending.isEmpty()) {
             Map<ChunkPos, CompoundTag> batch = readSnapshot(region, pending);
             if (batch.isEmpty())
                 break;
-            applySnapshot(target, region, batch);
+            success &= applySnapshot(target, region, batch);
             // Attempt each initial coordinate once without chasing newer arrivals.
             pending.removeAll(batch.keySet());
         }
+        return success;
     }
 
     private static Object resolutionLock(ConflictRegion region) {
@@ -173,10 +255,10 @@ public final class ConflictManager {
         return RESOLUTION_LOCKS[Math.floorMod(hash, RESOLUTION_LOCKS.length)];
     }
 
-    private static void applySnapshot(MirrorTarget mirror, ConflictRegion region,
+    private static boolean applySnapshot(MirrorTarget mirror, ConflictRegion region,
             Map<ChunkPos, CompoundTag> snapshot) throws IOException {
         if (snapshot.isEmpty())
-            return;
+            return true;
         Path worldFolder = mirror.folder();
         Path target = WorldSaveLayout.regionDirectory(worldFolder, region.dimension())
                               .resolve(region.file().getFileName());
@@ -184,8 +266,14 @@ public final class ConflictManager {
         // exporter can hold that world lock while persisting another conflict.
         try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
             mirror.requireCurrent();
-            McaWriteSupport.writeChunks(target, region.dimension(), snapshot);
-            removeEntries(region, snapshot.keySet(), snapshot);
+            FileProof.requirePlainPath(worldFolder, target);
+            var publication = ConflictPublication.prepare(mirror, snapshot);
+            var protectedPositions = ConflictPublication.write(mirror, region, target, publication);
+            var published = new HashSet<>(snapshot.keySet());
+            published.removeAll(protectedPositions);
+            if (!published.isEmpty())
+                removeEntries(region, published, snapshot);
+            return protectedPositions.isEmpty();
         }
     }
 
@@ -245,7 +333,6 @@ public final class ConflictManager {
                         file.clear(pos);
                     }
                 }
-                file.flush();
                 empty = coordinates(file, region).isEmpty();
             }
             if (empty)
@@ -338,5 +425,5 @@ public final class ConflictManager {
         }
     }
 
-    private record ConflictRegion(Path file, int x, int z, ResourceKey<Level> dimension) {}
+    record ConflictRegion(Path file, int x, int z, ResourceKey<Level> dimension) {}
 }

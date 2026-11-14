@@ -42,7 +42,17 @@ public class ChunkExporter {
             Map<ResourceKey<Level>, Set<ChunkPos>> unreadableChunks,
             Map<ResourceKey<Level>, Map<ChunkPos, Long>> entityRevisions, boolean chunkWritesSuccessful,
             boolean entityWritesSuccessful, ExportTimings timings, long recoveredCaptureTime,
-            boolean recoveredIndex) {
+            boolean recoveredIndex, int pendingConflicts) {
+        public ExportResult(Map<ResourceKey<Level>, Map<ChunkPos, WriteStamp>> written,
+                Map<ResourceKey<Level>, Map<ChunkPos, WriteStamp>> settledWithoutWrite,
+                Map<ResourceKey<Level>, Set<ChunkPos>> unreadableChunks,
+                Map<ResourceKey<Level>, Map<ChunkPos, Long>> entityRevisions, boolean chunkWritesSuccessful,
+                boolean entityWritesSuccessful, ExportTimings timings, long recoveredCaptureTime,
+                boolean recoveredIndex) {
+            this(written, settledWithoutWrite, unreadableChunks, entityRevisions, chunkWritesSuccessful,
+                    entityWritesSuccessful, timings, recoveredCaptureTime, recoveredIndex, 0);
+        }
+
         public int totalWritten() {
             return written.values()
                     .stream()
@@ -125,6 +135,7 @@ public class ChunkExporter {
         boolean chunkWritesSuccessful = true;
         long recoveredCaptureTime = 0L;
         boolean recoveredIndex = false;
+        int pendingConflicts = 0;
         long databaseLookupNs = 0L, materializeNs = 0L, chunkReadNs = 0L;
         long resolveMergeWriteNs = 0L, flushNs = 0L, verificationNs = 0L, entityNs = 0L;
 
@@ -160,6 +171,7 @@ public class ChunkExporter {
             verificationNs += dimensionResult.verificationNs();
             recoveredCaptureTime = Math.max(recoveredCaptureTime, dimensionResult.recoveredCaptureTime());
             recoveredIndex |= dimensionResult.recoveredIndex();
+            pendingConflicts += dimensionResult.pendingConflicts();
         }
         long entityStartedNs = System.nanoTime();
         Map<ResourceKey<Level>, Map<ChunkPos, Long>> entityRevisions =
@@ -177,7 +189,7 @@ public class ChunkExporter {
                 new ExportTimings(toMillis(databaseLookupNs), toMillis(materializeNs), toMillis(chunkReadNs),
                         toMillis(resolveMergeWriteNs), toMillis(flushNs), toMillis(verificationNs),
                         toMillis(entityNs)),
-                recoveredCaptureTime, recoveredIndex);
+                recoveredCaptureTime, recoveredIndex, pendingConflicts);
     }
 
     private static Map<ResourceKey<Level>, Map<ChunkPos, Long>> writeEntities(Path worldFolder,

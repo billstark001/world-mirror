@@ -6,8 +6,7 @@ package io.github.billstark001.worldmirror.conflict;
  */
 public class IgnoreResolver implements ConflictResolver {
     @Override
-    public boolean shouldWriteChunk(ConflictContext context) {
-        // Write only if no local version exists yet
-        return !context.existsLocally();
+    public Decision decide(ConflictContext context) {
+        return context.existsLocally() ? Decision.KEEP : Decision.WRITE;
     }
 }

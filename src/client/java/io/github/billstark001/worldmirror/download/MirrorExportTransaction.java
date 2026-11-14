@@ -191,7 +191,9 @@ final class MirrorExportTransaction {
             if (db != null)
                 db.close();
         }
-        Path changedSavedData = repairedIndex || !durableWritten.isEmpty() ? worldFolder : null;
+        Path changedSavedData = repairedIndex || !durableWritten.isEmpty() || result.pendingConflicts() > 0
+                ? worldFolder
+                : null;
         return new ExportOutcome(result, durableWritten, remaining, indexCommitted, metadataCommitted,
                 indexMillis, changedSavedData);
     }

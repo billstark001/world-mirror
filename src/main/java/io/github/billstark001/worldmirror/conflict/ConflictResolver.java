@@ -8,12 +8,13 @@ package io.github.billstark001.worldmirror.conflict;
  * sync sessions.
  */
 public interface ConflictResolver {
+    enum Decision { WRITE, KEEP, DEFER }
+
     /**
      * Called once per chunk during an export/sync pass.
      *
      * @param context Information about the chunk and its local state.
-     * @return {@code true} to overwrite the existing local chunk with the
-     *         server version; {@code false} to keep the local version.
+     * @return How the exporter should handle the incoming chunk.
      */
-    boolean shouldWriteChunk(ConflictContext context);
+    Decision decide(ConflictContext context);
 }

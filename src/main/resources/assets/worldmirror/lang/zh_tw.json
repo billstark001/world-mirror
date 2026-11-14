@@ -29,6 +29,7 @@
   "screen.worldmirror.status.downloadDegraded": "擷取：降低負載",
   "screen.worldmirror.status.downloadPaused": "擷取：資源暫停",
   "msg.worldmirror.exportDone": "世界匯出成功。",
+  "msg.worldmirror.exportDoneWithConflicts": "匯出完成。有 %s 個區塊待處理，請在世界鏡像的內建區塊地圖中查看。",
   "msg.worldmirror.exportPartialEntities": "地形已儲存，部分實體更新仍待處理；地形匯出可繼續進行。",
   "msg.worldmirror.exportFailed": "World Mirror 匯出失敗；已保留待重試。請查看狀態頁或 latest.log。",
   "msg.worldmirror.exportBusy": "匯出進行中，請稍候。",
