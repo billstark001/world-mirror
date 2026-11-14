@@ -61,7 +61,7 @@ class WorldGraphRoutingTest extends WorldGraphFixture {
         assertEquals(firstB, service.target(service.routing().source()).nodeId());
         service.editRouting(snapshot
                 -> snapshot.withSourceSettings(
-                        first, snapshot.sourceSettings().get(first).withDefaultMirror(null)));
+                        first, snapshot.sourceSettings().get(first).withPinnedMirror(null)));
         assertEquals(firstA, service.target(service.routing().source()).nodeId());
 
         assertTrue(service.routing().observeProvider(ProviderObservation.advertised("xaero", "-8"), false));

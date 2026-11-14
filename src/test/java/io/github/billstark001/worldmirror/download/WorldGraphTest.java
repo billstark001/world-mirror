@@ -38,14 +38,16 @@ class WorldGraphTest {
         assertTrue(withHint.hasUniqueLocation(child.id()));
         assertFalse(withHint.hasDuplicateAt(child.location()));
         assertEquals(List.of(child), withHint.childrenOf(saved.id()));
-        assertTrue(withHint.defaultMirror(saved.id(), null).isEmpty());
-        assertTrue(withHint.defaultMirror(child.id(), null).isEmpty());
+        assertFalse(withHint.isUnambiguous(saved.id()));
+        assertFalse(withHint.isUnambiguous(child.id()));
+        assertTrue(withHint.hasDuplicateDownloadFor(REMOTE_ID));
 
         var moved = WorldGraph.reconcile(List.of(saved, child), Map.of(saved.id(), downloaded.location()));
         assertTrue(moved.duplicates().isEmpty());
         assertTrue(moved.hasUniqueLocation(saved.id()));
         assertFalse(moved.hasDuplicateAt(saved.location()));
-        assertEquals(child, moved.defaultMirror(saved.id(), null).orElseThrow());
+        assertTrue(moved.isUnambiguous(child.id()));
+        assertFalse(moved.hasDuplicateDownloadFor(REMOTE_ID));
     }
 
     @Test
@@ -57,7 +59,7 @@ class WorldGraphTest {
         assertEquals(Set.of(parent.id()), absent.missingParents());
         assertEquals(parent.id(), absent.nodes().get(child.id()).parentId());
         assertTrue(absent.findRoot(child.id()).isEmpty());
-        assertEquals(descendant, absent.defaultMirror(child.id(), null).orElseThrow());
+        assertTrue(absent.isUnambiguous(descendant.id()));
 
         var present = WorldGraph.reconcile(List.of(parent, child, remote()), Map.of());
         assertTrue(present.missingParents().isEmpty());
@@ -78,10 +80,10 @@ class WorldGraphTest {
         assertEquals(Set.of(first.id(), second.id(), self.id()), graph.cyclicIds());
         assertEquals(first.id(), graph.nodes().get(second.id()).parentId());
         assertTrue(graph.findRoot(dependent.id()).isEmpty());
-        assertTrue(graph.defaultMirror(dependent.id(), null).isEmpty());
+        assertFalse(graph.isUnambiguous(dependent.id()));
         assertTrue(graph.wouldCreateCycle(first.id(), dependent.id()));
         assertFalse(graph.wouldCreateCycle(valid.id(), dependent.id()));
-        assertEquals(valid, graph.defaultMirror(REMOTE_ID, null).orElseThrow());
+        assertTrue(graph.isUnambiguous(valid.id()));
     }
 
     @Test
@@ -94,22 +96,6 @@ class WorldGraphTest {
 
         assertEquals(remote(), graph.findRoot(child.id()).orElseThrow());
         assertEquals(List.of(child), graph.childrenOf(snapshot.id()));
-    }
-
-    @Test
-    void choosesOnlyDirectSynchronizedChildrenAndRetainsAnUnavailableDefault() {
-        var first = mirror("mirror:a", REMOTE_ID, SAVES, "Z");
-        var second = mirror("mirror:b", REMOTE_ID, SAVES, "A");
-        var grandchild = mirror("mirror:1", first.id(), SAVES, "Grandchild");
-        var snapshot = new WorldGraph.Node(
-                "mirror:0", REMOTE_ID, new WorldGraph.Location(SAVES, "Snapshot"), MIRROR, SNAPSHOT);
-        var graph = WorldGraph.reconcile(List.of(second, grandchild, first, snapshot, remote()), Map.of());
-
-        assertEquals(first, graph.defaultMirror(REMOTE_ID, null).orElseThrow());
-        assertEquals(second, graph.defaultMirror(REMOTE_ID, second.id()).orElseThrow());
-        assertTrue(graph.defaultMirror(REMOTE_ID, "mirror:missing").isEmpty());
-        assertTrue(graph.defaultMirror(REMOTE_ID, grandchild.id()).isEmpty());
-        assertTrue(graph.defaultMirror(REMOTE_ID, snapshot.id()).isEmpty());
     }
 
     private static WorldGraph.Node remote() {

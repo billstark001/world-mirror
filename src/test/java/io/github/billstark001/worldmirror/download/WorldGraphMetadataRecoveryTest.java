@@ -65,6 +65,9 @@ class WorldGraphMetadataRecoveryTest extends WorldGraphFixture {
         writeMirror(original, MIRROR, REMOTE);
         var service = service();
         assertEquals(MIRROR, service.prepare(remote()).nodeId());
+        service.editRouting(config
+                -> config.withSourceSettings(
+                        REMOTE, config.sourceSettings().get(REMOTE).withPinnedMirror(MIRROR)));
         Path copy = folder("saves", "A-copy");
         Files.copy(original.resolve(WorldMetadata.FILE_NAME), copy.resolve(WorldMetadata.FILE_NAME));
         String childId = "mirror:" + UUID.randomUUID();

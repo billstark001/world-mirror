@@ -152,6 +152,7 @@ public final class LegacyGraphImport {
                                 .stream()
                                 .filter(value
                                         -> value.kind() == Kind.MIRROR && value.role() == Role.SYNC
+                                                && graph.isUnambiguous(value.id())
                                                 && Objects.equals(value.location(), expected)
                                                 && parent.equals(value.parentId()))
                                 .findFirst()
@@ -172,20 +173,9 @@ public final class LegacyGraphImport {
             pending.remove(pendingKey);
             String targetId = node == null ? null : node.id();
             String folder = entry.preferredFolderName();
-            SourceSettings previous =
-                    sources.getOrDefault(parent, new SourceSettings(null, null, null, null, null));
-            if (previous.inheritedMirrorId() == null) {
-                sources.put(parent,
-                        new SourceSettings(previous.defaultMirrorId(),
-                                previous.saveLocation() == null ? entry.saveLocation()
-                                                                : previous.saveLocation(),
-                                previous.preferredFolderName() == null ? folder
-                                                                       : previous.preferredFolderName(),
-                                previous.conflictStrategy() == null && node == null
-                                        ? entry.conflictStrategy()
-                                        : previous.conflictStrategy(),
-                                targetId));
-            }
+            sources.putIfAbsent(parent,
+                    new SourceSettings(targetId, entry.saveLocation(), folder,
+                            node == null ? entry.conflictStrategy() : null, null));
             if (node != null && entry.conflictStrategy() != null) {
                 mirrors.putIfAbsent(node.id(), new MirrorSettings(entry.conflictStrategy()));
             }

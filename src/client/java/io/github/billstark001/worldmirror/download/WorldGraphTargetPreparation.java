@@ -1,13 +1,13 @@
 package io.github.billstark001.worldmirror.download;
 
-import io.github.billstark001.worldmirror.config.ModConfig;
-import io.github.billstark001.worldmirror.download.WorldGraph.Snapshot;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.EndpointRule;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.IdPolicy;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.SourceSettings;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.StableBinding;
 import io.github.billstark001.worldmirror.download.WorldSourceResolver.ProviderObservation;
 import io.github.billstark001.worldmirror.download.WorldSourceResolver.ProviderState;
+import io.github.billstark001.worldmirror.download.WorldTargetSelection.Decision;
+import io.github.billstark001.worldmirror.download.WorldTargetSelection.State;
 import io.github.billstark001.worldmirror.util.WMLogger;
 
 import java.io.IOException;
@@ -30,39 +30,47 @@ final class WorldGraphTargetPreparation {
         if (parent == null)
             throw new IOException("No unambiguous source selected");
         Source observation = route.source();
-        Snapshot graph = service.graph();
-        if (!graph.isUnambiguous(parent)) {
-            throw new IOException("Source identity is ambiguous: " + parent);
-        }
-        if (observation.endpoint() == null && !graph.nodes().containsKey(parent))
+        var view = service.published();
+        if (observation.endpoint() == null && !view.graph().nodes().containsKey(parent))
             throw new IOException("Local source unavailable: " + parent);
-        Target selected =
-                createMirror ? null : WorldGraphService.targetFor(service.published(), parent, mirrorChoice);
-        WorldGraphConfig.Snapshot before = service.open().snapshot();
-        SourceSettings old = WorldGraphService.settings(before.sourceSettings(), parent);
-        String preferred = SourceSettings.preferredMirrorId(old);
-        if (selected != null) {
-            if (route.createSource() || (mirrorChoice == null && preferred == null))
-                recordRoute(service, before, route, parent,
-                        mirrorChoice == null && preferred == null ? selected.nodeId() : null);
-            return selected;
+        var decision = WorldGraphService.chooseTarget(view, parent, mirrorChoice, createMirror);
+        if (decision.state() == State.EXISTING) {
+            var target = decision.target();
+            if (!stillCurrent.getAsBoolean())
+                throw new IOException("Connection changed during mirror preparation");
+            if (route.createSource() || decision.requestedMirrorId() == null)
+                recordRoute(service, view.config(), route, parent,
+                        decision.requestedMirrorId() == null ? target.nodeId() : null);
+            return target;
         }
-        if (mirrorChoice != null)
-            throw new IOException("Selected mirror unavailable: " + mirrorChoice);
-        if (preferred != null && !createMirror)
-            throw new IOException("Default mirror unavailable: " + preferred);
-        if (WorldGraphInventory.hasDeferredSource(before, parent)) {
-            throw new IOException("An existing mirror is still awaiting metadata upgrade");
+        requireCreation(decision);
+        var settings = WorldGraphService.settings(view.config().sourceSettings(), parent);
+        var target = reserve(service, observation, settings, parent, stillCurrent);
+        recordRoute(service, view.config(), route, parent, createMirror ? null : target.nodeId());
+        service.refreshPublished();
+        return target;
+    }
+
+    private static void requireCreation(Decision decision) throws IOException {
+        switch (decision.state()) {
+            case CHOICE_UNAVAILABLE ->
+                throw new IOException("Selected mirror unavailable: " + decision.requestedMirrorId());
+            case PIN_UNAVAILABLE ->
+                throw new IOException("Default mirror unavailable: " + decision.requestedMirrorId());
+            case DEFERRED ->
+                throw new IOException("The source or an existing mirror is still being reconciled");
+            case CREATE -> {
+            }
+            case EXISTING -> throw new IllegalStateException("Target already exists");
         }
-        if (graph.duplicates().stream().anyMatch(copy -> parent.equals(copy.original().parentId()))) {
-            throw new IOException("A copied mirror is still being reconciled");
-        }
-        Path base = service.rootFor(
-                old.saveLocation() == null ? ModConfig.get().defaultSaveLocation : old.saveLocation());
+    }
+
+    private static Target reserve(WorldGraphService service, Source observation, SourceSettings settings,
+            String parent, BooleanSupplier stillCurrent) throws IOException {
+        Path base = service.creationRoot(settings);
         Files.createDirectories(base);
         WorldInventoryFolders.requirePlainRoot(base);
-        String name = old.preferredFolderName() == null ? MirrorFolders.generate(observation.label())
-                                                        : old.preferredFolderName();
+        String name = WorldGraphService.creationName(settings, observation.label());
         if (!stillCurrent.getAsBoolean())
             throw new IOException("Connection changed during mirror preparation");
         Path folder = MirrorFolders.claim(base, name);
@@ -79,17 +87,16 @@ final class WorldGraphTargetPreparation {
             throw failure;
         }
         WMLogger.info("Download mirror reserved world=" + folder);
-        recordRoute(service, before, route, parent, preferred == null && !createMirror ? nodeId : null);
-        service.refreshPublished();
         return new Target(nodeId, parent, indexSource, folder);
     }
 
     private static void recordRoute(WorldGraphService service, WorldGraphConfig.Snapshot before, Route route,
-            String parent, String target) throws IOException {
-        var next = target == null ? before
-                                  : before.withSourceSettings(parent,
-                                            WorldGraphService.settings(before.sourceSettings(), parent)
-                                                    .withDefaultMirror(target));
+            String parent, String automaticTarget) throws IOException {
+        var next = automaticTarget == null
+                ? before
+                : before.withSourceSettings(parent,
+                          WorldGraphService.settings(before.sourceSettings(), parent)
+                                  .withAutomaticMirror(automaticTarget));
         String endpoint = route.source().endpoint();
         if (endpoint != null) {
             next = next.withEndpointSource(endpoint, parent);
@@ -107,11 +114,11 @@ final class WorldGraphTargetPreparation {
                 }
             }
         }
+        if (next.equals(before))
+            return;
         service.replaceConfig(before, next);
-        if (!next.equals(before)) {
-            WMLogger.info("Download route saved defaultMirror=" + (target != null) + " endpointChanged="
-                    + !before.endpointRules().equals(next.endpointRules()) + " stableBindingAdded="
-                    + (before.stableBindings().size() < next.stableBindings().size()));
-        }
+        WMLogger.info("Download route saved automaticTarget=" + (automaticTarget != null)
+                + " endpointChanged=" + !before.endpointRules().equals(next.endpointRules())
+                + " stableBindingAdded=" + (before.stableBindings().size() < next.stableBindings().size()));
     }
 }

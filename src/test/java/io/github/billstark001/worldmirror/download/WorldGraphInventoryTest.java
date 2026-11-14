@@ -5,9 +5,12 @@ import io.github.billstark001.worldmirror.download.WorldGraph.Location;
 import io.github.billstark001.worldmirror.download.WorldGraph.Root;
 import io.github.billstark001.worldmirror.io.WorldWriteLock;
 import io.github.billstark001.worldmirror.util.JsonSupport;
+import net.minecraft.SharedConstants;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
+import net.minecraft.server.Bootstrap;
 import net.minecraft.util.DirectoryLock;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -21,6 +24,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class WorldGraphInventoryTest {
     @TempDir Path game;
+
+    @BeforeAll
+    static void bootstrapMinecraft() {
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+    }
 
     @Test
     void leavesUntrackedSavesUntouchedAndListsOnlyEligibleOriginals() throws Exception {

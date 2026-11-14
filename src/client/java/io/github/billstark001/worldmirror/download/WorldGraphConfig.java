@@ -34,35 +34,46 @@ public final class WorldGraphConfig {
 
     public enum IdPolicy { ENDPOINT_ONLY, PREFER_BOUND_ID, REQUIRE_BOUND_ID }
 
-    public record SourceSettings(String defaultMirrorId, ModConfig.SaveLocation saveLocation,
+    /** A null pin selects automatically. The last automatic target is only an ordering preference. */
+    public record SourceSettings(String pinnedMirrorId, ModConfig.SaveLocation saveLocation,
             String preferredFolderName, ModConfig.ConflictStrategy conflictStrategy,
-            String inheritedMirrorId) {
+            String lastAutomaticMirrorId) {
+        public static final SourceSettings EMPTY = new SourceSettings(null, null, null, null, null);
+
         public SourceSettings {
-            if (defaultMirrorId != null)
-                requireKey(defaultMirrorId, "default mirror");
-            if (inheritedMirrorId != null)
-                requireKey(inheritedMirrorId, "inherited mirror");
+            if (pinnedMirrorId != null)
+                requireKey(pinnedMirrorId, "pinned mirror");
+            if (lastAutomaticMirrorId != null)
+                requireKey(lastAutomaticMirrorId, "last automatic mirror");
             if (preferredFolderName != null && !MirrorFolders.isUsableFolderName(preferredFolderName)) {
                 throw new IllegalArgumentException("Invalid preferred folder name");
             }
         }
 
-        public SourceSettings withDefaultMirror(String mirrorId) {
+        public SourceSettings withPinnedMirror(String mirrorId) {
             return new SourceSettings(
-                    mirrorId, saveLocation, preferredFolderName, conflictStrategy, inheritedMirrorId);
+                    mirrorId, saveLocation, preferredFolderName, conflictStrategy, lastAutomaticMirrorId);
         }
 
-        public static String preferredMirrorId(SourceSettings settings) {
-            if (settings == null)
-                return null;
-            return settings.defaultMirrorId() == null ? settings.inheritedMirrorId()
-                                                      : settings.defaultMirrorId();
+        SourceSettings withAutomaticMirror(String mirrorId) {
+            return new SourceSettings(
+                    pinnedMirrorId, saveLocation, preferredFolderName, conflictStrategy, mirrorId);
+        }
+
+        SourceSettings withConflictStrategy(ModConfig.ConflictStrategy strategy) {
+            return new SourceSettings(
+                    pinnedMirrorId, saveLocation, preferredFolderName, strategy, lastAutomaticMirrorId);
+        }
+
+        SourceSettings withSaveLocation(ModConfig.SaveLocation location) {
+            return new SourceSettings(
+                    pinnedMirrorId, location, preferredFolderName, conflictStrategy, lastAutomaticMirrorId);
         }
 
         SourceSettings withoutTarget(String mirrorId) {
-            return new SourceSettings(mirrorId.equals(defaultMirrorId) ? null : defaultMirrorId, saveLocation,
+            return new SourceSettings(mirrorId.equals(pinnedMirrorId) ? null : pinnedMirrorId, saveLocation,
                     preferredFolderName, conflictStrategy,
-                    mirrorId.equals(inheritedMirrorId) ? null : inheritedMirrorId);
+                    mirrorId.equals(lastAutomaticMirrorId) ? null : lastAutomaticMirrorId);
         }
     }
 

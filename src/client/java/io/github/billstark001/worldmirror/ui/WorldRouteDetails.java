@@ -13,6 +13,7 @@ import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.download.WorldGraph;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig;
 import io.github.billstark001.worldmirror.download.WorldGraphService;
+import io.github.billstark001.worldmirror.download.WorldTargetSelection;
 import io.github.billstark001.worldmirror.ui.WorldMirrorTabbedScreen.SelectionOption;
 import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.network.chat.Component;
@@ -72,12 +73,11 @@ final class WorldRouteDetails {
                             -> screen.worldEdit(() -> service.worlds().removeUpstream(id), () -> show(id))));
         }
         var settings = view.config().sourceSettings().get(id);
-        String selected = WorldGraphConfig.SourceSettings.preferredMirrorId(settings);
-        if (selected != null || !view.graph().childrenOf(id).isEmpty()) {
-            String defaultId = settings == null ? null : settings.defaultMirrorId();
-            entries.add(row(label("targetDefault",
-                                    selected == null ? label("automatic") : screen.worlds().name(selected)),
-                    unambiguous ? () -> chooseDefaultMirror(id, defaultId) : null));
+        String pin = settings == null ? null : settings.pinnedMirrorId();
+        if (pin != null || !view.graph().childrenOf(id).isEmpty()) {
+            var decision = view.targetSelection(id);
+            entries.add(row(label("targetDefault", targetLabel(decision)),
+                    unambiguous ? () -> chooseDefaultMirror(id, pin) : null));
         }
         if (node.kind() == WorldGraph.Kind.MIRROR) {
             var mirror = view.config().mirrorSettings().get(id);
@@ -104,7 +104,7 @@ final class WorldRouteDetails {
         entries.add(WorldSelectionScreen.Choice.action(AUTOMATIC, label("automatic")));
         var view = screen.view();
         for (WorldGraph.Node target : view.graph().childrenOf(id)) {
-            if (target.role() == WorldGraph.Role.SYNC && view.graph().isUnambiguous(target.id())) {
+            if (view.downloadTargets().containsKey(target.id())) {
                 entries.add(screen.choice(target));
             }
         }
@@ -114,11 +114,22 @@ final class WorldRouteDetails {
 
     private void updateDefaultMirror(String id, String target) {
         screen.edit(config -> {
-            var old = config.sourceSettings().get(id);
-            if (old == null)
-                old = new WorldGraphConfig.SourceSettings(null, null, null, null, null);
-            return config.withSourceSettings(id, old.withDefaultMirror(target));
+            var old = config.sourceSettings().getOrDefault(id, WorldGraphConfig.SourceSettings.EMPTY);
+            return config.withSourceSettings(id, old.withPinnedMirror(target));
         }, () -> show(id));
+    }
+
+    private Component targetLabel(WorldTargetSelection.Decision decision) {
+        var target = decision.target();
+        return switch (decision.state()) {
+            case EXISTING ->
+                decision.requestedMirrorId() == null
+                        ? label("automaticTarget", screen.worlds().name(target.nodeId()))
+                        : Component.literal(screen.worlds().name(target.nodeId()));
+            case PIN_UNAVAILABLE ->
+                label("unavailableTarget", screen.worlds().name(decision.requestedMirrorId()));
+            default -> label("automatic");
+        };
     }
 
     private List<SelectionOption> conflictOptions(String id, ModConfig.ConflictStrategy current) {

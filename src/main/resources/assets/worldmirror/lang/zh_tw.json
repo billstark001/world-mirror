@@ -389,6 +389,8 @@
   "screen.worldmirror.routing.serverLocation": "伺服器：%s",
   "screen.worldmirror.routing.targetDefault": "預設下載鏡像：%s",
   "screen.worldmirror.routing.automatic": "自動",
+  "screen.worldmirror.routing.automaticTarget": "自動（%s）",
+  "screen.worldmirror.routing.unavailableTarget": "%s（無法使用）",
   "screen.worldmirror.routing.conflict": "衝突策略：%s",
   "screen.worldmirror.routing.chooseTarget": "選擇下載鏡像",
   "screen.worldmirror.routing.inherit": "繼承",

@@ -91,6 +91,30 @@ class WorldGraphConfigTest {
     }
 
     @Test
+    void canonicalizesTheEffectiveDefaultFromEarlierGraphFiles(@TempDir Path root) throws Exception {
+        Path file = root.resolve(WorldGraphConfig.FILE_NAME);
+        Files.writeString(file, """
+                {"schema":2,"nodes":{},"locations":{},"sourceSettings":{
+                   "remote:one":{"defaultMirrorId":"mirror:explicit","inheritedMirrorId":"mirror:inherited"},
+                   "remote:two":{"defaultMirrorId":null,"inheritedMirrorId":"mirror:inherited"},
+                   "remote:three":{"defaultMirrorId":null,"inheritedMirrorId":null},
+                   "remote:four":{"pinnedMirrorId":null,"inheritedMirrorId":"mirror:stale"}},
+                 "mirrorSettings":{},"endpointRules":{},"stableBindings":[],"pendingImports":{}}
+                """);
+        WorldGraphConfig store = WorldGraphConfig.open(file);
+        var settings = store.snapshot().sourceSettings();
+        assertEquals("mirror:explicit", settings.get("remote:one").pinnedMirrorId());
+        assertEquals("mirror:inherited", settings.get("remote:two").pinnedMirrorId());
+        assertEquals(null, settings.get("remote:three").pinnedMirrorId());
+        assertEquals(null, settings.get("remote:four").pinnedMirrorId());
+        String normalized = Files.readString(file);
+        assertFalse(normalized.contains("defaultMirrorId"));
+        assertFalse(normalized.contains("inheritedMirrorId"));
+        assertEquals(store.snapshot(), WorldGraphConfig.open(file).snapshot());
+        assertEquals(normalized, Files.readString(file));
+    }
+
+    @Test
     void aliasChangesLeaveGraphNodesAndStableBindingsInPlace() {
         var node = new WorldGraph.Node("remote:world", null, null, WorldGraph.Kind.REMOTE, null);
         var binding = new WorldGraphConfig.StableBinding("xaero", "group", "-1", node.id());

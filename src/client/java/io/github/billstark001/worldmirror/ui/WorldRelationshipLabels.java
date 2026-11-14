@@ -1,7 +1,6 @@
 package io.github.billstark001.worldmirror.ui;
 
 import io.github.billstark001.worldmirror.download.WorldGraph;
-import io.github.billstark001.worldmirror.download.WorldGraphConfig.SourceSettings;
 import io.github.billstark001.worldmirror.download.WorldGraphService;
 import io.github.billstark001.worldmirror.ui.WorldRelationshipLayout.Card;
 import net.minecraft.network.chat.Component;
@@ -9,7 +8,6 @@ import net.minecraft.network.chat.MutableComponent;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 /** Display names and details for relationship cards and their tooltips. */
 final class WorldRelationshipLabels {
@@ -29,16 +27,17 @@ final class WorldRelationshipLabels {
             details.add(label("location", WorldLabels.path(location)));
         }
         var count = label("graphChildren", direct.size());
-        var settings = view.config().sourceSettings().get(card.key());
-        String preferred = SourceSettings.preferredMirrorId(settings);
-        if (preferred != null
-                || direct.stream().anyMatch(child -> child.node().role() == WorldGraph.Role.SYNC)) {
-            var target = view.graph().defaultMirror(card.key(), preferred).orElse(null);
-            Card targetCard = target == null ? layout.byKey().get(Objects.requireNonNullElse(preferred, ""))
-                                             : layout.byKey().get(target.id());
-            if (targetCard != null || preferred != null) {
-                count.append(" · ").append(
-                        label("targetDefault", targetCard == null ? preferred : targetCard.name()));
+        if (node != null) {
+            var selection = view.targetSelection(node.id());
+            if (selection.target() != null) {
+                String name = layout.byKey().get(selection.target().nodeId()).name();
+                count.append(" · ").append(label("targetDefault",
+                        selection.requestedMirrorId() == null ? label("automaticTarget", name) : name));
+            } else if (selection.requestedMirrorId() != null) {
+                String id = selection.requestedMirrorId();
+                Card requested = layout.byKey().get(id);
+                count.append(" · ").append(label("targetDefault",
+                        label("unavailableTarget", requested == null ? id : requested.name())));
             }
         }
         details.add(count);

@@ -30,7 +30,8 @@ class RoutingWorldPresentationTest {
                 "endpoint:shared", Set.of(first.id(), second.id()), second.id(), IdPolicy.PREFER_BOUND_ID);
         var onlyFirst = new EndpointRule("endpoint:shared", Set.of(first.id()), null, IdPolicy.ENDPOINT_ONLY);
         var config = Snapshot.empty().withEndpointRule("z.test", both).withEndpointRule("a.test", onlyFirst);
-        var old = new RoutingWorldPresentation(new RoutingView(graph, config, List.of(), List.of()));
+        var old =
+                new RoutingWorldPresentation(new RoutingView(graph, config, List.of(), List.of(), Map.of()));
 
         assertEquals(List.of("a.test", "z.test"), old.addresses(first.id()));
         assertEquals("a.test · remote:first", old.name(first));
@@ -38,8 +39,8 @@ class RoutingWorldPresentationTest {
         assertEquals(unbound.id(), old.name(unbound));
         assertEquals(List.of("z.test"), old.addresses(second.id()));
 
-        var updated = new RoutingWorldPresentation(
-                new RoutingView(graph, config.withEndpointRule("a.test", null), List.of(), List.of()));
+        var updated = new RoutingWorldPresentation(new RoutingView(
+                graph, config.withEndpointRule("a.test", null), List.of(), List.of(), Map.of()));
         assertEquals("z.test · remote:first", updated.name(first));
         assertEquals("a.test · remote:first", old.name(first));
     }

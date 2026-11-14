@@ -389,6 +389,8 @@
   "screen.worldmirror.routing.serverLocation": "Server: %s",
   "screen.worldmirror.routing.targetDefault": "Default download mirror: %s",
   "screen.worldmirror.routing.automatic": "Automatic",
+  "screen.worldmirror.routing.automaticTarget": "Automatic (%s)",
+  "screen.worldmirror.routing.unavailableTarget": "%s (unavailable)",
   "screen.worldmirror.routing.conflict": "Conflict policy: %s",
   "screen.worldmirror.routing.chooseTarget": "Choose download mirror",
   "screen.worldmirror.routing.inherit": "Inherit",

@@ -44,6 +44,7 @@ Use Added, Changed, and Fixed categories where applicable. Combine related chang
 
 ### Fixed
 
+- Make Automatic clear migrated mirror pins and select another verified mirror when the last automatic target is unavailable.
 - Recover interrupted mirror moves and migration journals before using the affected save. Keep writes away from ambiguous graph branches and reject symbolic links and Windows directory junctions in migration and recovery paths.
 - Keep queued exports and confirmations bound to the original world. Old export completions leave a newer capture session's state alone.
 - Continue from Minecraft's existing loading step after inspecting a current mirror. Preserve Minecraft's data pack safe mode.

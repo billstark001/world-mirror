@@ -36,8 +36,13 @@ public final class WorldGraphService {
     }
 
     public record Source(String nodeId, String label, String endpoint) {}
-    public record RoutingView(Snapshot graph, WorldGraphConfig.Snapshot config,
-            List<Location> untrackedLocalWorlds, List<Location> orphanedMirrors) {}
+    public record
+            RoutingView(Snapshot graph, WorldGraphConfig.Snapshot config, List<Location> untrackedLocalWorlds,
+                    List<Location> orphanedMirrors, Map<String, Target> downloadTargets) {
+        public WorldTargetSelection.Decision targetSelection(String sourceId) {
+            return WorldTargetSelection.resolve(graph, config, downloadTargets, sourceId, null, false);
+        }
+    }
     public record Target(String nodeId, String parentNodeId, String sourceId, Path folder) {
         public Target {
             Objects.requireNonNull(nodeId);
@@ -130,8 +135,8 @@ public final class WorldGraphService {
     }
     public RoutingView routingView() {
         Published view = published;
-        return new RoutingView(
-                view.graph(), view.config(), view.untrackedLocalWorlds(), view.orphanedMirrors());
+        return new RoutingView(view.graph(), view.config(), view.untrackedLocalWorlds(),
+                view.orphanedMirrors(), view.available() ? view.targets() : Map.of());
     }
     public WorldGraphConfig.Snapshot configSnapshot() {
         return published.config();
@@ -153,19 +158,15 @@ public final class WorldGraphService {
 
     public Target target(Source observation) {
         Published view = published;
-        return view.available() ? targetFor(view, routing.sourceNode(observation, view.config()), null)
-                                : null;
+        return view.available()
+                ? chooseTarget(view, routing.sourceNode(observation, view.config()), null, false).target()
+                : null;
     }
 
-    static Target targetFor(Published view, String sourceId, String choice) {
-        if (sourceId == null)
-            return null;
-        SourceSettings settings = view.config().sourceSettings().get(sourceId);
-        String preferred = choice != null ? choice : SourceSettings.preferredMirrorId(settings);
-        return view.graph()
-                .defaultMirror(sourceId, preferred)
-                .map(node -> view.targets().get(node.id()))
-                .orElse(null);
+    static WorldTargetSelection.Decision chooseTarget(
+            Published view, String sourceId, String choice, boolean createMirror) {
+        return WorldTargetSelection.resolve(
+                view.graph(), view.config(), view.targets(), sourceId, choice, createMirror);
     }
 
     public Path preview(Source observation) {
@@ -173,18 +174,32 @@ public final class WorldGraphService {
         if (observation == null || !view.available())
             return null;
         String sourceId = routing.sourceNode(observation, view.config());
-        Target target = targetFor(view, sourceId, null);
-        if (target != null)
-            return target.folder();
-        if (sourceId == null)
+        if (sourceId == null) {
+            return observation == routing.source() && observation.endpoint() == null
+                            && observation.nodeId() == null
+                    ? anticipatedPath(SourceSettings.EMPTY, observation.label())
+                    : null;
+        }
+        var decision = chooseTarget(view, sourceId, null, false);
+        if (decision.target() != null)
+            return decision.target().folder();
+        if (decision.state() != WorldTargetSelection.State.CREATE)
             return null;
-        SourceSettings settings = view.config().sourceSettings().get(sourceId);
-        return rootFor(settings == null || settings.saveLocation() == null
-                        ? ModConfig.get().defaultSaveLocation
-                        : settings.saveLocation())
-                .resolve(settings == null || settings.preferredFolderName() == null
-                                ? MirrorFolders.generate(observation.label())
-                                : settings.preferredFolderName());
+        return anticipatedPath(settings(view.config().sourceSettings(), sourceId), observation.label());
+    }
+
+    private Path anticipatedPath(SourceSettings settings, String label) {
+        return creationRoot(settings).resolve(creationName(settings, label));
+    }
+
+    Path creationRoot(SourceSettings settings) {
+        return rootFor(settings.saveLocation() == null ? ModConfig.get().defaultSaveLocation
+                                                       : settings.saveLocation());
+    }
+
+    static String creationName(SourceSettings settings, String label) {
+        return settings.preferredFolderName() == null ? MirrorFolders.generate(label)
+                                                      : settings.preferredFolderName();
     }
 
     public ModConfig.SaveLocation saveLocation(String sourceNodeId) {
@@ -224,9 +239,7 @@ public final class WorldGraphService {
                 mirrors.put(nodeId, new MirrorSettings(strategy));
         } else if (parentId != null) {
             SourceSettings old = settings(sources, parentId);
-            sources.put(parentId,
-                    new SourceSettings(old.defaultMirrorId(), old.saveLocation(), old.preferredFolderName(),
-                            strategy, old.inheritedMirrorId()));
+            sources.put(parentId, old.withConflictStrategy(strategy));
         } else
             throw new IOException("No source selected");
         publishConfig(
@@ -250,9 +263,7 @@ public final class WorldGraphService {
         WorldGraphConfig.Snapshot before = currentStore().snapshot();
         Map<String, SourceSettings> sources = new HashMap<>(before.sourceSettings());
         SourceSettings old = settings(sources, sourceId);
-        sources.put(sourceId,
-                new SourceSettings(old.defaultMirrorId(), location, old.preferredFolderName(),
-                        old.conflictStrategy(), old.inheritedMirrorId()));
+        sources.put(sourceId, old.withSaveLocation(location));
         publishConfig(before, before.nodes(), sources, before.mirrorSettings(), before.endpointRules(),
                 before.pendingImports());
         if (!before.sourceSettings().equals(sources))
@@ -289,9 +300,9 @@ public final class WorldGraphService {
                 throw new IOException("Routing edits cannot modify the on-disk graph");
             for (var entry : next.sourceSettings().entrySet()) {
                 var old = before.sourceSettings().get(entry.getKey());
-                String id = entry.getValue().defaultMirrorId();
-                if (id != null && (old == null || !id.equals(old.defaultMirrorId()))
-                        && targetFor(published, entry.getKey(), id) == null)
+                String id = entry.getValue().pinnedMirrorId();
+                if (id != null && (old == null || !id.equals(old.pinnedMirrorId()))
+                        && chooseTarget(published, entry.getKey(), id, false).target() == null)
                     throw new IOException("Default mirror must be an available direct download target");
             }
             replaceConfig(before, next);
@@ -411,7 +422,7 @@ public final class WorldGraphService {
     }
 
     static SourceSettings settings(Map<String, SourceSettings> sources, String id) {
-        return sources.getOrDefault(id, new SourceSettings(null, null, null, null, null));
+        return sources.getOrDefault(id, SourceSettings.EMPTY);
     }
 
     Path rootFor(ModConfig.SaveLocation location) {

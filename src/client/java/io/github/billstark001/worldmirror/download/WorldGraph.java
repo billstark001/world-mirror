@@ -72,6 +72,7 @@ public final class WorldGraph {
         private final List<Duplicate> duplicates;
         private final Set<String> duplicateIds;
         private final Set<Location> duplicateLocations;
+        private final Set<String> duplicateDownloadSources;
         private final Set<String> ambiguousIds;
         private final Map<String, List<Node>> children;
 
@@ -83,15 +84,19 @@ public final class WorldGraph {
             this.duplicates = List.copyOf(duplicates);
             Set<String> duplicateIds = new HashSet<>();
             Set<Location> duplicateLocations = new HashSet<>();
+            Set<String> duplicateDownloadSources = new HashSet<>();
             for (Duplicate duplicate : duplicates) {
                 duplicateIds.add(duplicate.original().id());
                 if (duplicate.original().location() != null)
                     duplicateLocations.add(duplicate.original().location());
                 if (duplicate.copy().location() != null)
                     duplicateLocations.add(duplicate.copy().location());
+                addDownloadSource(duplicateDownloadSources, duplicate.original());
+                addDownloadSource(duplicateDownloadSources, duplicate.copy());
             }
             this.duplicateIds = Set.copyOf(duplicateIds);
             this.duplicateLocations = Set.copyOf(duplicateLocations);
+            this.duplicateDownloadSources = Set.copyOf(duplicateDownloadSources);
             Map<String, List<Node>> byParent = new HashMap<>();
             for (Node node : nodes.values()) {
                 if (node.parentId() != null)
@@ -100,6 +105,11 @@ public final class WorldGraph {
             byParent.replaceAll((parent, values) -> values.stream().sorted(NODE_ORDER).toList());
             this.children = Map.copyOf(byParent);
             this.ambiguousIds = ambiguousAncestry(children, cyclicIds, this.duplicateIds);
+        }
+
+        private static void addDownloadSource(Set<String> sources, Node node) {
+            if (node.role() == Role.SYNC && node.parentId() != null)
+                sources.add(node.parentId());
         }
 
         public Map<String, Node> nodes() {
@@ -121,18 +131,6 @@ public final class WorldGraph {
             return children.getOrDefault(parentId, List.of());
         }
 
-        /** A configured choice is retained while unavailable. The caller can offer a session override. */
-        public Optional<Node> defaultMirror(String parentId, String configuredId) {
-            if (!isUnambiguous(parentId))
-                return Optional.empty();
-            return childrenOf(parentId)
-                    .stream()
-                    .filter(node -> node.role() == Role.SYNC)
-                    .filter(node -> isUnambiguous(node.id()))
-                    .filter(node -> configuredId == null || configuredId.equals(node.id()))
-                    .findFirst();
-        }
-
         public boolean isUnambiguous(String id) {
             return !ambiguousIds.contains(id);
         }
@@ -144,6 +142,10 @@ public final class WorldGraph {
 
         boolean hasDuplicateAt(Location location) {
             return duplicateLocations.contains(location);
+        }
+
+        boolean hasDuplicateDownloadFor(String sourceId) {
+            return duplicateDownloadSources.contains(sourceId);
         }
 
         public Optional<Node> findRoot(String id) {

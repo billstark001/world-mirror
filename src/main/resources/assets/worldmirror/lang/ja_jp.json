@@ -389,6 +389,8 @@
   "screen.worldmirror.routing.serverLocation": "サーバー：%s",
   "screen.worldmirror.routing.targetDefault": "既定のダウンロード先: %s",
   "screen.worldmirror.routing.automatic": "自動",
+  "screen.worldmirror.routing.automaticTarget": "自動 (%s)",
+  "screen.worldmirror.routing.unavailableTarget": "%s (利用不可)",
   "screen.worldmirror.routing.conflict": "競合ポリシー: %s",
   "screen.worldmirror.routing.chooseTarget": "ダウンロード先を選択",
   "screen.worldmirror.routing.inherit": "継承",
