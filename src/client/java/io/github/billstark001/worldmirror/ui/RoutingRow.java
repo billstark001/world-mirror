@@ -6,12 +6,12 @@ import net.minecraft.network.chat.Component;
 import java.util.List;
 
 /** A text row, action, or dropdown in a routing editor page. */
-record RoutingRow(Component label, Component detail, Runnable action, List<SelectionOption> options,
+public record RoutingRow(Component label, Component detail, Runnable action, List<SelectionOption> options,
         RoutingRow right, boolean text) {
     static final int BUTTON_HEIGHT = 22;
     static final int TEXT_HEIGHT = 13;
 
-    RoutingRow(Component label, Component detail, Runnable action) {
+    public RoutingRow(Component label, Component detail, Runnable action) {
         this(label, detail, action, List.of(), null, false);
     }
 
@@ -19,11 +19,11 @@ record RoutingRow(Component label, Component detail, Runnable action, List<Selec
         return text ? TEXT_HEIGHT : BUTTON_HEIGHT;
     }
 
-    static RoutingRow row(Component label, Runnable action) {
+    public static RoutingRow row(Component label, Runnable action) {
         return new RoutingRow(label, null, action);
     }
 
-    static RoutingRow info(Component label) {
+    public static RoutingRow info(Component label) {
         return new RoutingRow(label, null, null, List.of(), null, true);
     }
 

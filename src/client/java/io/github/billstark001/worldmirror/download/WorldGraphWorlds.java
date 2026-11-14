@@ -98,7 +98,35 @@ public final class WorldGraphWorlds {
         return folders.root(location.root()).resolve(location.folder());
     }
 
-    static WorldMetadata verifyUpstreamOwner(Path folder, Node child) throws IOException {
+    /** Reads the index namespace only after verifying the current graph edge against the save. */
+    public static String verifiedIndexSource(Path folder, Node child) throws IOException {
+        WorldMetadata metadata = verifyUpstreamOwner(folder, child);
+        if (metadata != null)
+            return metadata.sourceId;
+        var claim = MirrorClaim.read(folder);
+        return claim == null ? null : claim.sourceId();
+    }
+
+    public Path checkedPath(Location location) throws IOException {
+        Path folder = path(location);
+        WorldInventoryFolders.requirePlainRoot(folder.getParent());
+        WorldInventoryFolders.requirePlainRoot(folder);
+        return folder;
+    }
+
+    public Path localSourcePath(Location location) throws IOException {
+        return folders.localOriginal(location);
+    }
+
+    /** Caller holds the save lease when using the result to write an identity. */
+    public void requireUsableLocalSource(Location location) throws IOException {
+        Path folder = localSourcePath(location);
+        if (WorldRelocation.journal(folder) != null || MirrorMigrationCoordinator.needsRecovery(folder)
+                || NbtReadSupport.readWorldData(folder.resolve("level.dat")).getCompound("Data").isEmpty())
+            throw new IOException("The selected local save cannot be used as a parent");
+    }
+
+    private static WorldMetadata verifyUpstreamOwner(Path folder, Node child) throws IOException {
         WorldMetadata metadata = WorldMetadata.loadIfPresent(folder).orElse(null);
         if (metadata == null && WorldMetadata.inspectSchema(folder) == WorldMetadata.Schema.MISSING
                 && WorldRelocation.isEmptyReservation(folder, child.id())) {
@@ -114,7 +142,8 @@ public final class WorldGraphWorlds {
         return metadata;
     }
 
-    static void changeParentOnDisk(Path folder, Node child, String parentId) throws IOException {
+    /** Changes the parent of a verified child while the caller holds its save lease. */
+    public static void changeParentOnDisk(Path folder, Node child, String parentId) throws IOException {
         Path file = folder.resolve(WorldMetadata.FILE_NAME);
         FileProof.Version stamp =
                 Files.notExists(file, LinkOption.NOFOLLOW_LINKS) ? null : FileProof.version(file);
@@ -178,12 +207,7 @@ public final class WorldGraphWorlds {
             throw new IOException("The selected local save is no longer available");
         Path folder = folders.localOriginal(location);
         try (var ignored = WorldWriteLock.acquireDirectory(folder)) {
-            folders.localOriginal(location);
-            if (WorldRelocation.journal(folder) != null || MirrorMigrationCoordinator.needsRecovery(folder)
-                    || NbtReadSupport.readWorldData(folder.resolve("level.dat"))
-                            .getCompound("Data")
-                            .isEmpty())
-                throw new IOException("The selected local save cannot be used as a parent");
+            requireUsableLocalSource(location);
             if (LocalWorldIdentity.read(folder) != null)
                 throw new IOException("The local save acquired an identity. Refresh the world list.");
             return LocalWorldIdentity.ensure(folder);

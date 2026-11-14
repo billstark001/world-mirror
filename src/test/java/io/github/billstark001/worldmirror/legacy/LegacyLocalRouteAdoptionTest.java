@@ -1,10 +1,16 @@
-package io.github.billstark001.worldmirror.download;
+package io.github.billstark001.worldmirror.legacy;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.billstark001.worldmirror.config.ModConfig;
+import io.github.billstark001.worldmirror.download.LocalWorldIdentity;
 import io.github.billstark001.worldmirror.download.WorldGraph.Location;
 import io.github.billstark001.worldmirror.download.WorldGraph.Root;
+import io.github.billstark001.worldmirror.download.WorldGraphConfig;
+import io.github.billstark001.worldmirror.download.WorldGraphFixture;
+import io.github.billstark001.worldmirror.download.WorldGraphService;
+import io.github.billstark001.worldmirror.download.WorldGraphWorlds;
+import io.github.billstark001.worldmirror.download.WorldMetadata;
 import io.github.billstark001.worldmirror.util.JsonSupport;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -31,7 +37,7 @@ class LegacyLocalRouteAdoptionTest extends WorldGraphFixture {
         assertNull(LocalWorldIdentity.read(other));
         assertEquals("Old name", pending.oldName());
 
-        service.localRoutes().adopt(pending, SOURCE_LOCATION, null);
+        service.adoptLegacyLocalRoute(pending, SOURCE_LOCATION, null);
 
         String id = LocalWorldIdentity.read(source);
         assertNotNull(id);
@@ -57,7 +63,7 @@ class LegacyLocalRouteAdoptionTest extends WorldGraphFixture {
         service.setSourceSaveLocation(id, ModConfig.SaveLocation.SAVES);
         var pending = LegacyLocalRouteAdoption.pending(service.configSnapshot()).getFirst();
 
-        service.localRoutes().adopt(pending, SOURCE_LOCATION, id);
+        service.adoptLegacyLocalRoute(pending, SOURCE_LOCATION, id);
 
         var settings = service.configSnapshot().sourceSettings().get(id);
         assertNull(settings.pinnedMirrorId());
@@ -77,11 +83,11 @@ class LegacyLocalRouteAdoptionTest extends WorldGraphFixture {
         var pending = LegacyLocalRouteAdoption.pending(service.configSnapshot()).getFirst();
         var before = Files.readAllBytes(target.resolve(WorldMetadata.FILE_NAME));
 
-        assertThrows(IOException.class, () -> service.localRoutes().adopt(pending, SOURCE_LOCATION, null));
+        assertThrows(IOException.class, () -> service.adoptLegacyLocalRoute(pending, SOURCE_LOCATION, null));
         assertEquals(pending, LegacyLocalRouteAdoption.pending(service.configSnapshot()).getFirst());
         assertNull(LocalWorldIdentity.read(source));
         assertArrayEquals(before, Files.readAllBytes(target.resolve(WorldMetadata.FILE_NAME)));
-        service.localRoutes().discard(pending);
+        service.discardLegacyLocalRoute(pending);
         service.refresh();
         assertTrue(LegacyLocalRouteAdoption.pending(service.configSnapshot()).isEmpty());
     }
@@ -123,7 +129,7 @@ class LegacyLocalRouteAdoptionTest extends WorldGraphFixture {
         reopened.refresh();
         var pending = LegacyLocalRouteAdoption.pending(reopened.configSnapshot()).getFirst();
         assertEquals("legacy-local:" + OLD, pending.key());
-        reopened.localRoutes().adopt(pending, SOURCE_LOCATION, null);
+        reopened.adoptLegacyLocalRoute(pending, SOURCE_LOCATION, null);
         assertTrue(LegacyLocalRouteAdoption.pending(reopened.configSnapshot()).isEmpty());
         assertEquals("preferred-destination",
                 reopened.configSnapshot()

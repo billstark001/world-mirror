@@ -42,7 +42,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /** A native selection list for offline worlds and saved servers without joining them. */
-final class WorldSelectionScreen extends StatusScreenApi {
+public final class WorldSelectionScreen extends StatusScreenApi {
     private static final int ROW_HEIGHT = 36;
     private static final int HEADER_HEIGHT = 56;
     private static final int FOOTER_HEIGHT = 38;
@@ -53,8 +53,8 @@ final class WorldSelectionScreen extends StatusScreenApi {
     private static final Identifier UNKNOWN_ICON =
             Identifier.withDefaultNamespace("textures/misc/unknown_server.png");
 
-    record Choice(String id, Component name, Component detail, WorldGraph.Location location, String address,
-            WorldGraph.Kind kind) {
+    public record Choice(String id, Component name, Component detail, WorldGraph.Location location,
+            String address, WorldGraph.Kind kind) {
         static Choice world(String id, Component name, WorldGraph.Location location, WorldGraph.Kind kind) {
             return new Choice(id, name, Component.literal(WorldLabels.path(location)), location, null, kind);
         }

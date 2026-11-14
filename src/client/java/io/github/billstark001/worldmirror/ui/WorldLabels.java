@@ -6,7 +6,7 @@ import net.minecraft.network.chat.Component;
 
 import java.util.Locale;
 
-final class WorldLabels {
+public final class WorldLabels {
     static final String LOCATION = "screen.worldmirror.status.saveLoc";
 
     private WorldLabels() {}
@@ -26,7 +26,7 @@ final class WorldLabels {
                 "config.worldmirror.conflictStrategy." + strategy.name().toLowerCase(Locale.ROOT));
     }
 
-    static String path(WorldGraph.Location location) {
+    public static String path(WorldGraph.Location location) {
         String root = location.root() == WorldGraph.Root.SAVES ? "saves" : "downloaded_worlds";
         return root + "/" + location.folder();
     }

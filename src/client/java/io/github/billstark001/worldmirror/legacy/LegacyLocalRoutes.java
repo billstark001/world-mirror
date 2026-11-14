@@ -1,12 +1,15 @@
-package io.github.billstark001.worldmirror.ui;
+package io.github.billstark001.worldmirror.legacy;
 
 import static io.github.billstark001.worldmirror.ui.StatusScreenApi.showScreen;
 import static io.github.billstark001.worldmirror.ui.WorldRoutingScreen.label;
 
-import io.github.billstark001.worldmirror.download.LegacyLocalRouteAdoption;
-import io.github.billstark001.worldmirror.download.LegacyLocalRouteAdoption.PendingRoute;
+import io.github.billstark001.worldmirror.legacy.LegacyLocalRouteAdoption.PendingRoute;
 import io.github.billstark001.worldmirror.download.WorldGraph;
 import io.github.billstark001.worldmirror.download.WorldGraphService;
+import io.github.billstark001.worldmirror.ui.RoutingRow;
+import io.github.billstark001.worldmirror.ui.WorldLabels;
+import io.github.billstark001.worldmirror.ui.WorldRoutingScreen;
+import io.github.billstark001.worldmirror.ui.WorldSelectionScreen;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -14,18 +17,18 @@ import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.network.chat.Component;
 
 /** Lets the player explicitly adopt or discard unresolved routes from before stable local IDs. */
-final class LegacyLocalRoutes {
+public final class LegacyLocalRoutes {
     private record Source(WorldGraph.Location location, String id) {}
 
     private final WorldRoutingScreen screen;
     private final WorldGraphService service;
 
-    LegacyLocalRoutes(WorldRoutingScreen screen, WorldGraphService service) {
+    public LegacyLocalRoutes(WorldRoutingScreen screen, WorldGraphService service) {
         this.screen = screen;
         this.service = service;
     }
 
-    void show() {
+    public void show() {
         var rows = routes().stream()
                            .map(route
                                    -> new RoutingRow(Component.literal(route.oldName()),
@@ -37,20 +40,21 @@ final class LegacyLocalRoutes {
         screen.show(label("legacyLocalRoutes"), rows, screen::showWorlds);
     }
 
-    List<PendingRoute> routes() {
+    public List<PendingRoute> routes() {
         return LegacyLocalRouteAdoption.pending(screen.view().config());
     }
 
-    PendingRoute recordedAt(WorldGraph.Location location) {
+    public PendingRoute recordedAt(WorldGraph.Location location) {
         var candidates = routes().stream().filter(route -> location.equals(route.destination())).toList();
         return candidates.size() == 1 ? candidates.getFirst() : null;
     }
 
-    void confirmUpstream(PendingRoute route, WorldGraph.Location location, String id, Runnable completed) {
+    public void confirmUpstream(
+            PendingRoute route, WorldGraph.Location location, String id, Runnable completed) {
         confirm(route, new Source(location, id), completed);
     }
 
-    void show(PendingRoute route, Runnable back) {
+    public void show(PendingRoute route, Runnable back) {
         var rows = new ArrayList<RoutingRow>();
         if (route.destination() != null)
             rows.add(RoutingRow.info(label("legacyLocalDestination", WorldLabels.path(route.destination()))));
@@ -70,16 +74,15 @@ final class LegacyLocalRoutes {
                 .filter(node -> node.kind() == WorldGraph.Kind.LOCAL)
                 .filter(node
                         -> view.graph().hasUniqueLocation(node.id()) && view.graph().isUnambiguous(node.id()))
-                .sorted(screen.worlds().nodeOrder())
+                .sorted(screen.worldOrder())
                 .forEach(node -> {
                     choices.add(screen.choice(node));
                     sources.put(node.id(), new Source(node.location(), node.id()));
                 });
         for (var location : view.untrackedLocalWorlds()) {
-            String id = WorldRelationshipLayout.untrackedKey(location);
-            choices.add(WorldSelectionScreen.Choice.world(
-                    id, Component.literal(location.folder()), location, WorldGraph.Kind.LOCAL));
-            sources.put(id, new Source(location, null));
+            var choice = screen.untrackedChoice(location);
+            choices.add(choice);
+            sources.put(choice.id(), new Source(location, null));
         }
         screen.chooseRoute("legacyLocalChoose", List.copyOf(choices), null, id -> {
             Source source = sources.get(id);
@@ -94,9 +97,9 @@ final class LegacyLocalRoutes {
                 -> {
                     showScreen(screen);
                     if (confirmed)
-                        screen.worldEdit(
-                                ()
-                                        -> service.localRoutes().adopt(route, source.location(), source.id()),
+                        screen.worldEdit(()
+                                                 -> service.adoptLegacyLocalRoute(
+                                                         route, source.location(), source.id()),
                                 back);
                 },
                 label("legacyLocalRoute", route.oldName()),
@@ -110,7 +113,7 @@ final class LegacyLocalRoutes {
                 -> {
                     showScreen(screen);
                     if (confirmed)
-                        screen.worldEdit(() -> service.localRoutes().discard(route), back);
+                        screen.worldEdit(() -> service.discardLegacyLocalRoute(route), back);
                 },
                 label("legacyLocalRoute", route.oldName()),
                 label("legacyLocalDiscardConfirm", route.oldName()), label("legacyLocalDiscard"),

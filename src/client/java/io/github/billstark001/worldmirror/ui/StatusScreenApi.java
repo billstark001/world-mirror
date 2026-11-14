@@ -16,7 +16,7 @@ import net.minecraft.network.chat.Component;
 #else
 /** Minecraft 1.21.11 rendering and screen-installation adapter. */
 #endif
-abstract class StatusScreenApi extends Screen {
+public abstract class StatusScreenApi extends Screen {
     protected interface Canvas {
         void text(Component text, int x, int y, int color);
         void centered(Component text, int x, int y, int color);
@@ -76,7 +76,7 @@ abstract class StatusScreenApi extends Screen {
     protected void renderOverlay(GuiGraphics graphics, int mouseX, int mouseY, float delta) {}
 #endif
 
-    protected static void showScreen(Screen screen) {
+    public static void showScreen(Screen screen) {
 #if MC_VERSION >= 260200
         Minecraft.getInstance().gui.setScreen(screen);
 #else

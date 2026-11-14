@@ -10,6 +10,8 @@ import io.github.billstark001.worldmirror.download.WorldGraphConfig.MirrorSettin
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.PendingImport;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.SourceSettings;
 import io.github.billstark001.worldmirror.format.WorldGraphLease;
+import io.github.billstark001.worldmirror.legacy.LegacyLocalRouteAdoption;
+import io.github.billstark001.worldmirror.legacy.LegacyLocalRouteAdoption.PendingRoute;
 import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.loader.api.FabricLoader;
@@ -84,7 +86,7 @@ public final class WorldGraphService {
                 folders, this.configDirectory, () -> ModConfig.get().defaultSaveLocation);
         routing = new WorldConnectionRouting(this, folders);
         worlds = new WorldGraphWorlds(this, folders);
-        localRoutes = new LegacyLocalRouteAdoption(this, folders);
+        localRoutes = new LegacyLocalRouteAdoption(this.configDirectory, worlds);
     }
 
     public static WorldGraphService instance() {
@@ -99,12 +101,28 @@ public final class WorldGraphService {
         return worlds;
     }
 
-    public LegacyLocalRouteAdoption localRoutes() {
-        return localRoutes;
+    public synchronized void adoptLegacyLocalRoute(PendingRoute expected, Location source, String id)
+            throws IOException {
+        editLegacyLocalRoutes(store -> localRoutes.adopt(store, graph(), expected, source, id));
     }
 
-    Path configDirectory() {
-        return configDirectory;
+    public synchronized void discardLegacyLocalRoute(PendingRoute expected) throws IOException {
+        editLegacyLocalRoutes(store -> localRoutes.discard(store, expected));
+    }
+
+    @FunctionalInterface
+    private interface ConfigEdit {
+        void apply(WorldGraphConfig store) throws IOException;
+    }
+
+    private void editLegacyLocalRoutes(ConfigEdit edit) throws IOException {
+        if (clientService && DownloadManager.hasRoutingWork())
+            throw new IOException("Stop capture and wait for pending exports before importing old routes");
+        try (var ignored = acquireGraphLease()) {
+            refreshPublished();
+            edit.apply(currentStore());
+            refreshPublished();
+        }
     }
 
     public void refreshAsync() {
@@ -355,7 +373,7 @@ public final class WorldGraphService {
         try {
             boolean wasAvailable = published.available();
             WorldGraphConfig config = currentStore();
-            localRoutes.recover();
+            localRoutes.recover(config);
             WorldGraphInventory.Result result = inventory.refresh(config);
             publishInventory(result, config.snapshot());
             if (!wasAvailable)

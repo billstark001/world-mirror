@@ -159,15 +159,14 @@ final class WorldRouteDetails {
         var view = screen.view();
         var entries = new ArrayList<>(upstreamCandidates(view.graph(), child.id())
                         .stream()
-                        .sorted(screen.worlds().nodeOrder())
+                        .sorted(screen.worldOrder())
                         .map(screen::choice)
                         .toList());
         var untracked = new HashMap<String, WorldGraph.Location>();
         for (WorldGraph.Location location : view.untrackedLocalWorlds()) {
-            String key = WorldRelationshipLayout.untrackedKey(location);
-            untracked.put(key, location);
-            entries.add(WorldSelectionScreen.Choice.world(
-                    key, Component.literal(location.folder()), location, WorldGraph.Kind.LOCAL));
+            var choice = screen.untrackedChoice(location);
+            untracked.put(choice.id(), location);
+            entries.add(choice);
         }
         showScreen(new WorldSelectionScreen(screen, label("chooseUpstream"), entries, child.parentId(),
                 label("chooseUpstream"), choice -> {

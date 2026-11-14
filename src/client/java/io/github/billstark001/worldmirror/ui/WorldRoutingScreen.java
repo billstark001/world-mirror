@@ -5,6 +5,7 @@ import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.download.WorldGraph;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig;
 import io.github.billstark001.worldmirror.download.WorldGraphService;
+import io.github.billstark001.worldmirror.legacy.LegacyLocalRoutes;
 import io.github.billstark001.worldmirror.ui.WorldGraphIconButton.Icon;
 import io.github.billstark001.worldmirror.util.OfflineTasks;
 import me.shedaniel.autoconfig.AutoConfigClient;
@@ -15,6 +16,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -217,7 +219,7 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
         rebuildWidgets();
     }
 
-    void show(Component title, List<RoutingRow> entries, Runnable back) {
+    public void show(Component title, List<RoutingRow> entries, Runnable back) {
         section = title;
         rows = List.copyOf(entries);
         this.back = back;
@@ -225,7 +227,7 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
         rebuildWidgets();
     }
 
-    void showWorlds() {
+    public void showWorlds() {
         show(label("worlds"), List.of(), null);
     }
 
@@ -237,7 +239,7 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
         return back != null && !section.equals(TABS.get(tab.ordinal()));
     }
 
-    WorldGraphService.RoutingView view() {
+    public WorldGraphService.RoutingView view() {
         return view;
     }
 
@@ -261,7 +263,7 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
         }
     }
 
-    WorldSelectionScreen.Choice choice(WorldGraph.Node node) {
+    public WorldSelectionScreen.Choice choice(WorldGraph.Node node) {
         var name = Component.literal(worlds.name(node));
         if (node.location() != null)
             return WorldSelectionScreen.Choice.world(node.id(), name, node.location(), node.kind());
@@ -272,7 +274,16 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
         return WorldSelectionScreen.Choice.server(node.id(), name, detail, address);
     }
 
-    void chooseRoute(String title, List<WorldSelectionScreen.Choice> choices, String selected,
+    public WorldSelectionScreen.Choice untrackedChoice(WorldGraph.Location location) {
+        return WorldSelectionScreen.Choice.world(WorldRelationshipLayout.untrackedKey(location),
+                Component.literal(location.folder()), location, WorldGraph.Kind.LOCAL);
+    }
+
+    public Comparator<WorldGraph.Node> worldOrder() {
+        return worlds.nodeOrder();
+    }
+
+    public void chooseRoute(String title, List<WorldSelectionScreen.Choice> choices, String selected,
             Consumer<String> confirm) {
         showScreen(new WorldSelectionScreen(
                 this, label(title), choices, selected, Component.translatable("gui.done"), choice -> {
@@ -294,11 +305,11 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
     }
 
     @FunctionalInterface
-    interface WorldEdit {
+    public interface WorldEdit {
         void apply() throws Exception;
     }
 
-    void worldEdit(WorldEdit operation, Runnable completed) {
+    public void worldEdit(WorldEdit operation, Runnable completed) {
         run(() -> {
             operation.apply();
             return service.routingView();
@@ -375,7 +386,7 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
         return false;
     }
 
-    static Component label(String key, Object... values) {
+    public static Component label(String key, Object... values) {
         return Component.translatable(KEY + key, values);
     }
 }

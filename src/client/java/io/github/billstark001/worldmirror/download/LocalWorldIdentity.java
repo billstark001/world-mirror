@@ -11,7 +11,7 @@ import java.nio.file.Path;
 import java.util.UUID;
 
 /** Identity of a local world without World Mirror save metadata. */
-final class LocalWorldIdentity {
+public final class LocalWorldIdentity {
     static final String FILE_NAME = "worldmirror_identity.json";
 
     private record Document(int schema, String nodeId) {
@@ -22,7 +22,7 @@ final class LocalWorldIdentity {
 
     private LocalWorldIdentity() {}
 
-    static String read(Path folder) throws IOException {
+    public static String read(Path folder) throws IOException {
         Path file = folder.resolve(FILE_NAME);
         if (Files.isSymbolicLink(file))
             throw new IOException("Linked local world identity: " + file);
@@ -36,7 +36,7 @@ final class LocalWorldIdentity {
     }
 
     /** Caller holds the offline or integrated server's native world lease. */
-    static String ensure(Path folder) throws IOException {
+    public static String ensure(Path folder) throws IOException {
         String current = read(folder);
         if (current != null)
             return current;

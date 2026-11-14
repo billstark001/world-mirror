@@ -11,19 +11,19 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-abstract class WorldGraphFixture {
+public abstract class WorldGraphFixture {
     static final String SOURCE = "server:Example.org:25565";
     static final String ENDPOINT = "example.org";
     static final String REMOTE = WorldGraphConfig.deterministicId("remote", ENDPOINT);
-    static final String MIRROR_UUID = "a0866b26-53bd-42f1-97be-753132b30794";
-    static final String MIRROR = "mirror:" + MIRROR_UUID;
-    @TempDir Path game;
+    protected static final String MIRROR_UUID = "a0866b26-53bd-42f1-97be-753132b30794";
+    protected static final String MIRROR = "mirror:" + MIRROR_UUID;
+    @TempDir protected Path game;
 
-    WorldGraphService service() {
+    protected WorldGraphService service() {
         return new WorldGraphService(game, configDirectory());
     }
 
-    Path configDirectory() {
+    protected Path configDirectory() {
         return game.resolve("config/worldmirror");
     }
 
@@ -31,7 +31,7 @@ abstract class WorldGraphFixture {
         return new WorldGraphService.Source(null, ENDPOINT, ENDPOINT);
     }
 
-    Path folder(String root, String name) throws IOException {
+    protected Path folder(String root, String name) throws IOException {
         return Files.createDirectories(game.resolve(root).resolve(name));
     }
 
