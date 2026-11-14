@@ -121,7 +121,8 @@ public final class WorldStructureCreator {
     public static String stageSeededGeneration(Path stagedWorld, long seed) throws IOException {
         if (!hasCanonicalVoidGeneration(stagedWorld))
             throw new IOException("Seed conversion requires the current, unmodified World Mirror generator");
-        return writeStagedSeededSettings(stagedWorld, SeededWorldgen.settings(seed));
+        return writeStagedSeededSettings(
+                stagedWorld, SeededWorldgen.settings(seed), WorldStructureApi.MirrorPack.REMOVE);
     }
 
     /** Replaces only the seed in a previously verified native normal preset. */
@@ -132,12 +133,12 @@ public final class WorldStructureCreator {
             throw new IOException("Assigned world generation changed before reseeding");
         SeededWorldgen.seed(settings);
         settings.putLong("seed", seed);
-        return writeStagedSeededSettings(stagedWorld, settings);
+        return writeStagedSeededSettings(stagedWorld, settings, WorldStructureApi.MirrorPack.KEEP);
     }
 
-    private static String writeStagedSeededSettings(Path stagedWorld, CompoundTag settings)
-            throws IOException {
-        WorldStructureApi.replaceGeneration(stagedWorld, settings, false);
+    private static String writeStagedSeededSettings(Path stagedWorld, CompoundTag settings,
+            WorldStructureApi.MirrorPack mirrorPack) throws IOException {
+        WorldStructureApi.replaceGeneration(stagedWorld, settings, mirrorPack);
         CompoundTag verified = SeededWorldgen.readSettings(stagedWorld);
         if (!settings.equals(verified) || WorldStructureApi.hasMirrorDataPack(stagedWorld))
             throw new IOException("Staged normal world generation did not round-trip");
@@ -147,7 +148,8 @@ public final class WorldStructureCreator {
     /** Installs the owned void generator and its data pack in a staging tree. */
     public static void stageVoidGeneration(Path stagedWorld) throws IOException {
         MirrorWorldgenAssets.install(stagedWorld, WorldStructureApi.dataPackFormat());
-        WorldStructureApi.replaceGeneration(stagedWorld, createMirrorWorldGenSettings(), true);
+        WorldStructureApi.replaceGeneration(
+                stagedWorld, createMirrorWorldGenSettings(), WorldStructureApi.MirrorPack.ENABLE);
         if (MirrorWorldgenCheck.inspectFresh(stagedWorld).state() != MirrorWorldgenCheck.State.CURRENT
                 || !WorldStructureApi.hasMirrorDataPack(stagedWorld))
             throw new IOException("Staged void world generation did not round-trip");

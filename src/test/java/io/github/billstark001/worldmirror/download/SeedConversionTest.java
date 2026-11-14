@@ -54,7 +54,7 @@ class SeedConversionTest {
         var target = mirror(world);
         Path region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
         var air = terrain("minecraft:air", "worldmirror:mirror_overworld");
-        var captured = terrain("minecraft:gold_block", "worldmirror:mirror_overworld");
+        var captured = terrain("minecraft:stone", "worldmirror:mirror_overworld");
         McaWriteSupport.writeChunks(region, Level.OVERWORLD, Map.of(PLACEHOLDER, air, CAPTURE, captured));
         try (var index = ChunkDatabase.open(world, target.sourceId())) {
             assertTrue(index.recordUpdates("minecraft:overworld", Map.of(CAPTURE, 42L), "world_mirror"));
@@ -280,7 +280,9 @@ class SeedConversionTest {
                     Map.of(partialPos, 42L, emptyPos, 43L, malformedPos, 44L, validPos, 45L),
                     "world_mirror"));
         }
-        SeedConversion.apply(SeedConversion.preview(target, SeedConversion.Request.set(11, true)));
+        var initial = SeedConversion.preview(target, SeedConversion.Request.set(11, true));
+        assertEquals(1, initial.preview().blended());
+        SeedConversion.apply(initial);
         var metadata = WorldMetadata.loadIfPresent(world).orElseThrow();
         var partialNeighbor = new ChunkPos(2, 1);
         var emptyNeighbor = new ChunkPos(2, 12);
@@ -416,7 +418,7 @@ class SeedConversionTest {
         assertFalse(Files.exists(world.resolve(WorldMetadata.FILE_NAME)));
     }
 
-    private static MirrorTarget mirror(Path world) {
+    static MirrorTarget mirror(Path world) {
         assertTrue(WorldStructureCreator.createVoidWorld(
                 world, "Seed fixture", WorldSettingsSnapshot.defaults()));
         var metadata = WorldMetadata.create("mirror:seed-fixture", WorldGraph.Kind.MIRROR,
@@ -426,7 +428,7 @@ class SeedConversionTest {
         return new MirrorTarget(world, metadata.nodeId, metadata.sourceId);
     }
 
-    private static CompoundTag generated(WorldMetadata metadata, boolean edited) {
+    static CompoundTag generated(WorldMetadata metadata, boolean edited) {
         var chunk = terrain("minecraft:stone", "minecraft:plains");
         var entry = SeedChunkProvenance.baseline(chunk, metadata.generation.seedEpoch(), dataVersion);
         var marker = new CompoundTag();
@@ -441,7 +443,7 @@ class SeedConversionTest {
         return chunk;
     }
 
-    private static CompoundTag terrain(String blockId, String biomeId) {
+    static CompoundTag terrain(String blockId, String biomeId) {
         var blocks = new ListTag();
         var block = new CompoundTag();
         block.putString("Name", blockId);

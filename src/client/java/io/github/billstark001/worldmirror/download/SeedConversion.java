@@ -105,7 +105,7 @@ public final class SeedConversion {
             this.target = target;
             this.request = request;
             this.terrain = terrain;
-            this.proofs = Map.copyOf(proofs);
+            this.proofs = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(proofs));
             preview = new Preview(terrain.removed(), terrain.repaired(), terrain.blended(),
                     terrain.protectedChunks(), terrain.unknown(), terrain.samples(),
                     terrain.meanHeightDifference());
@@ -238,7 +238,8 @@ public final class SeedConversion {
             if (target.existing() != null
                     && (MirrorMigrationPlan.inspect(root, version, true).state()
                                     != MirrorMigrationPlan.State.CURRENT
-                            || !WorldStructureCreator.hasCanonicalVoidGeneration(root)))
+                            || !WorldStructureCreator.hasCanonicalVoidGeneration(root)
+                            || !WorldStructureCreator.hasUnmodifiedVoidAssets(root)))
                 throw new IOException(
                         "Open the mirror and complete its world generation upgrade before setting a seed.");
         } else if (!seeded) {
@@ -251,6 +252,9 @@ public final class SeedConversion {
                 && !metadata.generation.blendTerrain()) {
             throw new IOException("This mirror does not have terrain blending enabled.");
         }
+        if (request.operation() == Operation.REMOVE && !SeedConversionFiles.packFiles(root).isEmpty()
+                && !WorldStructureCreator.hasUnmodifiedVoidAssets(root))
+            throw new IOException("The World Mirror data pack path already contains custom files.");
         if (seeded && target.existing() != null)
             target.existing().requireCurrent();
         var terrain = SeedTerrain.scan(root, metadata, request.operation(), request.seed(),
@@ -263,8 +267,9 @@ public final class SeedConversion {
             SeedTerrainFiles.proof(root, root.resolve(MirrorClaim.FILE_NAME), proofs, progress);
         for (Path path : WorldStructureCreator.generationFiles(root))
             SeedTerrainFiles.proof(root, root.resolve(path), proofs, progress);
-        for (Path file : SeedConversionFiles.packFiles(root))
-            SeedTerrainFiles.proof(root, file, proofs, progress);
+        if (request.operation() == Operation.SET || request.operation() == Operation.REMOVE)
+            for (Path file : SeedConversionFiles.packFiles(root))
+                SeedTerrainFiles.proof(root, file, proofs, progress);
         progress.checkpoint();
         return new Plan(target, request, terrain, proofs);
     }

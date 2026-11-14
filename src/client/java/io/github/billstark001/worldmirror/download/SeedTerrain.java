@@ -7,6 +7,7 @@ import io.github.billstark001.worldmirror.format.SeedTerrainDigest;
 import io.github.billstark001.worldmirror.io.AnvilReader;
 import io.github.billstark001.worldmirror.io.ChunkAuxiliaryData;
 import io.github.billstark001.worldmirror.io.McaWriteSupport;
+import io.github.billstark001.worldmirror.io.SeedCaptureReceipt;
 import io.github.billstark001.worldmirror.io.SeedChunkProvenance;
 import io.github.billstark001.worldmirror.io.WorldSaveLayout;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
@@ -33,9 +34,36 @@ final class SeedTerrain {
     private static final int SAMPLE_LIMIT = 128;
 
     record Region(ResourceKey<Level> dimension, Path file, int x, int z) {}
-    record Edit(boolean delete, boolean remapBiome, boolean addBlend, boolean removeBlend) {}
+    record Edit(boolean delete, boolean remapBiome, boolean addBlend, boolean removeBlend, boolean relight) {
+        Edit withBlend() {
+            return new Edit(delete, remapBiome, true, removeBlend, relight);
+        }
+
+        Edit withRelight() {
+            return new Edit(delete, remapBiome, addBlend, removeBlend, true);
+        }
+    }
     record Plan(Map<Region, Map<ChunkPos, Edit>> edits, Map<Path, String> proofs, int removed, int repaired,
             int blended, int protectedChunks, int unknown, int samples, double meanHeightDifference) {}
+
+    private record LightingPlan(Map<ChunkPos, Region> lighted, Set<ChunkPos> generates) {
+        LightingPlan() {
+            this(new HashMap<>(), new HashSet<>());
+        }
+
+        void inspect(ChunkPos pos, Region region, CompoundTag chunk, boolean receiptPending) {
+            if (SeedTerrainLighting.awaitsFeatures(chunk))
+                generates.add(pos);
+            if (!receiptPending && SeedTerrainLighting.hasSavedLight(chunk))
+                lighted.put(pos, region);
+        }
+    }
+
+    private record VoidPlan(Set<ChunkPos> owned, Map<ChunkPos, Region> nativeCandidates) {
+        VoidPlan() {
+            this(new HashSet<>(), new HashMap<>());
+        }
+    }
 
     private SeedTerrain() {}
 
@@ -63,8 +91,8 @@ final class SeedTerrain {
                 new Scan(root, metadata, operation, cleanup, blending, surface, progress, total, indexRoot);
         progress.update(Phase.SCANNING, 0, total);
         for (var dimension : dimensions.entrySet()) scan.dimension(dimension.getKey(), dimension.getValue());
-        return new Plan(Map.copyOf(scan.edits), Map.copyOf(scan.proofs), scan.removed, scan.repaired,
-                scan.blended, scan.protectedChunks, scan.unknown, scan.samples,
+        return new Plan(Map.copyOf(scan.edits), java.util.Collections.unmodifiableMap(scan.proofs),
+                scan.removed, scan.repaired, scan.blended, scan.protectedChunks, scan.unknown, scan.samples,
                 scan.samples == 0 ? 0 : (double) scan.heightDifference / scan.samples);
     }
 
@@ -102,18 +130,18 @@ final class SeedTerrain {
             progress.update(Phase.SCANNING, ++completed, total);
         }
 
-        private void loadIndexRows(String dimension, Map<ChunkPos, String> rows)
+        private void loadIndexRows(String dimension, Map<ChunkPos, ChunkDatabase.ChunkRecord> rows)
                 throws java.sql.SQLException {
             for (var row : ChunkDatabase.queryAllReadOnly(indexRoot, metadata.sourceId, dimension)) {
                 progress.checkpoint();
-                rows.put(new ChunkPos(row.x(), row.z()), row.updateSource());
+                rows.put(new ChunkPos(row.x(), row.z()), row);
             }
         }
 
         void dimension(ResourceKey<Level> dimension, List<Region> regions) throws Exception {
             progress.checkpoint();
             var dim = dimension.identifier().toString();
-            Map<ChunkPos, String> rows = new HashMap<>();
+            Map<ChunkPos, ChunkDatabase.ChunkRecord> rows = new HashMap<>();
             if (indexRoot != null)
                 loadIndexRows(dim, rows);
             Set<ChunkPos> present = new HashSet<>();
@@ -125,7 +153,7 @@ final class SeedTerrain {
             Set<ChunkPos> captured = new HashSet<>();
             for (var entry : rows.entrySet()) {
                 progress.checkpoint();
-                if (present.contains(entry.getKey()) && isCaptured(entry.getValue()))
+                if (present.contains(entry.getKey()) && isCaptured(entry.getValue().updateSource()))
                     captured.add(entry.getKey());
             }
             boolean regenerate = operation == SeedConversion.Operation.REGENERATE_BORDER;
@@ -135,33 +163,45 @@ final class SeedTerrain {
             Map<ChunkPos, Region> regeneration = new HashMap<>();
             Set<ChunkPos> nearDonors = SeedTerrainBlending.regenerationBand(donors, present, progress);
             Set<ChunkPos> removedHere = new HashSet<>();
+            var lighting = new LightingPlan();
+            var voids = new VoidPlan();
             for (Region region : regions)
-                inspectRegion(region, rows, captured, nearDonors, regeneration, removedHere);
+                inspectRegion(region, rows, captured, nearDonors, regeneration, removedHere, lighting, voids);
+            for (ChunkPos pos : SeedTerrainBiomes.corroboratedNativeVoids(
+                         voids.nativeCandidates().keySet(), voids.owned(), captured)) {
+                progress.checkpoint();
+                edits.computeIfAbsent(voids.nativeCandidates().get(pos), ignored -> new HashMap<>())
+                        .put(pos, new Edit(true, false, false, false, false));
+                removedHere.add(pos);
+                removed++;
+                unknown--;
+            }
             for (ChunkPos pos :
                     SeedTerrainBlending.regenerationBand(donors, regeneration.keySet(), progress)) {
                 progress.checkpoint();
                 edits.computeIfAbsent(regeneration.get(pos), ignored -> new HashMap<>())
-                        .put(pos, new Edit(true, false, false, false));
+                        .put(pos, new Edit(true, false, false, false, false));
                 removedHere.add(pos);
                 removed++;
                 protectedChunks--;
             }
+            planRelight(present, removedHere, lighting);
             if (blending && operation != SeedConversion.Operation.REMOVE
                     && dimension.equals(Level.OVERWORLD)) {
                 present.removeAll(removedHere);
                 for (Region region : regions)
-                    markBlendDonors(region, regenerate ? donors : captured, present);
+                    markBlendDonors(region, regenerate ? donors : captured, present, rows);
             }
         }
 
-        private void inspectRegion(Region region, Map<ChunkPos, String> rows, Set<ChunkPos> captured,
-                Set<ChunkPos> nearDonors, Map<ChunkPos, Region> regeneration, Set<ChunkPos> removedHere)
-                throws IOException {
+        private void inspectRegion(Region region, Map<ChunkPos, ChunkDatabase.ChunkRecord> rows,
+                Set<ChunkPos> captured, Set<ChunkPos> nearDonors, Map<ChunkPos, Region> regeneration,
+                Set<ChunkPos> removedHere, LightingPlan lighting, VoidPlan voids) throws IOException {
             Path entities = SeedTerrainFiles.sibling(region, "entities");
             Path poi = SeedTerrainFiles.sibling(region, "poi");
             proof(region.file());
-            proof(entities);
-            proof(poi);
+            SeedTerrainFiles.proofIncludingAbsence(root, entities, proofs, progress);
+            SeedTerrainFiles.proofIncludingAbsence(root, poi, proofs, progress);
             Map<ChunkPos, Edit> changes = new HashMap<>();
             try (var terrain = AnvilReader.open(region.file(), region.x(), region.z());
                     var auxiliary = new ChunkAuxiliaryData(root, region.file(), region.x(), region.z())) {
@@ -175,11 +215,32 @@ final class SeedTerrain {
                     proof(AnvilReader.externalFile(entities.getParent(), pos));
                     proof(AnvilReader.externalFile(poi.getParent(), pos));
                     CompoundTag chunk = terrain.read(pos);
+                    boolean atPosition =
+                            chunk.getIntOr("xPos", Integer.MIN_VALUE) == SeedTerrainFiles.chunkX(pos)
+                            && chunk.getIntOr("zPos", Integer.MIN_VALUE) == SeedTerrainFiles.chunkZ(pos);
+                    if ((chunk.contains("xPos") || chunk.contains("zPos")) && !atPosition)
+                        throw new IOException("Terrain coordinates differ from the region slot: " + pos
+                                + " in " + region.file());
                     if (chunk.getIntOr("DataVersion", 0) > dataVersion)
                         throw new IOException("Terrain was saved by a newer Minecraft version: " + pos
                                 + " in " + region.file());
-                    Edit edit = inspectChunk(region.dimension(), chunk, rows.get(pos),
-                            nearDonors.contains(pos), () -> auxiliary.hasData(pos));
+                    var row = rows.get(pos);
+                    String source = row == null ? null : row.updateSource();
+                    Edit edit = inspectChunk(region.dimension(), chunk, source, nearDonors.contains(pos),
+                            () -> auxiliary.hasData(pos));
+                    boolean receiptPending = SeedCaptureReceipt.isUnsettled(chunk, metadata.nodeId, row);
+                    if (receiptPending && (edit.delete() || edit.remapBiome() || edit.removeBlend()))
+                        throw pendingReceipt(pos);
+                    if (operation == SeedConversion.Operation.SET && source == null) {
+                        if (edit.delete())
+                            voids.owned().add(pos);
+                        else if (atPosition && SeedTerrainBiomes.isNativeVoid(chunk, region.dimension())
+                                && !auxiliary.hasData(pos))
+                            voids.nativeCandidates().put(pos, region);
+                    }
+                    if ((!edit.delete() || operation == SeedConversion.Operation.REGENERATE_BORDER)
+                            && (operation != SeedConversion.Operation.REMOVE || cleanup))
+                        lighting.inspect(pos, region, chunk, receiptPending);
                     if (edit.delete()) {
                         if (operation == SeedConversion.Operation.REGENERATE_BORDER) {
                             regeneration.put(pos, region);
@@ -230,7 +291,29 @@ final class SeedTerrain {
                     && (operation == SeedConversion.Operation.REMOVE
                             || operation == SeedConversion.Operation.RESEED)
                     && SeedTerrainBlending.hasOwnedBlend(chunk);
-            return new Edit(delete, remap, false, clearBlend);
+            return new Edit(delete, remap, false, clearBlend, false);
+        }
+
+        private void planRelight(Set<ChunkPos> present, Set<ChunkPos> removedHere, LightingPlan lighting) {
+            boolean assigning =
+                    operation == SeedConversion.Operation.SET || operation == SeedConversion.Operation.RESEED;
+            Set<ChunkPos> generates = assigning ? lighting.generates() : removedHere;
+            if (assigning)
+                generates.addAll(removedHere);
+            for (var entry : lighting.lighted().entrySet()) {
+                progress.checkpoint();
+                ChunkPos pos = entry.getKey();
+                if (!removedHere.contains(pos)
+                        && (generates.contains(pos)
+                                || SeedTerrainLighting.bordersGeneration(
+                                        pos, present, generates, assigning))) {
+                    edits.computeIfAbsent(entry.getValue(), ignored -> new HashMap<>())
+                            .compute(pos,
+                                    (ignored, edit)
+                                            -> edit == null ? new Edit(false, false, false, false, true)
+                                                            : edit.withRelight());
+                }
+            }
         }
 
         private void countRetained(boolean recognized) {
@@ -245,8 +328,8 @@ final class SeedTerrain {
             boolean hasData() throws IOException;
         }
 
-        private void markBlendDonors(Region region, Set<ChunkPos> candidates, Set<ChunkPos> present)
-                throws IOException {
+        private void markBlendDonors(Region region, Set<ChunkPos> candidates, Set<ChunkPos> present,
+                Map<ChunkPos, ChunkDatabase.ChunkRecord> rows) throws IOException {
             progress.checkpoint();
             try (var terrain = AnvilReader.open(region.file(), region.x(), region.z())) {
                 for (ChunkPos pos : terrain.positions()) {
@@ -256,14 +339,16 @@ final class SeedTerrain {
                     CompoundTag chunk = terrain.read(pos);
                     var changes = edits.get(region);
                     var old = changes == null ? null : changes.get(pos);
-                    if (!chunk.getStringOr("Status", "").matches("(minecraft:)?full")
+                    if (!SeedTerrainBlending.canDonateBlend(chunk)
                             || (chunk.contains(SeedTerrainDigest.BLENDING_DATA)
                                     && (old == null || !old.removeBlend())))
                         continue;
+                    if (SeedCaptureReceipt.isUnsettled(chunk, metadata.nodeId, rows.get(pos)))
+                        throw pendingReceipt(pos);
                     edits.computeIfAbsent(region, ignored -> new HashMap<>())
                             .put(pos,
-                                    new Edit(false, old != null && old.remapBiome(), true,
-                                            old != null && old.removeBlend()));
+                                    old == null ? new Edit(false, false, true, false, false)
+                                                : old.withBlend());
                     blended++;
                 }
             }
@@ -272,6 +357,11 @@ final class SeedTerrain {
 
         private void proof(Path path) throws IOException {
             SeedTerrainFiles.proof(root, path, proofs, progress);
+        }
+
+        private static IOException pendingReceipt(ChunkPos pos) {
+            return new IOException(
+                    "Retry the pending capture for chunk " + pos + " before changing the seed.");
         }
 
         private Set<ChunkPos> findRegenerationDonors(List<Region> regions, Set<ChunkPos> captured)
@@ -330,6 +420,8 @@ final class SeedTerrain {
             SeedTerrainBlending.removeBlend(chunk);
         if (edit.addBlend())
             SeedTerrainBlending.markBlend(chunk, blendEpoch);
+        if (edit.relight())
+            SeedTerrainLighting.invalidate(chunk);
         return chunk;
     }
 

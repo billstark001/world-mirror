@@ -78,7 +78,7 @@ public final class SeedTerrainBlending {
         return false;
     }
 
-    static boolean canDonateBlend(CompoundTag chunk) {
+    public static boolean canDonateBlend(CompoundTag chunk) {
         if (!chunk.getStringOr("Status", "").matches("(minecraft:)?full")
                 || chunk.getIntOr("DataVersion", 0)
                         > SharedConstants.getCurrentVersion().dataVersion().version())
@@ -144,8 +144,9 @@ public final class SeedTerrainBlending {
     }
 
     private static String blockId(Tag state) {
-        return state instanceof CompoundTag compound ? compound.getStringOr("Name", "")
-                                                     : state.asString().orElse("");
+        return state instanceof CompoundTag compound
+                ? compound.getStringOr("id", compound.getStringOr("Name", compound.getStringOr("", "")))
+                : state.asString().orElse("");
     }
 
     static boolean hasOwnedBlend(CompoundTag chunk) {

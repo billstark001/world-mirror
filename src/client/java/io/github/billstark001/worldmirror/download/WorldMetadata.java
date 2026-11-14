@@ -22,10 +22,13 @@ public final class WorldMetadata {
     public static final int CURRENT_METADATA_SCHEMA = 2;
     public static final int CURRENT_WORLDGEN_SCHEMA = MirrorFormat.WORLDGEN_SCHEMA;
     public static final String NORMAL_GENERATION_PRESET = "minecraft:normal";
+    private static final int SEEDED_TERRAIN_REPAIR_REVISION = 3;
     private static final Pattern SETTINGS_DIGEST = Pattern.compile("[0-9a-f]{64}");
 
     public enum Schema { MISSING, CURRENT, FUTURE, UNMANAGED, UNREADABLE }
     public enum GenerationMode { VOID, SEEDED }
+
+    record Inspection(Schema schema, WorldMetadata metadata) {}
 
     public record Generation(GenerationMode mode, int revision, int assetRevision, int dataVersion,
             int cleanupRevision, String preset, String settingsDigest, UUID seedEpoch, boolean blendTerrain) {
@@ -79,23 +82,20 @@ public final class WorldMetadata {
 
     /** Inspects current metadata without adopting a document of an unsupported format. */
     public static Schema inspectSchema(Path worldFolder) {
+        return inspect(worldFolder).schema();
+    }
+
+    static Inspection inspect(Path worldFolder) {
         var read = readDocument(worldFolder);
         if (read.state() == JsonSupport.ReadState.MISSING)
-            return Schema.MISSING;
+            return new Inspection(Schema.MISSING, null);
         if (read.state() != JsonSupport.ReadState.VALID)
-            return Schema.UNREADABLE;
+            return new Inspection(Schema.UNREADABLE, null);
         try {
-            return switch (schema(read.value())) {
-                case CURRENT -> {
-                    fromCurrent(read.value());
-                    yield Schema.CURRENT;
-                }
-                case FUTURE -> Schema.FUTURE;
-                case UNMANAGED -> Schema.UNMANAGED;
-                case MISSING, UNREADABLE -> Schema.UNREADABLE;
-            };
+            Schema schema = schema(read.value());
+            return new Inspection(schema, schema == Schema.CURRENT ? fromCurrent(read.value()) : null);
         } catch (IllegalArgumentException malformed) {
-            return Schema.UNREADABLE;
+            return new Inspection(Schema.UNREADABLE, null);
         }
     }
 
@@ -260,9 +260,22 @@ public final class WorldMetadata {
 
     public void markSeededGeneration(
             int dataVersion, String settingsDigest, UUID seedEpoch, boolean blendTerrain) {
-        generation = new Generation(GenerationMode.SEEDED, CURRENT_WORLDGEN_SCHEMA, 0, dataVersion,
-                LegacyVoidChunkCleanup.COMPLETED_REVISION, NORMAL_GENERATION_PRESET, settingsDigest,
-                seedEpoch, blendTerrain);
+        int cleanup = generation.mode() == GenerationMode.SEEDED ? generation.cleanupRevision()
+                                                                 : SEEDED_TERRAIN_REPAIR_REVISION;
+        generation = new Generation(GenerationMode.SEEDED, CURRENT_WORLDGEN_SCHEMA, 0, dataVersion, cleanup,
+                NORMAL_GENERATION_PRESET, settingsDigest, seedEpoch, blendTerrain);
+        modVersion = currentModVersion();
+    }
+
+    boolean needsSeededTerrainRepair() {
+        return generation.mode() == GenerationMode.SEEDED
+                && generation.cleanupRevision() < SEEDED_TERRAIN_REPAIR_REVISION;
+    }
+
+    void markSeededTerrainRepaired() {
+        generation = new Generation(generation.mode(), generation.revision(), generation.assetRevision(),
+                generation.dataVersion(), SEEDED_TERRAIN_REPAIR_REVISION, generation.preset(),
+                generation.settingsDigest(), generation.seedEpoch(), generation.blendTerrain());
         modVersion = currentModVersion();
     }
 

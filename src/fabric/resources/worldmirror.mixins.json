@@ -8,6 +8,7 @@
     "ConnectionRoutingMixin",
     "ContainerMixin",
     "SectionBlocksUpdatePacketAccessor",
+    "SeedBlenderMixin",
     "SeedBlockEntityEditMixin",
     "SeedChunkEditMixin",
     "SeedChunkLoadMixin",

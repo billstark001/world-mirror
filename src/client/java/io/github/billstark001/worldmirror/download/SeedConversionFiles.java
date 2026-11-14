@@ -48,11 +48,13 @@ final class SeedConversionFiles {
             Path staged = tx.stagingDirectory();
             Map<Path, Path> writes = new LinkedHashMap<>();
             Set<Path> deletes = new HashSet<>();
+            if (operation == Operation.SET)
+                for (Path pack : packFiles(root)) deletes.add(root.relativize(pack));
             Map<String, Set<ChunkPos>> removed = new HashMap<>();
             for (var entry : terrain.edits().entrySet()) {
                 var region = entry.getKey();
                 var changes = entry.getValue();
-                stageRegion(root, staged, region, region.file(), writes, deletes,
+                stageSparseRegion(root, staged, region, region.file(), writes, deletes, changes.keySet(),
                         (pos, chunk)
                                 -> SeedTerrain.transform(
                                         pos, chunk, changes.get(pos), region.dimension(), blendEpoch));
@@ -88,7 +90,6 @@ final class SeedConversionFiles {
                             : WorldStructureCreator.stageReseededGeneration(
                                       staged, metadata.generation.settingsDigest(), request.seed());
                     metadata.markSeededGeneration(version, digest, blendEpoch, request.blendTerrain());
-                    for (Path pack : packFiles(root)) deletes.add(root.relativize(pack));
                 } else {
                     WorldStructureCreator.stageVoidGeneration(staged);
                     metadata.markWorldgenCurrent(version, MirrorWorldgenAssets.ASSET_REVISION);
@@ -102,31 +103,71 @@ final class SeedConversionFiles {
             }
             if (writes.isEmpty() && deletes.isEmpty())
                 return null;
-            var touched = new HashSet<>(writes.keySet());
-            touched.addAll(deletes);
             var expected = new HashMap<>(proofs);
             // SQLite uses a transient shared-memory file, which is not a data source.
             Path shm = Path.of(DATABASE.toString() + "-shm");
             if (deletes.contains(shm))
                 expected.put(shm, FileProof.sha256(root.resolve(shm)));
-            MirrorMigrationCoordinator.verifyOriginals(root, touched, expected);
-            Path originals = Files.createDirectory(staged.resolve("conversion-backup"));
-            var files = touched.stream().filter(expected::containsKey).sorted().map(root::resolve).toList();
-            var backupProof = MirrorMigrationCoordinator.copyTouchedFiles(root, originals, files);
-            for (var entry : backupProof.entrySet()) {
-                if (!entry.getValue().equals(expected.get(entry.getKey())))
-                    throw new IOException("The mirror changed while preparing the backup");
-            }
-            Path backup = MirrorMigrationCoordinator.backupTouchedFiles(root, originals, backupProof);
-            MirrorMigrationCoordinator.verifyOriginals(root, touched, expected);
-            tx.commit(writes, deletes);
+            Path backup = commitWithBackup(root, tx, writes, deletes, expected, () -> {
+                snapshot.verifyDurableContents(root);
+                verifyDependencies(root, expected, writes.keySet(), deletes);
+                if (operation == Operation.SET || operation == Operation.REMOVE)
+                    verifyPackInventory(root, expected);
+            });
             if (operation == Operation.SET)
                 retireEmptyPack(root);
             return backup;
         }
     }
 
-    private static void stageAuxiliary(Path root, Path staged, SeedTerrain.Region region, Set<ChunkPos> gone,
+    @FunctionalInterface
+    interface Recheck {
+        void run() throws IOException;
+    }
+
+    static Path commitWithBackup(Path root, FileTransaction tx, Map<Path, Path> writes, Set<Path> deletes,
+            Map<Path, String> expected, Recheck recheck) throws IOException {
+        var touched = new HashSet<>(writes.keySet());
+        touched.addAll(deletes);
+        MirrorMigrationCoordinator.verifyOriginals(root, touched, expected);
+        Path originals = Files.createDirectory(tx.stagingDirectory().resolve("conversion-backup"));
+        var files = touched.stream()
+                            .filter(path -> expected.get(path) != null)
+                            .sorted()
+                            .map(root::resolve)
+                            .toList();
+        var backupProof = MirrorMigrationCoordinator.copyTouchedFiles(root, originals, files);
+        for (var entry : backupProof.entrySet()) {
+            if (!entry.getValue().equals(expected.get(entry.getKey())))
+                throw new IOException("The mirror changed while preparing the backup");
+        }
+        Path backup = MirrorMigrationCoordinator.backupTouchedFiles(root, originals, backupProof);
+        MirrorMigrationCoordinator.verifyOriginals(root, touched, expected);
+        recheck.run();
+        tx.commit(writes, deletes);
+        return backup;
+    }
+
+    static void verifyDependencies(Path root, Map<Path, String> proofs, Set<Path> writes, Set<Path> deletes)
+            throws IOException {
+        var dependencies = new HashSet<>(proofs.keySet());
+        dependencies.removeAll(writes);
+        dependencies.removeAll(deletes);
+        MirrorMigrationCoordinator.verifyOriginals(root, dependencies, proofs);
+    }
+
+    private static void verifyPackInventory(Path root, Map<Path, String> expected) throws IOException {
+        var present =
+                packFiles(root).stream().map(root::relativize).collect(java.util.stream.Collectors.toSet());
+        var approved = new HashSet<Path>();
+        for (var entry : expected.entrySet())
+            if (entry.getKey().startsWith(OWNED_PACK) && entry.getValue() != null)
+                approved.add(entry.getKey());
+        if (!present.equals(approved))
+            throw new IOException("The World Mirror data pack changed before publication.");
+    }
+
+    static void stageAuxiliary(Path root, Path staged, SeedTerrain.Region region, Set<ChunkPos> gone,
             Map<Path, Path> writes, Set<Path> deletes) throws IOException {
         for (String kind : new String[] {"entities", "poi"}) {
             Path file = SeedTerrainFiles.sibling(region, kind);
@@ -136,8 +177,8 @@ final class SeedConversionFiles {
             var auxiliary = new HashSet<>(gone);
             auxiliary.retainAll(existing);
             if (!auxiliary.isEmpty())
-                stageRegion(root, staged, region, file, writes, deletes,
-                        (pos, chunk) -> auxiliary.contains(pos) ? null : chunk);
+                stageSparseRegion(
+                        root, staged, region, file, writes, deletes, auxiliary, (pos, chunk) -> null);
         }
     }
 
@@ -193,16 +234,20 @@ final class SeedConversionFiles {
         }
     }
 
-    private static void stageRegion(Path root, Path staged, SeedTerrain.Region region, Path source,
-            Map<Path, Path> writes, Set<Path> deletes, RegionWriteTransaction.Transform transform)
-            throws IOException {
+    static void stageSparseRegion(Path root, Path staged, SeedTerrain.Region region, Path source,
+            Map<Path, Path> writes, Set<Path> deletes, Set<ChunkPos> changed,
+            RegionWriteTransaction.Transform transform) throws IOException {
         Path relative = root.relativize(source);
         Path destination = staged.resolve(relative);
-        RegionWriteTransaction.stage(
-                source, destination, region.dimension(), region.x(), region.z(), Set.of(), transform);
+        RegionWriteTransaction.stageSparse(
+                source, destination, region.dimension(), region.x(), region.z(), changed, transform);
         writes.put(relative, destination);
-        var prior = positions(source, region);
-        for (ChunkPos pos : prior) {
+        stageExternalPayloads(root, source, destination, writes, deletes, changed);
+    }
+
+    private static void stageExternalPayloads(Path root, Path source, Path destination,
+            Map<Path, Path> writes, Set<Path> deletes, Set<ChunkPos> changed) {
+        for (ChunkPos pos : changed) {
             Path originalPayload = AnvilReader.externalFile(source.getParent(), pos);
             Path stagedPayload = AnvilReader.externalFile(destination.getParent(), pos);
             Path key = root.relativize(originalPayload);

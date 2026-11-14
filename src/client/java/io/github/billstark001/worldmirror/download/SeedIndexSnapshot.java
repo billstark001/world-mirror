@@ -82,6 +82,25 @@ final class SeedIndexSnapshot implements AutoCloseable {
         return proofs;
     }
 
+    /** Empty SQLite sidecars can appear or disappear without changing the index view. */
+    void verifyDurableContents(Path world) throws IOException {
+        Map<Path, FileProof.Version> live = versions(world);
+        String empty = java.util.HexFormat.of().formatHex(FileProof.sha256().digest());
+        for (Path path : DURABLE_FILES) {
+            var version = live.get(path);
+            String actual = version == null ? null : FileProof.sha256(world.resolve(path));
+            String expected = proofs.get(path);
+            if (!path.equals(DATABASE)) {
+                if (empty.equals(actual))
+                    actual = null;
+                if (empty.equals(expected))
+                    expected = null;
+            }
+            if (!java.util.Objects.equals(actual, expected))
+                throw new IOException("Chunk index changed while preparing seed terrain repair: " + path);
+        }
+    }
+
     @Override
     public void close() {
         if (root == null)

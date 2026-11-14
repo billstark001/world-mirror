@@ -6,6 +6,8 @@ import io.github.billstark001.worldmirror.download.WorldMetadata;
 import net.minecraft.SharedConstants;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.DoubleTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.StringTag;
 import net.minecraft.server.Bootstrap;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -121,6 +123,11 @@ class SeededWorldgenTest {
     void reseedingRechecksOwnershipAndChangesOnlyTheNativeSeed(@TempDir Path world) throws Exception {
         assertTrue(WorldStructureCreator.createVoidWorld(world, "reseed", WorldSettingsSnapshot.defaults()));
         String originalDigest = WorldStructureCreator.stageSeededGeneration(world, 123);
+        var packs = dataPacks(world);
+        packs.getListOrEmpty("Enabled").add(StringTag.valueOf("file/keep_enabled"));
+        packs.getListOrEmpty("Disabled").add(StringTag.valueOf("file/keep_disabled"));
+        packs.getListOrEmpty("Disabled").add(StringTag.valueOf(MirrorWorldgenAssets.PACK_ID));
+        saveDataPacks(world, packs);
         var original = SeededWorldgen.readSettings(world);
         String digest = WorldStructureCreator.stageReseededGeneration(world, originalDigest, -456);
         var changed = SeededWorldgen.readSettings(world);
@@ -128,12 +135,58 @@ class SeededWorldgenTest {
         assertNotEquals(originalDigest, digest);
         assertTrue(WorldStructureCreator.matchesSeededGeneration(world, digest));
         assertFalse(WorldStructureApi.hasMirrorDataPack(world));
+        assertEquals(packs, dataPacks(world));
         original.remove("seed");
         changed.remove("seed");
         assertEquals(original, changed);
         assertThrows(java.io.IOException.class,
                 () -> WorldStructureCreator.stageReseededGeneration(world, originalDigest, 789));
         assertEquals(-456L, WorldStructureCreator.readSeed(world));
+    }
+
+    @Test
+    void seedConversionChangesOnlyTheOwnedDataPackSelection(@TempDir Path world) throws Exception {
+        assertTrue(WorldStructureCreator.createVoidWorld(
+                world, "pack selections", WorldSettingsSnapshot.defaults()));
+        var packs = dataPacks(world);
+        packs.put("Enabled", packList("vanilla", MirrorWorldgenAssets.PACK_ID, "file/keep_enabled"));
+        packs.put("Disabled", packList("file/keep_disabled", MirrorWorldgenAssets.PACK_ID));
+        saveDataPacks(world, packs);
+
+        WorldStructureCreator.stageSeededGeneration(world, 123);
+        assertPackSelections(world, packList("vanilla", "file/keep_enabled"), packList("file/keep_disabled"));
+
+        packs = dataPacks(world);
+        packs.getListOrEmpty("Disabled").add(StringTag.valueOf(MirrorWorldgenAssets.PACK_ID));
+        saveDataPacks(world, packs);
+        WorldStructureCreator.stageVoidGeneration(world);
+        assertPackSelections(world, packList("vanilla", "file/keep_enabled", MirrorWorldgenAssets.PACK_ID),
+                packList("file/keep_disabled"));
+    }
+
+    private static CompoundTag dataPacks(Path world) throws Exception {
+        return NbtReadSupport.readWorldData(world.resolve("level.dat"))
+                .getCompoundOrEmpty("Data")
+                .getCompoundOrEmpty("DataPacks");
+    }
+
+    private static void saveDataPacks(Path world, CompoundTag packs) throws Exception {
+        Path level = world.resolve("level.dat");
+        var root = NbtReadSupport.readWorldData(level);
+        root.getCompoundOrEmpty("Data").put("DataPacks", packs);
+        WorldStructureCreator.writeVerifiedWorldData(level, root);
+    }
+
+    private static void assertPackSelections(Path world, ListTag enabled, ListTag disabled) throws Exception {
+        var packs = dataPacks(world);
+        assertEquals(enabled, packs.getListOrEmpty("Enabled"));
+        assertEquals(disabled, packs.getListOrEmpty("Disabled"));
+    }
+
+    private static ListTag packList(String... ids) {
+        var packs = new ListTag();
+        for (String id : ids) packs.add(StringTag.valueOf(id));
+        return packs;
     }
 
     @Test

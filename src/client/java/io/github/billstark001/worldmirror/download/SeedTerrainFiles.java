@@ -33,6 +33,14 @@ final class SeedTerrainFiles {
             proofs.put(relative, FileProof.sha256(path, progress::checkpoint));
     }
 
+    static void proofIncludingAbsence(Path root, Path path, Map<Path, String> proofs, Progress progress)
+            throws IOException {
+        proof(root, path, proofs, progress);
+        Path relative = root.relativize(path);
+        if (!proofs.containsKey(relative))
+            proofs.put(relative, null);
+    }
+
     static List<Region> regions(Path root, Path directory, ResourceKey<Level> dimension, Progress progress)
             throws IOException {
         progress.checkpoint();

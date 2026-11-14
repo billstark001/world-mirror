@@ -417,8 +417,7 @@ class ChunkExporterPersistenceTest {
         neighbors.put(pos, initial);
         McaWriteSupport.writeChunks(region, Level.OVERWORLD, neighbors);
 
-        var incoming = new CompoundTag();
-        incoming.putString("Status", "minecraft:full");
+        var incoming = blendTerrain("minecraft:stone");
         incoming.putString("marker", "recaptured");
         try (var db = ChunkDatabase.open(world, metadata.sourceId)) {
             var result = ChunkExporter.exportChunks(world, snapshot(pos, incoming), Map.of(), Map.of(),
@@ -429,5 +428,43 @@ class ChunkExporterPersistenceTest {
         assertTrue(SeedTerrainBlending.ownsBlend(recaptured, epoch));
         assertEquals("recaptured", recaptured.getStringOr("marker", ""));
         assertFalse(recaptured.getCompoundOrEmpty(SeedTerrainDigest.BLENDING_DATA).contains("heights"));
+    }
+
+    @Test
+    void capturesEmptyBoundaryWithoutGivingItAVanillaBlendMarker(@TempDir Path world) throws Exception {
+        UUID epoch = UUID.randomUUID();
+        var metadata = WorldMetadata.create("mirror:blend-empty", WorldGraph.Kind.MIRROR,
+                "remote:blend-empty", WorldGraph.Role.SYNC, "server:blend-empty");
+        metadata.markSeededGeneration(
+                SharedConstants.getCurrentVersion().dataVersion().version(), "a".repeat(64), epoch, true);
+        assertTrue(metadata.save(world));
+        var pos = new ChunkPos(5, 5);
+        try (var db = ChunkDatabase.open(world, metadata.sourceId)) {
+            var result = ChunkExporter.exportChunks(world, snapshot(pos, blendTerrain("minecraft:air")),
+                    Map.of(), Map.of(), new OverwriteResolver(), db, -1L, ExportProgress.NONE);
+            assertEquals(1, result.totalWritten());
+        }
+        var region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        var captured = AnvilReader.readChunk(region, pos);
+        assertFalse(captured.contains(SeedTerrainDigest.BLENDING_DATA));
+        assertFalse(SeedTerrainBlending.ownsBlend(captured, epoch));
+    }
+
+    private static CompoundTag blendTerrain(String blockId) {
+        var block = new CompoundTag();
+        block.putString("id", blockId);
+        var palette = new ListTag();
+        palette.add(block);
+        var states = new CompoundTag();
+        states.put("palette", palette);
+        var section = new CompoundTag();
+        section.putByte("Y", (byte) 0);
+        section.put("block_states", states);
+        var sections = new ListTag();
+        sections.add(section);
+        var result = new CompoundTag();
+        result.putString("Status", "minecraft:full");
+        result.put("sections", sections);
+        return result;
     }
 }

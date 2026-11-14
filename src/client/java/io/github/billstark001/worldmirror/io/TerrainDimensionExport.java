@@ -329,9 +329,9 @@ final class TerrainDimensionExport {
                 BlockEntityNbtSupport.mergeChunkBlockEntities(chunk, local);
             BlockEntityNbtSupport.applyContainerOverlays(dimension, chunk, containers);
             if (blend && !chunk.contains(SeedTerrainDigest.BLENDING_DATA)
-                    && chunk.getStringOr("Status", "").matches("(minecraft:)?full")
                     && (SeedTerrainBlending.ownsBlend(local, metadata.generation.seedEpoch())
-                            || bordersUnwritten(regionDir, pos, captures.keySet(), occupancy)))
+                            || bordersUnwritten(regionDir, pos, captures.keySet(), occupancy))
+                    && SeedTerrainBlending.canDonateBlend(chunk))
                 SeedTerrainBlending.markBlend(chunk, metadata.generation.seedEpoch());
             if (replaceGenerated)
                 SeedCaptureReceipt.write(chunk, metadata.nodeId, capture.capturedAtMs());

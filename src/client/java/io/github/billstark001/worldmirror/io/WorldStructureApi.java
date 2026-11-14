@@ -36,6 +36,8 @@ import net.minecraft.nbt.IntArrayTag;
 
 /** Native level.dat and save layout for the selected Minecraft target. */
 final class WorldStructureApi {
+    enum MirrorPack { KEEP, ENABLE, REMOVE }
+
     private WorldStructureApi() {}
 
     static Path worldgenDataPath(Path worldFolder) {
@@ -84,17 +86,15 @@ final class WorldStructureApi {
     }
 
     /** Writes native options and pack selection into a staged copy of the save. */
-    static void replaceGeneration(Path worldFolder, CompoundTag settings, boolean mirrorPack)
+    static void replaceGeneration(Path worldFolder, CompoundTag settings, MirrorPack mirrorPack)
             throws IOException {
         Path level = worldFolder.resolve("level.dat");
         CompoundTag levelRoot = NbtReadSupport.readWorldData(level);
         MirrorWorldgenCheck.requireSupportedVersion(levelRoot);
         if (!(levelRoot.get("Data") instanceof CompoundTag levelData))
             throw new IOException("Missing native level data");
-        if (mirrorPack)
-            enableDataPack(levelData);
-        else
-            removeMirrorDataPack(levelData);
+        if (mirrorPack != MirrorPack.KEEP)
+            replacePackSelection(levelData, mirrorPack == MirrorPack.ENABLE);
 #if MC_VERSION >= 260102
         Path generationFile = worldgenDataPath(worldFolder);
         CompoundTag generationRoot = NbtReadSupport.readWorldData(generationFile);
@@ -102,37 +102,43 @@ final class WorldStructureApi {
         generationRoot.put("data", settings);
         NbtUtils.addCurrentDataVersion(generationRoot);
         WorldStructureCreator.writeVerifiedWorldData(generationFile, generationRoot);
+        if (mirrorPack != MirrorPack.KEEP)
+            WorldStructureCreator.writeVerifiedWorldData(level, levelRoot);
 #else
         levelData.put("WorldGenSettings", settings);
-#endif
         WorldStructureCreator.writeVerifiedWorldData(level, levelRoot);
+#endif
     }
 
-    private static void enableDataPack(CompoundTag levelData) {
+    private static void replacePackSelection(CompoundTag levelData, boolean enable) {
         CompoundTag packs = levelData.getCompoundOrEmpty("DataPacks");
         ListTag enabled = packs.getListOrEmpty("Enabled");
-        for (int i = 0; i < enabled.size(); i++) {
-            if (MirrorWorldgenAssets.PACK_ID.equals(enabled.getStringOr(i, "")))
-                return;
+        ListTag disabled = packs.getListOrEmpty("Disabled");
+        removeMirrorPackReferences(disabled);
+        if (enable) {
+            if (!containsMirrorPack(enabled))
+                enabled.add(StringTag.valueOf(MirrorWorldgenAssets.PACK_ID));
+        } else {
+            removeMirrorPackReferences(enabled);
         }
-        enabled.add(StringTag.valueOf(MirrorWorldgenAssets.PACK_ID));
         packs.put("Enabled", enabled);
-        if (!packs.contains("Disabled"))
-            packs.put("Disabled", new ListTag());
+        packs.put("Disabled", disabled);
         levelData.put("DataPacks", packs);
     }
 
-    private static void removeMirrorDataPack(CompoundTag levelData) {
-        CompoundTag packs = levelData.getCompoundOrEmpty("DataPacks");
-        for (String list : new String[] {"Enabled", "Disabled"}) {
-            ListTag entries = packs.getListOrEmpty(list);
-            for (int i = entries.size() - 1; i >= 0; i--) {
-                if (MirrorWorldgenAssets.PACK_ID.equals(entries.getStringOr(i, "")))
-                    entries.remove(i);
-            }
-            packs.put(list, entries);
+    private static void removeMirrorPackReferences(ListTag packs) {
+        for (int i = packs.size() - 1; i >= 0; i--) {
+            if (MirrorWorldgenAssets.PACK_ID.equals(packs.getStringOr(i, "")))
+                packs.remove(i);
         }
-        levelData.put("DataPacks", packs);
+    }
+
+    private static boolean containsMirrorPack(ListTag packs) {
+        for (int i = 0; i < packs.size(); i++) {
+            if (MirrorWorldgenAssets.PACK_ID.equals(packs.getStringOr(i, "")))
+                return true;
+        }
+        return false;
     }
 
     static boolean hasMirrorDataPack(Path worldFolder) throws IOException {
@@ -143,12 +149,7 @@ final class WorldStructureApi {
         if (!(root.get("Data") instanceof CompoundTag data))
             throw new IOException("Missing native level data");
         CompoundTag packs = data.getCompoundOrEmpty("DataPacks");
-        ListTag enabled = packs.getListOrEmpty("Enabled");
-        for (int i = 0; i < enabled.size(); i++) {
-            if (MirrorWorldgenAssets.PACK_ID.equals(enabled.getStringOr(i, "")))
-                return true;
-        }
-        return false;
+        return containsMirrorPack(packs.getListOrEmpty("Enabled"));
     }
 
     static int dataPackFormat() {
@@ -232,7 +233,7 @@ final class WorldStructureApi {
         CompoundTag root = NbtReadSupport.readWorldData(levelDat);
         CompoundTag data = root.getCompoundOrEmpty("Data");
         data.put("WorldGenSettings", MirrorWorldgenCheck.prepareUpdate(root));
-        enableDataPack(data);
+        replacePackSelection(data, true);
         root.put("Data", data);
         WorldStructureCreator.writeVerifiedWorldData(levelDat, root);
 #endif
@@ -312,7 +313,7 @@ final class WorldStructureApi {
     private static void writeLevelData(Path file, PrimaryLevelData data, UUID playerId) throws Exception {
         CompoundTag root = new CompoundTag();
         CompoundTag levelData = data.createTag(playerId);
-        enableDataPack(levelData);
+        replacePackSelection(levelData, true);
         root.put("Data", levelData);
         WorldStructureCreator.writeVerifiedWorldData(file, root);
     }
@@ -321,7 +322,7 @@ final class WorldStructureApi {
         CompoundTag root = NbtReadSupport.readWorldData(levelDat);
         MirrorWorldgenCheck.requireSupportedVersion(root);
         CompoundTag levelData = root.getCompoundOrEmpty("Data");
-        enableDataPack(levelData);
+        replacePackSelection(levelData, true);
         root.put("Data", levelData);
         WorldStructureCreator.writeVerifiedWorldData(levelDat, root);
     }

@@ -41,7 +41,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /** Integrated server provenance and the derived index of durably saved seed terrain. */
 public final class SeedChunkTracking {
     private record Session(MinecraftServer server, Path worldFolder, String sourceId, UUID epoch,
-            Set<TrackedChunk> hidden, Set<TrackedChunk> ownedBlending) {}
+            boolean blendTerrain, Set<TrackedChunk> hidden, Set<TrackedChunk> ownedBlending) {}
 
     private record TrackedChunk(ResourceKey<Level> dimension, ChunkPos pos) {}
 
@@ -90,8 +90,9 @@ public final class SeedChunkTracking {
                             failure);
                 }
             }
-            current = new Session(server, folder, metadata.sourceId, epoch, ConcurrentHashMap.newKeySet(),
-                    ConcurrentHashMap.newKeySet());
+            current =
+                    new Session(server, folder, metadata.sourceId, epoch, metadata.generation.blendTerrain(),
+                            ConcurrentHashMap.newKeySet(), ConcurrentHashMap.newKeySet());
         });
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
             var session = current;
@@ -125,6 +126,13 @@ public final class SeedChunkTracking {
     public static boolean recordsFreshGeneration(ServerLevel level) {
         var session = current;
         return session != null && session.epoch() != null && session.server() == level.getServer();
+    }
+
+    /** Native DataFixer blending markers can reappear when older chunks are loaded in a seeded mirror. */
+    public static boolean disablesTerrainBlending(ServerLevel level) {
+        var session = current;
+        return session != null && session.epoch() != null && session.server() == level.getServer()
+                && level.dimension().equals(Level.OVERWORLD) && !session.blendTerrain();
     }
 
     public static void markAbsent(ChunkAccess chunk) {

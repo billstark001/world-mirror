@@ -1,10 +1,11 @@
 package io.github.billstark001.worldmirror.io;
 
+import io.github.billstark001.worldmirror.download.ChunkDatabase.ChunkRecord;
 import io.github.billstark001.worldmirror.format.SeedTerrainDigest;
 import net.minecraft.nbt.CompoundTag;
 
 /** An MCA receipt lets a verified capture replace its old seed index row after a restart. */
-final class SeedCaptureReceipt {
+public final class SeedCaptureReceipt {
     private SeedCaptureReceipt() {}
 
     static void write(CompoundTag chunk, String node, long time) {
@@ -19,6 +20,19 @@ final class SeedCaptureReceipt {
     }
 
     record Receipt(String source, long time) {}
+
+    /** A pending index repair still depends on the exact durable chunk payload. */
+    public static boolean isUnsettled(CompoundTag chunk, String node, ChunkRecord row) {
+        var receipt = chunk.getCompoundOrEmpty(SeedTerrainDigest.ATTACHMENTS)
+                              .getCompound(SeedTerrainDigest.CAPTURE_RECEIPT)
+                              .orElse(null);
+        if (receipt == null)
+            return false;
+        if (row != null && row.updateTime() == receipt.getLongOr(SeedTerrainDigest.CAPTURE_TIME, 0)
+                && row.updateSource().equals(receipt.getStringOr(SeedTerrainDigest.CAPTURE_SOURCE, "")))
+            return false;
+        return read(chunk, node) != null;
+    }
 
     static Receipt read(CompoundTag chunk, String node) {
         var receipt = chunk.getCompoundOrEmpty(SeedTerrainDigest.ATTACHMENTS)
