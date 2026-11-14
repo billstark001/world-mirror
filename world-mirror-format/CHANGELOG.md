@@ -1,13 +1,13 @@
 # World Mirror Format changelog
 
-Releases are listed newest first by release date, after unreleased changes. Use Added, Changed, and Fixed categories where applicable. Keep the root `world-mirror-format` sections synchronized with this file; changes that belong only to one consumer remain in that consumer's changelog.
+Releases are listed newest first by release date, after unreleased changes. Use Added, Changed, and Fixed categories where applicable. Keep the root `world-mirror-format` sections synchronized with this file. Document changes that belong to one consumer in that consumer's changelog.
 
-## [0.1.4] — Unreleased
+## [0.1.4] — 2026-11-14
 
 ### Added
 
 - Register `seed_generated` at priority 100 with timestamp zero. Expose seed-only index mutations, map-visible queries, and a shared terrain digest.
-- Share typed world lineage traversal and the native graph lease with offline importers.
+- Share typed world lineage traversal and the native graph lease with offline importers so they can verify upstream links and coordinate with the mod.
 
 ### Changed
 

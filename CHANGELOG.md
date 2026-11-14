@@ -2,18 +2,18 @@
 
 All notable changes to World Mirror are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-Mod and format-library releases share one reverse-chronological timeline. Mod releases use `## [version]`; format-library releases use `## world-mirror-format [version]`. Changes shared by every Minecraft target of the mod have no prefix. Changes limited to one target use `[fabric-<minecraft-version>]` at the start of the entry. The format library also ships its own changelog in its release ZIP; keep its entries synchronized with the root format sections. Unreleased format changes precede dated releases.
+Mod and format-library releases share one reverse-chronological timeline. Mod releases use `## [version]` and format-library releases use `## world-mirror-format [version]`. Changes shared by every Minecraft target of the mod have no prefix. Changes limited to one target use `[fabric-<minecraft-version>]` at the start of the entry. The format library also ships its own changelog in its release ZIP. Keep its entries synchronized with the root format sections. Unreleased changes precede dated releases.
 
 Use Added, Changed, and Fixed categories where applicable. Combine related changes without dropping compatibility requirements or migration guidance.
 
 ---
 
-## world-mirror-format [0.1.4] — Unreleased
+## world-mirror-format [0.1.4] — 2026-11-14
 
 ### Added
 
 - Register `seed_generated` at priority 100 with timestamp zero. Expose seed-only index mutations, map-visible queries, and a shared terrain digest.
-- Share typed world lineage traversal and the native graph lease with offline importers.
+- Share typed world lineage traversal and the native graph lease with offline importers so they can verify upstream links and coordinate with the mod.
 
 ### Changed
 
@@ -22,32 +22,36 @@ Use Added, Changed, and Fixed categories where applicable. Combine related chang
 
 ---
 
-## [0.6.0] — Unreleased
+## [0.6.0-alpha.1] — 2026-11-14
+
+This Fabric prerelease supports Minecraft 1.21.11, 26.1.2, 26.2, and 26.3.
 
 ### Added
 
-- Track upstream worlds and multiple mirrors in a graph built from `saves` and `downloaded_worlds`. Remember a default download target for each source.
+- Track upstream worlds and multiple mirrors in a graph built from `saves` and `downloaded_worlds`. Choose a fixed default mirror or automatic selection for each source.
 - Give extra copies new world IDs while retaining their upstream edges. Preserve IDs when moving saves and retain edges to unavailable worlds.
 - Open the world relationship graph from the title screen or in-game settings. Edit upstream links, default mirrors, endpoint aliases, and Xaero stable ID bindings.
 - Choose mirrors, upstream worlds, and remote sources in searchable lists with native icons and save details. Move mirrors with the World Location dropdown, detach their upstream, or delete a save after confirmation.
 - Set, change, or remove a mirror's seed offline. Preview terrain differences, void cleanup, and optional removal of unchanged generated chunks with a progress bar and cancellation.
 - Enable experimental Overworld blending and regenerate eligible generated chunks along captured terrain boundaries.
+- Import old local routes from the Worlds toolbar by confirming the source save, including renamed saves. Keep each verified destination's SQLite namespace and retain creation preferences when the old destination is missing.
 
 ### Changed
 
-- Migrate older mirror metadata and routing to schema 2. Back up the original metadata, preserve SQLite namespaces and existing chunk history, and archive the old routing file after the graph is saved.
+- Migrate v0.5.4 mirror metadata and routing to schema 2. Back up the original metadata, preserve SQLite namespaces and existing chunk history, and archive the old routing file after the graph is saved. Preserve verified default targets and keep upgraded server routes on address-based identity unless their policy is changed.
 - Scope downloads, retries, conflict handling, maps, and notifications to the destination mirror. Record lineage for nearby exports when requested.
-- Resolve logical worlds using the selected endpoint or stable ID policy. Wait for an explicit source choice when the available evidence is ambiguous. Offline replay imports into upgraded mirrors require Toolkit support for schema 2.
-- Create a local world's identity on first linked use. An independent nearby export leaves an untracked original save untracked.
+- Resolve logical worlds using the selected endpoint or stable ID policy. Wait for an explicit source choice when the available evidence is ambiguous. Use World Mirror Toolkit 0.1.2 or later for Replay imports into upgraded mirrors.
+- Assign a stable ID to a local world on its first linked use or when saving its route preferences. Browsing and standalone nearby exports leave ordinary saves untracked.
 - Prepare downloads in the background before showing Active. Review a required mirror upgrade from the status screen.
 - Keep unchanged seed terrain off the chunk map and overlay. Captures and Replay imports can replace it after validating its provenance.
 
 ### Fixed
 
-- Make Automatic clear migrated mirror pins and select another verified mirror when the last automatic target is unavailable.
-- Allow players to adopt old local routes with their original settings and index namespace.
-- Offer a source choice after stable ID discovery expires. Pause uncertain remote transitions and keep a verified same-source session when its ID arrives late.
+- Clear fixed defaults when switching back to Automatic. If the last automatic target is unavailable, choose another verified direct mirror.
+- Offer a source choice after stable ID discovery expires when the policy permits it. Pause uncertain remote transitions until fresh evidence arrives, resume a verified same-source session, and prevent a changed source from capturing stale client chunks.
 - Recover interrupted mirror moves and migration journals before using the affected save. Keep writes away from ambiguous graph branches and reject symbolic links and Windows directory junctions in migration and recovery paths.
+- Retry retirement of completed transactions when Windows briefly holds the journal open, preventing a false recovery warning during the next save inspection.
+- Preserve edited seed terrain and auxiliary entity and POI data when regenerating or removing seed chunks.
 - Keep queued exports and confirmations bound to the original world. Old export completions leave a newer capture session's state alone.
 - Continue from Minecraft's existing loading step after inspecting a current mirror. Preserve Minecraft's data pack safe mode.
 - Repair an empty mirror reservation's upstream without materializing a save, and refuse to write into a playable world that only has a copied reservation.
