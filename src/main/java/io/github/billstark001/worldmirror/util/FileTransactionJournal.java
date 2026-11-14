@@ -61,58 +61,55 @@ final class FileTransactionJournal {
 
     private static List<Entry> restorePlan(Path root, Path directory, Properties manifest)
             throws IOException {
-        try {
-            int count = Integer.parseInt(manifest.getProperty("count"));
-            String schema = manifest.getProperty("schema");
-            if (count < 0 || count > MAX_FILES || !Set.of("2", "3").contains(schema))
-                throw new IOException("Unsupported recovery manifest");
-            List<Entry> restore = new ArrayList<>();
-            Set<Path> unique = new HashSet<>();
-            for (int i = 0; i < count; i++) {
-                Path destination = target(root, manifest.getProperty("path." + i));
-                if (!unique.add(destination))
-                    throw new IOException("Duplicate recovery target");
-                String existed = manifest.getProperty("existed." + i);
-                if (!"true".equals(existed) && !"false".equals(existed))
-                    throw new IOException("Missing recovery state");
-                String original = Boolean.parseBoolean(existed)
-                        ? digestValue(manifest.getProperty("sha256." + i))
-                        : null;
-                String deletion = manifest.getProperty("delete." + i);
-                if (deletion != null
-                        && (!"3".equals(schema) || !"true".equals(deletion)
-                                || manifest.containsKey("new." + i)))
-                    throw new IOException("Invalid deletion entry");
-                String replacement = deletion != null ? null : digestValue(manifest.getProperty("new." + i));
-                Path backup = directory.resolve("old").resolve(Integer.toString(i));
-                if (original != null) {
-                    plainFile(backup, directory);
-                    if (!original.equals(FileProof.sha256(backup)))
-                        throw new IOException("Invalid recovery backup: " + backup);
-                }
-                String current = null;
-                if (!Files.notExists(destination)) {
-                    plainFile(destination, root);
-                    current = FileProof.sha256(destination);
-                }
-                if (current != null && !current.equals(original) && !current.equals(replacement)) {
-                    throw new IOException(
-                            "Recovery target changed outside this transaction; copies retained: "
-                            + destination);
-                }
-                if (!java.util.Objects.equals(current, original))
-                    restore.add(new Entry(destination, backup, original));
+        int count = Integer.parseInt(manifest.getProperty("count"));
+        String schema = manifest.getProperty("schema");
+        if (count < 0 || count > MAX_FILES || !Set.of("2", "3").contains(schema))
+            throw new IOException("Unsupported recovery manifest");
+        List<Entry> restore = new ArrayList<>();
+        Set<Path> unique = new HashSet<>();
+        for (int i = 0; i < count; i++) {
+            Path destination = target(root, manifest.getProperty("path." + i));
+            if (!unique.add(destination))
+                throw new IOException("Duplicate recovery target");
+            String existed = manifest.getProperty("existed." + i);
+            if (!"true".equals(existed) && !"false".equals(existed))
+                throw new IOException("Missing recovery state");
+            String original =
+                    Boolean.parseBoolean(existed) ? digestValue(manifest.getProperty("sha256." + i)) : null;
+            String deletion = manifest.getProperty("delete." + i);
+            if (deletion != null
+                    && (!"3".equals(schema) || !"true".equals(deletion) || manifest.containsKey("new." + i)))
+                throw new IOException("Invalid deletion entry");
+            String replacement = deletion != null ? null : digestValue(manifest.getProperty("new." + i));
+            Path backup = directory.resolve("old").resolve(Integer.toString(i));
+            if (original != null) {
+                plainFile(backup, directory);
+                if (!original.equals(FileProof.sha256(backup)))
+                    throw new IOException("Invalid recovery backup: " + backup);
             }
-            rejectOverlaps(root, unique);
-            return restore;
-        } catch (RuntimeException invalid) {
-            throw new IOException("Invalid recovery manifest: " + directory, invalid);
+            String current = null;
+            if (!Files.notExists(destination)) {
+                plainFile(destination, root);
+                current = FileProof.sha256(destination);
+            }
+            if (current != null && !current.equals(original) && !current.equals(replacement)) {
+                throw new IOException(
+                        "Recovery target changed outside this transaction; copies retained: " + destination);
+            }
+            if (!java.util.Objects.equals(current, original))
+                restore.add(new Entry(destination, backup, original));
         }
+        rejectOverlaps(root, unique);
+        return restore;
     }
 
     static void rollback(Path root, Path directory, Properties manifest) throws IOException {
-        // Prove every backup and current target before modifying any file.
-        for (Entry entry : restorePlan(root, directory, manifest)) restore(directory, entry);
+        try {
+            // Prove every backup and current target before modifying any file.
+            for (Entry entry : restorePlan(root, directory, manifest)) restore(directory, entry);
+        } catch (RuntimeException invalid) {
+            throw new IOException("Invalid recovery manifest: " + directory, invalid);
+        }
     }
 
     private static void restore(Path directory, Entry entry) throws IOException {
