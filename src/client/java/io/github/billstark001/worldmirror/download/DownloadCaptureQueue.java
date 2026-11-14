@@ -1,6 +1,5 @@
 package io.github.billstark001.worldmirror.download;
 
-import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.io.ChunkSerializer;
 import io.github.billstark001.worldmirror.io.SeedChunkTracking;
@@ -17,13 +16,11 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
@@ -32,7 +29,6 @@ import java.util.function.Supplier;
 
 /** Client-thread-owned capture queue, light windows, and diagnostics. Workers receive only frozen snapshots. */
 final class DownloadCaptureQueue {
-    private static final int MAX_DIAGNOSTIC_CAPTURE_REASONS = 32;
     private static final int LIGHT_UPDATE_COALESCE_TICKS = 2;
 
     record Key(ResourceKey<Level> dimension, int chunkX, int chunkZ) {}
@@ -40,17 +36,6 @@ final class DownloadCaptureQueue {
     private record LoadedScan(ClientLevel world, CaptureRegionScan coordinates, String reason) {}
 
     record Metrics(int pendingCaptures, long oldestCaptureAgeMs, long coalescedHints, long droppedHints) {}
-
-    record DiagnosticSnapshot(LatencyWindow.Summary captureTickLatency, LatencyWindow.Summary unloadLatency,
-            long processed, long completed, long budgetOverruns, long maximumBudgetOverrunUs,
-            long unloadFailures, String hintSummary, String reasonLatencySummary) {}
-
-    private static final class HintCounters {
-        private long received;
-        private long queued;
-        private long coalesced;
-        private long dropped;
-    }
 
     private final LinkedHashMap<Key, Pending> pending = new LinkedHashMap<>();
     private final ArrayDeque<LoadedScan> scans = new ArrayDeque<>();
@@ -69,18 +54,7 @@ final class DownloadCaptureQueue {
     private final IntSupplier pendingLimit;
 
     private long clientTick;
-    private long coalescedHints;
-    private long droppedHints;
-    private final Map<String, HintCounters> hintsByReason = new HashMap<>();
-    private final Map<String, LatencyWindow> latenciesByReason = new HashMap<>();
-    private final LatencyWindow captureTickLatencies = new LatencyWindow(4096);
-    private final LatencyWindow unloadLatencies = new LatencyWindow(4096);
-    private long unloadFailures;
-    private long budgetOverruns;
-    private long maximumBudgetOverrunUs;
-    private long processedCaptures;
-    private long completedCaptures;
-
+    final CaptureQueueDiagnostics diagnostics = new CaptureQueueDiagnostics();
     DownloadCaptureQueue(
             BooleanSupplier recordPerformance, int reconciliationRange, IntSupplier pendingLimit) {
         this.recordPerformance = recordPerformance;
@@ -92,7 +66,8 @@ final class DownloadCaptureQueue {
         var first = pending.firstEntry();
         Pending oldest = first == null ? null : first.getValue();
         long age = oldest == null ? 0L : Math.max(0L, (System.nanoTime() / 1_000_000L) - oldest.queuedAt());
-        return new Metrics(pending.size() + overflowBlockChanges.size(), age, coalescedHints, droppedHints);
+        return new Metrics(pending.size() + overflowBlockChanges.size(), age, diagnostics.coalescedHints(),
+                diagnostics.droppedHints());
     }
 
     void queueChunk(ClientLevel world, ChunkPos pos, String reason) {
@@ -145,7 +120,7 @@ final class DownloadCaptureQueue {
                 captured = true;
             }
         } catch (Exception e) {
-            unloadFailures++;
+            diagnostics.unloadFailed();
             WMLogger.warnRateLimited("capture-unload", 30_000L,
                     "Final capture before unload failed chunk=" + pos + "; cached data may be stale", e);
         } finally {
@@ -154,9 +129,7 @@ final class DownloadCaptureQueue {
             }
             if (recordPerformance.getAsBoolean()) {
                 long elapsedUs = (System.nanoTime() - startedNs) / 1_000L;
-                unloadLatencies.record(elapsedUs);
-                recordReasonLatency("unload-final", elapsedUs);
-                logSlowCapture("unload", "unload-final", key, 0L, elapsedUs);
+                diagnostics.recordUnload(key, elapsedUs);
             }
         }
         return captured;
@@ -277,50 +250,18 @@ final class DownloadCaptureQueue {
         estimatedCaptureNs = 0L;
     }
 
-    void resetDiagnostics() {
-        coalescedHints = 0L;
-        droppedHints = 0L;
-        hintsByReason.clear();
-        latenciesByReason.clear();
-
-        captureTickLatencies.reset();
-        unloadLatencies.reset();
-        unloadFailures = 0L;
-        budgetOverruns = 0L;
-        maximumBudgetOverrunUs = 0L;
-        processedCaptures = 0L;
-        completedCaptures = 0L;
-    }
-
-    DiagnosticSnapshot snapshotDiagnostics() {
-        var result = new DiagnosticSnapshot(captureTickLatencies.snapshotAndReset(),
-                unloadLatencies.snapshotAndReset(), processedCaptures, completedCaptures, budgetOverruns,
-                maximumBudgetOverrunUs, unloadFailures, hintSummary(), reasonLatencySummary());
-        processedCaptures = completedCaptures = budgetOverruns = maximumBudgetOverrunUs = 0;
-        return result;
-    }
-
     boolean queue(Key key, String reason, boolean allowEmpty) {
-        HintCounters counters = null;
-        if (recordPerformance.getAsBoolean()) {
-            String metricReason = metricReason(reason, hintsByReason);
-            counters = hintsByReason.computeIfAbsent(metricReason, ignored -> new HintCounters());
-            counters.received++;
-        }
+        var counters = recordPerformance.getAsBoolean() ? diagnostics.received(reason) : null;
         Pending previous = pending.get(key);
         if (previous != null) {
             if (allowEmpty && !previous.allowEmpty()) {
                 pending.put(key, new Pending(key, previous.reason(), previous.queuedAt(), true));
             }
-            coalescedHints++;
-            if (counters != null)
-                counters.coalesced++;
+            diagnostics.coalesced(counters);
             return false;
         }
         if (overflowBlockChanges.contains(key)) {
-            coalescedHints++;
-            if (counters != null)
-                counters.coalesced++;
+            diagnostics.coalesced(counters);
             return false;
         }
         int limit = Math.max(1, pendingLimit.getAsInt());
@@ -328,15 +269,11 @@ final class DownloadCaptureQueue {
             if (allowEmpty) {
                 overflowBlockChanges.add(key);
                 refreshPendingStatus(key);
-                coalescedHints++;
-                if (counters != null)
-                    counters.coalesced++;
+                diagnostics.coalesced(counters);
 
                 return false;
             }
-            droppedHints++;
-            if (counters != null)
-                counters.dropped++;
+            diagnostics.dropped(counters);
             reconciliationNeeded = true;
             WMLogger.warnRateLimited("capture-queue-capacity", 30_000L,
                     "Capture-hint queue reached its configured limit (" + limit
@@ -345,8 +282,7 @@ final class DownloadCaptureQueue {
         }
         pending.put(key, new Pending(key, reason, (System.nanoTime() / 1_000_000L), allowEmpty));
         refreshPendingStatus(key);
-        if (counters != null)
-            counters.queued++;
+        diagnostics.queued(counters);
 
         return true;
     }
@@ -409,22 +345,13 @@ final class DownloadCaptureQueue {
                 }
                 if (diagnostics) {
                     long elapsedUs = elapsedNs / 1_000L;
-                    String metricReason = recordReasonLatency(request.reason(), elapsedUs);
-                    logSlowCapture("incremental", metricReason, request.key(),
-                            Math.max(0L, (System.nanoTime() / 1_000_000L) - request.queuedAt()), elapsedUs);
+                    this.diagnostics.recordIncremental(request, elapsedUs);
                 }
             }
         }
 
         if (processed > 0 && diagnostics) {
-            long elapsedNs = System.nanoTime() - startedNs;
-            captureTickLatencies.record(elapsedNs / 1_000L);
-            processedCaptures += processed;
-            completedCaptures += captured;
-            if (elapsedNs > budgetNs) {
-                budgetOverruns++;
-                maximumBudgetOverrunUs = Math.max(maximumBudgetOverrunUs, (elapsedNs - budgetNs) / 1_000L);
-            }
+            this.diagnostics.recordTick(processed, captured, System.nanoTime() - startedNs, budgetNs);
         }
         if (!hasWork() && reconciliationNeeded) {
             reconciliationNeeded = false;
@@ -495,84 +422,5 @@ final class DownloadCaptureQueue {
             overflow.remove();
             queue(key, "block-change-overflow", true);
         }
-    }
-
-    private String recordReasonLatency(String reason, long elapsedUs) {
-        String metricReason = metricReason(reason, latenciesByReason);
-        latenciesByReason.computeIfAbsent(metricReason, ignored -> new LatencyWindow(512)).record(elapsedUs);
-        return metricReason;
-    }
-
-    private static String metricReason(String reason, Map<String, ?> metrics) {
-        String normalized = reason == null || reason.isBlank() ? "unknown" : reason;
-        if (metrics.containsKey(normalized))
-            return normalized;
-        return metrics.size() < MAX_DIAGNOSTIC_CAPTURE_REASONS - 1 ? normalized : "other";
-    }
-
-    private void logSlowCapture(String origin, String reason, Key key, long queueAgeMs, long elapsedUs) {
-        long thresholdUs = Math.max(5_000L, (long) ModConfig.get().performance.captureBudgetMicros * 4L);
-        if (elapsedUs < thresholdUs)
-            return;
-        WMLogger.infoRateLimited("slow-capture-" + origin + '-' + reason, 30_000L,
-                "[perf] slowCapture origin=" + origin + " reason=" + reason
-                        + " dimension=" + key.dimension().identifier() + " chunk=" + key.chunkX() + ','
-                        + key.chunkZ() + " queueAgeMs=" + queueAgeMs + " elapsedUs=" + elapsedUs
-                        + " thresholdUs=" + thresholdUs);
-    }
-
-    private String hintSummary() {
-        if (hintsByReason.isEmpty())
-            return "none";
-        List<Map.Entry<String, HintCounters>> entries = new ArrayList<>(hintsByReason.entrySet());
-        entries.sort((left, right) -> Long.compare(right.getValue().received, left.getValue().received));
-        StringBuilder summary = new StringBuilder();
-        for (Map.Entry<String, HintCounters> entry : entries) {
-            if (summary.length() > 0)
-                summary.append('|');
-            HintCounters counters = entry.getValue();
-            summary.append(entry.getKey())
-                    .append(':')
-                    .append(counters.received)
-                    .append('/')
-                    .append(counters.queued)
-                    .append('/')
-                    .append(counters.coalesced)
-                    .append('/')
-                    .append(counters.dropped);
-        }
-        return summary.toString();
-    }
-
-    private String reasonLatencySummary() {
-        if (latenciesByReason.isEmpty())
-            return "none";
-        List<Map.Entry<String, LatencyWindow.Summary>> entries = new ArrayList<>();
-        latenciesByReason.forEach(
-                (reason, latency) -> entries.add(Map.entry(reason, latency.snapshotAndReset())));
-        entries.removeIf(entry -> entry.getValue().observations() == 0L);
-        if (entries.isEmpty())
-            return "none";
-        entries.sort(
-                (left, right)
-                        -> Long.compare(right.getValue().observations(), left.getValue().observations()));
-        StringBuilder summary = new StringBuilder();
-        for (Map.Entry<String, LatencyWindow.Summary> entry : entries) {
-            if (summary.length() > 0)
-                summary.append('|');
-            LatencyWindow.Summary latency = entry.getValue();
-            summary.append(entry.getKey())
-                    .append(':')
-                    .append(latency.observations())
-                    .append('/')
-                    .append(latency.average())
-                    .append('/')
-                    .append(latency.p95())
-                    .append('/')
-                    .append(latency.p99())
-                    .append('/')
-                    .append(latency.maximum());
-        }
-        return summary.toString();
     }
 }

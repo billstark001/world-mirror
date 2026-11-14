@@ -1,6 +1,6 @@
 package io.github.billstark001.worldmirror.mixin;
 
-import io.github.billstark001.worldmirror.download.DownloadManager;
+import io.github.billstark001.worldmirror.download.DownloadWorldChanges;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.network.protocol.game.ClientboundRespawnPacket;
 import org.spongepowered.asm.mixin.Mixin;
@@ -17,6 +17,6 @@ abstract class ConnectionRoutingMixin {
                     shift = At.Shift.AFTER))
     private void
     worldmirror$beforeRespawn(ClientboundRespawnPacket packet, CallbackInfo callback) {
-        DownloadManager.onRespawnBoundary((ClientPacketListener) (Object) this);
+        DownloadWorldChanges.onRespawnBoundary((ClientPacketListener) (Object) this);
     }
 }

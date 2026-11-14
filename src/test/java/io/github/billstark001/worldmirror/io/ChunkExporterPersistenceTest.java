@@ -1,21 +1,21 @@
 package io.github.billstark001.worldmirror.io;
 
-import io.github.billstark001.worldmirror.conflict.OverwriteResolver;
-import io.github.billstark001.worldmirror.conflict.ManualResolver;
 import io.github.billstark001.worldmirror.conflict.ConflictManager;
 import io.github.billstark001.worldmirror.conflict.IgnoreResolver;
+import io.github.billstark001.worldmirror.conflict.ManualResolver;
+import io.github.billstark001.worldmirror.conflict.OverwriteResolver;
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.core.EntityTracker;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
-import io.github.billstark001.worldmirror.download.SeedTerrain;
+import io.github.billstark001.worldmirror.download.SeedTerrainBlending;
 import io.github.billstark001.worldmirror.download.WorldGraph;
 import io.github.billstark001.worldmirror.download.WorldMetadata;
 import io.github.billstark001.worldmirror.format.ChunkIndexStore;
 import io.github.billstark001.worldmirror.format.SeedTerrainDigest;
 import net.minecraft.SharedConstants;
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
-import net.minecraft.core.BlockPos;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
@@ -32,10 +32,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ChunkExporterPersistenceTest {
     @Test
@@ -284,7 +284,8 @@ class ChunkExporterPersistenceTest {
     }
 
     @Test
-    void replacesRetainedSeedTerrainAndRecoversIndexWithoutRewritingIt(@TempDir Path world) throws Exception {
+    void replacesRetainedSeedTerrainBlendingAndRecoversIndexWithoutRewritingIt(@TempDir Path world)
+            throws Exception {
         var metadata = WorldMetadata.create("mirror:retained-seed", WorldGraph.Kind.MIRROR,
                 "remote:retained-seed", WorldGraph.Role.SYNC, "server:retained-seed");
         assertTrue(metadata.save(world));
@@ -343,7 +344,7 @@ class ChunkExporterPersistenceTest {
         var pos = new ChunkPos(5, 5);
         var initial = new CompoundTag();
         initial.putString("Status", "minecraft:full");
-        SeedTerrain.markBlend(initial, epoch);
+        SeedTerrainBlending.markBlend(initial, epoch);
         initial.getCompoundOrEmpty(SeedTerrainDigest.BLENDING_DATA).put("heights", new ListTag());
         var region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
         var neighbors = new java.util.HashMap<ChunkPos, CompoundTag>();
@@ -361,7 +362,7 @@ class ChunkExporterPersistenceTest {
             assertEquals(1, result.totalWritten());
         }
         var recaptured = AnvilReader.readChunk(region, pos);
-        assertTrue(SeedTerrain.ownsBlend(recaptured, epoch));
+        assertTrue(SeedTerrainBlending.ownsBlend(recaptured, epoch));
         assertEquals("recaptured", recaptured.getStringOr("marker", ""));
         assertFalse(recaptured.getCompoundOrEmpty(SeedTerrainDigest.BLENDING_DATA).contains("heights"));
     }

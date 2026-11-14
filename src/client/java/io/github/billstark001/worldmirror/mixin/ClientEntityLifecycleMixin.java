@@ -1,7 +1,7 @@
 package io.github.billstark001.worldmirror.mixin;
 
 import io.github.billstark001.worldmirror.core.EntityTracker;
-import io.github.billstark001.worldmirror.download.DownloadManager;
+import io.github.billstark001.worldmirror.download.DownloadCapture;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -18,14 +18,14 @@ public abstract class ClientEntityLifecycleMixin {
     @Inject(method = "onChunkLoaded", at = @At("TAIL"))
     private void worldmirror$onChunkLoaded(ChunkPos pos, CallbackInfo ci) {
         ClientLevel world = (ClientLevel) (Object) this;
-        if (DownloadManager.canCapture(world))
+        if (DownloadCapture.canCapture(world))
             EntityTracker.onChunkLoaded(world, pos);
     }
 
     @Inject(method = "unload", at = @At("HEAD"))
     private void worldmirror$onChunkUnloaded(LevelChunk chunk, CallbackInfo ci) {
         ClientLevel world = (ClientLevel) (Object) this;
-        if (DownloadManager.canCapture(world))
+        if (DownloadCapture.canCapture(world))
             EntityTracker.onChunkUnloaded(world, chunk.getPos());
     }
 }

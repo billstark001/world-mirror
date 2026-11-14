@@ -98,10 +98,11 @@ public final class NearbyExporter {
     /** Returns the choices without registering a source for an untracked save. */
     public static List<Choice> lineageChoices(Minecraft client) {
         var service = WorldGraphService.instance();
-        String source = service.available() && service.observationIsCurrent(client)
-                ? service.currentResolution().sourceNodeId()
+        String source = service.available() && service.routing().observationIsCurrent(client)
+                ? service.routing().currentResolution().sourceNodeId()
                 : null;
-        return lineageChoices(service.graph(), source, source == null && service.canUseLinkedSource(client));
+        return lineageChoices(
+                service.graph(), source, source == null && service.routing().canUseLinkedSource(client));
     }
 
     /** Captures on the game thread, then writes the new save in a dedicated worker. */
@@ -172,19 +173,20 @@ public final class NearbyExporter {
             Minecraft client, ClientLevel world, Choice choice, Consumer<Lineage> startWrite) {
         var service = WorldGraphService.instance();
         var connection = client.getConnection();
-        long epoch = service.connectionEpoch();
-        service.requireLinkedSource(client).whenComplete((source, failure) -> {
+        long epoch = service.routing().connectionEpoch();
+        service.routing().requireLinkedSource(client).whenComplete((source, failure) -> {
             if (failure != null) {
                 notifyUnavailable(client, failure);
                 return;
             }
             if (client.level != world || client.getConnection() != connection
-                    || service.connectionEpoch() != epoch || !service.observationIsCurrent(client)
-                    || !Objects.equals(source, service.currentResolution().sourceNodeId())) {
+                    || service.routing().connectionEpoch() != epoch
+                    || !service.routing().observationIsCurrent(client)
+                    || !Objects.equals(source, service.routing().currentResolution().sourceNodeId())) {
                 notifyUnavailable(client, new IOException("The active source changed during nearby export"));
                 return;
             }
-            var observation = service.source();
+            var observation = service.routing().source();
             String indexSource = observation != null && observation.endpoint() != null
                     ? "server:" + observation.endpoint()
                     : null;

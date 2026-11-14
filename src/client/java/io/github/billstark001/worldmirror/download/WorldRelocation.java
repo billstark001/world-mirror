@@ -161,25 +161,9 @@ public final class WorldRelocation {
                 preflight(plan, source, target);
                 JsonSupport.writeDocument(source.resolve(JOURNAL), plan);
                 JsonSupport.writeDocument(target.resolve(JOURNAL), plan);
-                try {
-                    transfer(plan, source, target);
-                    if (!persistRouting.getAsBoolean())
-                        throw new IOException("Cannot persist relocated routing");
-                    routed = true;
-                    finish(plan, source, target, true);
-                } catch (IOException | RuntimeException failure) {
-                    if (!routed) {
-                        try {
-                            transfer(plan, target, source);
-                            finish(plan, source, target, false);
-                        } catch (IOException rollback) {
-                            failure.addSuppressed(rollback);
-                        }
-                        throw failure;
-                    }
-                    // Routing is already durable. Cleanup failure cannot authorize an independent rollback.
-                    OperationFailures.report(nodeId, "relocation_cleanup", target, failure);
-                }
+                transferAndCommit(plan, source, target, persistRouting);
+                routed = true;
+                finishCommitted(plan, source, target);
             }
         } finally {
             if (!routed && created)
@@ -187,6 +171,32 @@ public final class WorldRelocation {
         }
         if (routed && Files.notExists(source.resolve(MirrorClaim.FILE_NAME)))
             removeUnusedTarget(source);
+    }
+
+    private static void transferAndCommit(Plan plan, Path source, Path target, BooleanSupplier persistRouting)
+            throws IOException {
+        try {
+            transfer(plan, source, target);
+            if (!persistRouting.getAsBoolean())
+                throw new IOException("Cannot persist relocated routing");
+        } catch (IOException | RuntimeException failure) {
+            try {
+                transfer(plan, target, source);
+                finish(plan, source, target, false);
+            } catch (IOException rollback) {
+                failure.addSuppressed(rollback);
+            }
+            throw failure;
+        }
+    }
+
+    private static void finishCommitted(Plan plan, Path source, Path target) {
+        // Routing is already durable. Cleanup failure cannot authorize an independent rollback.
+        try {
+            finish(plan, source, target, true);
+        } catch (IOException | RuntimeException failure) {
+            OperationFailures.report(plan.nodeId(), "relocation_cleanup", target, failure);
+        }
     }
 
     /** Routing is the commit decision; preflight validates both identities and the whole move set. */

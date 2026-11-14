@@ -199,15 +199,13 @@ public class ChunkListener {
             Map<ChunkPos, LightingOverlay.Snapshot> dimensionLighting = new HashMap<>();
             Map<ChunkPos, LightingOverlay> liveLighting = dimLighting.get(dimEntry.getKey());
             for (Map.Entry<ChunkPos, CapturedChunk> entry : dimEntry.getValue().entrySet()) {
-                if (!isClean(dimEntry.getKey(), entry.getKey(), entry.getValue())
-                        && include.test(dimEntry.getKey(), entry.getKey())) {
-                    dirty.put(entry.getKey(), entry.getValue());
-                    if (liveLighting != null) {
-                        LightingOverlay overlay = liveLighting.get(entry.getKey());
-                        if (overlay != null)
-                            dimensionLighting.put(entry.getKey(), overlay.snapshot());
-                    }
-                }
+                if (isClean(dimEntry.getKey(), entry.getKey(), entry.getValue())
+                        || !include.test(dimEntry.getKey(), entry.getKey()))
+                    continue;
+                dirty.put(entry.getKey(), entry.getValue());
+                LightingOverlay overlay = liveLighting == null ? null : liveLighting.get(entry.getKey());
+                if (overlay != null)
+                    dimensionLighting.put(entry.getKey(), overlay.snapshot());
             }
             if (!dirty.isEmpty()) {
                 result.put(dimEntry.getKey(), Map.copyOf(dirty));

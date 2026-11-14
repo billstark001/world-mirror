@@ -1,6 +1,6 @@
 package io.github.billstark001.worldmirror.ui;
 
-import io.github.billstark001.worldmirror.download.DownloadManager;
+import io.github.billstark001.worldmirror.download.DownloadRoute;
 import io.github.billstark001.worldmirror.download.WorldGraphService;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
@@ -17,7 +17,7 @@ final class DownloadMirrorSelectionScreen {
     static void open(StatusScreen parent, String sourceId) {
         Minecraft client = Minecraft.getInstance();
         var graph = WorldGraphService.instance();
-        var observation = graph.source();
+        var observation = graph.routing().source();
         var connection = client.getConnection();
         var snapshot = graph.graph();
         var choices = new ArrayList<WorldSelectionScreen.Choice>();
@@ -30,22 +30,22 @@ final class DownloadMirrorSelectionScreen {
                         Component.literal(node.location().folder()), node.location(), node.kind()));
             }
         }
-        boolean newSelected = DownloadManager.isNewMirrorSelected();
-        var current = newSelected ? null : DownloadManager.captureTarget();
+        boolean newSelected = DownloadRoute.isNewMirrorSelected();
+        var current = newSelected ? null : DownloadRoute.captureTarget();
         if (current == null && !newSelected)
             current = graph.target(observation);
         String selected = newSelected ? NEW : current == null ? DEFAULT : current.nodeId();
         StatusScreenApi.showScreen(new WorldSelectionScreen(
                 parent, text("chooseMirror"), choices, selected, text("chooseMirror"), choice -> {
-                    if (connection == client.getConnection() && graph.source() == observation
-                            && graph.observationIsCurrent(client)
-                            && sourceId.equals(graph.currentResolution().sourceNodeId())
+                    if (connection == client.getConnection() && graph.routing().source() == observation
+                            && graph.routing().observationIsCurrent(client)
+                            && sourceId.equals(graph.routing().currentResolution().sourceNodeId())
                             && StatusScreen.canChooseMirror()) {
                         try {
                             switch (choice.id()) {
-                                case NEW -> DownloadManager.createDownloadMirror();
-                                case DEFAULT -> DownloadManager.selectMirror(null);
-                                default -> DownloadManager.selectMirror(choice.id());
+                                case NEW -> DownloadRoute.createDownloadMirror();
+                                case DEFAULT -> DownloadRoute.selectMirror(null);
+                                default -> DownloadRoute.selectMirror(choice.id());
                             }
                             return null;
                         } catch (IllegalArgumentException | IllegalStateException rejected) {

@@ -4,7 +4,9 @@ import com.mojang.blaze3d.platform.InputConstants;
 import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.config.EnumDropdownGui;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
+import io.github.billstark001.worldmirror.download.DownloadCapture;
 import io.github.billstark001.worldmirror.download.DownloadManager;
+import io.github.billstark001.worldmirror.download.DownloadPerformanceDiagnostics;
 import io.github.billstark001.worldmirror.download.MirrorWorldContext;
 import io.github.billstark001.worldmirror.io.SeedChunkTracking;
 import io.github.billstark001.worldmirror.ui.map.ChunkMapScreen;
@@ -153,7 +155,7 @@ public class WorldMirrorClient implements ClientModInitializer {
                 DownloadManager.exportNow(client);
             }
             while (clearKey.consumeClick()) {
-                DownloadManager.clearAll(client);
+                DownloadCapture.clearAll(client);
             }
             while (statusKey.consumeClick()) {
                 StatusScreen.open();
@@ -171,10 +173,10 @@ public class WorldMirrorClient implements ClientModInitializer {
 #endif
         });
         ClientChunkEvents.CHUNK_LOAD.register(
-                (world, chunk) -> DownloadManager.queueChunkCapture(world, chunk.getPos(), "chunk-load"));
-        ClientChunkEvents.CHUNK_UNLOAD.register(DownloadManager::captureChunkBeforeUnload);
+                (world, chunk) -> DownloadCapture.queueChunkCapture(world, chunk.getPos(), "chunk-load"));
+        ClientChunkEvents.CHUNK_UNLOAD.register(DownloadCapture::captureChunkBeforeUnload);
 #if MC_VERSION >= 260300
-        LevelRenderEvents.END_MAIN.register(context -> DownloadManager.recordWorldFrame());
+        LevelRenderEvents.END_MAIN.register(context -> DownloadPerformanceDiagnostics.recordWorldFrame());
         LevelRenderEvents.END_EXTRACTION.register(context
                 -> ChunkWorldOverlay.capture(net.minecraft.client.Minecraft.getInstance(),
                         net.minecraft.client.Minecraft.getInstance().gui.hud.isHidden()));
@@ -193,19 +195,20 @@ public class WorldMirrorClient implements ClientModInitializer {
                     });
         });
 #elif MC_VERSION >= 260200
-        LevelRenderEvents.END_MAIN.register(context -> DownloadManager.recordWorldFrame());
+        LevelRenderEvents.END_MAIN.register(context -> DownloadPerformanceDiagnostics.recordWorldFrame());
         LevelRenderEvents.END_EXTRACTION.register(context
                 -> ChunkWorldOverlay.capture(net.minecraft.client.Minecraft.getInstance(),
                         net.minecraft.client.Minecraft.getInstance().gui.hud.isHidden()));
 
 #elif MC_VERSION >= 260102
-        LevelRenderEvents.END_MAIN.register(context -> DownloadManager.recordWorldFrame());
+        LevelRenderEvents.END_MAIN.register(context -> DownloadPerformanceDiagnostics.recordWorldFrame());
         LevelRenderEvents.END_EXTRACTION.register(context
                 -> ChunkWorldOverlay.capture(net.minecraft.client.Minecraft.getInstance(),
                         net.minecraft.client.Minecraft.getInstance().options.hideGui));
 
 #else
-                WorldRenderEvents.END_MAIN.register(context -> DownloadManager.recordWorldFrame());
+                WorldRenderEvents.END_MAIN.register(
+                        context -> DownloadPerformanceDiagnostics.recordWorldFrame());
 
 #endif
 
@@ -228,14 +231,14 @@ public class WorldMirrorClient implements ClientModInitializer {
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             DownloadManager.onLeaveWorld(client);
             MirrorWorldContext.leave();
-            WorldGraphService.instance().leave();
+            WorldGraphService.instance().routing().leave();
         });
     }
 
     private static void onJoin(net.minecraft.client.Minecraft client) {
         MirrorWorldContext.enter(
                 currentLocalSave(client), SharedConstants.getCurrentVersion().dataVersion().version());
-        WorldGraphService.instance().enter(client);
+        WorldGraphService.instance().routing().enter(client);
         DownloadManager.onJoinWorld(client);
     }
 

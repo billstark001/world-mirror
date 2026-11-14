@@ -59,14 +59,14 @@ class WorldGraphInventoryTest {
         var location = new Location(Root.SAVES, "Original");
         service.refresh();
         assertTrue(service.routingView().untrackedLocalWorlds().contains(location));
-        assertThrows(IOException.class, () -> service.setUpstream("mirror:absent", location));
+        assertThrows(IOException.class, () -> service.worlds().setUpstream("mirror:absent", location));
         assertNull(LocalWorldIdentity.read(original));
         try (var ignored = DirectoryLock.create(original)) {
-            assertThrows(IOException.class, () -> service.setUpstream("mirror:child", location));
+            assertThrows(IOException.class, () -> service.worlds().setUpstream("mirror:child", location));
             assertNull(LocalWorldIdentity.read(original));
         }
 
-        service.setUpstream("mirror:child", location);
+        service.worlds().setUpstream("mirror:child", location);
 
         String id = LocalWorldIdentity.read(original);
         assertNotNull(id);
@@ -94,7 +94,7 @@ class WorldGraphInventoryTest {
         var service = new WorldGraphService(game, config);
         service.refresh();
 
-        service.setUpstream(childId, new Location(Root.SAVES, "Original"));
+        service.worlds().setUpstream(childId, new Location(Root.SAVES, "Original"));
 
         String parentId = LocalWorldIdentity.read(original);
         assertNotNull(parentId);
@@ -120,8 +120,8 @@ class WorldGraphInventoryTest {
         var service = new WorldGraphService(game, game.resolve("config/worldmirror"));
         service.refresh();
 
-        assertThrows(
-                IOException.class, () -> service.setUpstream(childId, new Location(Root.SAVES, "Original")));
+        assertThrows(IOException.class,
+                () -> service.worlds().setUpstream(childId, new Location(Root.SAVES, "Original")));
 
         assertArrayEquals(level, Files.readAllBytes(ordinary.resolve("level.dat")));
         assertArrayEquals(claim, Files.readAllBytes(ordinary.resolve(MirrorClaim.FILE_NAME)));
@@ -144,25 +144,26 @@ class WorldGraphInventoryTest {
                         .save(child));
         var service = new WorldGraphService(game, game.resolve("config/worldmirror"));
         service.refresh();
-        service.setUpstream("snapshot:descendant", node);
-        assertThrows(IOException.class, () -> service.setUpstream(node, "snapshot:descendant"));
-        service.moveWorld("snapshot:descendant", ModConfig.SaveLocation.DOWNLOADED);
+        service.worlds().setUpstream("snapshot:descendant", node);
+        assertThrows(IOException.class, () -> service.worlds().setUpstream(node, "snapshot:descendant"));
+        service.worlds().moveWorld("snapshot:descendant", ModConfig.SaveLocation.DOWNLOADED);
         child = game.resolve("downloaded_worlds/Descendant");
         assertEquals(node, WorldMetadata.loadIfPresent(child).orElseThrow().parentNodeId);
-        service.moveWorld(node, ModConfig.SaveLocation.SAVES);
+        service.worlds().moveWorld(node, ModConfig.SaveLocation.SAVES);
         Path moved = game.resolve("saves/Managed");
         assertTrue(Files.isRegularFile(moved.resolve("level.dat")));
         assertTrue(MirrorClaim.ownedBy(folder, node));
 
-        service.removeUpstream(node);
+        service.worlds().removeUpstream(node);
         assertNull(service.graph().nodes().get(node).parentId());
         assertNull(service.targetById(node));
         assertEquals(namespace, WorldMetadata.loadIfPresent(moved).orElseThrow().sourceId);
         assertEquals(node, WorldMetadata.loadIfPresent(child).orElseThrow().parentNodeId);
-        service.moveWorld(node, ModConfig.SaveLocation.DOWNLOADED);
+        service.worlds().moveWorld(node, ModConfig.SaveLocation.DOWNLOADED);
         assertEquals(new Location(Root.DOWNLOADED, "Managed"), service.graph().nodes().get(node).location());
-        assertThrows(IOException.class, () -> service.deleteWorld(node, new Location(Root.SAVES, "Managed")));
-        service.deleteWorld(node, new Location(Root.DOWNLOADED, "Managed"));
+        assertThrows(IOException.class,
+                () -> service.worlds().deleteWorld(node, new Location(Root.SAVES, "Managed")));
+        service.worlds().deleteWorld(node, new Location(Root.DOWNLOADED, "Managed"));
         assertFalse(service.graph().nodes().containsKey(node));
         assertTrue(service.graph().missingParents().contains(node));
         assertTrue(Files.notExists(folder));
@@ -175,12 +176,12 @@ class WorldGraphInventoryTest {
         MirrorClaim.create(folder, node, "remote:parent", "server:old.example");
         var claim = MirrorClaim.read(folder);
         var service = new WorldGraphService(game, game.resolve("config/worldmirror"));
-        service.moveWorld(node, ModConfig.SaveLocation.SAVES);
+        service.worlds().moveWorld(node, ModConfig.SaveLocation.SAVES);
         Path moved = game.resolve("saves/Reservation");
         assertEquals(claim, MirrorClaim.read(moved));
         assertFalse(Files.exists(moved.resolve(WorldMetadata.FILE_NAME)));
         assertTrue(Files.notExists(folder));
-        service.deleteWorld(node, new Location(Root.SAVES, "Reservation"));
+        service.worlds().deleteWorld(node, new Location(Root.SAVES, "Reservation"));
         assertTrue(Files.notExists(moved));
     }
 
@@ -220,7 +221,8 @@ class WorldGraphInventoryTest {
 
     private WorldGraphInventory.Result refresh() throws IOException {
         Path config = Files.createDirectories(game.resolve("config").resolve("worldmirror"));
-        var inventory = new WorldGraphInventory(game, config, () -> ModConfig.SaveLocation.DOWNLOADED);
+        var folders = new WorldInventoryFolders(game, () -> ModConfig.SaveLocation.DOWNLOADED);
+        var inventory = new WorldGraphInventory(folders, config, () -> ModConfig.SaveLocation.DOWNLOADED);
         var result = new AtomicReference<WorldGraphInventory.Result>();
         inventory.refresh(WorldGraphConfig.open(config.resolve(WorldGraphConfig.FILE_NAME)), result::set);
         return result.get();

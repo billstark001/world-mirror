@@ -1,5 +1,7 @@
 package io.github.billstark001.worldmirror.ui;
 
+import static io.github.billstark001.worldmirror.ui.WorldRelationshipLabels.label;
+
 import com.mojang.blaze3d.platform.InputConstants;
 import io.github.billstark001.worldmirror.download.WorldGraph;
 import io.github.billstark001.worldmirror.download.WorldGraphService;
@@ -20,8 +22,6 @@ import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -81,7 +81,7 @@ public final class WorldRelationshipView extends AbstractWidget {
                 && this.view.orphanedMirrors().equals(view.orphanedMirrors()))
             return;
         this.view = view;
-        var local = new java.util.ArrayList<>(view.untrackedLocalWorlds());
+        var local = new ArrayList<>(view.untrackedLocalWorlds());
         local.addAll(view.orphanedMirrors());
         layout = WorldRelationshipLayout.create(view.graph(), local, displayName);
         if (!layout.byKey().containsKey(Objects.requireNonNullElse(selection, "")))
@@ -151,8 +151,12 @@ public final class WorldRelationshipView extends AbstractWidget {
                 graphics::enableScissor, graphics::disableScissor);
         Card hover = cardAt(mx, my);
         if (hover != null)
-            graphics.setTooltipForNextFrame(
-                    font, tooltip(hover).stream().map(Component::getVisualOrderText).toList(), mx, my);
+            graphics.setTooltipForNextFrame(font,
+                    WorldRelationshipLabels.tooltip(view, layout, hover)
+                            .stream()
+                            .map(Component::getVisualOrderText)
+                            .toList(),
+                    mx, my);
     }
 
     @FunctionalInterface
@@ -263,7 +267,8 @@ public final class WorldRelationshipView extends AbstractWidget {
             int textY = bottom - top >= 24 ? top + 5 : top + (bottom - top - 9) / 2;
             line(canvas, Component.literal(card.name()), left + 5, textY, TEXT, right - left - 9);
             if (bottom - top >= 24) {
-                line(canvas, category(card), left + 5, textY + 11, accent, right - left - 9);
+                line(canvas, WorldRelationshipLabels.category(view, card), left + 5, textY + 11, accent,
+                        right - left - 9);
             }
         }
     }
@@ -286,63 +291,10 @@ public final class WorldRelationshipView extends AbstractWidget {
             line(canvas, label("graphHelp"), x, y + 5, MUTED, available);
             return;
         }
-        var details = tooltip(card);
+        var details = WorldRelationshipLabels.tooltip(view, layout, card);
         line(canvas, details.getFirst().copy().append(" · ").append(details.get(1)), x, y, TEXT, available);
         if (details.size() > 2)
             line(canvas, details.get(2), x, y + 9, MUTED, available);
-    }
-
-    private List<Component> tooltip(Card card) {
-        List<Component> details = new ArrayList<>();
-        details.add(Component.literal(card.name()));
-        details.add(category(card));
-        var direct = layout.children().getOrDefault(card.key(), List.of());
-        var node = card.node();
-        if (node != null && node.parentId() != null) {
-            details.add(label("upstream", layout.byKey().get(node.parentId()).name()));
-        } else if (card.untracked() != null || node != null && node.location() != null) {
-            WorldGraph.Location location = node == null ? card.untracked() : node.location();
-            details.add(label("location", WorldLabels.path(location)));
-        }
-        var count = label("graphChildren", direct.size());
-        var settings = view.config().sourceSettings().get(card.key());
-        String preferred = settings == null          ? null
-                : settings.defaultMirrorId() == null ? settings.inheritedMirrorId()
-                                                     : settings.defaultMirrorId();
-        if (preferred != null
-                || direct.stream().anyMatch(child -> child.node().role() == WorldGraph.Role.SYNC)) {
-            var target = view.graph().defaultMirror(card.key(), preferred).orElse(null);
-            Card targetCard = target == null ? layout.byKey().get(Objects.requireNonNullElse(preferred, ""))
-                                             : layout.byKey().get(target.id());
-            if (targetCard != null || preferred != null) {
-                count.append(" · ").append(
-                        label("targetDefault", targetCard == null ? preferred : targetCard.name()));
-            }
-        }
-        details.add(count);
-        if (node != null)
-            details.add(label("node", node.id()));
-        return details;
-    }
-
-    private Component category(Card card) {
-        Component category = switch (card.warning()) {
-            case MISSING -> label("graphMissing");
-            case CYCLE -> label("graphCycle");
-            case AMBIGUOUS -> label("ambiguous");
-            case NONE ->
-                card.untracked() != null
-                        ? label(view.orphanedMirrors().contains(card.untracked()) ? "graphRecoverableMirror"
-                                                                                  : "graphUntracked")
-                        : card.node().kind() == WorldGraph.Kind.MIRROR&& card.node().role()
-                                == WorldGraph.Role.SNAPSHOT
-                        ? label("graphLinkedSnapshot")
-                        : WorldLabels.kind(card.node().kind());
-        };
-        var location = card.node() == null ? card.untracked() : card.node().location();
-        return location != null && location.root() == WorldGraph.Root.DOWNLOADED
-                ? label("graphDownloaded", category)
-                : category;
     }
 
     private static void line(Canvas canvas, Component text, int x, int y, int color, int available) {
@@ -507,11 +459,9 @@ public final class WorldRelationshipView extends AbstractWidget {
         Card card = selected();
         output.add(NarratedElementType.TITLE,
                 card == null ? getMessage()
-                             : Component.literal(card.name()).append(". ").append(category(card)));
+                             : Component.literal(card.name())
+                                       .append(". ")
+                                       .append(WorldRelationshipLabels.category(view, card)));
         output.add(NarratedElementType.USAGE, label("graphHelp"));
-    }
-
-    private static net.minecraft.network.chat.MutableComponent label(String key, Object... args) {
-        return Component.translatable("screen.worldmirror.routing." + key, args);
     }
 }

@@ -70,36 +70,7 @@ final class ChunkBucketIndex {
         Long2ObjectMap<Builder> cold = new Long2ObjectOpenHashMap<>();
         for (long x = Math.floorDiv(range.minX(), size); x <= Math.floorDiv(range.maxX(), size); x++) {
             for (long z = Math.floorDiv(range.minZ(), size); z <= Math.floorDiv(range.maxZ(), size); z++) {
-                int bx = (int) x, bz = (int) z;
-                long key = ChunkBounds.key(bx, bz);
-                if (range.contains(layout.bucket(bx, bz))) {
-                    Summary cached = buckets.get(new BucketKey(size, bx, bz));
-                    if (cached == null)
-                        cold.put(key, null);
-                    else if (!cached.isEmpty())
-                        result.put(key, cached);
-                } else {
-                    Builder builder = new Builder();
-                    ChunkBounds clipped = layout.clipped(bx, bz);
-                    long width = (long) clipped.maxX() - clipped.minX() + 1;
-                    long height = (long) clipped.maxZ() - clipped.minZ() + 1;
-                    if (height > 0 && width <= 1024L / height) {
-                        for (long px = clipped.minX(); px <= clipped.maxX(); px++) {
-                            for (long pz = clipped.minZ(); pz <= clipped.maxZ(); pz++) {
-                                visits++;
-                                Fact fact = facts.get((int) px, (int) pz);
-                                if (fact != null)
-                                    builder.add(fact);
-                            }
-                        }
-                    } else {
-                        visits += facts.forEachInRange(
-                                clipped.minX(), clipped.maxX(), clipped.minZ(), clipped.maxZ(), builder::add);
-                    }
-                    Summary summary = builder.build();
-                    if (!summary.isEmpty())
-                        result.put(key, summary);
-                }
+                collectBucket(layout, range, (int) x, (int) z, cold, result);
             }
         }
         if (!cold.isEmpty()) {
@@ -127,6 +98,42 @@ final class ChunkBucketIndex {
             while (buckets.size() > MAX_CACHED_BUCKETS) buckets.remove(buckets.keySet().iterator().next());
         }
         return Collections.unmodifiableMap(result);
+    }
+
+    private void collectBucket(ChunkBucketLayout layout, ChunkBounds range, int x, int z,
+            Long2ObjectMap<Builder> cold, Long2ObjectMap<Summary> result) {
+        long key = ChunkBounds.key(x, z);
+        if (!range.contains(layout.bucket(x, z))) {
+            Summary summary = summarizeClipped(layout.clipped(x, z));
+            if (!summary.isEmpty())
+                result.put(key, summary);
+            return;
+        }
+        Summary cached = buckets.get(new BucketKey(layout.size(), x, z));
+        if (cached == null)
+            cold.put(key, null);
+        else if (!cached.isEmpty())
+            result.put(key, cached);
+    }
+
+    private Summary summarizeClipped(ChunkBounds clipped) {
+        Builder builder = new Builder();
+        long width = (long) clipped.maxX() - clipped.minX() + 1;
+        long height = (long) clipped.maxZ() - clipped.minZ() + 1;
+        if (height > 0 && width <= 1024L / height) {
+            for (long x = clipped.minX(); x <= clipped.maxX(); x++) {
+                for (long z = clipped.minZ(); z <= clipped.maxZ(); z++) {
+                    visits++;
+                    Fact fact = facts.get((int) x, (int) z);
+                    if (fact != null)
+                        builder.add(fact);
+                }
+            }
+        } else {
+            visits += facts.forEachInRange(
+                    clipped.minX(), clipped.maxX(), clipped.minZ(), clipped.maxZ(), builder::add);
+        }
+        return builder.build();
     }
 
     static Map<Long, Summary> combine(

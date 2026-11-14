@@ -1,9 +1,27 @@
 plugins {
+    id "base"
     id "net.fabricmc.fabric-loom" version "${loom_version}" apply false
     id "net.fabricmc.fabric-loom-remap" version "${loom_version}" apply false
 }
 
 apply from: rootProject.file("gradle/targets.gradle")
+
+repositories { mavenCentral() }
+
+def lintClasspath = configurations.create("lintClasspath") {
+    canBeConsumed = false
+}
+dependencies {
+    add("lintClasspath", "systems.manifold:manifold-preprocessor:${manifold_version}")
+}
+tasks.register("lintJava", JavaExec) {
+    group = "verification"
+    description = "Checks Java source length and control-flow nesting. Run npm run format first."
+    classpath = lintClasspath
+    mainClass = "scripts/CheckMinecraftJavaLimits.java"
+    args targets.values().collect { it.preprocessorVersion.toString() }
+}
+tasks.named("check") { dependsOn("lintJava") }
 
 def fabricProjectPaths = targets.keySet().collect { ":versions:fabric-${it}" }
 
@@ -37,6 +55,7 @@ tasks.register("syncIdeaRunConfigurations") {
 tasks.register("buildAll") {
     group = "build"
     description = "Builds every supported Fabric target."
+    dependsOn(tasks.named("check"))
     dependsOn(tasks.named("verifyBridgeMatrix"))
     dependsOn(fabricProjectPaths.collect { "${it}:build" })
 }

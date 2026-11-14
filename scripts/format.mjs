@@ -27,6 +27,7 @@ function files(patterns) {
 
 const javaSources = files([
   'src/**/*.java',
+  'scripts/*.java',
   'world-mirror-format/src/**/*.java',
 ]);
 const prettierSources = files([

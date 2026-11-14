@@ -1,6 +1,7 @@
 package io.github.billstark001.worldmirror.mixin;
 
 import io.github.billstark001.worldmirror.download.DownloadManager;
+import io.github.billstark001.worldmirror.download.DownloadCapture;
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.core.LightingUpdate;
 import io.github.billstark001.worldmirror.util.WMLogger;
@@ -43,7 +44,7 @@ public abstract class ChunkDataMixin {
             return;
         }
 
-        DownloadManager.queueChunkCapture(world,
+        DownloadCapture.queueChunkCapture(world,
 #if MC_VERSION >= 260300
                 new ChunkPos(packet.x(), packet.z()), "full-chunk-packet");
 #else
@@ -55,7 +56,7 @@ public abstract class ChunkDataMixin {
     private void onBlockUpdate(ClientboundBlockUpdatePacket packet, CallbackInfo ci) {
         ClientLevel world = this.getLevel();
         if (world != null)
-            DownloadManager.queueBlockChange(world,
+            DownloadCapture.queueBlockChange(world,
                     new ChunkPos(packet.getPos().getX() >> 4, packet.getPos().getZ() >> 4), "block-update");
     }
 
@@ -66,7 +67,7 @@ public abstract class ChunkDataMixin {
             return;
         SectionBlocksUpdatePacketAccessor update = (SectionBlocksUpdatePacketAccessor) packet;
         if (update.worldmirror$getPositions().length > 0) {
-            DownloadManager.queueBlockChange(
+            DownloadCapture.queueBlockChange(
                     world, update.worldmirror$getSectionPos().chunk(), "section-block-update");
         }
     }
@@ -75,7 +76,7 @@ public abstract class ChunkDataMixin {
     private void onBlockEntityData(ClientboundBlockEntityDataPacket packet, CallbackInfo ci) {
         ClientLevel world = this.getLevel();
         if (world != null)
-            DownloadManager.queueChunkCapture(world,
+            DownloadCapture.queueChunkCapture(world,
                     new ChunkPos(packet.getPos().getX() >> 4, packet.getPos().getZ() >> 4),
                     "block-entity-update");
     }
@@ -86,32 +87,32 @@ public abstract class ChunkDataMixin {
         if (world == null || !DownloadManager.isCaptureEnabled())
             return;
         packet.chunkBiomeData().forEach(
-                data -> DownloadManager.queueChunkCapture(world, data.pos(), "biome-update"));
+                data -> DownloadCapture.queueChunkCapture(world, data.pos(), "biome-update"));
     }
 
     @Inject(method = "handleAddEntity", at = @At("TAIL"))
     private void onAddEntity(ClientboundAddEntityPacket packet, CallbackInfo ci) {
-        DownloadManager.markEntitiesDirty(this.getLevel());
+        DownloadCapture.markEntitiesDirty(this.getLevel());
     }
 
     @Inject(method = "handleRemoveEntities", at = @At("TAIL"))
     private void onRemoveEntities(ClientboundRemoveEntitiesPacket packet, CallbackInfo ci) {
-        DownloadManager.markEntitiesDirty(this.getLevel());
+        DownloadCapture.markEntitiesDirty(this.getLevel());
     }
 
     @Inject(method = "handleMoveEntity", at = @At("TAIL"))
     private void onMoveEntity(ClientboundMoveEntityPacket packet, CallbackInfo ci) {
-        DownloadManager.markEntitiesDirty(this.getLevel());
+        DownloadCapture.markEntitiesDirty(this.getLevel());
     }
 
     @Inject(method = "handleTeleportEntity", at = @At("TAIL"))
     private void onTeleportEntity(ClientboundTeleportEntityPacket packet, CallbackInfo ci) {
-        DownloadManager.markEntitiesDirty(this.getLevel());
+        DownloadCapture.markEntitiesDirty(this.getLevel());
     }
 
     @Inject(method = "handleSetEntityData", at = @At("TAIL"))
     private void onSetEntityData(ClientboundSetEntityDataPacket packet, CallbackInfo ci) {
-        DownloadManager.markEntitiesDirty(this.getLevel());
+        DownloadCapture.markEntitiesDirty(this.getLevel());
     }
 
     /**
@@ -123,7 +124,7 @@ public abstract class ChunkDataMixin {
     private void onLightDataApplied(int chunkX, int chunkZ, ClientboundLightUpdatePacketData lightData,
             boolean markDirty, CallbackInfo ci) {
         ClientLevel world = this.getLevel();
-        if (!DownloadManager.canCapture(world))
+        if (!DownloadCapture.canCapture(world))
             return;
 
         ChunkPos pos = new ChunkPos(chunkX, chunkZ);
@@ -140,9 +141,9 @@ public abstract class ChunkDataMixin {
                             lightData.getEmptySkyYMask(), lightData.getSkyUpdates()));
 #endif
             if (applied) {
-                DownloadManager.markLightUpdateDirty(world, pos);
+                DownloadCapture.markLightUpdateDirty(world, pos);
             } else {
-                DownloadManager.queueLightUpdateCapture(world, pos);
+                DownloadCapture.queueLightUpdateCapture(world, pos);
             }
         } catch (Exception e) {
             WMLogger.warnRateLimited(

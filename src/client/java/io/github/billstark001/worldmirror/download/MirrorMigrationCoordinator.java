@@ -171,14 +171,7 @@ public final class MirrorMigrationCoordinator {
                         MirrorWorldgenAssets.ASSET_REVISION);
                 if (!metadata.save(stagedWorld))
                     return reject(normalized, "metadata_write_failed");
-                java.util.Map<Path, Path> replacements = new java.util.HashMap<>();
-                try (var files = Files.walk(stagedWorld)) {
-                    for (Path file : files.filter(Files::isRegularFile).toList()) {
-                        Path relative = stagedWorld.relativize(file);
-                        if (publishable(relative))
-                            replacements.put(relative, file);
-                    }
-                }
+                var replacements = collectReplacements(stagedWorld);
                 var verified =
                         io.github.billstark001.worldmirror.io.MirrorWorldgenCheck.inspectFresh(stagedWorld);
                 if (verified.state()
@@ -197,6 +190,18 @@ public final class MirrorMigrationCoordinator {
                             ? "world_locked"
                             : "migration_failed");
         }
+    }
+
+    private static java.util.Map<Path, Path> collectReplacements(Path stagedWorld) throws IOException {
+        java.util.Map<Path, Path> replacements = new java.util.HashMap<>();
+        try (var files = Files.walk(stagedWorld)) {
+            for (Path file : files.filter(Files::isRegularFile).toList()) {
+                Path relative = stagedWorld.relativize(file);
+                if (publishable(relative))
+                    replacements.put(relative, file);
+            }
+        }
+        return replacements;
     }
 
     private static Result reject(Path world, String reason) {

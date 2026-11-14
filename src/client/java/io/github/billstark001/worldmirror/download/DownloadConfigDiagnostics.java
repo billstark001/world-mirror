@@ -12,7 +12,7 @@ final class DownloadConfigDiagnostics {
     static void log(Minecraft client) {
         ModConfig config = ModConfig.get();
         var graph = WorldGraphService.instance();
-        var target = DownloadManager.captureTarget();
+        var target = DownloadRoute.captureTarget();
         WMLogger.info("[perf] config.global=" + globalJson(config));
         WMLogger.info("[perf] config.local="
                 + localJson(target,

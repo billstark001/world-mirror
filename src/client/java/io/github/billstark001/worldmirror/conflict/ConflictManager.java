@@ -138,18 +138,9 @@ public final class ConflictManager {
         for (ConflictRegion region : findRegions(root, root, null)) {
             synchronized (resolutionLock(region)) {
                 try {
-                    if (overwrite) {
-                        Set<ChunkPos> pending = new HashSet<>(listCoordinates(region));
-                        while (!pending.isEmpty()) {
-                            Map<ChunkPos, CompoundTag> batch = readSnapshot(region, pending);
-                            if (batch.isEmpty())
-                                break;
-                            applySnapshot(target, region, batch);
-                            // A newer conflict may have replaced one of these images.
-                            // Attempt each initial coordinate once, without chasing live arrivals.
-                            pending.removeAll(batch.keySet());
-                        }
-                    } else
+                    if (overwrite)
+                        applyRegion(target, region);
+                    else
                         removeEntries(region, listCoordinates(region), null);
                 } catch (Exception error) {
                     success = false;
@@ -161,6 +152,18 @@ public final class ConflictManager {
         }
         deleteEmptyDirectories(root);
         return success;
+    }
+
+    private static void applyRegion(MirrorTarget target, ConflictRegion region) throws IOException {
+        Set<ChunkPos> pending = new HashSet<>(listCoordinates(region));
+        while (!pending.isEmpty()) {
+            Map<ChunkPos, CompoundTag> batch = readSnapshot(region, pending);
+            if (batch.isEmpty())
+                break;
+            applySnapshot(target, region, batch);
+            // Attempt each initial coordinate once without chasing newer arrivals.
+            pending.removeAll(batch.keySet());
+        }
     }
 
     private static Object resolutionLock(ConflictRegion region) {

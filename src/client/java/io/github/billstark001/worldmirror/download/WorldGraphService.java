@@ -6,27 +6,12 @@ import io.github.billstark001.worldmirror.download.WorldGraph.Node;
 import io.github.billstark001.worldmirror.download.WorldGraph.Root;
 import io.github.billstark001.worldmirror.download.WorldGraph.Snapshot;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.EndpointRule;
-import io.github.billstark001.worldmirror.download.WorldGraphConfig.IdPolicy;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.MirrorSettings;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.PendingImport;
 import io.github.billstark001.worldmirror.download.WorldGraphConfig.SourceSettings;
-import io.github.billstark001.worldmirror.download.WorldGraphConfig.StableBinding;
-import io.github.billstark001.worldmirror.download.WorldSourceResolver.ConnectionObservation;
-import io.github.billstark001.worldmirror.download.WorldSourceResolver.ProviderObservation;
-import io.github.billstark001.worldmirror.download.WorldSourceResolver.ProviderState;
-import io.github.billstark001.worldmirror.download.WorldSourceResolver.Resolution;
-import io.github.billstark001.worldmirror.download.WorldSourceResolver.State;
-import io.github.billstark001.worldmirror.io.WorldWriteLock;
-import io.github.billstark001.worldmirror.io.NbtReadSupport;
 import io.github.billstark001.worldmirror.util.FileProof;
-import io.github.billstark001.worldmirror.util.JsonSupport;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.multiplayer.ClientPacketListener;
-import net.minecraft.client.server.IntegratedServer;
-import net.minecraft.world.level.storage.LevelResource;
-import net.minecraft.world.level.storage.LevelStorageSource;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
@@ -39,8 +24,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
@@ -68,13 +51,13 @@ public final class WorldGraphService {
         }
     }
     record MoveResult(Path source, Path target) {}
-    private record Published(Snapshot graph, WorldGraphConfig.Snapshot config, Map<String, Target> targets,
+    record Published(Snapshot graph, WorldGraphConfig.Snapshot config, Map<String, Target> targets,
             List<Location> untrackedLocalWorlds, List<Location> orphanedMirrors) {}
-    private record Route(Source source, ConnectionObservation observation, String chosenSource,
-            boolean createSource, boolean confirmSwitch) {}
-
+    private final WorldInventoryFolders folders;
     private final WorldGraphInventory inventory;
     private final Path configDirectory;
+    private final WorldConnectionRouting routing;
+    private final WorldGraphWorlds worlds;
     private final AtomicBoolean requested = new AtomicBoolean();
     private final AtomicBoolean queued = new AtomicBoolean();
     private final boolean clientService;
@@ -87,14 +70,6 @@ public final class WorldGraphService {
     private volatile Published published = new Published(WorldGraph.reconcile(List.of(), Map.of()),
             WorldGraphConfig.Snapshot.empty(), Map.of(), List.of(), List.of());
     private volatile boolean available;
-    private volatile Route route;
-    private volatile ProviderObservation latestProvider = ProviderObservation.pending();
-    private ClientPacketListener connection;
-    private IntegratedServer integratedServer;
-    private CompletableFuture<String> localIdentityRequest;
-    private long connectionEpoch;
-    private String observedAddress;
-
     WorldGraphService(Path game, Path configDirectory) {
         this(game, configDirectory, false);
     }
@@ -102,12 +77,24 @@ public final class WorldGraphService {
     private WorldGraphService(Path game, Path configDirectory, boolean clientService) {
         this.clientService = clientService;
         this.configDirectory = configDirectory.toAbsolutePath().normalize();
-        inventory = new WorldGraphInventory(game.toAbsolutePath().normalize(), this.configDirectory,
-                () -> ModConfig.get().defaultSaveLocation);
+        folders = new WorldInventoryFolders(
+                game.toAbsolutePath().normalize(), () -> ModConfig.get().defaultSaveLocation);
+        inventory = new WorldGraphInventory(
+                folders, this.configDirectory, () -> ModConfig.get().defaultSaveLocation);
+        routing = new WorldConnectionRouting(this, folders);
+        worlds = new WorldGraphWorlds(this, folders);
     }
 
     public static WorldGraphService instance() {
         return ClientService.INSTANCE;
+    }
+
+    public WorldConnectionRouting routing() {
+        return routing;
+    }
+
+    public WorldGraphWorlds worlds() {
+        return worlds;
     }
 
     public void refreshAsync() {
@@ -132,6 +119,14 @@ public final class WorldGraphService {
         });
     }
 
+    Published published() {
+        return published;
+    }
+
+    boolean clientService() {
+        return clientService;
+    }
+
     public boolean available() {
         return available;
     }
@@ -145,28 +140,6 @@ public final class WorldGraphService {
     }
     public WorldGraphConfig.Snapshot configSnapshot() {
         return published.config();
-    }
-    public Source source() {
-        Route current = route;
-        return current == null ? null : current.source();
-    }
-    long connectionEpoch() {
-        return connectionEpoch;
-    }
-    ConnectionObservation observation() {
-        Route current = route;
-        return current == null ? null : current.observation();
-    }
-    boolean expectsIdentity() {
-        var observation = observation();
-        if (observation == null || observation.endpoint() == null
-                || latestProvider.state() != ProviderState.ADVERTISED)
-            return false;
-        var rule = published.config().endpointRules().get(observation.endpoint());
-        return rule == null || rule.idPolicy() != IdPolicy.ENDPOINT_ONLY;
-    }
-    public Resolution currentResolution() {
-        return resolve(available ? route : null, published.config());
     }
     public Target targetById(String id) {
         return id == null || !available ? null : published.targets().get(id);
@@ -182,283 +155,14 @@ public final class WorldGraphService {
                                                   .toList();
     }
 
-    /** Checks game-thread capture against the observation that owns the current session. */
-    public boolean observationIsCurrent(Minecraft client) {
-        Source current = source();
-        if (current == null || connection != client.getConnection())
-            return false;
-        if (current.endpoint() == null)
-            return integratedServer != null && integratedServer == client.getSingleplayerServer();
-        return client.getSingleplayerServer() == null
-                && Objects.equals(observedAddress, currentAddress(client));
-    }
-
-    public void enter(Minecraft client) {
-        cancelLocalIdentityRequest();
-        connection = client.getConnection();
-        integratedServer = client.getSingleplayerServer();
-        Source source;
-        try {
-            if (integratedServer != null) {
-                Path folder = integratedServer.getWorldPath(LevelResource.ROOT);
-                var metadata = WorldMetadata.loadIfPresent(folder);
-                String id = metadata.map(value -> value.nodeId).orElse(null);
-                boolean original =
-                        id == null && WorldMetadata.inspectSchema(folder) == WorldMetadata.Schema.MISSING;
-                if (original) {
-                    Path checked = activeLocalOriginal(folder);
-                    id = LocalWorldIdentity.read(checked);
-                }
-                source = id != null || original
-                        ? new Source(id, integratedServer.getWorldData().getLevelName(), null)
-                        : null;
-            } else {
-                source = observeAddress(client);
-            }
-        } catch (IOException | IllegalArgumentException failure) {
-            source = null;
-            WMLogger.warnRateLimited(
-                    "world-graph-source", 30_000, "Could not identify the open world", failure);
-        }
-        beginObservation(source);
-        refreshAsync();
-    }
-
-    void beginObservation(Source source) {
-        connectionEpoch++;
-        latestProvider = ProviderObservation.pending();
-        route = observe(source);
-    }
-
-    public void leave() {
-        route = null;
-        connection = null;
-        integratedServer = null;
-        cancelLocalIdentityRequest();
-        latestProvider = ProviderObservation.pending();
-        observedAddress = null;
-        refreshAsync();
-    }
-
-    /** An ordinary save can participate before it has a persistent node. */
-    boolean needsLocalIdentity(Minecraft client) {
-        Source current = source();
-        return current != null && current.endpoint() == null && current.nodeId() == null
-                && observationIsCurrent(client);
-    }
-
-    public boolean canUseLinkedSource(Minecraft client) {
-        if (!available || !observationIsCurrent(client))
-            return false;
-        String id = currentResolution().sourceNodeId();
-        return id == null ? needsLocalIdentity(client) : graph().isUnambiguous(id);
-    }
-
-    /** Resolves on the client thread. First-use writes run on the integrated server that holds the save lease. */
-    public CompletableFuture<String> requireLinkedSource(Minecraft client) {
-        if (!client.isSameThread() || !canUseLinkedSource(client))
-            return CompletableFuture.failedFuture(new IOException("The active source is unavailable"));
-        String id = currentResolution().sourceNodeId();
-        if (id != null)
-            return CompletableFuture.completedFuture(id);
-        if (localIdentityRequest != null)
-            return localIdentityRequest;
-        var server = integratedServer;
-        var original = route;
-        var result = new CompletableFuture<String>();
-        localIdentityRequest = result;
-        Runnable assignIdentity = () -> {
-            try {
-                if (result.isDone() || route != original || !server.isSameThread() || !server.isRunning()
-                        || server.isStopped())
-                    throw new IOException("The active world changed before assigning its identity");
-                Path folder = activeLocalOriginal(server.getWorldPath(LevelResource.ROOT));
-                String assigned = LocalWorldIdentity.ensure(folder);
-                client.execute(() -> finishLocalIdentity(client, original, result, assigned, null));
-            } catch (IOException | RuntimeException failure) {
-                client.execute(() -> finishLocalIdentity(client, original, result, null, failure));
-            }
-        };
-        try {
-            server.execute(assignIdentity);
-        } catch (RuntimeException failure) {
-            finishLocalIdentity(client, original, result, null, failure);
-        }
-        return result;
-    }
-
-    private void finishLocalIdentity(Minecraft client, Route original, CompletableFuture<String> result,
-            String id, Exception failure) {
-        if (localIdentityRequest != result)
-            return;
-        localIdentityRequest = null;
-        if (failure != null) {
-            result.completeExceptionally(failure);
-        } else if (route != original || !observationIsCurrent(client)) {
-            result.completeExceptionally(new IOException("The active world changed"));
-        } else {
-            route = observe(new Source(id, original.source().label(), null));
-            refreshAsync();
-            result.complete(id);
-        }
-    }
-
-    private void cancelLocalIdentityRequest() {
-        var result = localIdentityRequest;
-        localIdentityRequest = null;
-        if (result != null)
-            result.completeExceptionally(new IOException("The active world changed"));
-    }
-
-    private Path activeLocalOriginal(Path folder) throws IOException {
-        Path normalized = folder.toAbsolutePath().normalize();
-        if (!inventory.root(Root.SAVES).equals(normalized.getParent()))
-            throw new IOException("The active save is outside the saves directory");
-        return inventory.localOriginal(inventory.locationOf(normalized));
-    }
-
-    /** A connection event supplies local identity. Remote address changes require no filesystem access. */
-    boolean updateRemoteObservation(Minecraft client) {
-        Source current = source();
-        if (client.getSingleplayerServer() != null || (current != null && current.endpoint() == null))
-            return false;
-        String address = currentAddress(client);
-        if (Objects.equals(observedAddress, address))
-            return false;
-        Source observed = observeAddress(client);
-        if (Objects.equals(current, observed))
-            return false;
-        latestProvider = ProviderObservation.pending();
-        route = observe(observed);
-        return true;
-    }
-
-    private Route observe(Source source) {
-        return source == null
-                ? null
-                : new Route(source,
-                          new ConnectionObservation(connectionEpoch, source.endpoint(), source.nodeId(),
-                                  source.endpoint() == null ? ProviderObservation.absent()
-                                                            : ProviderObservation.pending()),
-                          null, false, false);
-    }
-
-    boolean observeProvider(ProviderObservation evidence, boolean late) {
-        Route previous = route;
-        if (previous == null || previous.source().endpoint() == null)
-            return false;
-        // Provider state is scoped to the connection, not a particular vanilla dimension.
-        if (evidence.state() == ProviderState.PENDING
-                || (evidence.state() == ProviderState.ABSENT
-                        && latestProvider.state() == ProviderState.ADVERTISED))
-            return false;
-        latestProvider = evidence;
-        if (previous.observation().providerObservation().equals(evidence))
-            return false;
-        var observation = new ConnectionObservation(
-                previous.observation().connectionEpoch(), previous.source().endpoint(), null, evidence);
-        EndpointRule rule = published.config().endpointRules().get(previous.source().endpoint());
-        boolean ignored = rule != null && rule.idPolicy() == IdPolicy.ENDPOINT_ONLY;
-        if (ignored)
-            return false;
-        var before = resolve(previous, published.config());
-        var next = new Route(previous.source(), observation, null, false, false);
-        var after = resolve(next, published.config());
-        boolean sameSource =
-                before.sourceNodeId() != null && before.sourceNodeId().equals(after.sourceNodeId());
-        boolean confirmSwitch = !sameSource && late;
-        route = sameSource ? next : new Route(previous.source(), observation, null, false, late);
-        WMLogger.debug("World identity observation state=" + evidence.state() + " policy="
-                + (rule == null ? IdPolicy.PREFER_BOUND_ID : rule.idPolicy()) + " previousResolution="
-                + before.state() + " resolution=" + (confirmSwitch ? State.CHOOSE_SOURCE : after.state())
-                + " changedSource=" + !sameSource + " late=" + late);
-        return !sameSource;
-    }
-
-    void requireSourceChoice() {
-        Route previous = route;
-        if (previous != null && previous.source().endpoint() != null)
-            route = new Route(previous.source(), previous.observation(), null, false, true);
-    }
-
-    String chooseSource(ConnectionObservation expected, String id, boolean create) {
-        Route previous = route;
-        if (previous == null || previous.observation() != expected || previous.source().endpoint() == null)
-            return null;
-        var config = published.config();
-        String selected = create ? WorldSourceResolver.suggestedSourceId(config, expected) : id;
-        Resolution current = resolve(previous, config);
-        var rule = config.endpointRules().get(expected.endpoint());
-        if (create && rule != null && config.hasEndpointSource(rule.addressGroupId(), selected))
-            selected = "remote:" + UUID.randomUUID();
-        if (selected == null
-                || (current.state() == State.WAITING_ID && rule != null
-                        && rule.idPolicy() == IdPolicy.REQUIRE_BOUND_ID)
-                || (!create && !current.candidateSourceIds().contains(selected)))
-            return null;
-        boolean newAdvertisedSource = expected.providerObservation().state() == ProviderState.ADVERTISED
-                && (rule == null || !config.hasEndpointSource(rule.addressGroupId(), selected))
-                && selected.equals(WorldSourceResolver.suggestedSourceId(config, expected));
-        route = new Route(previous.source(), expected, selected, create || newAdvertisedSource, false);
-        WMLogger.info("Download source selected newSource=" + route.createSource());
-        return selected;
-    }
-
-    private static String currentAddress(Minecraft client) {
-        var server = client.getCurrentServer();
-        return server == null ? null : server.ip;
-    }
-
-    private Source observeAddress(Minecraft client) {
-        observedAddress = currentAddress(client);
-        if (observedAddress == null)
-            return null;
-        try {
-            String endpoint = WorldGraphConfig.normalizeEndpoint(observedAddress);
-            return new Source(null, endpoint, endpoint);
-        } catch (IllegalArgumentException invalid) {
-            return null;
-        }
-    }
-
-    public String sourceNode(Source observation) {
-        return resolve(routeFor(observation), published.config()).sourceNodeId();
-    }
-
-    private Route routeFor(Source source) {
-        Route current = route;
-        if (current != null && current.source() == source)
-            return current;
-        return source == null ? null
-                              : new Route(source,
-                                        new ConnectionObservation(0, source.endpoint(), source.nodeId(),
-                                                ProviderObservation.absent()),
-                                        null, false, false);
-    }
-
-    private static Resolution resolve(Route route, WorldGraphConfig.Snapshot config) {
-        if (route == null)
-            return new Resolution(State.UNAVAILABLE, null, java.util.Set.of());
-        var resolved = WorldSourceResolver.resolve(config, route.observation(), route.chosenSource());
-        if (route.chosenSource() != null && route.createSource())
-            return new Resolution(State.RESOLVED, route.chosenSource(), resolved.candidateSourceIds());
-        if (route.confirmSwitch()) {
-            var choices = new java.util.TreeSet<>(resolved.candidateSourceIds());
-            if (resolved.sourceNodeId() != null)
-                choices.add(resolved.sourceNodeId());
-            return new Resolution(State.CHOOSE_SOURCE, null, choices);
-        }
-        return resolved;
-    }
-
     public Target target(Source observation) {
         if (!available)
             return null;
         Published view = published;
-        return targetFor(view, sourceNode(observation), null);
+        return targetFor(view, routing.sourceNode(observation), null);
     }
 
-    private static Target targetFor(Published view, String sourceId, String choice) {
+    static Target targetFor(Published view, String sourceId, String choice) {
         if (sourceId == null)
             return null;
         SourceSettings settings = view.config().sourceSettings().get(sourceId);
@@ -475,7 +179,7 @@ public final class WorldGraphService {
         Target target = target(observation);
         if (target != null)
             return target.folder();
-        String sourceId = sourceNode(observation);
+        String sourceId = routing.sourceNode(observation);
         if (sourceId == null)
             return null;
         SourceSettings settings = published.config().sourceSettings().get(sourceId);
@@ -547,7 +251,8 @@ public final class WorldGraphService {
     private void saveLocationPreference(Source observation, ModConfig.SaveLocation location)
             throws IOException {
         WorldGraphConfig.Snapshot before = open().snapshot();
-        String sourceId = resolve(routeFor(observation), before).sourceNodeId();
+        String sourceId =
+                WorldConnectionRouting.resolve(routing.routeFor(observation), before).sourceNodeId();
         if (sourceId == null)
             throw new IOException("No source selected");
         Map<String, SourceSettings> sources = new HashMap<>(before.sourceSettings());
@@ -575,96 +280,8 @@ public final class WorldGraphService {
             refreshPublished();
             if (!stillCurrent.getAsBoolean())
                 throw new IOException("Connection changed during mirror preparation");
-            return prepareTarget(routeFor(observation), mirrorChoice, createMirror, stillCurrent);
-        }
-    }
-
-    private Target prepareTarget(Route route, String mirrorChoice, boolean createMirror,
-            BooleanSupplier stillCurrent) throws IOException {
-        String parent = resolve(route, published.config()).sourceNodeId();
-        if (parent == null)
-            throw new IOException("No unambiguous source selected");
-        Source observation = route.source();
-        Snapshot graph = published.graph();
-        if (!graph.isUnambiguous(parent)) {
-            throw new IOException("Source identity is ambiguous: " + parent);
-        }
-        if (observation.endpoint() == null && !graph.nodes().containsKey(parent))
-            throw new IOException("Local source unavailable: " + parent);
-        Target selected = createMirror ? null : targetFor(published, parent, mirrorChoice);
-        WorldGraphConfig.Snapshot before = open().snapshot();
-        SourceSettings old = settings(before.sourceSettings(), parent);
-        if (selected != null) {
-            if (route.createSource() || (mirrorChoice == null && preferredMirror(old) == null))
-                recordRoute(before, route, parent,
-                        mirrorChoice == null && preferredMirror(old) == null ? selected.nodeId() : null);
-            return selected;
-        }
-        if (mirrorChoice != null)
-            throw new IOException("Selected mirror unavailable: " + mirrorChoice);
-        if (preferredMirror(old) != null && !createMirror)
-            throw new IOException("Default mirror unavailable: " + preferredMirror(old));
-        if (WorldGraphInventory.hasDeferredSource(before, parent)) {
-            throw new IOException("An existing mirror is still awaiting metadata upgrade");
-        }
-        if (graph.duplicates().stream().anyMatch(copy -> parent.equals(copy.original().parentId()))) {
-            throw new IOException("A copied mirror is still being reconciled");
-        }
-        Path base = rootFor(
-                old.saveLocation() == null ? ModConfig.get().defaultSaveLocation : old.saveLocation());
-        Files.createDirectories(base);
-        WorldGraphInventory.requirePlainRoot(base);
-        String name = old.preferredFolderName() == null ? MirrorFolders.generate(observation.label())
-                                                        : old.preferredFolderName();
-        if (!stillCurrent.getAsBoolean())
-            throw new IOException("Connection changed during mirror preparation");
-        Path folder = MirrorFolders.claim(base, name);
-        String nodeId = "mirror:" + UUID.randomUUID();
-        String indexSource = parent;
-        try {
-            MirrorClaim.create(folder, nodeId, parent, indexSource);
-        } catch (IOException failure) {
-            try {
-                Files.delete(folder);
-            } catch (IOException cleanup) {
-                failure.addSuppressed(cleanup);
-            }
-            throw failure;
-        }
-        WMLogger.info("Download mirror reserved world=" + folder);
-        recordRoute(before, route, parent, preferredMirror(old) == null && !createMirror ? nodeId : null);
-        refreshPublished();
-        return new Target(nodeId, parent, indexSource, folder);
-    }
-
-    private void recordRoute(WorldGraphConfig.Snapshot before, Route route, String parent, String target)
-            throws IOException {
-        var next = target == null
-                ? before
-                : before.withSourceSettings(
-                          parent, settings(before.sourceSettings(), parent).withDefaultMirror(target));
-        String endpoint = route.source().endpoint();
-        if (endpoint != null) {
-            next = next.withEndpointSource(endpoint, parent);
-            EndpointRule rule = next.endpointRules().get(endpoint);
-            if (route.createSource() && rule.idPolicy() != IdPolicy.ENDPOINT_ONLY) {
-                ProviderObservation evidence = route.observation().providerObservation();
-                if (evidence.state() == ProviderState.ADVERTISED) {
-                    String group = rule.addressGroupId();
-                    var binding =
-                            new StableBinding(evidence.provider(), group, evidence.advertisedId(), parent);
-                    boolean alreadyBound = next.stableBindings().stream().anyMatch(
-                            value -> value.matches(evidence.provider(), group, evidence.advertisedId()));
-                    if (!alreadyBound)
-                        next = next.withStableBinding(binding);
-                }
-            }
-        }
-        replaceConfig(before, next);
-        if (!next.equals(before)) {
-            WMLogger.info("Download route saved defaultMirror=" + (target != null) + " endpointChanged="
-                    + !before.endpointRules().equals(next.endpointRules()) + " stableBindingAdded="
-                    + (before.stableBindings().size() < next.stableBindings().size()));
+            return WorldGraphTargetPreparation.prepare(
+                    this, routing.routeFor(observation), mirrorChoice, createMirror, stillCurrent);
         }
     }
 
@@ -699,252 +316,6 @@ public final class WorldGraphService {
             refreshAsync();
     }
 
-    public synchronized void setUpstream(String nodeId, String parentId) throws IOException {
-        setUpstream(nodeId, Objects.requireNonNull(parentId), null);
-    }
-
-    public synchronized void setUpstream(String nodeId, Location localSource) throws IOException {
-        setUpstream(nodeId, null, Objects.requireNonNull(localSource));
-    }
-
-    public synchronized void removeUpstream(String nodeId) throws IOException {
-        setUpstream(nodeId, null, null);
-    }
-
-    private void setUpstream(String nodeId, String parentId, Location localSource) throws IOException {
-        requireIdle();
-        try (var ignored = acquireGraphLease()) {
-            refreshPublished();
-            Snapshot graph = published.graph();
-            Node child = requireManaged(nodeId);
-            Path folder = path(child.location());
-            if (localSource == null && Objects.equals(child.parentId(), parentId))
-                return;
-            if (parentId != null) {
-                Node parent = graph.nodes().get(parentId);
-                if (parent == null || parent.kind() == WorldGraph.Kind.UNRESOLVED
-                        || !graph.isUnambiguous(parentId) || graph.wouldCreateCycle(nodeId, parentId))
-                    throw new IOException("This source cannot be the world's upstream");
-            }
-            try (var lock = WorldWriteLock.acquire(folder)) {
-                if (localSource != null) {
-                    if (localSource.equals(child.location()))
-                        throw new IOException("A world cannot be its own upstream");
-                    verifyUpstreamOwner(folder, child);
-                    parentId = identifyLocalSource(localSource);
-                }
-                changeParentOnDisk(folder, child, parentId);
-            }
-            WMLogger.info(
-                    "World upstream " + (parentId == null ? "removed" : "changed") + " world=" + folder);
-            var before = open().snapshot();
-            var pending = new HashMap<>(before.pendingImports());
-            pending.remove("upstream:" + nodeId);
-            var sources = new HashMap<>(before.sourceSettings());
-            var old = child.parentId() == null ? null : sources.get(child.parentId());
-            if (old != null)
-                sources.put(child.parentId(), old.withoutTarget(nodeId));
-            publishConfig(before, before.nodes(), sources, before.mirrorSettings(), before.endpointRules(),
-                    pending);
-            refreshPublished();
-        }
-    }
-
-    private void requireIdle() throws IOException {
-        if (clientService && DownloadManager.hasRoutingWork())
-            throw new IOException("Stop capture and wait for pending exports before editing worlds");
-    }
-
-    private Node requireManaged(String nodeId) throws IOException {
-        Node node = published.graph().nodes().get(nodeId);
-        if (node == null || (node.kind() != WorldGraph.Kind.MIRROR && node.kind() != WorldGraph.Kind.SNAPSHOT)
-                || !published.graph().hasUniqueLocation(nodeId))
-            throw new IOException("This mirror or snapshot is unavailable");
-        return node;
-    }
-
-    public Path path(Location location) {
-        return inventory.root(location.root()).resolve(location.folder());
-    }
-
-    private static WorldMetadata verifyUpstreamOwner(Path folder, Node child) throws IOException {
-        WorldMetadata metadata = WorldMetadata.loadIfPresent(folder).orElse(null);
-        if (metadata == null && WorldMetadata.inspectSchema(folder) == WorldMetadata.Schema.MISSING
-                && WorldRelocation.isEmptyReservation(folder, child.id())) {
-            var claim = MirrorClaim.read(folder);
-            if (claim != null && Objects.equals(claim.parentNodeId(), child.parentId()))
-                return null;
-        }
-        if (metadata == null || !child.id().equals(metadata.nodeId)
-                || !Objects.equals(child.parentId(), metadata.parentNodeId) || child.kind() != metadata.kind
-                || child.role() != metadata.role) {
-            throw new IOException("World identity changed: " + folder);
-        }
-        return metadata;
-    }
-
-    private static void changeParentOnDisk(Path folder, Node child, String parentId) throws IOException {
-        Path file = folder.resolve(WorldMetadata.FILE_NAME);
-        FileProof.Version stamp =
-                Files.notExists(file, LinkOption.NOFOLLOW_LINKS) ? null : FileProof.version(file);
-        WorldMetadata metadata = verifyUpstreamOwner(folder, child);
-        if (metadata == null) {
-            MirrorClaim.changeParent(folder, child.id(), child.parentId(), parentId);
-            return;
-        }
-        metadata.parentNodeId = parentId;
-        JsonSupport.compareAndWriteDocument(file, metadata, stamp);
-    }
-
-    private void retireOtherReservations(Node node, Path owner) throws IOException {
-        var metadata = WorldMetadata.loadIfPresent(owner).orElse(null);
-        if (metadata == null)
-            return;
-        for (Root root : Root.values()) {
-            Path base = inventory.root(root);
-            if (Files.notExists(base, LinkOption.NOFOLLOW_LINKS))
-                continue;
-            WorldGraphInventory.requirePlainRoot(base);
-            try (var entries = Files.list(base)) {
-                for (Path folder : entries.toList()) {
-                    if (folder.equals(owner) || !Files.isDirectory(folder, LinkOption.NOFOLLOW_LINKS)
-                            || Files.isSymbolicLink(folder))
-                        continue;
-                    try {
-                        WorldGraphInventory.requirePlainRoot(folder);
-                    } catch (IOException unavailable) {
-                        continue;
-                    }
-                    var claim = MirrorClaim.read(folder);
-                    if (claim == null || !node.id().equals(claim.nodeId())
-                            || !metadata.sourceId.equals(claim.sourceId()))
-                        continue;
-                    try (var lock = WorldWriteLock.acquire(folder)) {
-                        if (!claim.equals(MirrorClaim.read(folder))
-                                || !WorldRelocation.isEmptyReservation(folder, node.id()))
-                            continue;
-                        Files.delete(folder.resolve(MirrorClaim.FILE_NAME));
-                    }
-                }
-            }
-        }
-    }
-
-    private String identifyLocalSource(Location location) throws IOException {
-        if (!published.untrackedLocalWorlds().contains(location))
-            throw new IOException("The selected local save is no longer available");
-        Path folder = inventory.localOriginal(location);
-        try (var ignored = WorldWriteLock.acquireDirectory(folder)) {
-            inventory.localOriginal(location);
-            if (WorldRelocation.journal(folder) != null || MirrorMigrationCoordinator.needsRecovery(folder)
-                    || NbtReadSupport.readWorldData(folder.resolve("level.dat"))
-                            .getCompound("Data")
-                            .isEmpty())
-                throw new IOException("The selected local save cannot be used as a parent");
-            if (LocalWorldIdentity.read(folder) != null)
-                throw new IOException("The local save acquired an identity. Refresh the world list.");
-            return LocalWorldIdentity.ensure(folder);
-        }
-    }
-
-    synchronized MoveResult move(Target target, ModConfig.SaveLocation location) throws IOException {
-        try (var ignored = acquireGraphLease()) {
-            refreshPublished();
-            Target current = published.targets().get(target.nodeId());
-            if (current == null || !current.parentNodeId().equals(target.parentNodeId())
-                    || !current.sourceId().equals(target.sourceId()))
-                throw new IOException("Mirror unavailable");
-            return moveManaged(requireManaged(current.nodeId()), current.sourceId(), location);
-        }
-    }
-
-    public synchronized void moveWorld(String nodeId, ModConfig.SaveLocation location) throws IOException {
-        requireIdle();
-        try (var ignored = acquireGraphLease()) {
-            refreshPublished();
-            Node node = requireManaged(nodeId);
-            Path source = path(node.location());
-            var metadata = verifyUpstreamOwner(source, node);
-            var claim = metadata == null ? MirrorClaim.read(source) : null;
-            if (metadata == null && claim == null)
-                throw new IOException("The mirror reservation changed");
-            moveManaged(node, metadata == null ? claim.sourceId() : metadata.sourceId, location);
-        }
-    }
-
-    private MoveResult moveManaged(Node node, String indexSource, ModConfig.SaveLocation location)
-            throws IOException {
-        Path base = rootFor(location);
-        Files.createDirectories(base);
-        WorldGraphInventory.requirePlainRoot(base);
-        Path from = path(node.location());
-        if (from.getParent().equals(base))
-            return new MoveResult(from, from);
-        Path desired = base.resolve(from.getFileName());
-        Path destination = WorldMetadata.loadIfPresent(from).isPresent()
-                        && WorldRelocation.isEmptyReservation(desired, node.id())
-                ? desired
-                : MirrorFolders.available(base, from.getFileName().toString());
-        WorldGraphConfig.Snapshot before = open().snapshot();
-        WorldRelocation.move(from, destination, node.id(), node.parentId(), indexSource, () -> {
-            Node existing = before.nodes().get(node.id());
-            if (existing == null)
-                return false;
-            Map<String, Node> nodes = new HashMap<>(before.nodes());
-            nodes.put(existing.id(),
-                    new Node(existing.id(), existing.parentId(), inventory.locationOf(destination),
-                            existing.kind(), existing.role()));
-            Map<String, Location> locations = new HashMap<>(before.locations());
-            locations.put(existing.id(), inventory.locationOf(destination));
-            try {
-                publishConfig(before, nodes, locations, before.sourceSettings(), before.mirrorSettings(),
-                        before.endpointRules(), before.pendingImports());
-                return true;
-            } catch (IOException failure) {
-                WMLogger.warn("Could not publish relocated world", failure);
-                return false;
-            }
-        });
-        WMLogger.info("World relocated source=" + from + " target=" + destination);
-        refreshPublished();
-        return new MoveResult(from, destination);
-    }
-
-    public synchronized void deleteWorld(String nodeId, Location confirmedLocation) throws Exception {
-        requireIdle();
-        try (var ignored = acquireGraphLease()) {
-            refreshPublished();
-            Node node = published.graph().nodes().get(nodeId);
-            if (node == null || !published.graph().hasUniqueLocation(nodeId))
-                throw new IOException("This world is unavailable");
-            if (!node.location().equals(confirmedLocation))
-                throw new IOException("The world moved after deletion was confirmed");
-            Path folder = path(confirmedLocation);
-            WorldGraphInventory.requirePlainRoot(folder.getParent());
-            FileProof.requirePlainDirectory(folder);
-            FileProof.requirePlainFileIfPresent(folder.resolve(net.minecraft.util.DirectoryLock.LOCK_FILE));
-            if (net.minecraft.util.DirectoryLock.isLocked(folder))
-                throw new IOException("Close the world before deleting it");
-            try (var access = LevelStorageSource.createDefault(folder.getParent())
-                            .validateAndCreateAccess(confirmedLocation.folder())) {
-                if (io.github.billstark001.worldmirror.util.WorldRecovery.required(folder)
-                        || WorldRelocation.journal(folder) != null)
-                    throw new IOException("Complete pending world recovery before deleting it");
-                if (node.kind() == WorldGraph.Kind.LOCAL) {
-                    inventory.localOriginal(confirmedLocation);
-                    if (!nodeId.equals(LocalWorldIdentity.read(folder)))
-                        throw new IOException("The local save identity changed");
-                } else {
-                    verifyUpstreamOwner(folder, node);
-                    retireOtherReservations(node, folder);
-                }
-                access.deleteLevel();
-            }
-            WMLogger.info("World deleted world=" + folder + " type=" + node.kind());
-            refreshPublished();
-        }
-    }
-
     public Target currentTarget(Target target) throws IOException {
         Target current = available ? published.targets().get(target.nodeId()) : null;
         if (current == null || !Objects.equals(current.parentNodeId(), target.parentNodeId())
@@ -960,10 +331,10 @@ public final class WorldGraphService {
         }
     }
 
-    private FileChannel acquireGraphLease() throws IOException {
+    FileChannel acquireGraphLease() throws IOException {
         FileProof.requirePlainDirectory(configDirectory);
         Files.createDirectories(configDirectory);
-        WorldGraphInventory.requirePlainRoot(configDirectory);
+        WorldInventoryFolders.requirePlainRoot(configDirectory);
         var channel = FileChannel.open(configDirectory.resolve(GRAPH_LOCK), StandardOpenOption.CREATE,
                 StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
         try {
@@ -985,7 +356,7 @@ public final class WorldGraphService {
         }
     }
 
-    private void refreshPublished() throws IOException {
+    void refreshPublished() throws IOException {
         try {
             if (store != null && !store.isCurrent())
                 store = null;
@@ -1009,7 +380,7 @@ public final class WorldGraphService {
         result.indexSources().forEach((id, indexSource) -> {
             Node node = graph.nodes().get(id);
             Location location = node.location();
-            Path folder = inventory.root(location.root()).resolve(location.folder());
+            Path folder = folders.root(location.root()).resolve(location.folder());
             targets.put(id, new Target(id, node.parentId(), indexSource, folder));
         });
         published = new Published(
@@ -1020,19 +391,19 @@ public final class WorldGraphService {
             WMLogger.debug("World graph missing upstreams=" + graph.missingParents().size());
     }
 
-    private WorldGraphConfig open() throws IOException {
+    WorldGraphConfig open() throws IOException {
         if (store == null)
             store = WorldGraphConfig.open(configDirectory.resolve(WorldGraphConfig.FILE_NAME));
         return store;
     }
 
-    private void publishConfig(WorldGraphConfig.Snapshot before, Map<String, Node> nodes,
+    void publishConfig(WorldGraphConfig.Snapshot before, Map<String, Node> nodes,
             Map<String, SourceSettings> sources, Map<String, MirrorSettings> mirrors,
             Map<String, EndpointRule> rules, Map<String, PendingImport> pending) throws IOException {
         publishConfig(before, nodes, before.locations(), sources, mirrors, rules, pending);
     }
 
-    private void publishConfig(WorldGraphConfig.Snapshot before, Map<String, Node> nodes,
+    void publishConfig(WorldGraphConfig.Snapshot before, Map<String, Node> nodes,
             Map<String, Location> locations, Map<String, SourceSettings> sources,
             Map<String, MirrorSettings> mirrors, Map<String, EndpointRule> rules,
             Map<String, PendingImport> pending) throws IOException {
@@ -1041,8 +412,7 @@ public final class WorldGraphService {
         replaceConfig(before, next);
     }
 
-    private void replaceConfig(WorldGraphConfig.Snapshot before, WorldGraphConfig.Snapshot next)
-            throws IOException {
+    void replaceConfig(WorldGraphConfig.Snapshot before, WorldGraphConfig.Snapshot next) throws IOException {
         try {
             if (!open().replace(before, next))
                 throw new IOException("World graph changed before publication");
@@ -1056,17 +426,17 @@ public final class WorldGraphService {
                 view.graph(), next, view.targets(), view.untrackedLocalWorlds(), view.orphanedMirrors());
     }
 
-    private static SourceSettings settings(Map<String, SourceSettings> sources, String id) {
+    static SourceSettings settings(Map<String, SourceSettings> sources, String id) {
         return sources.getOrDefault(id, new SourceSettings(null, null, null, null, null));
     }
 
-    private static String preferredMirror(SourceSettings settings) {
+    static String preferredMirror(SourceSettings settings) {
         if (settings == null)
             return null;
         return settings.defaultMirrorId() == null ? settings.inheritedMirrorId() : settings.defaultMirrorId();
     }
 
-    private Path rootFor(ModConfig.SaveLocation location) {
-        return inventory.root(Root.valueOf(location.name()));
+    Path rootFor(ModConfig.SaveLocation location) {
+        return folders.root(Root.valueOf(location.name()));
     }
 }

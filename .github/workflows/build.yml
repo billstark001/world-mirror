@@ -15,7 +15,7 @@ jobs:
       - name: lint GitHub Actions workflows
         uses: docker://rhysd/actionlint:1.7.7
 
-  formatting:
+  build:
     runs-on: ubuntu-24.04
     steps:
       - name: checkout repository
@@ -27,12 +27,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run format:check
-
-  build:
-    runs-on: ubuntu-24.04
-    steps:
-      - name: checkout repository
-        uses: actions/checkout@v4
       - name: validate gradle wrapper
         uses: gradle/actions/wrapper-validation@v4
       - name: setup jdk

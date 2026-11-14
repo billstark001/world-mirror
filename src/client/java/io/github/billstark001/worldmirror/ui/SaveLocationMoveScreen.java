@@ -1,7 +1,7 @@
 package io.github.billstark001.worldmirror.ui;
 
 import io.github.billstark001.worldmirror.config.ModConfig;
-import io.github.billstark001.worldmirror.download.DownloadManager;
+import io.github.billstark001.worldmirror.download.MirrorMove;
 import io.github.billstark001.worldmirror.io.MirrorTarget;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
@@ -64,7 +64,7 @@ public final class SaveLocationMoveScreen extends Screen {
         setMoving(true);
         failure = null;
         Minecraft client = Minecraft.getInstance();
-        DownloadManager.moveMirrorWorld(client, target, targetLocation, result -> {
+        MirrorMove.move(client, target, targetLocation, result -> {
             setMoving(false);
             if (ClientDialogs.currentScreen(client) != this)
                 return;

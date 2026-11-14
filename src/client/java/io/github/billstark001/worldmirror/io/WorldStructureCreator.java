@@ -232,7 +232,9 @@ public final class WorldStructureCreator {
         try (WorldWriteLock ignored = WorldWriteLock.acquire(stagedWorld)) {
             requireWorldData(stagedWorld);
             ensureWorldDirectories(stagedWorld);
+#if MC_VERSION >= 260102
             repairOptionalSavedData(stagedWorld, levelName);
+#endif
             MirrorWorldgenAssets.install(stagedWorld, WorldStructureApi.dataPackFormat());
             WorldStructureApi.updateOwnedLevelData(stagedWorld);
             return true;
@@ -247,7 +249,9 @@ public final class WorldStructureCreator {
         try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
             requireWorldData(worldFolder);
             ensureWorldDirectories(worldFolder);
+#if MC_VERSION >= 260102
             repairOptionalSavedData(worldFolder, levelName);
+#endif
             return true;
         } catch (Exception e) {
             WMLogger.warn("Mirror world maintenance failed path=" + worldFolder, e);
@@ -274,14 +278,17 @@ public final class WorldStructureCreator {
         FileProof.requirePlainFile(level);
     }
 
+#if MC_VERSION >= 260102
     private static void repairOptionalSavedData(Path worldFolder, String levelName) {
         try {
-            WorldStructureApi.repairOwnedSavedData(worldFolder);
+            WorldClockData.repairOwnedSavedData(worldFolder);
             OperationFailures.recovered(levelName, "optional_saved_data");
         } catch (Exception repairFailure) {
             OperationFailures.report(levelName, "optional_saved_data", worldFolder, repairFailure);
         }
     }
+
+#endif
 
     public static boolean syncWorldSetting(
             MirrorTarget target, WorldSettingsSnapshot settings, Setting setting) {

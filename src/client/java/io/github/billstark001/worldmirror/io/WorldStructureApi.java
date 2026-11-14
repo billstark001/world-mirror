@@ -1,174 +1,41 @@
 package io.github.billstark001.worldmirror.io;
 
-import io.github.billstark001.worldmirror.legacy.LegacyWorldClocks;
 import io.github.billstark001.worldmirror.util.FileProof;
+import net.minecraft.SharedConstants;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.DoubleTag;
 import net.minecraft.nbt.FloatTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.StringTag;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.packs.PackType;
+import net.minecraft.world.level.Level;
+
 import java.io.IOException;
-#if MC_VERSION >= 260300
+import java.nio.file.Path;
+import java.util.UUID;
+import java.util.function.Consumer;
+
+#if MC_VERSION >= 260102
 import com.mojang.serialization.Lifecycle;
-import net.minecraft.SharedConstants;
-import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Holder;
-import net.minecraft.core.HolderGetter;
-import net.minecraft.core.HolderOwner;
-import net.minecraft.core.HolderSet;
-import net.minecraft.core.Registry;
-import net.minecraft.core.registries.Registries;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.NbtUtils;
-import net.minecraft.nbt.NbtOps;
-import net.minecraft.nbt.StringTag;
-import net.minecraft.nbt.Tag;
-import net.minecraft.resources.ResourceKey;
-import net.minecraft.server.packs.PackType;
-import net.minecraft.resources.RegistryOps;
-import net.minecraft.tags.TagKey;
 import net.minecraft.world.Difficulty;
 import net.minecraft.world.level.GameType;
-import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelSettings;
 import net.minecraft.world.level.WorldDataConfiguration;
 import net.minecraft.world.level.gamerules.GameRules;
 import net.minecraft.world.level.storage.LevelData;
 import net.minecraft.world.level.storage.LevelStorageSource;
 import net.minecraft.world.level.storage.PrimaryLevelData;
-import net.minecraft.world.clock.PackedClockStates;
-import net.minecraft.world.clock.WorldClock;
-import net.minecraft.world.clock.WorldClocks;
-
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
-
-/** Minecraft 26.x translation for level.dat and the dimension-first save layout. */
-final class WorldStructureApi {
-    private static final WorldClockLookup WORLD_CLOCK_LOOKUP = new WorldClockLookup();
-    private static final Map<ResourceKey<WorldClock>, Holder.Reference<WorldClock>> WORLD_CLOCKS = Map.of(
-            WorldClocks.OVERWORLD,
-            Holder.Reference.createStandAlone(WORLD_CLOCK_LOOKUP, WorldClocks.OVERWORLD), WorldClocks.THE_END,
-            Holder.Reference.createStandAlone(WORLD_CLOCK_LOOKUP, WorldClocks.THE_END));
-    private static final RegistryOps<Tag> WORLD_CLOCK_OPS =
-            RegistryOps.create(NbtOps.INSTANCE, new RegistryOps.RegistryInfoLookup() {
-                @Override
-                @SuppressWarnings("unchecked")
-                public <T> Optional<HolderGetter<T>> lookup(
-                        ResourceKey<? extends Registry<? extends T>> registryKey) {
-                    if (!Registries.WORLD_CLOCK.equals(registryKey))
-                        return Optional.empty();
-                    return Optional.of((HolderGetter<T>) (HolderGetter<?>) WORLD_CLOCK_LOOKUP);
-                }
-            });
-
-    private static final class WorldClockLookup implements HolderGetter<WorldClock>, HolderOwner<WorldClock> {
-        @Override
-        public Optional<Holder.Reference<WorldClock>> get(ResourceKey<WorldClock> resourceKey) {
-            return Optional.ofNullable(WORLD_CLOCKS.get(resourceKey));
-        }
-
-        @Override
-        public Optional<HolderSet.Named<WorldClock>> get(TagKey<WorldClock> tagKey) {
-            return Optional.empty();
-        }
-    }
-
-#elif MC_VERSION >= 260102
-import com.mojang.serialization.Lifecycle;
-import net.minecraft.SharedConstants;
-import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.Holder;
-import net.minecraft.core.HolderGetter;
-import net.minecraft.core.HolderOwner;
-import net.minecraft.core.HolderSet;
-import net.minecraft.core.Registry;
-import net.minecraft.core.registries.Registries;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.NbtUtils;
-import net.minecraft.nbt.NbtOps;
-import net.minecraft.nbt.StringTag;
-import net.minecraft.nbt.Tag;
-import net.minecraft.resources.ResourceKey;
-import net.minecraft.server.packs.PackType;
-import net.minecraft.resources.RegistryOps;
-import net.minecraft.tags.TagKey;
-import net.minecraft.world.Difficulty;
-import net.minecraft.world.level.GameType;
-import net.minecraft.world.level.Level;
-import net.minecraft.world.level.LevelSettings;
-import net.minecraft.world.level.WorldDataConfiguration;
-import net.minecraft.world.level.gamerules.GameRules;
-import net.minecraft.world.level.storage.LevelData;
-import net.minecraft.world.level.storage.LevelStorageSource;
-import net.minecraft.world.level.storage.PrimaryLevelData;
-import net.minecraft.world.clock.PackedClockStates;
-import net.minecraft.world.clock.WorldClock;
-import net.minecraft.world.clock.WorldClocks;
-
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
-
-/** Minecraft 26.x translation for level.dat and the dimension-first save layout. */
-final class WorldStructureApi {
-    private static final HolderOwner<WorldClock> WORLD_CLOCK_OWNER = new HolderOwner<>() {};
-    private static final Map<ResourceKey<WorldClock>, Holder.Reference<WorldClock>> WORLD_CLOCKS = Map.of(
-            WorldClocks.OVERWORLD,
-            Holder.Reference.createStandAlone(WORLD_CLOCK_OWNER, WorldClocks.OVERWORLD), WorldClocks.THE_END,
-            Holder.Reference.createStandAlone(WORLD_CLOCK_OWNER, WorldClocks.THE_END));
-    private static final HolderGetter<WorldClock> WORLD_CLOCK_GETTER = new HolderGetter<>() {
-        @Override
-        public Optional<Holder.Reference<WorldClock>> get(ResourceKey<WorldClock> resourceKey) {
-            return Optional.ofNullable(WORLD_CLOCKS.get(resourceKey));
-        }
-
-        @Override
-        public Optional<HolderSet.Named<WorldClock>> get(TagKey<WorldClock> tagKey) {
-            return Optional.empty();
-        }
-    };
-    private static final RegistryOps.RegistryInfo<WorldClock> WORLD_CLOCK_REGISTRY =
-            new RegistryOps.RegistryInfo<>(WORLD_CLOCK_OWNER, WORLD_CLOCK_GETTER, Lifecycle.stable());
-    private static final RegistryOps<Tag> WORLD_CLOCK_OPS =
-            RegistryOps.create(NbtOps.INSTANCE, new RegistryOps.RegistryInfoLookup() {
-                @Override
-                @SuppressWarnings("unchecked")
-                public <T> Optional<RegistryOps.RegistryInfo<T>> lookup(
-                        ResourceKey<? extends Registry<? extends T>> registryKey) {
-                    if (!Registries.WORLD_CLOCK.equals(registryKey))
-                        return Optional.empty();
-                    return Optional.of(
-                            (RegistryOps.RegistryInfo<T>) (RegistryOps.RegistryInfo<?>) WORLD_CLOCK_REGISTRY);
-                }
-            });
 
 #else
-import net.minecraft.SharedConstants;
-import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.IntArrayTag;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.StringTag;
-import net.minecraft.resources.ResourceKey;
-import net.minecraft.server.packs.PackType;
-import net.minecraft.world.level.Level;
-
-import java.nio.file.Path;
-import java.util.UUID;
-
-/** Minecraft 1.21.11 translation for its native level.dat and save layout. */
-final class WorldStructureApi {
 #endif
+
+/** Native level.dat and save layout for the selected Minecraft target. */
+final class WorldStructureApi {
     private WorldStructureApi() {}
 
     static Path worldgenDataPath(Path worldFolder) {
@@ -239,6 +106,20 @@ final class WorldStructureApi {
         levelData.put("WorldGenSettings", settings);
 #endif
         WorldStructureCreator.writeVerifiedWorldData(level, levelRoot);
+    }
+
+    private static void enableDataPack(CompoundTag levelData) {
+        CompoundTag packs = levelData.getCompoundOrEmpty("DataPacks");
+        ListTag enabled = packs.getListOrEmpty("Enabled");
+        for (int i = 0; i < enabled.size(); i++) {
+            if (MirrorWorldgenAssets.PACK_ID.equals(enabled.getStringOr(i, "")))
+                return;
+        }
+        enabled.add(StringTag.valueOf(MirrorWorldgenAssets.PACK_ID));
+        packs.put("Enabled", enabled);
+        if (!packs.contains("Disabled"))
+            packs.put("Disabled", new ListTag());
+        levelData.put("DataPacks", packs);
     }
 
     private static void removeMirrorDataPack(CompoundTag levelData) {
@@ -313,7 +194,8 @@ final class WorldStructureApi {
         writeSavedData(worldgenDataPath(worldFolder), worldGenSettings);
         LevelStorageSource.writeGameRules(data, worldFolder, createGameRules(data.getDataConfiguration()));
         writeSavedData(minecraftData.resolve("weather.dat"), createWeatherData(settings));
-        writeSavedData(minecraftData.resolve("world_clocks.dat"), createWorldClocksData(settings.dayTime()));
+        writeSavedData(minecraftData.resolve("world_clocks.dat"),
+                WorldClockData.createWorldClocksData(settings.dayTime()));
         writeLevelData(worldFolder.resolve("level.dat"), data, playerId);
 #else
         writeLevelData(worldFolder.resolve("level.dat"),
@@ -345,11 +227,6 @@ final class WorldStructureApi {
         root.put("data", MirrorWorldgenCheck.prepareUpdate(root));
         NbtUtils.addCurrentDataVersion(root);
         WorldStructureCreator.writeVerifiedWorldData(file, root);
-    }
-
-    static void repairOwnedSavedData(Path worldFolder) throws Exception {
-        FileProof.requirePlainPath(worldFolder, worldFolder.resolve("data/minecraft/world_clocks.dat"));
-        LegacyWorldClocks.repair(worldFolder, WorldStructureApi::roundTripWorldClocksData);
 #else
         Path levelDat = worldFolder.resolve("level.dat");
         CompoundTag root = NbtReadSupport.readWorldData(levelDat);
@@ -358,10 +235,6 @@ final class WorldStructureApi {
         enableDataPack(data);
         root.put("Data", data);
         WorldStructureCreator.writeVerifiedWorldData(levelDat, root);
-    }
-
-    static void repairOwnedSavedData(Path worldFolder) {
-        // Minecraft 1.21.11 does not use data/minecraft/world_clocks.dat.
 #endif
     }
 
@@ -391,11 +264,11 @@ final class WorldStructureApi {
         switch (setting) {
             case TIME -> {
                 patchLevelData(worldFolder, data -> data.putLong("Time", settings.gameTime()));
-                writeSavedDataAtomically(worldFolder.resolve("data/minecraft/world_clocks.dat"),
-                        createWorldClocksData(settings.dayTime()));
+                writeSavedData(worldFolder.resolve("data/minecraft/world_clocks.dat"),
+                        WorldClockData.createWorldClocksData(settings.dayTime()));
             }
             case WEATHER ->
-                writeSavedDataAtomically(
+                writeSavedData(
                         worldFolder.resolve("data/minecraft/weather.dat"), createWeatherData(settings));
             case DIFFICULTY ->
                 patchLevelData(worldFolder, data -> {
@@ -405,7 +278,13 @@ final class WorldStructureApi {
                     data.put("difficulty_settings", difficultySettings);
                 });
         }
+#else
+        // In 1.21.11 all settings are stored in level.dat.
+        patchLevelData(worldFolder, data -> applyWorldSetting(data, settings, setting));
+#endif
     }
+
+#if MC_VERSION >= 260102
 
     private static PrimaryLevelData createLevelData(
             String levelName, int spawnX, int spawnY, int spawnZ, WorldSettingsSnapshot settings) {
@@ -447,46 +326,19 @@ final class WorldStructureApi {
         WorldStructureCreator.writeVerifiedWorldData(levelDat, root);
     }
 
-    private static void enableDataPack(CompoundTag levelData) {
-        CompoundTag packs = levelData.getCompoundOrEmpty("DataPacks");
-        ListTag enabled = packs.getListOrEmpty("Enabled");
-        for (int i = 0; i < enabled.size(); i++) {
-            if (MirrorWorldgenAssets.PACK_ID.equals(enabled.getStringOr(i, "")))
-                return;
-        }
-        enabled.add(StringTag.valueOf(MirrorWorldgenAssets.PACK_ID));
-        packs.put("Enabled", enabled);
-        if (!packs.contains("Disabled"))
-            packs.put("Disabled", new ListTag());
-        levelData.put("DataPacks", packs);
-    }
-
     private static void writeSavedData(Path file, CompoundTag data) throws Exception {
         CompoundTag root = new CompoundTag();
         root.put("data", data);
         NbtUtils.addCurrentDataVersion(root);
         WorldStructureCreator.writeVerifiedWorldData(file, root);
     }
-
-    private static void writeSavedDataAtomically(Path file, CompoundTag data) throws Exception {
-        CompoundTag root = new CompoundTag();
-        root.put("data", data);
-        NbtUtils.addCurrentDataVersion(root);
-        WorldStructureCreator.writeVerifiedWorldData(file, root);
-    }
-
-    private static void patchLevelData(Path worldFolder, java.util.function.Consumer<CompoundTag> patch)
-            throws Exception {
-#else
 #endif
+
+    private static void patchLevelData(Path worldFolder, Consumer<CompoundTag> patch) throws Exception {
         Path levelDat = worldFolder.resolve("level.dat");
         CompoundTag root = NbtReadSupport.readWorldData(levelDat);
         CompoundTag data = root.getCompoundOrEmpty("Data");
-#if MC_VERSION >= 260102
         patch.accept(data);
-#else
-        applyWorldSetting(data, settings, setting);
-#endif
         root.put("Data", data);
         WorldStructureCreator.writeVerifiedWorldData(levelDat, root);
     }
@@ -502,29 +354,6 @@ final class WorldStructureApi {
         return weather;
     }
 
-    private static CompoundTag createWorldClocksData(long dayTime) {
-        CompoundTag states = new CompoundTag();
-        states.put("minecraft:overworld", createClockState(dayTime));
-        states.put("minecraft:the_end", createClockState(dayTime));
-        return roundTripWorldClocksData(states);
-    }
-
-    private static CompoundTag createClockState(long totalTicks) {
-        CompoundTag state = new CompoundTag();
-        state.putLong("total_ticks", totalTicks);
-        state.putFloat("partial_tick", 0.0F);
-        state.putFloat("rate", 1.0F);
-        state.putBoolean("paused", false);
-        return state;
-    }
-
-    static CompoundTag roundTripWorldClocksData(CompoundTag data) {
-        PackedClockStates decoded = PackedClockStates.CODEC.parse(WORLD_CLOCK_OPS, data).getOrThrow();
-        Tag encoded = PackedClockStates.CODEC.encodeStart(WORLD_CLOCK_OPS, decoded).getOrThrow();
-        if (!(encoded instanceof CompoundTag compound)) {
-            throw new IllegalStateException("Packed clock codec did not produce a compound tag");
-        }
-        return compound;
 #else
     private static CompoundTag createLevelData(String levelName, int spawnX, int spawnY, int spawnZ,
             CompoundTag worldGenSettings, WorldSettingsSnapshot settings) {
@@ -587,20 +416,6 @@ final class WorldStructureApi {
         return packs;
     }
 
-    private static void enableDataPack(CompoundTag data) {
-        CompoundTag packs = data.getCompoundOrEmpty("DataPacks");
-        ListTag enabled = packs.getListOrEmpty("Enabled");
-        for (int i = 0; i < enabled.size(); i++) {
-            if (MirrorWorldgenAssets.PACK_ID.equals(enabled.getStringOr(i, ""))) {
-                data.put("DataPacks", packs);
-                return;
-            }
-        }
-        enabled.add(StringTag.valueOf(MirrorWorldgenAssets.PACK_ID));
-        packs.put("Enabled", enabled);
-        data.put("DataPacks", packs);
-    }
-
     private static CompoundTag createSpawnSettings(int x, int y, int z) {
         return createSpawnSettings(Level.OVERWORLD, x, y, z);
     }
@@ -634,6 +449,6 @@ final class WorldStructureApi {
         rules.putString("doMobSpawning", "false");
         rules.putString("randomTickSpeed", "0");
         return rules;
-#endif
     }
+#endif
 }

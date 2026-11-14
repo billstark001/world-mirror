@@ -129,17 +129,7 @@ public final class FileProof {
             if (checkpoint == null) {
                 Files.copy(input, destination);
             } else {
-                try (var output = Files.newOutputStream(
-                             destination, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
-                    byte[] buffer = new byte[64 * 1024];
-                    while (true) {
-                        checkpoint.run();
-                        int count = input.read(buffer);
-                        if (count < 0)
-                            break;
-                        output.write(buffer, 0, count);
-                    }
-                }
+                copyWithCheckpoints(input, destination, checkpoint);
             }
         }
         String expected = HexFormat.of().formatHex(digest.digest());
@@ -147,5 +137,20 @@ public final class FileProof {
             throw new IOException("Copy verification failed: " + source);
         }
         return expected;
+    }
+
+    private static void copyWithCheckpoints(DigestInputStream input, Path destination, Runnable checkpoint)
+            throws IOException {
+        try (var output = Files.newOutputStream(
+                     destination, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+            byte[] buffer = new byte[64 * 1024];
+            while (true) {
+                checkpoint.run();
+                int count = input.read(buffer);
+                if (count < 0)
+                    break;
+                output.write(buffer, 0, count);
+            }
+        }
     }
 }

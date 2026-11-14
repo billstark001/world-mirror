@@ -1,7 +1,7 @@
 package io.github.billstark001.worldmirror.ui.map;
 
 import io.github.billstark001.worldmirror.core.ChunkListener;
-import io.github.billstark001.worldmirror.download.DownloadManager;
+import io.github.billstark001.worldmirror.download.DownloadCapture;
 import io.github.billstark001.worldmirror.download.ExportStatus;
 import io.github.billstark001.worldmirror.download.ExportStatusStore;
 import net.minecraft.resources.ResourceKey;
@@ -77,7 +77,7 @@ public final class LiveChunkStatusSnapshot {
             records.put(ChunkBounds.key(chunk.x(), chunk.z()),
                     new Record(chunk.x(), chunk.z(), chunk.capturedAtMs(), state, saved != null));
         }
-        for (ChunkPos pos : DownloadManager.pendingChunkCaptures(
+        for (ChunkPos pos : DownloadCapture.pendingChunkCaptures(
                      dimension, range.minX(), range.maxX(), range.minZ(), range.maxZ())) {
             int x = pos.getMinBlockX() >> 4;
             int z = pos.getMinBlockZ() >> 4;

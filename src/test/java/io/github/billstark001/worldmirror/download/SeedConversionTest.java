@@ -299,7 +299,7 @@ class SeedConversionTest {
         try (var index = ChunkDatabase.open(world, namespace)) {
             assertTrue(index.recordUpdates("minecraft:overworld", Map.of(CAPTURE, 42L), "world_mirror"));
         }
-        assertTrue(SeedConversion.isAdoptableVoid(world));
+        assertTrue(SeedConversionTarget.isAdoptableVoid(world));
         assertFalse(SeedConversion.inspectTarget(world, null).seeded());
         var preview = SeedConversion.preview(world, null, SeedConversion.Request.set(71, true));
         assertFalse(Files.exists(world.resolve(WorldMetadata.FILE_NAME)));
@@ -325,16 +325,16 @@ class SeedConversionTest {
                 world, "Modified fixture", WorldSettingsSnapshot.defaults()));
         Path pack = world.resolve("datapacks").resolve(MirrorWorldgenAssets.PACK_DIRECTORY);
         Path extra = Files.writeString(pack.resolve("custom.json"), "{}");
-        assertTrue(SeedConversion.hasOrphanVoidGenerator(world));
-        assertFalse(SeedConversion.isAdoptableVoid(world));
+        assertTrue(SeedConversionTarget.hasOrphanVoidGenerator(world));
+        assertFalse(SeedConversionTarget.isAdoptableVoid(world));
         assertThrows(java.io.IOException.class,
                 () -> SeedConversion.preview(world, null, SeedConversion.Request.set(9, false)));
         Files.delete(extra);
         try (var ignored = io.github.billstark001.worldmirror.io.WorldWriteLock.acquire(world)) {
             LocalWorldIdentity.ensure(world);
         }
-        assertFalse(SeedConversion.hasOrphanVoidGenerator(world));
-        assertFalse(SeedConversion.isAdoptableVoid(world));
+        assertFalse(SeedConversionTarget.hasOrphanVoidGenerator(world));
+        assertFalse(SeedConversionTarget.isAdoptableVoid(world));
         assertThrows(java.io.IOException.class,
                 () -> SeedConversion.preview(world, null, SeedConversion.Request.set(9, false)));
         assertFalse(Files.exists(world.resolve(WorldMetadata.FILE_NAME)));
@@ -349,8 +349,8 @@ class SeedConversionTest {
                 assertTrue(index.recordUpdates("minecraft:overworld", Map.of(CAPTURE, 42L), "world_mirror"));
             }
         }
-        assertTrue(SeedConversion.hasOrphanVoidGenerator(world));
-        assertFalse(SeedConversion.isAdoptableVoid(world));
+        assertTrue(SeedConversionTarget.hasOrphanVoidGenerator(world));
+        assertFalse(SeedConversionTarget.isAdoptableVoid(world));
         assertThrows(java.sql.SQLException.class,
                 () -> SeedConversion.preview(world, null, SeedConversion.Request.set(9, false)));
         assertFalse(Files.exists(world.resolve(WorldMetadata.FILE_NAME)));

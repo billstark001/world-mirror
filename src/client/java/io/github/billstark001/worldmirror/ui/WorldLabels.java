@@ -21,6 +21,11 @@ final class WorldLabels {
                 "config.worldmirror.saveLoc." + location.name().toLowerCase(Locale.ROOT));
     }
 
+    static Component conflictStrategy(ModConfig.ConflictStrategy strategy) {
+        return Component.translatable(
+                "config.worldmirror.conflictStrategy." + strategy.name().toLowerCase(Locale.ROOT));
+    }
+
     static String path(WorldGraph.Location location) {
         String root = location.root() == WorldGraph.Root.SAVES ? "saves" : "downloaded_worlds";
         return root + "/" + location.folder();

@@ -2,6 +2,7 @@ package io.github.billstark001.worldmirror.ui.map;
 
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.download.DownloadManager;
+import io.github.billstark001.worldmirror.download.DownloadCapture;
 import io.github.billstark001.worldmirror.download.ExportStatusStore;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceKey;
@@ -41,7 +42,7 @@ public final class ChunkViewportCache {
         boolean includeLive = capture != null && nodeId.equals(capture.nodeId());
         Context next = new Context(target, dimension, saved,
                 includeLive ? ChunkListener.mapStatusVersion(dimension) : -1L,
-                includeLive ? DownloadManager.pendingCaptureStatusVersion(dimension) : -1L,
+                includeLive ? DownloadCapture.pendingCaptureStatusVersion(dimension) : -1L,
                 ExportStatusStore.global().version(nodeId, dimension));
         return get(client.level, next, visible, now,
                 range -> LiveChunkStatusSnapshot.capture(dimension, range, saved, nodeId, includeLive));

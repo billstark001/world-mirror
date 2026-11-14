@@ -43,11 +43,9 @@ public final class MirrorWorldgenCheck {
             try {
                 FileProof.Version before = FileProof.version(file);
                 if (!fresh) {
-                    synchronized (CACHE) {
-                        Cached cached = CACHE.get(file);
-                        if (cached != null && cached.version().equals(before))
-                            return cached.result();
-                    }
+                    Cached cached = cached(file);
+                    if (cached != null && cached.version().equals(before))
+                        return cached.result();
                 }
                 Result result;
                 try {
@@ -68,6 +66,12 @@ public final class MirrorWorldgenCheck {
                         30_000L, "Cannot inspect mirror world generation: " + file, failure);
                 return new Result(State.UNREADABLE, "worldgen_unreadable");
             }
+        }
+    }
+
+    private static Cached cached(Path file) {
+        synchronized (CACHE) {
+            return CACHE.get(file);
         }
     }
 

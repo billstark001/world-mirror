@@ -2,7 +2,7 @@ package io.github.billstark001.worldmirror.ui.map;
 
 import io.github.billstark001.worldmirror.conflict.ConflictManager;
 import io.github.billstark001.worldmirror.download.ChunkDatabase;
-import io.github.billstark001.worldmirror.download.DownloadManager;
+import io.github.billstark001.worldmirror.download.DownloadRoute;
 import io.github.billstark001.worldmirror.download.MirrorWorldContext;
 import io.github.billstark001.worldmirror.download.OperationFailures;
 import io.github.billstark001.worldmirror.download.WorldGraphService;
@@ -168,11 +168,11 @@ public final class ChunkStatusCache {
         if (client == null || client.level == null)
             return null;
         var graphs = WorldGraphService.instance();
-        if (!graphs.observationIsCurrent(client))
+        if (!graphs.routing().observationIsCurrent(client))
             return null;
-        var target = DownloadManager.captureTarget();
-        if (target == null && !DownloadManager.isNewMirrorSelected())
-            target = graphs.target(graphs.source());
+        var target = DownloadRoute.captureTarget();
+        if (target == null && !DownloadRoute.isNewMirrorSelected())
+            target = graphs.target(graphs.routing().source());
         if (target != null) {
             var installed = graphs.targetById(target.nodeId());
             if (installed == null || !installed.parentNodeId().equals(target.parentNodeId())

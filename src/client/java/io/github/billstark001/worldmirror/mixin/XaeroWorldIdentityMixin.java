@@ -1,6 +1,6 @@
 package io.github.billstark001.worldmirror.mixin;
 
-import io.github.billstark001.worldmirror.download.DownloadManager;
+import io.github.billstark001.worldmirror.download.DownloadWorldChanges;
 import io.github.billstark001.worldmirror.xaero.XaeroWorldIdentity;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientCommonPacketListenerImpl;
@@ -39,7 +39,7 @@ abstract class XaeroWorldIdentityMixin {
         var observation = XaeroWorldIdentity.readPayload(packet.payload());
         if (observation != null) {
             XaeroWorldIdentity.remember(listener, observation);
-            DownloadManager.observeProvider(listener, observation);
+            DownloadWorldChanges.observeProvider(listener, observation);
         }
     }
 }
