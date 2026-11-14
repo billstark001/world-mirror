@@ -2,13 +2,21 @@
 
 Open **World Mirror Routes** with the square World Mirror icon on the title screen or from the in-game status screen's **Settings** tab. Mod Menu opens global settings. A server address can point to several logical worlds, and several addresses can share an address group. A logical world can have multiple download mirrors. A mirror opened in singleplayer is also a possible source for another mirror. The status screen can show the open save or the download destination and can select another direct target or create one for the current session. That selection does not overwrite the saved default.
 
+![Minecraft title screen with the World Mirror Routes icon at the right end of the square button row](../assets/title-world-mirror.png)
+
+![Choose Mirror list with mirrors from the saves and downloaded worlds folders](../assets/choose-mirror.png)
+
 The **Worlds** tab shows each upstream world and the mirrors that descend from it. Drag to move around the tree and scroll to zoom. Select a world to see its details, then open the details to edit its settings. The fit button returns the whole tree to view. The **Server Addresses** and **Stable IDs** tabs manage the rules that connect servers to those worlds.
 
 In world details, **Choose Upstream** opens the same searchable world list used to choose a download mirror. The list shows which entries are in the saves folder, which are in downloaded worlds, and which are remote servers. Choosing or removing an upstream keeps the world ID and its SQLite namespace. A mirror with no upstream can still be opened, edited, and used as the upstream of another mirror.
 
+![Choose Upstream list with a local world, a mirror, and a remote world](../assets/choose-upstream.png)
+
 Selecting a remote world for an address or a stable ID uses the same searchable picker. Address and alias entry accept text, and the stable ID policy uses a dropdown.
 
 **World Location** selects where a managed world is kept. **Delete** uses Minecraft's world deletion confirmation. Downstream links to a deleted world remain visible as missing.
+
+![World details with the World Location dropdown open](../assets/world-location-dropdown.png)
 
 The **World Seed** action opens offline generator settings. A fresh World Mirror reservation or a recognized void mirror whose metadata is missing can be initialized when you apply the seed. See [mirror seeds](world-seeds.md).
 
@@ -22,9 +30,15 @@ The client normalizes the address the player entered: host case, IDN, IPv6 and t
 | `PREFER_BOUND_ID`  | Use a bound advertised ID. Use the endpoint rule when the client has evidence that no ID is available. Ask when an ID is unfamiliar or its use for this session needs confirmation. |
 | `REQUIRE_BOUND_ID` | Wait when no ID is available. An unfamiliar or conflicting advertised ID needs explicit selection.                                                                                  |
 
+![Server address rule with the stable ID policy dropdown open](../assets/server-address-policy.png)
+
 A binding uses the provider, address group and raw advertised ID. For Xaero, the observation is the signed ID from the decoded level-properties packet; the adapter does not use derived folder names or Xaero's selected map. An unrecognized ID can be assigned a new source at the first download. If a server obfuscates or rotates its IDs, use endpoint-only routing or choose the logical source for each connection. The client cannot infer a switch from two servers that present identical evidence. Lack of a packet is not evidence of absence; a provider without reliable ordering can require explicit confirmation at a transition. Dimension changes with unchanged identity retain the same source and target.
 
+![Stable IDs tab with a saved Xaero binding](../assets/stable-id-bindings.png)
+
 Starting a download shows **Preparing mirror…** while the client resolves the route and checks the destination in the background. If the client asks for a source, use **Choose Download Source** in the in-game World Mirror menu. If the destination needs an upgrade, use **Review Mirror Update** there to approve it. Capture becomes active only after the destination is ready. You can cancel a pending start with the download hotkey.
+
+![Choose Download Source with two example logical worlds at one server address](../assets/choose-download-source.png)
 
 ## Storage and writes
 
