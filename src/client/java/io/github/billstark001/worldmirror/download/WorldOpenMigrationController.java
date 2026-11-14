@@ -39,15 +39,20 @@ public final class WorldOpenMigrationController {
         Runnable reopen =
                 () -> client.schedule(() -> flows.openWorld(levelId, new Retry(worldFolder, reloadCallback)));
         inspect(client, worldFolder, "WM-InspectMirror",
-                ()
-                        -> {
+                progress
+                -> {
                     // With vanilla's lease held, no offline World Mirror operation can change the save.
-                    if (recovery || LegacyWorldMetadata.hasLegacyHeader(worldFolder)
-                            || ambiguous(worldFolder))
+                    if (recovery || ambiguous(worldFolder))
                         return new OpenCheck(null, true);
                     var plan = MirrorMigrationCoordinator.inspect(worldFolder);
-                    if (plan.state() == MirrorMigrationPlan.State.CURRENT)
+                    if ((plan.state() == MirrorMigrationPlan.State.UNMANAGED
+                                || plan.state() == MirrorMigrationPlan.State.UNREADABLE)
+                            && LegacyWorldMetadata.hasLegacyHeader(worldFolder))
+                        return new OpenCheck(null, true);
+                    if (plan.state() == MirrorMigrationPlan.State.CURRENT) {
+                        repairSeededTerrain(client, progress, worldFolder, plan.metadata());
                         upgradeIndex(worldFolder);
+                    }
                     return new OpenCheck(plan, false);
                 },
                 check
@@ -114,35 +119,48 @@ public final class WorldOpenMigrationController {
         }
     }
 
+    private static void repairSeededTerrain(Minecraft client, MirrorPrompt.ProgressHandle progress,
+            Path folder, WorldMetadata metadata) throws Exception {
+        try {
+            SeededTerrainRepair.repairLocked(
+                    folder, metadata, MirrorMigrationProgress.seedTerrain(client, progress));
+            OperationFailures.recovered(folder.toString(), "seed_terrain_repair");
+        } catch (Exception failure) {
+            OperationFailures.report(folder.toString(), "seed_terrain_repair", folder, failure);
+            if (MirrorMigrationCoordinator.needsRecovery(folder))
+                throw failure;
+        }
+    }
+
     private static boolean ambiguous(Path folder) {
         var location = new WorldGraph.Location(WorldGraph.Root.SAVES, folder.getFileName().toString());
         return WorldGraphService.instance().graph().hasDuplicateAt(location);
     }
 
     private static void recover(Minecraft client, Path folder, Runnable reload, Runnable reopen) {
-        inspect(client, folder, "WM-RecoverMirror", () -> {
+        inspect(client, folder, "WM-RecoverMirror", progress -> {
             WMLogger.info("Mirror recovery before opening world=" + folder);
-            var plan = MirrorMigrationCoordinator.recoverAndInspect(folder);
             if (LegacyWorldMetadata.hasLegacyHeader(folder) || hasRelocationJournal(folder)
-                    || ambiguous(folder)) {
+                    || ambiguous(folder))
                 WorldGraphService.instance().refresh();
-                plan = MirrorMigrationCoordinator.recoverAndInspect(folder);
-            }
-            if (hasPendingOperation(folder) || ambiguous(folder))
-                throw new IOException("Save recovery did not resolve the pending operation: " + folder);
-            if (plan.state() == MirrorMigrationPlan.State.CURRENT) {
-                try (var ignored = WorldWriteLock.acquire(folder)) {
+            try (var ignored = WorldWriteLock.acquire(folder)) {
+                if (hasPendingOperation(folder) || LegacyWorldMetadata.hasLegacyHeader(folder)
+                        || ambiguous(folder))
+                    throw new IOException("Save recovery did not resolve the pending operation: " + folder);
+                var plan = MirrorMigrationCoordinator.inspect(folder);
+                if (plan.state() == MirrorMigrationPlan.State.CURRENT) {
+                    repairSeededTerrain(client, progress, folder, plan.metadata());
                     upgradeIndex(folder);
                 }
+                return plan;
             }
-            return plan;
         }, plan -> showDecision(client, folder, reload, reopen, plan), () -> {});
     }
 
-    private static <T> void inspect(Minecraft client, Path folder, String name, OfflineTasks.Work<T> work,
+    private static <T> void inspect(Minecraft client, Path folder, String name, ProgressWork<T> work,
             Consumer<T> completed, Runnable abandoned) {
-        runWithProgress(client, new MirrorPrompt.Text("screen.worldmirror.upgrade.checking"), name,
-                ignored -> work.run(), failure -> {
+        runWithProgress(
+                client, new MirrorPrompt.Text("screen.worldmirror.upgrade.checking"), name, work, failure -> {
                     OperationFailures.report(folder.toString(), "worldgen_check", folder, failure);
                     return null;
                 }, completed, abandoned);
@@ -204,7 +222,7 @@ public final class WorldOpenMigrationController {
                 progress
                 -> {
                     var result = MirrorMigrationCoordinator.migrateApproved(
-                            target, new MirrorMigrationProgress(client, progress));
+                            target, MirrorMigrationProgress.worldgen(client, progress));
                     if (result.success()) {
                         try (var ignored = WorldWriteLock.acquire(target.folder())) {
                             target.requireCurrent();

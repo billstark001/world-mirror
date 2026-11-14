@@ -127,6 +127,10 @@
   "screen.worldmirror.captureMirror.outdated": "This mirror save needs an upgrade. Capture may continue, but exit and upgrade it from the world list before relying on its world generation.",
 
   "screen.worldmirror.upgrade.checking": "Checking mirror world generation…",
+  "screen.worldmirror.seed.repairRead": "Reading the pre-seed backup…",
+  "screen.worldmirror.seed.repairScan": "Checking terrain along the old void boundary…",
+  "screen.worldmirror.seed.repairStage": "Preparing chunk repairs…",
+  "screen.worldmirror.seed.repairPublish": "Backing up and saving repaired terrain…",
   "screen.worldmirror.repair.title": "Repair World Mirror save?",
   "screen.worldmirror.repair.entryBody": "The metadata for \"%s\" is current, but its generator uses a recognized older format. Back up and repair the generator and embedded data pack before entering?",
   "screen.worldmirror.repair.entryConfirm": "Back up, repair and enter",

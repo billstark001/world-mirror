@@ -127,6 +127,10 @@
   "screen.worldmirror.captureMirror.outdated": "此镜像存档需要升级。仍可继续捕获，但在依赖其世界生成前，请退出并在世界列表中升级。",
 
   "screen.worldmirror.upgrade.checking": "正在检查镜像世界生成设置…",
+  "screen.worldmirror.seed.repairRead": "正在读取指定种子前的备份…",
+  "screen.worldmirror.seed.repairScan": "正在扫描旧虚空边缘的区块…",
+  "screen.worldmirror.seed.repairStage": "正在准备区块修复…",
+  "screen.worldmirror.seed.repairPublish": "正在备份并保存修复后的地形…",
   "screen.worldmirror.repair.title": "修复 World Mirror 存档？",
   "screen.worldmirror.repair.entryBody": "“%s”的元数据已是当前版本，但生成器仍为可识别的旧格式。是否先备份并修复生成器及内嵌数据包，再进入世界？",
   "screen.worldmirror.repair.entryConfirm": "备份、修复并进入",

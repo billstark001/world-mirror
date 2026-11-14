@@ -127,6 +127,10 @@
   "screen.worldmirror.captureMirror.outdated": "このミラーセーブは更新が必要です。キャプチャは継続できますが、ワールド生成に依存する前に終了してワールド一覧から更新してください。",
 
   "screen.worldmirror.upgrade.checking": "ミラーワールドの生成設定を確認中…",
+  "screen.worldmirror.seed.repairRead": "シード設定前のバックアップを読み込み中…",
+  "screen.worldmirror.seed.repairScan": "旧虚空の境界周辺を検査中…",
+  "screen.worldmirror.seed.repairStage": "チャンクの修復を準備中…",
+  "screen.worldmirror.seed.repairPublish": "バックアップを作成して修復済みの地形を保存中…",
   "screen.worldmirror.repair.title": "World Mirror セーブを修復しますか？",
   "screen.worldmirror.repair.entryBody": "「%s」のメタデータは最新ですが、ジェネレーターは認識可能な旧形式です。ジェネレーターと内蔵データパックをバックアップして修復してから開きますか？",
   "screen.worldmirror.repair.entryConfirm": "バックアップ・修復して開く",

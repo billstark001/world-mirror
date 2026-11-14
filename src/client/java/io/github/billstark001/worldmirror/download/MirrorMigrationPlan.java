@@ -39,8 +39,8 @@ public final class MirrorMigrationPlan {
 
     static Inspection inspect(Path worldFolder, int dataVersion, boolean fresh) {
         Path normalized = worldFolder.toAbsolutePath().normalize();
-        var schema = WorldMetadata.inspectSchema(normalized);
-        switch (schema) {
+        var observed = WorldMetadata.inspect(normalized);
+        switch (observed.schema()) {
             case MISSING -> {
                 if (Files.notExists(normalized.resolve("level.dat"), LinkOption.NOFOLLOW_LINKS)) {
                     boolean backup =
@@ -67,10 +67,7 @@ public final class MirrorMigrationPlan {
             case CURRENT -> {
             }
         }
-        var loaded = WorldMetadata.loadIfPresent(normalized);
-        if (loaded.isEmpty())
-            return unavailable(normalized, State.UNREADABLE, "metadata_unreadable");
-        WorldMetadata metadata = loaded.get();
+        WorldMetadata metadata = observed.metadata();
         if (metadata.hasFutureWorldgenSchema()
                 || metadata.hasFutureWorldgenAssets(dataVersion, MirrorWorldgenAssets.ASSET_REVISION)) {
             return noWork(normalized, State.FUTURE, metadata, null);
