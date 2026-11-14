@@ -88,7 +88,7 @@ public final class DownloadWorldChanges {
         if (connection == client.getConnection() && client.getSingleplayerServer() == null
                 && routing.observation() != null && routing.observation().endpoint() != null) {
             if (DownloadManager.session() != null && DownloadManager.sessionIsCurrent(client)) {
-                DownloadCapture.finishPendingBlockChanges(client);
+                DownloadCapture.finishPendingPayloadChanges(client);
                 DownloadCapture.queue.finishLightUpdates();
                 DownloadCapture.queue.clear();
             }
@@ -111,7 +111,7 @@ public final class DownloadWorldChanges {
         reconfiguration = new Reconfiguration(connection.getConnection(), DownloadManager.isCaptureEnabled());
         XaeroWorldIdentity.resetNegotiation(connection);
         if (DownloadManager.sessionIsCurrent(client))
-            DownloadCapture.finishPendingBlockChanges(client);
+            DownloadCapture.finishPendingPayloadChanges(client);
         DownloadManager.endCaptureSession(!isRespawnBoundary());
         DownloadRoute.cancelRouteRequest();
         DownloadRoute.clearMirrorSelection();

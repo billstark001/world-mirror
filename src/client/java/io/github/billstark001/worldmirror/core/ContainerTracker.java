@@ -226,7 +226,7 @@ public final class ContainerTracker {
         rememberOverlay(dimension, pos, overlay);
         Minecraft client = Minecraft.getInstance();
         if (client.level != null && client.level.dimension().equals(dimension)) {
-            DownloadCapture.queueChunkCapture(
+            DownloadCapture.queuePayloadChange(
                     client.level, new ChunkPos(pos.getX() >> 4, pos.getZ() >> 4), "container-update");
         }
     }

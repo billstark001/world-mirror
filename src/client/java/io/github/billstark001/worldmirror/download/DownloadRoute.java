@@ -144,10 +144,8 @@ public final class DownloadRoute {
             String previous = current == null ? resolution.sourceNodeId() : current.sourceNodeId();
             if (previous != null && !previous.equals(selected))
                 RemoteChunkProvenance.restrict(client.level);
-            if (safe) {
-                DownloadCapture.finishPendingBlockChanges(client);
-                DownloadCapture.queue.finishLightUpdates();
-            }
+            if (safe)
+                DownloadCapture.finishPendingPayloadChanges(client);
             DownloadManager.endCaptureSession(safe);
             cancelRouteRequest();
             selectedMirror = null;
@@ -176,7 +174,7 @@ public final class DownloadRoute {
                 && (target == null || !target.nodeId().equals(DownloadManager.session().id()))) {
             boolean safeToSample = DownloadManager.sessionIsCurrent(client);
             if (safeToSample)
-                DownloadCapture.finishPendingBlockChanges(client);
+                DownloadCapture.finishPendingPayloadChanges(client);
             DownloadManager.endCaptureSession(safeToSample);
         } else if (DownloadManager.session() == null) {
             DownloadManager.advanceSourceEpoch();
