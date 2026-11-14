@@ -80,7 +80,7 @@ final class WorldGraphInventory {
         }
         folders = this.folders.folders();
 
-        Map<String, PendingImport> pending = new HashMap<>(before.pendingImports());
+        Map<String, PendingImport> pending = LegacyGraphImport.pendingEntries(before.pendingImports());
         pending.keySet().removeIf(key -> key.startsWith(BLOCKED_SOURCE));
         Map<String, String> allocations = migration.allocations();
         List<Candidate> candidates = scanMetadata(folders, deferred, allocations, pending);

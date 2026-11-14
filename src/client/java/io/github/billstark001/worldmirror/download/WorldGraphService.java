@@ -59,6 +59,7 @@ public final class WorldGraphService {
     private final Path configDirectory;
     private final WorldConnectionRouting routing;
     private final WorldGraphWorlds worlds;
+    private final LegacyLocalRouteAdoption localRoutes;
     private final AtomicBoolean requested = new AtomicBoolean();
     private final AtomicBoolean queued = new AtomicBoolean();
     private final boolean clientService;
@@ -83,6 +84,7 @@ public final class WorldGraphService {
                 folders, this.configDirectory, () -> ModConfig.get().defaultSaveLocation);
         routing = new WorldConnectionRouting(this, folders);
         worlds = new WorldGraphWorlds(this, folders);
+        localRoutes = new LegacyLocalRouteAdoption(this, folders);
     }
 
     public static WorldGraphService instance() {
@@ -95,6 +97,14 @@ public final class WorldGraphService {
 
     public WorldGraphWorlds worlds() {
         return worlds;
+    }
+
+    public LegacyLocalRouteAdoption localRoutes() {
+        return localRoutes;
+    }
+
+    Path configDirectory() {
+        return configDirectory;
     }
 
     public void refreshAsync() {
@@ -345,6 +355,7 @@ public final class WorldGraphService {
         try {
             boolean wasAvailable = published.available();
             WorldGraphConfig config = currentStore();
+            localRoutes.recover();
             WorldGraphInventory.Result result = inventory.refresh(config);
             publishInventory(result, config.snapshot());
             if (!wasAvailable)

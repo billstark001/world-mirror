@@ -71,6 +71,12 @@ final class WorldRouteDetails {
                     label("removeUpstream"),
                     node.parentId() == null ? null : ()
                             -> screen.worldEdit(() -> service.worlds().removeUpstream(id), () -> show(id))));
+            for (var route : screen.legacyRoutes().routes()) {
+                if (node.location().equals(route.destination())) {
+                    entries.add(row(label("legacyLocalRoute", route.oldName()),
+                            () -> screen.legacyRoutes().show(route, () -> show(id))));
+                }
+            }
         }
         var settings = view.config().sourceSettings().get(id);
         String pin = settings == null ? null : settings.pinnedMirrorId();
@@ -166,6 +172,15 @@ final class WorldRouteDetails {
         showScreen(new WorldSelectionScreen(screen, label("chooseUpstream"), entries, child.parentId(),
                 label("chooseUpstream"), choice -> {
                     var local = untracked.get(choice.id());
+                    var chosen = view.graph().nodes().get(choice.id());
+                    var route = screen.legacyRoutes().recordedAt(child.location());
+                    if (route != null
+                            && (local != null || chosen != null && chosen.kind() == WorldGraph.Kind.LOCAL)) {
+                        screen.legacyRoutes().confirmUpstream(route,
+                                local == null ? chosen.location() : local, local == null ? chosen.id() : null,
+                                () -> show(child.id()));
+                        return null;
+                    }
                     screen.worldEdit(() -> {
                         if (local == null)
                             service.worlds().setUpstream(child.id(), choice.id());

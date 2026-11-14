@@ -30,6 +30,36 @@ import java.util.function.Supplier;
 public final class LegacyGraphImport {
     private static final String JOURNAL = ".world-graph-import.json";
     private static final String LEGACY_ROUTING = "legacy-routing:";
+    private static final String LOCAL_ROUTING = "legacy-local:";
+    private static final String LOCAL_SOURCE = "local:";
+
+    public static String localEntryKey(String source) {
+        if (!localSource(source))
+            throw new IllegalArgumentException("Invalid legacy local source");
+        return LOCAL_ROUTING + source;
+    }
+
+    public static boolean isLocalEntry(String key, PendingImport record) {
+        return record != null && record.legacy() != null && localSource(record.legacy().sourceId())
+                && key.equals(localEntryKey(record.legacy().sourceId()));
+    }
+
+    private static boolean localSource(String source) {
+        return source != null && source.startsWith(LOCAL_SOURCE) && source.length() > LOCAL_SOURCE.length();
+    }
+
+    /** Normalizes pending notes from builds that archived the old route before it could be claimed. */
+    public static Map<String, PendingImport> pendingEntries(Map<String, PendingImport> before) {
+        Map<String, PendingImport> pending = new HashMap<>(before);
+        before.forEach((key, record) -> {
+            if (record.legacy() != null && localSource(record.legacy().sourceId())
+                    && key.equals("legacy:" + record.legacy().sourceId())) {
+                pending.putIfAbsent(localEntryKey(record.legacy().sourceId()), record);
+                pending.remove(key);
+            }
+        });
+        return pending;
+    }
 
     private record Plan(String legacyDigest, Map<String, String> allocatedIds) {}
 
@@ -160,8 +190,9 @@ public final class LegacyGraphImport {
             if (node != null && !entry.sourceId().equals(ownerAt.apply(node.location())))
                 node = null;
             if (parent.startsWith("unresolved:")) {
-                pending.put("legacy:" + entry.sourceId(),
-                        new PendingImport(entry, expected, "source_unresolved"));
+                String key = localSource(entry.sourceId()) ? localEntryKey(entry.sourceId())
+                                                           : "legacy:" + entry.sourceId();
+                pending.putIfAbsent(key, new PendingImport(entry, expected, "source_unresolved"));
                 continue;
             }
             String pendingKey = LEGACY_ROUTING + entry.sourceId();

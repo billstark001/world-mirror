@@ -98,7 +98,7 @@ public final class WorldGraphWorlds {
         return folders.root(location.root()).resolve(location.folder());
     }
 
-    private static WorldMetadata verifyUpstreamOwner(Path folder, Node child) throws IOException {
+    static WorldMetadata verifyUpstreamOwner(Path folder, Node child) throws IOException {
         WorldMetadata metadata = WorldMetadata.loadIfPresent(folder).orElse(null);
         if (metadata == null && WorldMetadata.inspectSchema(folder) == WorldMetadata.Schema.MISSING
                 && WorldRelocation.isEmptyReservation(folder, child.id())) {
@@ -114,7 +114,7 @@ public final class WorldGraphWorlds {
         return metadata;
     }
 
-    private static void changeParentOnDisk(Path folder, Node child, String parentId) throws IOException {
+    static void changeParentOnDisk(Path folder, Node child, String parentId) throws IOException {
         Path file = folder.resolve(WorldMetadata.FILE_NAME);
         FileProof.Version stamp =
                 Files.notExists(file, LinkOption.NOFOLLOW_LINKS) ? null : FileProof.version(file);

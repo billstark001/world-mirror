@@ -47,12 +47,14 @@ final class StatusSettingsTab {
                 service.conflictStrategy(context.mirrorNodeId(), context.sourceNodeId());
         Button location = addEnumDropdown(left, screen.contentY(58), WorldLabels.LOCATION, saveLocation,
                 ModConfig.SaveLocation.values(), WorldLabels::location, this::selectSaveLocation);
-        location.active =
-                service.available() && context.sourceNodeId() != null && !context.currentWorldIsMirror();
+        boolean canAssignLocalSource = canAssignLocalSource(context);
+        location.active = service.available() && (context.sourceNodeId() != null || canAssignLocalSource)
+                && !context.currentWorldIsMirror();
         Button conflict = addEnumDropdown(left, screen.contentY(80),
                 "screen.worldmirror.status.conflictStrategy", strategy, ModConfig.ConflictStrategy.values(),
                 WorldLabels::conflictStrategy, this::selectConflictStrategy);
-        conflict.active = service.available() && (context.sourceNodeId() != null || context.target() != null);
+        conflict.active = service.available()
+                && (context.sourceNodeId() != null || context.target() != null || canAssignLocalSource);
         int settingWidth = (screen.panelWidth() - 8) / 3;
         boolean canSync = canSyncWorldSettings();
         Button syncTime = screen.addControl(
@@ -137,8 +139,8 @@ final class StatusSettingsTab {
         } else if (context.target() != null) {
             showScreen(new SaveLocationMoveScreen(screen, context.target(), target));
         } else {
-            saveRouting("save_location",
-                    () -> WorldGraphService.instance().setSourceSaveLocation(context.sourceNodeId(), target));
+            saveSourcePreference(context, "save_location",
+                    id -> WorldGraphService.instance().setSourceSaveLocation(id, target));
         }
     }
 
@@ -146,10 +148,41 @@ final class StatusSettingsTab {
         if (!canChangeRouting())
             return;
         var context = screen.statusContext();
-        saveRouting("conflict_strategy",
-                ()
-                        -> WorldGraphService.instance().setConflictStrategy(
-                                context.mirrorNodeId(), context.sourceNodeId(), strategy));
+        saveSourcePreference(context, "conflict_strategy",
+                id -> WorldGraphService.instance().setConflictStrategy(context.mirrorNodeId(), id, strategy));
+    }
+
+    private static boolean canAssignLocalSource(StatusScreen.StatusContext context) {
+        var source = context.observation();
+        return source != null && source.nodeId() == null && source.endpoint() == null
+                && WorldGraphService.instance().routing().canUseLinkedSource(Minecraft.getInstance());
+    }
+
+    @FunctionalInterface
+    private interface SourcePreference {
+        void save(String sourceId) throws java.io.IOException;
+    }
+
+    private void saveSourcePreference(
+            StatusScreen.StatusContext context, String operation, SourcePreference change) {
+        if (context.sourceNodeId() != null || context.target() != null) {
+            saveRouting(operation, () -> change.save(context.sourceNodeId()));
+            return;
+        }
+        if (!canAssignLocalSource(context))
+            return;
+        savingRouting = true;
+        WorldGraphService.instance()
+                .routing()
+                .requireLinkedSource(Minecraft.getInstance())
+                .whenComplete((id, failure) -> {
+                    savingRouting = false;
+                    if (failure != null) {
+                        showFailure(Component.translatable("screen.worldmirror.move.failure.io_error"));
+                    } else {
+                        saveRouting(operation, () -> change.save(id));
+                    }
+                });
     }
 
     private boolean canChangeRouting() {

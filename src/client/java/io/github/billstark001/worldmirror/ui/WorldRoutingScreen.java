@@ -36,6 +36,7 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
     private final WorldGraphService service = WorldGraphService.instance();
     private final WorldRouteDetails details = new WorldRouteDetails(this, service);
     private final ServerRouteEditor servers = new ServerRouteEditor(this);
+    private final LegacyLocalRoutes legacyRoutes = new LegacyLocalRoutes(this, service);
     private WorldGraphService.RoutingView view;
     private RoutingWorldPresentation worlds;
     private List<RoutingRow> rows = List.of();
@@ -154,7 +155,8 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
         graphView.update(view, worlds::name, details::show);
         graphView.active = !busy;
         int step = WorldGraphIconButton.SIZE + TOOLBAR_GAP;
-        int toolbarX = Math.max(0, width - 3 * step - TOOLBAR_GAP);
+        boolean hasLegacyRoutes = !legacyRoutes.routes().isEmpty();
+        int toolbarX = Math.max(0, width - (hasLegacyRoutes ? 4 : 3) * step - TOOLBAR_GAP);
         int toolbarY = bottom - WorldRelationshipView.HELP_HEIGHT + 3;
         graphView.setHelpWidth(toolbarX - 14);
         addRenderableWidget(graphView);
@@ -165,6 +167,8 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
             EnumDropdownGui.register();
             showScreen(AutoConfigClient.getConfigScreen(ModConfig.class, this).get());
         });
+        if (hasLegacyRoutes)
+            icon(Icon.IMPORT, "legacyLocalRoutes", toolbarX + 3 * step, toolbarY, legacyRoutes::show);
     }
 
     private Button icon(Icon icon, String key, int x, int y, Runnable action) {
@@ -283,6 +287,10 @@ public final class WorldRoutingScreen extends WorldMirrorTabbedScreen {
 
     RoutingWorldPresentation worlds() {
         return worlds;
+    }
+
+    LegacyLocalRoutes legacyRoutes() {
+        return legacyRoutes;
     }
 
     @FunctionalInterface
