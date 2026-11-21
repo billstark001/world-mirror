@@ -1,5 +1,6 @@
 package io.github.billstark001.worldmirror.conflict;
 
+import io.github.billstark001.worldmirror.download.ChunkDatabase;
 import io.github.billstark001.worldmirror.download.WorldGraph;
 import io.github.billstark001.worldmirror.download.WorldMetadata;
 import io.github.billstark001.worldmirror.io.WorldSaveLayout;
@@ -8,13 +9,16 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtIo;
+import net.minecraft.nbt.StringTag;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.storage.RegionFile;
 import net.minecraft.world.level.chunk.storage.RegionStorageInfo;
 import io.github.billstark001.worldmirror.io.McaWriteSupport;
+import io.github.billstark001.worldmirror.io.SeedCaptureReceipt;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -26,12 +30,14 @@ import java.io.IOException;
 import java.util.Random;
 import java.util.Set;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.lang.management.ManagementFactory;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -113,6 +119,143 @@ class ConflictManagerPersistenceTest {
         ConflictManager.clearAllConflicts(target(world), true);
 
         assertTrue(ConflictManager.hasConflict(world, pos, Level.OVERWORLD));
+    }
+
+    @Test
+    void publishingALegacyConflictCleansStaleBlockEntitiesAndRetiresTheOriginal(@TempDir Path world)
+            throws Exception {
+        var pos = new ChunkPos(0, 0);
+        var stale = chunk(pos, 4);
+        var chest = new CompoundTag();
+        chest.putString("id", "minecraft:chest");
+        chest.putInt("x", 1);
+        chest.putInt("y", 63);
+        chest.putInt("z", 1);
+        var entries = new ListTag();
+        entries.add(chest);
+        stale.put("block_entities", entries);
+        var blocks = new CompoundTag();
+        var palette = new ListTag();
+        palette.add(StringTag.valueOf("minecraft:stone"));
+        blocks.put("palette", palette);
+        var section = new CompoundTag();
+        section.putByte("Y", (byte) 3);
+        section.put("block_states", blocks);
+        var sections = new ListTag();
+        sections.add(section);
+        stale.put("sections", sections);
+        assertTrue(savePending(world, pos, stale, Level.OVERWORLD));
+
+        assertTrue(ConflictManager.resolveConflict(target(world), pos, Level.OVERWORLD, true));
+        assertTrue(readWorldChunk(world, pos).getListOrEmpty("block_entities").isEmpty());
+        assertFalse(ConflictManager.hasConflict(world, pos, Level.OVERWORLD));
+    }
+
+    @Test
+    void captureReceiptPublishesIndexAndEquivalentPendingTerrainIsNotRewritten(@TempDir Path world)
+            throws Exception {
+        seedMetadata(world);
+        var target = target(world);
+        var pos = new ChunkPos(0, 0);
+        var capture = receiptedChunk(target, pos, 7, 312L);
+        var newerSameTerrain = receiptedChunk(target, pos, 7, 456L);
+        assertTrue(
+                ConflictManager.saveConflicts(world, Level.OVERWORLD, Map.of(pos, capture), target.nodeId()));
+        Path pending = ConflictManager.getConflictDir(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        var evidence = Files.readAllBytes(pending);
+        assertTrue(ConflictManager.saveConflicts(
+                world, Level.OVERWORLD, Map.of(pos, newerSameTerrain), target.nodeId()));
+        assertArrayEquals(evidence, Files.readAllBytes(pending));
+        assertFalse(ConflictManager.saveConflict(world, pos, chunk(pos, 9), Level.OVERWORLD));
+        assertArrayEquals(evidence, Files.readAllBytes(pending));
+
+        assertTrue(ConflictManager.resolveConflict(target, pos, Level.OVERWORLD, true));
+        assertFalse(ConflictManager.hasConflict(world, pos, Level.OVERWORLD));
+        assertEquals(capture, readWorldChunk(world, pos));
+        try (var db = ChunkDatabase.open(world, target.sourceId())) {
+            assertEquals(new ChunkDatabase.ChunkRecord(0, 0, 312L, "world_mirror"),
+                    db.queryChunk("minecraft:overworld", pos));
+        }
+    }
+
+    @Test
+    void bulkReceiptApprovalPreservesNewerCaptureAndPublishesNeighbor(@TempDir Path world) throws Exception {
+        seedMetadata(world);
+        var target = target(world);
+        var protectedPos = new ChunkPos(0, 0);
+        var neighbor = new ChunkPos(1, 0);
+        var original = chunk(protectedPos, 1);
+        var region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        McaWriteSupport.writeChunks(region, Level.OVERWORLD, Map.of(protectedPos, original));
+        try (var db = ChunkDatabase.open(world, target.sourceId())) {
+            assertTrue(db.recordUpdates("minecraft:overworld", Map.of(protectedPos, 100L), "replay_import"));
+        }
+        var first = receiptedChunk(target, protectedPos, 2, 90L);
+        var second = receiptedChunk(target, neighbor, 3, 200L);
+        assertTrue(ConflictManager.saveConflicts(
+                world, Level.OVERWORLD, Map.of(protectedPos, first, neighbor, second), target.nodeId()));
+
+        assertFalse(ConflictManager.clearAllConflicts(target, true));
+        assertTrue(ConflictManager.hasConflict(world, protectedPos, Level.OVERWORLD));
+        assertFalse(ConflictManager.hasConflict(world, neighbor, Level.OVERWORLD));
+        assertEquals(original, readWorldChunk(world, protectedPos));
+        assertEquals(second, readWorldChunk(world, neighbor));
+        try (var db = ChunkDatabase.open(world, target.sourceId())) {
+            assertEquals(new ChunkDatabase.ChunkRecord(0, 0, 100L, "replay_import"),
+                    db.queryChunk("minecraft:overworld", protectedPos));
+            assertEquals(new ChunkDatabase.ChunkRecord(1, 0, 200L, "world_mirror"),
+                    db.queryChunk("minecraft:overworld", neighbor));
+        }
+    }
+
+    @Test
+    void retiresAnAppliedConflictAfterNativeResave(@TempDir Path world) throws Exception {
+        seedMetadata(world);
+        var mirror = target(world);
+        var pos = new ChunkPos(0, 0);
+        var captured = receiptedChunk(mirror, pos, 2, 100L);
+        assertTrue(ConflictManager.saveConflicts(
+                world, Level.OVERWORLD, Map.of(pos, captured), mirror.nodeId()));
+        var resaved = captured.copy();
+        resaved.putLong("LastUpdate", 12_345L);
+        Path region = WorldSaveLayout.regionDirectory(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        McaWriteSupport.writeChunks(region, Level.OVERWORLD, Map.of(pos, resaved));
+        try (var db = ChunkDatabase.open(world, mirror.sourceId())) {
+            assertTrue(db.recordUpdates("minecraft:overworld", Map.of(pos, 100L), "world_mirror"));
+        }
+        var fileBefore = Files.readAllBytes(region);
+        assertTrue(ConflictManager.resolveConflict(mirror, pos, Level.OVERWORLD, true));
+        assertArrayEquals(fileBefore, Files.readAllBytes(region));
+        assertFalse(ConflictManager.hasConflict(world, pos, Level.OVERWORLD));
+        assertEquals(100L, WorldMetadata.loadIfPresent(world).orElseThrow().lastSyncTime);
+    }
+
+    @Test
+    void oneMalformedPendingReceiptDoesNotBlockTheRestOfItsRegion(@TempDir Path world) throws Exception {
+        seedMetadata(world);
+        var mirror = target(world);
+        var rejected = new ChunkPos(0, 0);
+        var good = new ChunkPos(1, 0);
+        var corrupted = receiptedChunk(mirror, rejected, 1, 100L);
+        corrupted.putLong("LastUpdate", 99L);
+        var healthy = receiptedChunk(mirror, good, 2, 100L);
+        assertEquals(Set.of(good),
+                ConflictManager.stageConflicts(
+                        world, Level.OVERWORLD, Map.of(rejected, corrupted, good, healthy), mirror.nodeId()));
+        Path pending = ConflictManager.getConflictDir(world, Level.OVERWORLD).resolve("r.0.0.mca");
+        McaWriteSupport.writeChunks(pending, Level.OVERWORLD, Map.of(rejected, corrupted));
+
+        assertFalse(ConflictManager.clearAllConflicts(mirror, true));
+        assertEquals(Set.of(rejected), ConflictManager.listConflicts(world, Level.OVERWORLD));
+        assertEquals(healthy, readWorldChunk(world, good));
+    }
+
+    private static CompoundTag receiptedChunk(
+            io.github.billstark001.worldmirror.io.MirrorTarget target, ChunkPos pos, int marker, long time) {
+        var result = chunk(pos, marker);
+        SeedCaptureReceipt.write(
+                result, target.nodeId(), new SeedCaptureReceipt.Receipt("world_mirror", time));
+        return result;
     }
 
     @Test

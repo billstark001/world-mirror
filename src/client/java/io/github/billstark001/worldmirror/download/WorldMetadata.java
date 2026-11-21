@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import io.github.billstark001.worldmirror.format.MirrorFormat;
 import io.github.billstark001.worldmirror.format.WorldLineage;
 import io.github.billstark001.worldmirror.legacy.LegacyVoidChunkCleanup;
+import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.JsonSupport;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.fabricmc.loader.api.FabricLoader;
@@ -283,6 +284,27 @@ public final class WorldMetadata {
         lastSyncTime = Math.max(lastSyncTime, latestCaptureTime);
         modVersion = currentModVersion();
         return save(worldFolder);
+    }
+
+    /** The live export holds the native save lease and supplies the inspected document version. */
+    boolean markSyncComplete(Path worldFolder, long latestCaptureTime, FileProof.Version inspected) {
+        Path path = worldFolder.resolve(FILE_NAME);
+        String currentModVersion = currentModVersion();
+        try {
+            if (latestCaptureTime <= lastSyncTime && currentModVersion.equals(modVersion)) {
+                if (!inspected.equals(FileProof.version(path)))
+                    throw new IOException("Metadata changed during export: " + path);
+                return true;
+            }
+            lastSyncTime = Math.max(lastSyncTime, latestCaptureTime);
+            modVersion = currentModVersion;
+            validate();
+            JsonSupport.compareAndWriteDocument(path, this, inspected);
+            return true;
+        } catch (IOException | RuntimeException failure) {
+            WMLogger.warn("World metadata save failed: " + worldFolder, failure);
+            return false;
+        }
     }
 
     private static String currentModVersion() {

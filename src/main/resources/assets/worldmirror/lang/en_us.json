@@ -29,6 +29,7 @@
   "screen.worldmirror.status.downloadDegraded": "Capture: reduced",
   "screen.worldmirror.status.downloadPaused": "Capture: resource pause",
   "msg.worldmirror.exportDone": "World exported successfully.",
+  "msg.worldmirror.exportDoneWithConflicts": "Export complete. Review %s pending chunks in World Mirror's built-in chunk map.",
   "msg.worldmirror.exportPartialEntities": "Terrain saved; some entity updates remain pending. Terrain exports can continue.",
   "msg.worldmirror.exportFailed": "World Mirror export failed; work retained for retry. Check the status screen or latest.log.",
   "msg.worldmirror.exportBusy": "Export already in progress — please wait.",

@@ -4,7 +4,6 @@ import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.io.ChunkSerializer;
 import io.github.billstark001.worldmirror.io.SeedChunkTracking;
 import io.github.billstark001.worldmirror.util.WMLogger;
-import io.github.billstark001.worldmirror.util.ChunkRegionIndex;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.nbt.CompoundTag;
@@ -17,7 +16,6 @@ import net.minecraft.world.level.chunk.status.ChunkStatus;
 
 import java.util.ArrayDeque;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -32,21 +30,19 @@ final class DownloadCaptureQueue {
     private static final int LIGHT_UPDATE_COALESCE_TICKS = 2;
 
     record Key(ResourceKey<Level> dimension, int chunkX, int chunkZ) {}
-    record Pending(Key key, String reason, long queuedAt, boolean allowEmpty) {}
+    record Pending(Key key, String reason, long queuedAt, boolean allowEmpty, boolean required) {}
     private record LoadedScan(ClientLevel world, CaptureRegionScan coordinates, String reason) {}
 
     record Metrics(int pendingCaptures, long oldestCaptureAgeMs, long coalescedHints, long droppedHints) {}
 
     private final LinkedHashMap<Key, Pending> pending = new LinkedHashMap<>();
     private final ArrayDeque<LoadedScan> scans = new ArrayDeque<>();
-    // Only authoritative changes in currently loaded chunks spill beyond the
-    // bounded observation queue. They must survive capacity pressure and unload.
-    private final Set<Key> overflowBlockChanges = new LinkedHashSet<>();
+    // Changes to client-visible payloads must survive capacity pressure and unload.
+    private final LinkedHashMap<Key, Pending> overflowChanges = new LinkedHashMap<>();
+    private final Map<Key, Pending> failedChanges = new HashMap<>();
+    private final CapturedChunkObservations capturedChunks = new CapturedChunkObservations();
     private final Map<Key, Long> pendingLightUpdates = new HashMap<>();
-    private final Map<ResourceKey<Level>, ChunkRegionIndex<Key>> pendingStatus = new HashMap<>();
-    private long statusVersion;
-    private final Map<ResourceKey<Level>, Long> statusVersions = new HashMap<>();
-    private long resetVersion;
+    private final CapturePendingStatus pendingStatus = new CapturePendingStatus();
     private boolean reconciliationNeeded;
     private long estimatedCaptureNs;
     private final BooleanSupplier recordPerformance;
@@ -63,80 +59,131 @@ final class DownloadCaptureQueue {
     }
 
     Metrics metrics() {
-        var first = pending.firstEntry();
+        var first = pending.isEmpty() ? overflowChanges.firstEntry() : pending.firstEntry();
         Pending oldest = first == null ? null : first.getValue();
         long age = oldest == null ? 0L : Math.max(0L, (System.nanoTime() / 1_000_000L) - oldest.queuedAt());
-        return new Metrics(pending.size() + overflowBlockChanges.size(), age, diagnostics.coalescedHints(),
+        return new Metrics(pending.size() + overflowChanges.size(), age, diagnostics.coalescedHints(),
                 diagnostics.droppedHints());
     }
 
     void queueChunk(ClientLevel world, ChunkPos pos, String reason) {
         if (world == null || pos == null || SeedChunkTracking.hidden(world, pos))
             return;
-        queue(new Key(world.dimension(), pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4), reason, false);
+        queueObservation(key(world.dimension(), pos), reason);
     }
 
-    void queueBlockChange(ClientLevel world, ChunkPos pos, String reason) {
+    void queuePayloadChange(ClientLevel world, ChunkPos pos, String reason, boolean allowEmpty) {
         if (world == null || pos == null || SeedChunkTracking.hidden(world, pos))
             return;
-        if (!(world.getChunk(pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4, ChunkStatus.FULL, false)
-                            instanceof LevelChunk))
-            return;
-        Key key = new Key(world.dimension(), pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4);
-        queue(key, reason, true);
+        Key key = key(world.dimension(), pos);
+        if (world.getChunk(key.chunkX(), key.chunkZ(), ChunkStatus.FULL, false) instanceof LevelChunk)
+            queuePayloadChange(key, reason, allowEmpty);
+    }
+
+    boolean queuePayloadChange(Key key, String reason, boolean allowEmpty) {
+        return queueChangedObservation(key, reason, allowEmpty, true);
     }
 
     void captureBeforeUnload(ClientLevel world, LevelChunk chunk) {
-        if (world == null || chunk == null || !RemoteChunkProvenance.canSample(world, chunk.getPos()))
+        if (world == null || chunk == null)
             return;
-        Key key = new Key(
-                world.dimension(), chunk.getPos().getMinBlockX() >> 4, chunk.getPos().getMinBlockZ() >> 4);
-        if (SeedChunkTracking.hidden(world, chunk)) {
-            pending.remove(key);
-            overflowBlockChanges.remove(key);
-            pendingLightUpdates.remove(key);
-            refreshPendingStatus(key);
-            return;
+        var key = key(world.dimension(), chunk.getPos());
+        try {
+            if (canSample(world, chunk)) {
+                captureLoaded(world, chunk, key);
+            } else {
+                takeHint(key);
+                removeLightWindow(key);
+            }
+        } finally {
+            capturedChunks.remove(key);
+            failedChanges.remove(key);
         }
-        captureBeforeUnload(key,
+    }
+
+    boolean captureLoaded(ClientLevel world, LevelChunk chunk) {
+        return canSample(world, chunk) && captureLoaded(world, chunk, key(world.dimension(), chunk.getPos()));
+    }
+
+    private boolean captureLoaded(ClientLevel world, LevelChunk chunk, Key key) {
+        return captureLoaded(key, remoteChunkIdentity(chunk),
                 () -> ChunkSerializer.isChunkEmpty(chunk), () -> ChunkSerializer.serialize(world, chunk));
     }
 
-    /** The unload path remains available while ordinary tick capture is resource-paused. */
-    boolean captureBeforeUnload(Key key, BooleanSupplier isEmpty, Supplier<CompoundTag> serialize) {
+    /** Final sampling remains available while ordinary tick capture is resource-paused. */
+    boolean captureLoaded(
+            Key key, Object chunkIdentity, BooleanSupplier isEmpty, Supplier<CompoundTag> serialize) {
+        boolean unchanged = capturedChunks.contains(key, chunkIdentity);
+        var hint = takeHint(key);
+        removeLightWindow(key);
+        if (unchanged && (hint == null || !hint.required()))
+            return false;
         long startedNs = System.nanoTime();
-        ChunkPos pos = new ChunkPos(key.chunkX(), key.chunkZ());
-        Pending lastHint = pending.remove(key);
-        boolean authoritative =
-                overflowBlockChanges.remove(key) || (lastHint != null && lastHint.allowEmpty());
-        boolean pendingLight = pendingLightUpdates.remove(key) != null;
-        refreshPendingStatus(key);
-
-        boolean captured = false;
         try {
             boolean empty = isEmpty.getAsBoolean();
-            if (authoritative || !empty) {
-                ChunkListener.addChunkNbt(key.dimension(), pos, serialize.get(), authoritative && empty);
-                captured = true;
-            }
+            if (empty && (hint == null || !hint.allowEmpty()))
+                return false;
+            sample(key, chunkIdentity, serialize.get(), empty);
+            return true;
         } catch (Exception e) {
+            if (hint != null)
+                retainFailedChange(hint);
             diagnostics.unloadFailed();
             WMLogger.warnRateLimited("capture-unload", 30_000L,
-                    "Final capture before unload failed chunk=" + pos + "; cached data may be stale", e);
+                    "Final chunk capture failed chunk=" + key.chunkX() + "," + key.chunkZ()
+                            + "; cached data may be stale",
+                    e);
+            return false;
         } finally {
-            if (pendingLight && !captured) {
-                ChunkListener.markChunkDirty(key.dimension(), new ChunkPos(key.chunkX(), key.chunkZ()));
-            }
             if (recordPerformance.getAsBoolean()) {
                 long elapsedUs = (System.nanoTime() - startedNs) / 1_000L;
                 diagnostics.recordUnload(key, elapsedUs);
             }
         }
-        return captured;
     }
 
-    void queueLightUpdate(ClientLevel world, ChunkPos pos) {
-        queueChunk(world, pos, "light-update-no-base");
+    private Pending takeHint(Key key) {
+        var hint = pending.remove(key);
+        var overflow = overflowChanges.remove(key);
+        if (hint != null || overflow != null)
+            refreshPendingStatus(key);
+        var failed = failedChanges.remove(key);
+        Pending queued = hint == null ? overflow : hint;
+        return queued != null ? queued : failed;
+    }
+
+    private void removeLightWindow(Key key) {
+        if (pendingLightUpdates.remove(key) != null)
+            refreshPendingStatus(key);
+    }
+
+    private static boolean canSample(ClientLevel world, LevelChunk chunk) {
+        return RemoteChunkProvenance.canSample(world, chunk.getPos())
+                && !SeedChunkTracking.hidden(world, chunk);
+    }
+
+    private static Object remoteChunkIdentity(LevelChunk chunk) {
+        // Server-side changes to an integrated world can bypass observed packet hooks.
+        return Minecraft.getInstance().getSingleplayerServer() == null ? chunk : null;
+    }
+
+    private static Key key(ResourceKey<Level> dimension, ChunkPos pos) {
+        return new Key(dimension, pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4);
+    }
+
+    private void sample(Key key, Object chunkIdentity, CompoundTag nbt, boolean authoritativeEmpty) {
+        ChunkListener.addChunkNbt(
+                key.dimension(), new ChunkPos(key.chunkX(), key.chunkZ()), nbt, authoritativeEmpty);
+        capturedChunks.record(key, chunkIdentity);
+    }
+
+    boolean queueObservation(Key key, String reason) {
+        return queueChangedObservation(key, reason, false, false);
+    }
+
+    private boolean queueChangedObservation(Key key, String reason, boolean allowEmpty, boolean required) {
+        capturedChunks.remove(key);
+        return queue(key, reason, allowEmpty, required);
     }
 
     void markLightDirty(ClientLevel world, ChunkPos pos) {
@@ -163,24 +210,28 @@ final class DownloadCaptureQueue {
         return true;
     }
 
-    /** Finishes known block changes before an explicit stop clears queued observations. */
-    void finishBlockChanges(ClientLevel world) {
-        for (Key key : finalBlockChanges(world.dimension())) {
+    /** Finishes known payload changes before an explicit stop clears queued observations. */
+    void finishPayloadChanges(ClientLevel world) {
+        for (Key key : finalPayloadChanges(world.dimension())) {
             ChunkAccess chunk = world.getChunk(key.chunkX(), key.chunkZ(), ChunkStatus.FULL, false);
-            if (chunk instanceof LevelChunk loaded)
-                captureBeforeUnload(world, loaded);
+            if (chunk instanceof LevelChunk loaded && canSample(world, loaded))
+                captureLoaded(world, loaded, key);
         }
     }
 
-    Set<Key> finalBlockChanges(ResourceKey<Level> dimension) {
+    Set<Key> finalPayloadChanges(ResourceKey<Level> dimension) {
         Set<Key> result = new LinkedHashSet<>();
         pending.values()
                 .stream()
-                .filter(Pending::allowEmpty)
+                .filter(Pending::required)
                 .map(Pending::key)
                 .filter(key -> dimension.equals(key.dimension()))
                 .forEach(result::add);
-        overflowBlockChanges.stream().filter(key -> dimension.equals(key.dimension())).forEach(result::add);
+        overflowChanges.keySet()
+                .stream()
+                .filter(key -> dimension.equals(key.dimension()))
+                .forEach(result::add);
+        failedChanges.keySet().stream().filter(key -> dimension.equals(key.dimension())).forEach(result::add);
         return result;
     }
 
@@ -191,7 +242,7 @@ final class DownloadCaptureQueue {
             processPending(client, budget);
     }
 
-    /** Marks already-applied light changes dirty before stopping or changing worlds. */
+    /** Releases already-applied light revisions before stopping or changing worlds. */
     void finishLightUpdates() {
         flushLightUpdates(true);
     }
@@ -203,71 +254,66 @@ final class DownloadCaptureQueue {
 
     /** Lighting coalescing is per chunk and must not delay an unrelated live export. */
     boolean hasPendingCaptures() {
-        return !pending.isEmpty() || !scans.isEmpty() || !overflowBlockChanges.isEmpty();
+        return !pending.isEmpty() || !scans.isEmpty() || !overflowChanges.isEmpty();
     }
 
     Set<ChunkPos> pendingChunkPositions(
             ResourceKey<Level> dimension, int minX, int maxX, int minZ, int maxZ) {
-        Set<ChunkPos> result = new HashSet<>();
-        ChunkRegionIndex<Key> index = pendingStatus.get(dimension);
-        if (index != null)
-            index.forEachInRange(
-                    minX, maxX, minZ, maxZ, key -> result.add(new ChunkPos(key.chunkX(), key.chunkZ())));
-
-        return result;
+        return pendingStatus.positions(dimension, minX, maxX, minZ, maxZ);
     }
 
     long statusVersion(ResourceKey<Level> dimension) {
-        return statusVersions.getOrDefault(dimension, resetVersion);
+        return pendingStatus.version(dimension);
     }
 
     private void refreshPendingStatus(Key key) {
-        ChunkRegionIndex<Key> index =
-                pendingStatus.computeIfAbsent(key.dimension(), ignored -> new ChunkRegionIndex<>());
-        boolean changed = pending.containsKey(key) || pendingLightUpdates.containsKey(key)
-                        || overflowBlockChanges.contains(key)
-                ? index.put(key.chunkX(), key.chunkZ(), key)
-                : index.remove(key.chunkX(), key.chunkZ());
-        if (changed)
-            statusVersions.put(key.dimension(), ++statusVersion);
+        pendingStatus.update(key,
+                pending.containsKey(key) || pendingLightUpdates.containsKey(key)
+                        || overflowChanges.containsKey(key));
     }
 
     boolean hasPendingChunkWork(ResourceKey<Level> dimension, ChunkPos pos) {
         Key key = new Key(dimension, pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4);
         return pending.containsKey(key) || pendingLightUpdates.containsKey(key)
-                || overflowBlockChanges.contains(key);
+                || overflowChanges.containsKey(key) || failedChanges.containsKey(key);
     }
 
     void clear() {
         pendingStatus.clear();
-        statusVersions.clear();
-        resetVersion = ++statusVersion;
         pending.clear();
         scans.clear();
-        overflowBlockChanges.clear();
+        overflowChanges.clear();
+        failedChanges.clear();
         pendingLightUpdates.clear();
+        capturedChunks.clear();
         reconciliationNeeded = false;
         estimatedCaptureNs = 0L;
     }
 
-    boolean queue(Key key, String reason, boolean allowEmpty) {
+    private boolean queue(Key key, String reason, boolean allowEmpty, boolean required) {
         var counters = recordPerformance.getAsBoolean() ? diagnostics.received(reason) : null;
+        var failed = failedChanges.remove(key);
+        if (failed != null) {
+            allowEmpty |= failed.allowEmpty();
+            required = true;
+        }
         Pending previous = pending.get(key);
         if (previous != null) {
-            if (allowEmpty && !previous.allowEmpty()) {
-                pending.put(key, new Pending(key, previous.reason(), previous.queuedAt(), true));
-            }
+            pending.put(key, combine(previous, allowEmpty, required));
             diagnostics.coalesced(counters);
             return false;
         }
-        if (overflowBlockChanges.contains(key)) {
+        previous = overflowChanges.get(key);
+        if (previous != null) {
+            overflowChanges.put(key, combine(previous, allowEmpty, required));
             diagnostics.coalesced(counters);
             return false;
         }
         int limit = Math.max(1, pendingLimit.getAsInt());
         if (pending.size() >= limit) {
-            if (allowEmpty) {
-                overflowBlockChanges.add(key);
+            if (required) {
+                overflowChanges.put(
+                        key, new Pending(key, reason, (System.nanoTime() / 1_000_000L), allowEmpty, true));
                 refreshPendingStatus(key);
                 diagnostics.coalesced(counters);
 
@@ -280,11 +326,18 @@ final class DownloadCaptureQueue {
                             + "); coalescing overflow and scheduling a loaded-chunk reconciliation.");
             return false;
         }
-        pending.put(key, new Pending(key, reason, (System.nanoTime() / 1_000_000L), allowEmpty));
+        pending.put(key, new Pending(key, reason, (System.nanoTime() / 1_000_000L), allowEmpty, required));
         refreshPendingStatus(key);
         diagnostics.queued(counters);
 
         return true;
+    }
+
+    private static Pending combine(Pending previous, boolean allowEmpty, boolean required) {
+        if ((!allowEmpty || previous.allowEmpty()) && (!required || previous.required()))
+            return previous;
+        return new Pending(previous.key(), previous.reason(), previous.queuedAt(),
+                previous.allowEmpty() || allowEmpty, previous.required() || required);
     }
 
     private void processPending(Minecraft client, CaptureBudget budget) {
@@ -298,8 +351,9 @@ final class DownloadCaptureQueue {
         long startedNs = System.nanoTime();
         long budgetNs = budget.tickNanos();
         boolean diagnostics = recordPerformance.getAsBoolean();
+        boolean remote = client.getSingleplayerServer() == null;
         if (budget.scanChecks() > 0 && (!budget.scanOnlyWhenIdle() || pendingHintCount() == 0)) {
-            fillLoadedScans(world, startedNs, budgetNs / 4, budget.scanChecks());
+            fillLoadedScans(world, remote, startedNs, budgetNs / 4, budget.scanChecks());
         }
 
         while (processed < budget.maxChunks()) {
@@ -327,11 +381,11 @@ final class DownloadCaptureQueue {
                     continue;
                 serializing = true;
                 attemptedCapture = true;
-                CompoundTag nbt = ChunkSerializer.serialize(world, levelChunk);
-                ChunkListener.addChunkNbt(
-                        request.key().dimension(), levelChunk.getPos(), nbt, request.allowEmpty() && empty);
+                sample(request.key(), remote ? levelChunk : null,
+                        ChunkSerializer.serialize(world, levelChunk), request.allowEmpty() && empty);
                 captured++;
             } catch (Exception e) {
+                retainFailedChange(request);
                 WMLogger.warnRateLimited("capture-incremental-" + request.reason(), 30_000L,
                         "Incremental capture failed chunk=" + levelChunk.getPos()
                                 + " reason=" + request.reason(),
@@ -364,7 +418,14 @@ final class DownloadCaptureQueue {
         }
     }
 
+    void retainFailedChange(Pending request) {
+        // Preserve authority for a new hint or the final sample without spinning on a bad payload.
+        if (request.required())
+            failedChanges.put(request.key(), request);
+    }
+
     private void flushLightUpdates(boolean force) {
+        // The packet hook assigned the dirty revision when it accepted the light payload.
         Iterator<Map.Entry<Key, Long>> iterator = pendingLightUpdates.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Key, Long> entry = iterator.next();
@@ -372,18 +433,17 @@ final class DownloadCaptureQueue {
                 Key key = entry.getKey();
                 iterator.remove();
                 refreshPendingStatus(key);
-                ChunkListener.markChunkDirty(key.dimension(), new ChunkPos(key.chunkX(), key.chunkZ()));
             }
         }
     }
 
     boolean hasWork() {
         return !pending.isEmpty() || !pendingLightUpdates.isEmpty() || !scans.isEmpty()
-                || !overflowBlockChanges.isEmpty();
+                || !overflowChanges.isEmpty();
     }
 
     Pending pollPending() {
-        promoteBlockChanges();
+        promotePayloadChanges();
         var first = pending.pollFirstEntry();
         if (first != null)
             refreshPendingStatus(first.getKey());
@@ -392,11 +452,12 @@ final class DownloadCaptureQueue {
     }
 
     private int pendingHintCount() {
-        return pending.size() + overflowBlockChanges.size();
+        return pending.size() + overflowChanges.size();
     }
 
-    private void fillLoadedScans(ClientLevel world, long startedNs, long budgetNs, int maxChecks) {
-        promoteBlockChanges();
+    private void fillLoadedScans(
+            ClientLevel world, boolean remote, long startedNs, long budgetNs, int maxChecks) {
+        promotePayloadChanges();
         while (!scans.isEmpty() && scans.peekFirst().world() != world) scans.removeFirst();
         if (scans.isEmpty()) {
             return;
@@ -406,24 +467,33 @@ final class DownloadCaptureQueue {
                 ()
                         -> pending.size() < Math.max(1, pendingLimit.getAsInt())
                         && System.nanoTime() - startedNs < budgetNs,
-                key
-                -> world.getChunk(key.chunkX(), key.chunkZ(), ChunkStatus.FULL, false)
-                                        instanceof LevelChunk chunk
-                        && RemoteChunkProvenance.canSample(world, key.chunkX(), key.chunkZ())
-                        && !SeedChunkTracking.hidden(world, chunk) && queue(key, scan.reason(), false));
+                key -> enqueueLoaded(world, remote, scan.reason(), key));
         if (scan.coordinates().isComplete())
             scans.removeFirst();
     }
 
-    private void promoteBlockChanges() {
-        if (overflowBlockChanges.isEmpty())
+    private boolean enqueueLoaded(ClientLevel world, boolean remote, String reason, Key key) {
+        if (!(world.getChunk(key.chunkX(), key.chunkZ(), ChunkStatus.FULL, false) instanceof LevelChunk chunk)
+                || !canSample(world, chunk))
+            return false;
+        return queueScannedChunk(key, remote ? chunk : null, reason);
+    }
+
+    boolean queueScannedChunk(Key key, Object chunkIdentity, String reason) {
+        // Manual export can run with downloading disabled, so refresh its loaded terrain.
+        return ("pre-export".equals(reason) || !capturedChunks.contains(key, chunkIdentity))
+                && queue(key, reason, false, false);
+    }
+
+    private void promotePayloadChanges() {
+        if (overflowChanges.isEmpty())
             return;
         int limit = Math.max(1, pendingLimit.getAsInt());
-        Iterator<Key> overflow = overflowBlockChanges.iterator();
+        Iterator<Map.Entry<Key, Pending>> overflow = overflowChanges.entrySet().iterator();
         while (overflow.hasNext() && pending.size() < limit) {
-            Key key = overflow.next();
+            var entry = overflow.next();
+            pending.put(entry.getKey(), entry.getValue());
             overflow.remove();
-            queue(key, "block-change-overflow", true);
         }
     }
 }

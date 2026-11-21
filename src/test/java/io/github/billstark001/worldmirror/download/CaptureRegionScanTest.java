@@ -31,7 +31,9 @@ class CaptureRegionScanTest {
         while (!scan.isComplete() || queue.hasWork()) {
             assertTrue(++ticks < 200, "a full queue must resume from its cursor instead of restarting");
             scan.fill(256,
-                    () -> queue.metrics().pendingCaptures() < 512, key -> queue.queue(key, "bulk", false));
+                    ()
+                            -> queue.metrics().pendingCaptures() < 512,
+                    key -> queue.queueObservation(key, "bulk"));
             for (int processed = 0; processed < 64; processed++) {
                 var request = queue.pollPending();
                 if (request == null)
@@ -74,9 +76,9 @@ class CaptureRegionScanTest {
         var queue = new DownloadCaptureQueue(() -> false, 1, () -> 2);
         var first = new DownloadCaptureQueue.Key(Level.OVERWORLD, 0, 0);
         var second = new DownloadCaptureQueue.Key(Level.OVERWORLD, 1, 0);
-        assertTrue(queue.queue(first, "chunk-load", false));
-        assertTrue(queue.queue(second, "chunk-load", false));
-        assertFalse(queue.queue(first, "block-update", true));
+        assertTrue(queue.queueObservation(first, "chunk-load"));
+        assertTrue(queue.queueObservation(second, "chunk-load"));
+        assertFalse(queue.queuePayloadChange(first, "block-update", true));
 
         var upgraded = queue.pollPending();
         assertEquals(first, upgraded.key());
@@ -92,12 +94,12 @@ class CaptureRegionScanTest {
         var ordinary = new DownloadCaptureQueue.Key(Level.OVERWORLD, 0, 0);
         var changed = new DownloadCaptureQueue.Key(Level.OVERWORLD, 1, 0);
         var another = new DownloadCaptureQueue.Key(Level.OVERWORLD, 2, 0);
-        assertTrue(queue.queue(ordinary, "chunk-load", false));
-        queue.queue(changed, "block-update", true);
-        queue.queue(another, "block-update", true);
-        queue.queue(changed, "block-update", true);
+        assertTrue(queue.queueObservation(ordinary, "chunk-load"));
+        queue.queuePayloadChange(changed, "block-update", true);
+        queue.queuePayloadChange(another, "block-update", true);
+        queue.queuePayloadChange(changed, "block-update", true);
 
-        assertEquals(Set.of(changed, another), queue.finalBlockChanges(Level.OVERWORLD));
+        assertEquals(Set.of(changed, another), queue.finalPayloadChanges(Level.OVERWORLD));
         assertEquals(ordinary, queue.pollPending().key());
         var firstChange = queue.pollPending();
         assertEquals(changed, firstChange.key());

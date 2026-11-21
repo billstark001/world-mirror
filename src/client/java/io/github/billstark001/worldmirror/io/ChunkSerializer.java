@@ -21,10 +21,12 @@ import net.minecraft.world.level.chunk.CarvingMask;
 #endif
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.DataLayer;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.ProtoChunk;
 import net.minecraft.world.level.chunk.status.ChunkType;
 import net.minecraft.world.level.chunk.storage.SerializableChunkData;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.lighting.LevelLightEngine;
 
@@ -49,7 +51,6 @@ public class ChunkSerializer {
         // The native writer packs section palettes and offsets synchronously on
         // the client thread. Only the resulting NBT leaves this call.
         CompoundTag chunkNbt = createSerializedChunk(world, chunk).write();
-        BlockEntityNbtSupport.applyContainerOverlays(world.dimension(), chunkNbt);
         SeedChunkTracking.stripCaptured(world, chunk, chunkNbt);
         return chunkNbt;
     }
@@ -91,8 +92,16 @@ public class ChunkSerializer {
         Set<BlockPos> blockEntityPositions = chunk.getBlockEntitiesPos();
         List<CompoundTag> blockEntities = new ArrayList<>(blockEntityPositions.size());
         for (BlockPos blockPos : blockEntityPositions) {
-            CompoundTag blockEntityNbt = chunk.getBlockEntityNbtForSaving(blockPos, world.registryAccess());
-            if (blockEntityNbt != null) {
+            if (!BlockEntityNbtSupport.belongsToChunk(chunkPos, blockPos)
+                    || chunk.isOutsideBuildHeight(blockPos))
+                continue;
+            var state = chunk.getBlockState(blockPos);
+            if (!state.hasBlockEntity())
+                continue;
+            CompoundTag blockEntityNbt = saveBlockEntity(world, chunk, blockPos, state);
+            if (blockEntityNbt != null && !BlockEntityNbtSupport.isIncompatible(blockEntityNbt, state)) {
+                BlockEntityNbtSupport.applyCapturedContainerData(
+                        world.dimension(), blockPos, blockEntityNbt, state);
                 blockEntities.add(blockEntityNbt);
             }
         }
@@ -134,6 +143,27 @@ public class ChunkSerializer {
 #endif
                 heightmaps, ticks, chunk.getPostProcessing(), chunk.isLightCorrect(), sections, entities,
                 blockEntities, createEmptyStructuresCompound());
+    }
+
+    private static CompoundTag saveBlockEntity(
+            ClientLevel world, ChunkAccess chunk, BlockPos pos, BlockState state) {
+        if (!(chunk instanceof LevelChunk full)) {
+            var saved = chunk.getBlockEntityNbtForSaving(pos, world.registryAccess());
+            return saved == null ? null : saved.copy();
+        }
+        // Native getBlockEntityNbtForSaving also loads pending entities, which can mutate the chunk.
+        var live = full.getBlockEntities().get(pos);
+        if (live != null && !live.isRemoved() && live.getType().isValid(state)) {
+            CompoundTag saved = live.saveWithFullMetadata(world.registryAccess());
+            saved.putBoolean("keepPacked", false);
+            return saved;
+        }
+        var pending = chunk.getBlockEntityNbt(pos);
+        if (pending == null)
+            return null;
+        CompoundTag packed = pending.copy();
+        packed.putBoolean("keepPacked", true);
+        return packed;
     }
 
     private static CompoundTag createEmptyStructuresCompound() {

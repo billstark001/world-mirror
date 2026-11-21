@@ -9,17 +9,50 @@ public final class SeedCaptureReceipt {
     private SeedCaptureReceipt() {}
 
     static void write(CompoundTag chunk, String node, long time) {
+        write(chunk, node, new Receipt("world_mirror", time));
+    }
+
+    public static void write(CompoundTag chunk, String node, Receipt captured) {
         var receipt = new CompoundTag();
         receipt.putString(SeedTerrainDigest.CAPTURE_NODE, node);
-        receipt.putLong(SeedTerrainDigest.CAPTURE_TIME, time);
-        receipt.putString(SeedTerrainDigest.CAPTURE_SOURCE, "world_mirror");
+        receipt.putLong(SeedTerrainDigest.CAPTURE_TIME, captured.time());
+        receipt.putString(SeedTerrainDigest.CAPTURE_SOURCE, captured.source());
         receipt.putString(SeedTerrainDigest.CAPTURE_DIGEST, SeedChunkProvenance.captureDigest(chunk));
         var attachments = chunk.getCompoundOrEmpty(SeedTerrainDigest.ATTACHMENTS);
         attachments.put(SeedTerrainDigest.CAPTURE_RECEIPT, receipt);
         chunk.put(SeedTerrainDigest.ATTACHMENTS, attachments);
     }
 
-    record Receipt(String source, long time) {}
+    public record Receipt(String source, long time) {}
+
+    public static boolean hasReceipt(CompoundTag chunk) {
+        return chunk.getCompoundOrEmpty(SeedTerrainDigest.ATTACHMENTS)
+                .contains(SeedTerrainDigest.CAPTURE_RECEIPT);
+    }
+
+    /** Compare the persisted proof after the index has independently confirmed its publication. */
+    public static boolean sameAttachment(CompoundTag saved, CompoundTag incoming) {
+        var expected = incoming.getCompoundOrEmpty(SeedTerrainDigest.ATTACHMENTS)
+                               .get(SeedTerrainDigest.CAPTURE_RECEIPT);
+        return expected != null
+                && expected.equals(saved.getCompoundOrEmpty(SeedTerrainDigest.ATTACHMENTS)
+                                .get(SeedTerrainDigest.CAPTURE_RECEIPT));
+    }
+
+    /** A comparison view of a capture that omits only the destination receipt. */
+    public static CompoundTag withoutReceipt(CompoundTag chunk) {
+        if (!hasReceipt(chunk))
+            return chunk;
+        CompoundTag view = new CompoundTag();
+        chunk.entrySet().forEach(entry -> view.put(entry.getKey(), entry.getValue()));
+        CompoundTag attachments = chunk.getCompoundOrEmpty(SeedTerrainDigest.ATTACHMENTS).copy();
+        attachments.remove(SeedTerrainDigest.CAPTURE_RECEIPT);
+        if (attachments.isEmpty())
+            view.remove(SeedTerrainDigest.ATTACHMENTS);
+        else
+            view.put(SeedTerrainDigest.ATTACHMENTS, attachments);
+        return view;
+    }
 
     /** A pending index repair still depends on the exact durable chunk payload. */
     public static boolean isUnsettled(CompoundTag chunk, String node, ChunkRecord row) {
@@ -34,7 +67,7 @@ public final class SeedCaptureReceipt {
         return read(chunk, node) != null;
     }
 
-    static Receipt read(CompoundTag chunk, String node) {
+    public static Receipt read(CompoundTag chunk, String node) {
         var receipt = chunk.getCompoundOrEmpty(SeedTerrainDigest.ATTACHMENTS)
                               .getCompound(SeedTerrainDigest.CAPTURE_RECEIPT)
                               .orElse(null);

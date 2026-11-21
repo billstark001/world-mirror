@@ -48,6 +48,27 @@ class McaWriteSupportTest {
     }
 
     @Test
+    void inspectedReaderKeepsValidSlotsAvailableWithoutRepairingTheHeader(@TempDir Path directory)
+            throws Exception {
+        Path file = directory.resolve("r.0.0.mca");
+        var valid = new ChunkPos(0, 0);
+        var invalid = new ChunkPos(1, 0);
+        var nbt = chunk(new byte[] {42});
+        McaWriteSupport.writeChunks(file, Level.OVERWORLD, Map.of(valid, nbt));
+        byte[] original = Files.readAllBytes(file);
+        ByteBuffer.wrap(original).putInt(4, 1 << 8 | 1);
+        Files.write(file, original);
+
+        try (var reader = AnvilReader.inspect(file, 0, 0)) {
+            assertEquals(Set.of(invalid), reader.inspection().invalidChunks());
+            assertEquals(Set.of(valid), reader.positions());
+            assertEquals(nbt, reader.read(valid));
+        }
+        assertThrows(IOException.class, () -> AnvilReader.open(file, 0, 0));
+        assertArrayEquals(original, Files.readAllBytes(file));
+    }
+
+    @Test
     void oversizedSerializedEntryUsesVerifiedExternalPayload(@TempDir Path directory) throws Exception {
         Path file = directory.resolve("r.0.0.mca");
         byte[] noise = new byte[1_200_000];

@@ -8,6 +8,47 @@ Use Added, Changed, and Fixed categories where applicable. Combine related chang
 
 ---
 
+## [0.6.0] — 2026-11-21
+
+This Fabric release supports Minecraft 1.21.11, 26.1.2, 26.2, and 26.3. It includes the changes from both 0.6.0 alpha releases and the fixes below.
+
+For mirrors seeded by an earlier build, keep the pre-conversion backup and open the mirror for repair before changing its seed in a newer Minecraft version. See the [mirror seed guide](https://github.com/billstark001/world-mirror/blob/v0.6.0/docs/world-seeds.md).
+
+### Added
+
+- Track upstream worlds and multiple mirrors in a graph built from `saves` and `downloaded_worlds`. Choose a fixed default mirror or automatic selection for each source.
+- Open World Mirror Routes from the title screen or in-game settings. Edit upstream links, endpoint aliases, default mirrors, and Xaero stable ID bindings. Choose worlds in searchable lists with native icons and save details.
+- Move mirrors with the World Location dropdown, detach their upstream, or delete a save after confirmation. Extra copies receive new world IDs while retaining their upstream edges; moves preserve identity and links to unavailable worlds remain visible.
+- Set, change, or remove a mirror's seed offline. Preview terrain differences, void cleanup, and optional removal of unchanged generated chunks with progress and cancellation. Experimental Overworld blending can regenerate eligible seed terrain along captured boundaries.
+- Import old local routes from the Worlds toolbar by confirming the source save, including renamed saves. Keep each verified destination's SQLite namespace and retain creation preferences when the old destination is missing.
+
+### Changed
+
+- Migrate v0.5.4 mirror metadata and routing to schema 2. Back up original metadata, preserve SQLite namespaces and chunk history, and archive the old routing file after saving the graph. Preserve verified default targets and keep upgraded server routes on address-based identity unless their policy is changed.
+- Scope downloads, retries, conflict handling, maps, and notifications to the destination mirror. Nearby exports can record lineage or remain independent snapshots.
+- Resolve logical worlds using the selected endpoint or stable ID policy. Ask for an explicit source when evidence is ambiguous. Use World Mirror Toolkit 0.1.2 or later for Replay imports into upgraded mirrors.
+- Assign ordinary local saves a stable ID on their first linked use or when saving route preferences. Browsing and standalone nearby exports leave them untracked.
+- Prepare downloads in the background before showing Active. Review required mirror upgrades from the status screen.
+- Keep unchanged seed terrain off the chunk map and overlay. Captures and Replay imports can replace it after validating its provenance.
+- Reduce repeat-export disk work by reusing verified equivalent terrain, validated region readers, and unchanged world metadata while recording newer capture times.
+
+### Fixed
+
+- Retain authoritative remote chunk, container, and confirmed block updates through queue pressure, capture failures, stopping, and unloading. Preserve confirmed removal of the final block without repeatedly recapturing unchanged remote chunks.
+- Keep saved block entities consistent with their captured blocks. Remove obsolete records from verified older mirror captures and avoid restoring stale container data onto changed blocks.
+- Persist incoming downloads that conflict with protected seed terrain for review in the built-in chunk map under the overwrite and manual strategies. Retain failed or unsafe approvals for retry and record applied terrain in the downloaded chunk index only after verification. The ignore strategy keeps local terrain without staging a copy.
+- Clear verified void placeholders with mixed vanilla biomes or old vanilla blending data when assigning a seed. Repair surviving placeholders when opening an earlier converted mirror with its conversion backup, including incoming fluids and boundary cobblestone deposits.
+- Recalculate lighting along newly generated terrain borders even when experimental terrain blending is off. Respect the blending switch during native generation and regenerate distorted terrain only when provenance confirms it is unmodified.
+- Preserve custom files, unrelated data pack settings, edited seed terrain, and auxiliary entity and POI data during seed changes and regeneration. Show repair progress during world opening and preserve untouched region payloads and timestamps.
+- Clear fixed defaults when switching back to Automatic. If the last automatic target is unavailable, choose another verified direct mirror.
+- Offer a source choice after stable ID discovery expires when policy permits it. Pause uncertain remote transitions, resume verified same-source sessions, and wait for fresh server chunks after a source change.
+- Recover interrupted moves and migration journals before using a save. Reject ambiguous graph branches, symbolic links, and Windows directory junctions in migration and recovery paths. Retry retirement of committed transactions when Windows briefly holds their journal open.
+- Keep queued exports and confirmations bound to the original world. Old export completions leave newer capture sessions alone.
+- Continue through Minecraft's existing loading step after inspecting a current mirror and preserve data pack safe mode. Repair empty reservations without materializing saves and refuse playable worlds carrying only a copied reservation.
+- Avoid vanilla key conflicts with new defaults U for download, V for export, and J for clearing the cache. Existing saved bindings are retained.
+
+---
+
 ## [0.6.0-alpha.2] — 2026-11-14
 
 ### Fixed

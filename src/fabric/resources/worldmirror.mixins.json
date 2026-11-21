@@ -3,10 +3,12 @@
   "package": "io.github.billstark001.worldmirror.mixin",
   "compatibilityLevel": "${mixinJava}",
   "client": [
+    "ClientBlockPredictionMixin",
     "ClientEntityLifecycleMixin",
     "ChunkDataMixin",
     "ConnectionRoutingMixin",
     "ContainerMixin",
+    "MirrorBlockEntityLoadMixin",
     "SectionBlocksUpdatePacketAccessor",
     "SeedBlenderMixin",
     "SeedBlockEntityEditMixin",

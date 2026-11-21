@@ -29,6 +29,7 @@
   "screen.worldmirror.status.downloadDegraded": "采集：降低负载",
   "screen.worldmirror.status.downloadPaused": "采集：资源暂停",
   "msg.worldmirror.exportDone": "世界导出成功。",
+  "msg.worldmirror.exportDoneWithConflicts": "导出完成。有 %s 个区块待处理，请在世界镜像的内置区块地图中查看。",
   "msg.worldmirror.exportPartialEntities": "地形已保存，部分实体更新仍待处理；地形导出可继续进行。",
   "msg.worldmirror.exportFailed": "World Mirror 导出失败；已保留待重试。请查看状态页或 latest.log。",
   "msg.worldmirror.exportBusy": "导出正在进行中，请稍候。",

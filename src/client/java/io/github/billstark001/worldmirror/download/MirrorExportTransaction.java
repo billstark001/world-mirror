@@ -7,6 +7,7 @@ import io.github.billstark001.worldmirror.io.ExportProgress;
 import io.github.billstark001.worldmirror.io.MirrorWorldgenAssets;
 import io.github.billstark001.worldmirror.io.WorldStructureCreator;
 import io.github.billstark001.worldmirror.io.WorldWriteLock;
+import io.github.billstark001.worldmirror.util.FileProof;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import net.minecraft.SharedConstants;
 import net.minecraft.resources.ResourceKey;
@@ -16,6 +17,7 @@ import net.minecraft.world.level.Level;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.sql.SQLException;
 import java.util.HashMap;
@@ -80,6 +82,8 @@ final class MirrorExportTransaction {
         boolean indexCommitted = false, metadataCommitted = false;
         boolean repairedIndex = false;
         try (WorldWriteLock ignored = WorldWriteLock.acquire(worldFolder)) {
+            Path metadataPath = worldFolder.resolve(WorldMetadata.FILE_NAME);
+            var metadataVersion = metadataVersion(metadataPath);
             MirrorMigrationPlan.Inspection readiness = MirrorMigrationCoordinator.inspect(worldFolder);
             if (!readiness.mayCreateOrWriteWithoutMigration()) {
                 WMLogger.warnRateLimited("export-world-unavailable:" + worldFolder, 30_000L,
@@ -94,7 +98,7 @@ final class MirrorExportTransaction {
                     ? reservation != null && target.nodeId().equals(reservation.nodeId())
                             && target.parentNodeId().equals(reservation.parentNodeId())
                             && sourceId.equals(reservation.sourceId())
-                    : metadata != null && target.nodeId().equals(metadata.nodeId)
+                    : metadataVersion != null && metadata != null && target.nodeId().equals(metadata.nodeId)
                             && target.parentNodeId().equals(metadata.parentNodeId)
                             && sourceId.equals(metadata.sourceId);
             if (!matches) {
@@ -125,6 +129,7 @@ final class MirrorExportTransaction {
                 if (!metadata.save(worldFolder)) {
                     return ExportOutcome.failed(work);
                 }
+                metadataVersion = FileProof.version(metadataPath);
                 MirrorClaim.finish(worldFolder, target.nodeId());
                 WMLogger.info("Reserved mirror initialized world=" + worldFolder);
             }
@@ -177,7 +182,8 @@ final class MirrorExportTransaction {
             }
             indexMillis = (System.nanoTime() - durabilityStartedNs) / 1_000_000L;
             remaining = work.remaining(result, durableWritten, latestDurableCaptureTime);
-            metadataCommitted = metadata.markSyncComplete(worldFolder, latestDurableCaptureTime);
+            metadataCommitted =
+                    metadata.markSyncComplete(worldFolder, latestDurableCaptureTime, metadataVersion);
         } catch (Exception failure) {
             WMLogger.warn("Export pass failed trigger=" + work.context().trigger() + " world=" + worldFolder,
                     failure);
@@ -185,8 +191,18 @@ final class MirrorExportTransaction {
             if (db != null)
                 db.close();
         }
-        Path changedSavedData = repairedIndex || !durableWritten.isEmpty() ? worldFolder : null;
+        Path changedSavedData = repairedIndex || !durableWritten.isEmpty() || result.pendingConflicts() > 0
+                ? worldFolder
+                : null;
         return new ExportOutcome(result, durableWritten, remaining, indexCommitted, metadataCommitted,
                 indexMillis, changedSavedData);
+    }
+
+    private static FileProof.Version metadataVersion(Path path) throws IOException {
+        try {
+            return FileProof.version(path);
+        } catch (NoSuchFileException missing) {
+            return null;
+        }
     }
 }

@@ -4,13 +4,10 @@ import io.github.billstark001.worldmirror.config.ModConfig;
 import io.github.billstark001.worldmirror.core.ChunkListener;
 import io.github.billstark001.worldmirror.core.ContainerTracker;
 import io.github.billstark001.worldmirror.core.EntityTracker;
-import io.github.billstark001.worldmirror.io.ChunkSerializer;
-import io.github.billstark001.worldmirror.io.SeedChunkTracking;
 import io.github.billstark001.worldmirror.util.WMLogger;
 import io.github.billstark001.worldmirror.util.WMPlayerMessages;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.ChunkPos;
@@ -51,9 +48,19 @@ public final class DownloadCapture {
 
     /** Captures authoritative block changes, including removal of the final block in a chunk. */
     public static void queueBlockChange(ClientLevel world, ChunkPos pos, String reason) {
+        queuePayloadChange(world, pos, reason, true);
+    }
+
+    /** Preserves a received payload change across queue pressure and stop-time finalization. */
+    public static void queuePayloadChange(ClientLevel world, ChunkPos pos, String reason) {
+        queuePayloadChange(world, pos, reason, false);
+    }
+
+    private static void queuePayloadChange(
+            ClientLevel world, ChunkPos pos, String reason, boolean allowEmpty) {
         if (pos == null || !canCapture(world))
             return;
-        queue.queueBlockChange(world, pos, reason);
+        queue.queuePayloadChange(world, pos, reason, allowEmpty);
     }
 
     /** Last-chance main-thread capture before Fabric removes a loaded chunk. */
@@ -69,7 +76,7 @@ public final class DownloadCapture {
     public static void queueLightUpdateCapture(ClientLevel world, ChunkPos pos) {
         if (!canCapture(world))
             return;
-        queue.queueLightUpdate(world, pos);
+        queue.queueChunk(world, pos, "light-update-no-base");
     }
 
     public static Set<ChunkPos> pendingChunkCaptures(
@@ -128,7 +135,6 @@ public final class DownloadCapture {
             return;
 
         long startedNs = System.nanoTime();
-        ResourceKey<Level> dimension = world.dimension();
         int playerCX = client.player.getBlockX() >> 4;
         int playerCZ = client.player.getBlockZ() >> 4;
         int captured = 0;
@@ -136,19 +142,8 @@ public final class DownloadCapture {
         for (int cx = playerCX - STOP_CAPTURE_RANGE; cx <= playerCX + STOP_CAPTURE_RANGE; cx++) {
             for (int cz = playerCZ - STOP_CAPTURE_RANGE; cz <= playerCZ + STOP_CAPTURE_RANGE; cz++) {
                 ChunkAccess chunk = world.getChunk(cx, cz, ChunkStatus.FULL, false);
-                if (!(chunk instanceof LevelChunk wc) || !RemoteChunkProvenance.canSample(world, cx, cz)
-                        || SeedChunkTracking.hidden(world, wc))
-                    continue;
-                try {
-                    if (ChunkSerializer.isChunkEmpty(wc))
-                        continue;
-                    CompoundTag nbt = ChunkSerializer.serialize(world, wc);
-                    ChunkListener.addChunkNbt(dimension, wc.getPos(), nbt);
+                if (chunk instanceof LevelChunk loaded && queue.captureLoaded(world, loaded))
                     captured++;
-                } catch (Exception e) {
-                    WMLogger.warnRateLimited("capture-stop-" + reason, 30_000L,
-                            "Stop-time capture failed chunk=" + wc.getPos() + " reason=" + reason, e);
-                }
             }
         }
 
@@ -157,9 +152,9 @@ public final class DownloadCapture {
                     + reason + " elapsedMs=" + ((System.nanoTime() - startedNs) / 1_000_000L) + ".");
         }
     }
-    static void finishPendingBlockChanges(Minecraft client) {
+    static void finishPendingPayloadChanges(Minecraft client) {
         if (client.level != null && DownloadManager.liveCaptureTarget() != null) {
-            queue.finishBlockChanges(client.level);
+            queue.finishPayloadChanges(client.level);
         }
     }
 

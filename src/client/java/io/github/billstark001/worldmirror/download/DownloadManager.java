@@ -94,9 +94,6 @@ public final class DownloadManager {
             return;
         if (captureEnabled) {
             captureEnabled = false;
-            if (sessionIsCurrent(client, captureSession))
-                DownloadCapture.finishPendingBlockChanges(client);
-            DownloadCapture.clearPendingCaptureState(!DownloadWorldChanges.isRespawnBoundary());
             finalizeCaptureOnStop(client, "manual-toggle");
             WMPlayerMessages.sendOverlayMessage(
                     client.player, Component.translatable("msg.worldmirror.downloadStop"));
@@ -193,14 +190,7 @@ public final class DownloadManager {
     public static void onLeaveWorld(Minecraft client) {
         if (captureEnabled) {
             captureEnabled = false;
-            if (sessionIsCurrent(client, captureSession)) {
-                DownloadCapture.finishPendingBlockChanges(client);
-                DownloadCapture.clearPendingCaptureState(true);
-                finalizeCaptureOnStop(client, "leave-world");
-            } else {
-                freezeStoppedSource(false);
-                DownloadCapture.clearPendingCaptureState(false);
-            }
+            finalizeCaptureOnStop(client, "leave-world");
         } else {
             DownloadCapture.clearPendingCaptureState(true);
         }
@@ -310,8 +300,6 @@ public final class DownloadManager {
         }
 
         captureEnabled = false;
-        DownloadCapture.finishPendingBlockChanges(client);
-        DownloadCapture.clearPendingCaptureState(true);
         finalizeCaptureOnStop(client, eventName);
 
         Component msg = Component.translatable("msg.worldmirror.downloadStop");
@@ -401,7 +389,7 @@ public final class DownloadManager {
             boolean sameSource = previous.sourceNodeId().equals(target.parentNodeId())
                     && sessionIsCurrent(client, previous);
             if (sameSource)
-                DownloadCapture.finishPendingBlockChanges(client);
+                DownloadCapture.finishPendingPayloadChanges(client);
             endCaptureSession(sameSource);
         }
         var graph = WorldGraphService.instance();
@@ -464,16 +452,17 @@ public final class DownloadManager {
      */
     private static void finalizeCaptureOnStop(Minecraft client, String reason) {
         ModConfig.LifecycleConfig lifecycle = ModConfig.get().lifecycle;
-        if (captureSession == null)
-            return;
         if (!sessionIsCurrent(client, captureSession)) {
+            DownloadCapture.clearPendingCaptureState(!DownloadWorldChanges.isRespawnBoundary());
             freezeStoppedSource(false);
             return;
         }
+        DownloadCapture.finishPendingPayloadChanges(client);
         if (lifecycle.captureNearbyOnStop && client.level != null
                 && CaptureResources.currentBudget().preExportScan()) {
             DownloadCapture.captureNearbyLoadedChunksSync(client, "stop-" + reason);
         }
+        DownloadCapture.clearPendingCaptureState(true);
 
         if (lifecycle.exportAllCachedOnStop) {
             exportCoordinator.enqueue(exportCoordinator.freeze(client,

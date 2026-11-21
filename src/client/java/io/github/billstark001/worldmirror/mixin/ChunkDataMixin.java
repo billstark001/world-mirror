@@ -72,7 +72,7 @@ public abstract class ChunkDataMixin {
     private void onBlockEntityData(ClientboundBlockEntityDataPacket packet, CallbackInfo ci) {
         ClientLevel world = this.getLevel();
         if (world != null)
-            DownloadCapture.queueChunkCapture(world,
+            DownloadCapture.queuePayloadChange(world,
                     new ChunkPos(packet.getPos().getX() >> 4, packet.getPos().getZ() >> 4),
                     "block-entity-update");
     }
@@ -83,7 +83,7 @@ public abstract class ChunkDataMixin {
         if (world == null || !DownloadManager.isCaptureEnabled())
             return;
         packet.chunkBiomeData().forEach(
-                data -> DownloadCapture.queueChunkCapture(world, data.pos(), "biome-update"));
+                data -> DownloadCapture.queuePayloadChange(world, data.pos(), "biome-update"));
     }
 
     @Inject(method = "handleAddEntity", at = @At("TAIL"))

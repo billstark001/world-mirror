@@ -1,6 +1,6 @@
 # World Mirror
 
-**Development version:** 0.6.0 · **Minecraft:** 1.21.11, 26.1.2, 26.2, 26.3 · **Loader:** Fabric
+**Version:** 0.6.0 · **Minecraft:** 1.21.11, 26.1.2, 26.2, 26.3 · **Loader:** Fabric
 
 A client-side Fabric mod that mirrors the world you are playing on a multiplayer server — or even a singleplayer world — into a standard local save. As you explore, the mod captures client-visible chunk terrain, block entities, best-effort entity snapshots, and opened container contents. Choose the `Saves Folder` output mode to make the mirror appear directly in Minecraft's singleplayer world list.
 
@@ -302,9 +302,9 @@ World Mirror is client-side and cannot reconstruct data the server never sends. 
 - unopened container inventories, server-only entity fields, structure metadata, and server datapack definitions may be absent;
 - entities in unloaded chunks retain their last client-known state until that chunk is observed loaded again;
 - light-only, block, block-entity, biome, container, load, and unload changes are coalesced into bounded capture work; data the server never sends is still unavailable;
-- uncaptured chunks intentionally remain void, while the generated save's climate and dimension metadata can differ from the source world ([issue #5](https://github.com/billstark001/world-mirror/issues/5)).
+- uncaptured chunks remain void by default, or generate from an assigned mirror seed; the generated save's climate and dimension metadata can differ from the source world ([issue #5](https://github.com/billstark001/world-mirror/issues/5)).
 
-Sources are identified by server address or local level name. Multiple logical worlds behind one server address share that identity; the server-world transition setting reacts only to a detected source-ID change.
+Sources are identified through the world graph and the configured endpoint or stable ID policy. Multiple logical worlds behind one address need distinct bindings or an explicit source choice. Local save identities survive renaming and moving. See the [world routing guide](docs/world-routing.md).
 
 ---
 
@@ -395,7 +395,7 @@ Use `-SkipBuild` only when the current version's four JARs have already been bui
 
 Gradle generates a separate IntelliJ IDEA client run configuration for every supported Minecraft target. Each target uses its own `run/fabric-<minecraft>/` directory, module, Loom launch file, and Java runtime. Minecraft 1.21.11 uses Java 21; Minecraft 26.x uses Java 25.
 
-The helper places the matching Xaero World Map JAR in that target's `run/fabric-<minecraft>/mods` directory and keeps other downloaded versions disabled. On this multi-target branch, select the target explicitly:
+The helper places the matching Xaero World Map JAR in that target's `run/fabric-<minecraft>/mods` directory and keeps other downloaded versions disabled. Select the target explicitly:
 
 ```powershell
 .\scripts\Get-LatestXaerosWorldMap.ps1 -MinecraftVersion 26.3
